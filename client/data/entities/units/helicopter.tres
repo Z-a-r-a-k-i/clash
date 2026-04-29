@@ -1,0 +1,51 @@
+[gd_resource type="Resource" script_class="EntityDef" format=3 uid="uid://bdkq3belyi1gx"]
+
+[ext_resource type="Script" uid="uid://voeakqpmilet" path="res://scripts/data/combat_def.gd" id="2_hhtxd"]
+[ext_resource type="Script" uid="uid://d2s53qcs5kvti" path="res://scripts/data/construction_def.gd" id="3_ehlqm"]
+[ext_resource type="Script" uid="uid://cegrh6taqqbqv" path="res://scripts/data/health_def.gd" id="4_5viv5"]
+[ext_resource type="Script" uid="uid://bj1eo17jxsgl" path="res://scripts/data/movement_def.gd" id="5_g8u0g"]
+[ext_resource type="Script" uid="uid://c1kfjxmjqsms8" path="res://scripts/data/population_def.gd" id="6_b3ltg"]
+[ext_resource type="Script" uid="uid://bu8stqpbjt1we" path="res://scripts/data/entity_def.gd" id="7_klna8"]
+[ext_resource type="Script" uid="uid://m84r6cs0begg" path="res://scripts/data/vision_def.gd" id="8_x6yih"]
+
+[sub_resource type="Resource" id="Resource_s3tq7"]
+script = ExtResource("2_hhtxd")
+damage = 10
+attack_range = 5
+target_layers = Array[String](["ground", "flying"])
+
+[sub_resource type="Resource" id="Resource_hhtxd"]
+script = ExtResource("3_ehlqm")
+build_time_turns = 6
+mineral_cost = 100
+gas_cost = 50
+built_by_tag = "starport"
+
+[sub_resource type="Resource" id="Resource_ehlqm"]
+script = ExtResource("4_5viv5")
+max_hp = 80
+
+[sub_resource type="Resource" id="Resource_5viv5"]
+script = ExtResource("5_g8u0g")
+speed_tiles_per_turn = 6
+default_layer = "flying"
+
+[sub_resource type="Resource" id="Resource_g8u0g"]
+script = ExtResource("6_b3ltg")
+pop_cost = 4
+
+[sub_resource type="Resource" id="Resource_b3ltg"]
+script = ExtResource("8_x6yih")
+sight_radius = 9
+
+[resource]
+script = ExtResource("7_klna8")
+id = "helicopter"
+display_name = "Helicopter"
+tags = Array[String](["light", "mechanical", "flying"])
+health = SubResource("Resource_ehlqm")
+combat = SubResource("Resource_s3tq7")
+movement = SubResource("Resource_5viv5")
+vision = SubResource("Resource_b3ltg")
+population = SubResource("Resource_g8u0g")
+construction = SubResource("Resource_hhtxd")

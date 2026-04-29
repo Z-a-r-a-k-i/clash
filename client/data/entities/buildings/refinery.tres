@@ -1,0 +1,31 @@
+[gd_resource type="Resource" script_class="EntityDef" format=3 uid="uid://je1eqbsykbyt"]
+
+[ext_resource type="Script" uid="uid://d2s53qcs5kvti" path="res://scripts/data/construction_def.gd" id="1_pqxwg"]
+[ext_resource type="Script" uid="uid://cegrh6taqqbqv" path="res://scripts/data/health_def.gd" id="2_jocst"]
+[ext_resource type="Script" uid="uid://bu8stqpbjt1we" path="res://scripts/data/entity_def.gd" id="3_gati6"]
+[ext_resource type="Script" uid="uid://m84r6cs0begg" path="res://scripts/data/vision_def.gd" id="4_vmnr7"]
+
+[sub_resource type="Resource" id="Resource_pqxwg"]
+script = ExtResource("1_pqxwg")
+build_time_turns = 8
+mineral_cost = 75
+built_by_tag = "worker"
+requires_target_tag = "gas_geyser"
+
+[sub_resource type="Resource" id="Resource_jocst"]
+script = ExtResource("2_jocst")
+max_hp = 750
+
+[sub_resource type="Resource" id="Resource_gati6"]
+script = ExtResource("4_vmnr7")
+sight_radius = 8
+
+[resource]
+script = ExtResource("3_gati6")
+id = "refinery"
+display_name = "Refinery"
+footprint = Vector2i(3, 3)
+tags = Array[String](["building", "refinery", "structure", "ground"])
+health = SubResource("Resource_jocst")
+vision = SubResource("Resource_gati6")
+construction = SubResource("Resource_pqxwg")

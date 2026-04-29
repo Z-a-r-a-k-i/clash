@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="EntityRegistry" format=3 uid="uid://bfnqhsl1hfvh1"]
+
+[ext_resource type="Script" uid="uid://bu8stqpbjt1we" path="res://scripts/data/entity_def.gd" id="1_eugh3"]
+[ext_resource type="Resource" uid="uid://chxjuhbbl0mji" path="res://data/entities/units/marine.tres" id="2_0tnu8"]
+[ext_resource type="Resource" uid="uid://c113unb1uibj8" path="res://data/entities/units/tank.tres" id="3_mji4p"]
+[ext_resource type="Resource" uid="uid://dt7kg8o2dlsum" path="res://data/entities/units/siege_tank.tres" id="4_d2x8y"]
+[ext_resource type="Resource" uid="uid://bdkq3belyi1gx" path="res://data/entities/units/helicopter.tres" id="5_kgdv2"]
+[ext_resource type="Resource" uid="uid://dnrdcpfml60gu" path="res://data/entities/units/worker.tres" id="6_8ir33"]
+[ext_resource type="Resource" uid="uid://iyc4hc60cg6a" path="res://data/entities/buildings/base.tres" id="7_a5dd7"]
+[ext_resource type="Resource" uid="uid://je1eqbsykbyt" path="res://data/entities/buildings/refinery.tres" id="8_atv13"]
+[ext_resource type="Resource" uid="uid://bdkm5h0lkt87m" path="res://data/entities/buildings/barracks.tres" id="9_jc8ir"]
+[ext_resource type="Resource" uid="uid://cd1twj52iqjff" path="res://data/entities/buildings/factory.tres" id="10_08hum"]
+[ext_resource type="Resource" uid="uid://cwvlx330r66ve" path="res://data/entities/buildings/starport.tres" id="11_x0qfn"]
+[ext_resource type="Resource" uid="uid://s43x16a7sqjp" path="res://data/entities/neutrals/mineral_patch.tres" id="12_l3hdr"]
+[ext_resource type="Resource" uid="uid://d0cxw2hy14ovw" path="res://data/entities/neutrals/gas_geyser.tres" id="13_ey0nv"]
+[ext_resource type="Script" uid="uid://cngvmnfdb0pl7" path="res://scripts/data/entity_registry.gd" id="14_5wh38"]
+
+[resource]
+script = ExtResource("14_5wh38")
+entities = Array[ExtResource("1_eugh3")]([ExtResource("2_0tnu8"), ExtResource("3_mji4p"), ExtResource("4_d2x8y"), ExtResource("5_kgdv2"), ExtResource("6_8ir33"), ExtResource("7_a5dd7"), ExtResource("8_atv13"), ExtResource("9_jc8ir"), ExtResource("10_08hum"), ExtResource("11_x0qfn"), ExtResource("12_l3hdr"), ExtResource("13_ey0nv")])

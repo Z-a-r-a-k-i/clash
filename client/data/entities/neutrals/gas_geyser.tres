@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="EntityDef" format=3 uid="uid://d0cxw2hy14ovw"]
+
+[ext_resource type="Script" uid="uid://bnfpng11ou0nj" path="res://scripts/data/resource_source_def.gd" id="1_gu3yx"]
+[ext_resource type="Script" uid="uid://bu8stqpbjt1we" path="res://scripts/data/entity_def.gd" id="2_edocv"]
+
+[sub_resource type="Resource" id="Resource_gu3yx"]
+script = ExtResource("1_gu3yx")
+resource_type = "gas"
+requires_extractor = true
+
+[resource]
+script = ExtResource("2_edocv")
+id = "gas_geyser"
+display_name = "Gas Geyser"
+footprint = Vector2i(3, 3)
+tags = Array[String](["neutral", "resource_source", "gas", "gas_geyser"])
+resource_source = SubResource("Resource_gu3yx")

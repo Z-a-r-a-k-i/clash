@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://dakfej5rs3486"]
+
+[ext_resource type="Script" uid="uid://dlpndv0oeytok" path="res://scripts/_dev/test_tile_grid.gd" id="1_45xka"]
+
+[node name="Node" type="Node" unique_id=810551966]
+script = ExtResource("1_45xka")

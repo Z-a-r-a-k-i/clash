@@ -27,6 +27,72 @@ These are hard won lessons from the godot-ai-plugin work. Violating them causes 
 
 The `_console.exe` build prints stdout and stderr (the standard build does not on Windows). Always launch the console build when iterating with an agent that needs to read Godot's output.
 
+## Working through the godot-ai-plugin MCP
+
+When an agent session has the `godot` MCP server registered (per ADR 0008 / the addon junction), these rules apply.
+
+> **Source of truth:** the plugin's MCP `instructions` block at `godot-ai-plugin/mcp-server/src/index.ts`. This section mirrors that text because the system-reminder version is truncated mid-list when delivered to agents. If the plugin instructions change, update this section.
+
+### Key rules for game development
+
+- Use `"."` or `""` for scene root when creating nodes (not `"/root/Node2D"`).
+- Verify newly-created nodes with `godot_get_scene_tree`.
+- Confirm property writes by reading them back with `godot_get_node_properties`.
+- Surface parse errors via `godot_get_editor_log(filter: "error")` after every script write.
+- Save scenes immediately after setting `@export` properties (they can reset on script changes).
+- Use explicit types in GDScript for cross-script calls and array/dict access (`var pos: Vector2 = ...`) to avoid type-inference errors.
+- Prefer `* 0.5` over `/ 2` for integer division to avoid `INTEGER_DIVISION` warnings.
+- Build games iteratively: implement one feature, verify it works, then move on.
+
+### Prefer editor APIs over direct file modification
+
+- Scene changes (nodes, properties, positions): use `godot_create_node`, `godot_set_property`, `godot_save_scene`, etc.
+- Script content (`.gd` files): use `godot_write_file` (the only sanctioned file-writing case).
+- **NEVER** modify `.gd` or `.tscn` files directly on disk via shell or external editors. That bypasses the editor and triggers blocking "Files modified outside Godot" reload dialogs.
+- Direct file modification is a last resort when no MCP tool exists for the operation.
+
+### Prefer specialized tools over generic ones
+
+- Meshes: `godot_create_primitive_mesh` instead of `godot_create_node` + `godot_set_property`.
+- Collision shapes: `godot_create_collision_shape_3d`.
+- Particles: `godot_apply_particle_preset` or `godot_create_particle_material_2d/3d`.
+- Physics bodies: `godot_configure_rigid_body_2d/3d`, `godot_configure_character_body_2d/3d`.
+- Materials: the material tools (`godot_configure_pbr_material`, `godot_create_shader_material`).
+- Animations: animation tools (`godot_create_animation`, `godot_add_animation_track`, `godot_set_animation_keyframe`).
+- Cameras: `godot_configure_camera3d`, `godot_set_camera3d_target/follow/orbit`.
+- `godot_set_property` is for simple one-off property changes; use `configure_*` tools for multi-property setup.
+
+### Editor vs runtime tools
+
+- Editor scene inspection: `godot_get_scene_tree`, `godot_get_node_properties`. Show the saved scene.
+- Runtime / live game inspection: `godot_get_runtime_scene_tree`, `godot_get_runtime_node_properties`. Only work while a game is running and show live game state.
+- Do NOT mix them up.
+
+### Script inspection
+
+- For script overview: `godot_get_script_info` (methods, signals, exports counts).
+- For detailed content: `godot_get_script_methods`, `godot_get_script_signals`, `godot_get_script_exports`.
+- Do NOT read `.gd` files with `godot_read_file` to understand script structure — use the inspection tools.
+
+### Testing and verification
+
+The "Key rules" section above covers the post-script and post-property-write checks. A few additional practices specific to running and exercising a game build:
+
+- Run a build with `godot_run_game`; capture what renders via `godot_capture_game_viewport`.
+- During gameplay, inspect live state with `godot_get_runtime_node_properties` (editor `godot_get_node_properties` shows the SAVED scene, not the running game).
+- Drive input mechanics from the agent via the input injection tools instead of asking the user to press keys.
+- Check `godot_get_dialogs` after any file operation that could trigger a modal — dialogs block all subsequent commands until dismissed.
+
+### Tool discovery (compact profile, the default)
+
+- Core tools plus `godot_tool_catalog` and `godot_manage_tool_groups` are visible by default.
+- Use `godot_tool_catalog` with a query (e.g. `"animation"`) to find more — matched groups are auto-activated so the tools become immediately available.
+- `godot_manage_tool_groups` lists, activates, or deactivates tool groups manually.
+
+### When the MCP server is NOT available
+
+If the agent session doesn't have the `godot` MCP registered (e.g. fresh clone without the addon junction set up), all of the above is moot — work through normal tools (`Edit`, `Write`, `Bash`) but keep Godot **closed** while editing `.gd`/`.tscn` files to avoid the "modified outside Godot" reload dialog.
+
 ## Cleaning up test artifacts
 
 Godot creates `.import/`, `.godot/`, and various `*.tmp` files when running tests. These are gitignored. If you ever see `test_*.tscn`, `test_*.tres`, or `.test_*.tmp` at the repo root, delete them; they are stray test outputs.

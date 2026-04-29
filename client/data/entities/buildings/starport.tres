@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="EntityDef" format=3 uid="uid://cwvlx330r66ve"]
+
+[ext_resource type="Script" uid="uid://d2s53qcs5kvti" path="res://scripts/data/construction_def.gd" id="1_1g2jw"]
+[ext_resource type="Script" uid="uid://cegrh6taqqbqv" path="res://scripts/data/health_def.gd" id="2_ss8hb"]
+[ext_resource type="Script" uid="uid://cd7bu7qnf1qd0" path="res://scripts/data/production_def.gd" id="3_mpdhs"]
+[ext_resource type="Script" uid="uid://bu8stqpbjt1we" path="res://scripts/data/entity_def.gd" id="4_5hqsw"]
+[ext_resource type="Script" uid="uid://m84r6cs0begg" path="res://scripts/data/vision_def.gd" id="5_mrj36"]
+
+[sub_resource type="Resource" id="Resource_1g2jw"]
+script = ExtResource("1_1g2jw")
+build_time_turns = 12
+mineral_cost = 150
+gas_cost = 100
+built_by_tag = "worker"
+
+[sub_resource type="Resource" id="Resource_ss8hb"]
+script = ExtResource("2_ss8hb")
+max_hp = 1300
+
+[sub_resource type="Resource" id="Resource_mpdhs"]
+script = ExtResource("3_mpdhs")
+produces = Array[String](["helicopter"])
+rally_offset = Vector2i(0, 3)
+
+[sub_resource type="Resource" id="Resource_5hqsw"]
+script = ExtResource("5_mrj36")
+sight_radius = 8
+
+[resource]
+script = ExtResource("4_5hqsw")
+id = "starport"
+display_name = "Starport"
+footprint = Vector2i(3, 3)
+tags = Array[String](["building", "starport", "structure", "ground"])
+health = SubResource("Resource_ss8hb")
+vision = SubResource("Resource_5hqsw")
+construction = SubResource("Resource_1g2jw")
+production = SubResource("Resource_mpdhs")
