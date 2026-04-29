@@ -2,16 +2,22 @@
 .godot/
 .import/
 *.tmp
-.test_*
-test_*.tscn
-test_*.tres
-test_*.gd
+# Stray test scratch files Godot's "Run" command sometimes drops at
+# project roots. Anchored to repo root and client/ specifically so
+# legitimate tests under nested paths (e.g. client/scripts/_dev/test_*.gd)
+# are NOT ignored. See docs/GODOT-NOTES.md "Cleaning up test artifacts".
+/.test_*
+/test_*.tscn
+/test_*.tres
+/test_*.gd
+client/.test_*
+client/test_*.tscn
+client/test_*.tres
+client/test_*.gd
 
 # Godot exports / builds
 build/
 exports/
-client/.godot/
-client/.import/
 
 # C# / .NET
 bin/

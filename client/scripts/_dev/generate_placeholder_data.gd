@@ -1,0 +1,425 @@
+@tool
+extends Node
+
+# One-shot generator for the M0 placeholder data set.
+#
+# Trigger: attach this script to a node in a scene; loading or saving the
+# scene runs `_enter_tree()` which generates all 17 resources, then frees
+# the node. The companion scene at `res://scripts/_dev/generator_scene.tscn`
+# is created and opened by the agent — opening it runs this script.
+#
+# Re-run: open the generator scene again. Safe — overwrites existing files.
+#
+# Why @tool extends Node and not EditorScript: an EditorScript only runs from
+# File > Run in the script editor (manual UI step). @tool on a node runs at
+# editor-time when the node enters the tree, which the agent CAN trigger via
+# the existing MCP scene tools (godot_new_scene + godot_add_script +
+# godot_save_scene + godot_open_scene).
+
+const DATA_ROOT := "res://data"
+
+
+func _enter_tree() -> void:
+	if not Engine.is_editor_hint():
+		return
+	var count := 0
+	count += _gen_abilities()
+	count += _gen_units()
+	count += _gen_buildings()
+	count += _gen_neutrals()
+	count += _gen_tunables()
+	count += _gen_registry()
+	print("[generate_placeholder_data] Generated %d resources, done." % count)
+
+
+# ---------- Abilities ----------
+
+
+func _gen_abilities() -> int:
+	# Stim: HP cost, self-buff, instant.
+	var stim := AbilityDef.new()
+	stim.id = "stim"
+	stim.display_name = "Stim"
+	stim.target_type = "self"
+	stim.target_range = 0
+	stim.cooldown_turns = 5
+	stim.cast_time_turns = 0
+	var stim_cost := AbilityCost.new()
+	stim_cost.type = "hp"
+	stim_cost.amount = 10
+	stim.costs = [stim_cost]
+	var stim_effect := StatBuffEffect.new()
+	stim_effect.duration_turns = 3
+	stim_effect.damage_mult = 1.5
+	stim_effect.speed_mult = 1.5
+	stim.effect = stim_effect
+	_save(stim, "%s/abilities/stim.tres" % DATA_ROOT)
+
+	# Siege mode: 1-tick cast, no resource cost, transforms tank → siege_tank.
+	var siege := AbilityDef.new()
+	siege.id = "siege_mode"
+	siege.display_name = "Siege Mode"
+	siege.target_type = "self"
+	siege.target_range = 0
+	siege.cooldown_turns = 0
+	siege.cast_time_turns = 1
+	var siege_effect := TransformEffect.new()
+	siege_effect.to_def_id = "siege_tank"
+	siege.effect = siege_effect
+	_save(siege, "%s/abilities/siege_mode.tres" % DATA_ROOT)
+
+	# Unsiege mode: same shape, transforms back.
+	var unsiege := AbilityDef.new()
+	unsiege.id = "unsiege_mode"
+	unsiege.display_name = "Unsiege Mode"
+	unsiege.target_type = "self"
+	unsiege.target_range = 0
+	unsiege.cooldown_turns = 0
+	unsiege.cast_time_turns = 1
+	var unsiege_effect := TransformEffect.new()
+	unsiege_effect.to_def_id = "tank"
+	unsiege.effect = unsiege_effect
+	_save(unsiege, "%s/abilities/unsiege_mode.tres" % DATA_ROOT)
+
+	return 3
+
+
+# ---------- Units ----------
+
+
+func _gen_units() -> int:
+	# Marine — light infantry, ground, can hit ground + flying. Stim ability.
+	var marine := EntityDef.new()
+	marine.id = "marine"
+	marine.display_name = "Marine"
+	marine.footprint = Vector2i(1, 1)
+	marine.tags = ["light", "biological", "ground"]
+	marine.health = _health(50)
+	marine.combat = _combat(6, 5, ["ground", "flying"], [])
+	marine.movement = _movement(4, "ground")
+	marine.vision = _vision(7)
+	marine.population = _pop_cost(1)
+	marine.construction = _construction(3, 50, 0, "barracks")
+	marine.abilities = _abilities([_ability_ref("stim")])
+	_save(marine, "%s/entities/units/marine.tres" % DATA_ROOT)
+
+	# Tank — heavy ground, hit ground only, big damage at long range. Siege ability.
+	var tank := EntityDef.new()
+	tank.id = "tank"
+	tank.display_name = "Tank"
+	tank.footprint = Vector2i(2, 2)
+	tank.tags = ["heavy", "mechanical", "ground"]
+	tank.health = _health(150)
+	tank.combat = _combat(15, 7, ["ground"], [])
+	tank.movement = _movement(2, "ground")
+	tank.vision = _vision(8)
+	tank.population = _pop_cost(3)
+	tank.construction = _construction(8, 150, 100, "factory")
+	tank.abilities = _abilities([_ability_ref("siege_mode")])
+	_save(tank, "%s/entities/units/tank.tres" % DATA_ROOT)
+
+	# Siege Tank — alt-form of tank. Bigger range, more damage, can't move.
+	var siege_tank := EntityDef.new()
+	siege_tank.id = "siege_tank"
+	siege_tank.display_name = "Siege Tank"
+	siege_tank.footprint = Vector2i(2, 2)
+	siege_tank.tags = ["heavy", "mechanical", "ground"]
+	siege_tank.health = _health(150)
+	siege_tank.combat = _combat(30, 12, ["ground"], [])
+	# No MovementDef — sieged tank can't move.
+	siege_tank.vision = _vision(10)
+	siege_tank.population = _pop_cost(3)
+	# Not built directly; transform target only.
+	siege_tank.abilities = _abilities([_ability_ref("unsiege_mode")])
+	_save(siege_tank, "%s/entities/units/siege_tank.tres" % DATA_ROOT)
+
+	# Helicopter — flying, mid stats, hit ground + flying.
+	var heli := EntityDef.new()
+	heli.id = "helicopter"
+	heli.display_name = "Helicopter"
+	heli.footprint = Vector2i(1, 1)
+	heli.tags = ["light", "mechanical", "flying"]
+	heli.health = _health(80)
+	heli.combat = _combat(10, 5, ["ground", "flying"], [])
+	heli.movement = _movement(6, "flying")
+	heli.vision = _vision(9)
+	heli.population = _pop_cost(4)
+	heli.construction = _construction(6, 100, 50, "starport")
+	_save(heli, "%s/entities/units/helicopter.tres" % DATA_ROOT)
+
+	# Worker — gathers, builds, weak combat.
+	var worker := EntityDef.new()
+	worker.id = "worker"
+	worker.display_name = "Worker"
+	worker.footprint = Vector2i(1, 1)
+	worker.tags = ["worker", "light", "biological", "ground"]
+	worker.health = _health(40)
+	worker.combat = _combat(2, 1, ["ground"], [])
+	worker.movement = _movement(3, "ground")
+	worker.vision = _vision(5)
+	worker.population = _pop_cost(1)
+	worker.construction = _construction(2, 50, 0, "base")
+	worker.gather = _gather(1, 5, ["minerals", "gas"])
+	_save(worker, "%s/entities/units/worker.tres" % DATA_ROOT)
+
+	return 5
+
+
+# ---------- Buildings ----------
+
+
+func _gen_buildings() -> int:
+	# Base — the home; provides population, trains workers.
+	var base := EntityDef.new()
+	base.id = "base"
+	base.display_name = "Base"
+	base.footprint = Vector2i(4, 4)
+	base.tags = ["building", "base", "structure", "ground"]
+	base.health = _health(1500)
+	base.vision = _vision(10)
+	base.population = _pop_provides(10)
+	base.construction = _construction(20, 400, 0, "worker")
+	var base_prod := ProductionDef.new()
+	base_prod.produces = ["worker"]
+	base_prod.queue_capacity = 1
+	base_prod.rally_offset = Vector2i(0, 4)
+	base.production = base_prod
+	_save(base, "%s/entities/buildings/base.tres" % DATA_ROOT)
+
+	# Refinery — built on a gas geyser; lets workers extract gas.
+	var refinery := EntityDef.new()
+	refinery.id = "refinery"
+	refinery.display_name = "Refinery"
+	refinery.footprint = Vector2i(3, 3)
+	refinery.tags = ["building", "refinery", "structure", "ground"]
+	refinery.health = _health(750)
+	refinery.vision = _vision(8)
+	var refinery_construction := _construction(8, 75, 0, "worker")
+	refinery_construction.requires_target_tag = "gas_geyser"
+	refinery.construction = refinery_construction
+	_save(refinery, "%s/entities/buildings/refinery.tres" % DATA_ROOT)
+
+	# Barracks — trains marines.
+	var barracks := EntityDef.new()
+	barracks.id = "barracks"
+	barracks.display_name = "Barracks"
+	barracks.footprint = Vector2i(3, 3)
+	barracks.tags = ["building", "barracks", "structure", "ground"]
+	barracks.health = _health(1000)
+	barracks.vision = _vision(8)
+	barracks.construction = _construction(10, 150, 0, "worker")
+	var barracks_prod := ProductionDef.new()
+	barracks_prod.produces = ["marine"]
+	barracks_prod.queue_capacity = 1
+	barracks_prod.rally_offset = Vector2i(0, 3)
+	barracks.production = barracks_prod
+	_save(barracks, "%s/entities/buildings/barracks.tres" % DATA_ROOT)
+
+	# Factory — trains tanks.
+	var factory := EntityDef.new()
+	factory.id = "factory"
+	factory.display_name = "Factory"
+	factory.footprint = Vector2i(3, 3)
+	factory.tags = ["building", "factory", "structure", "ground"]
+	factory.health = _health(1250)
+	factory.vision = _vision(8)
+	factory.construction = _construction(12, 200, 100, "worker")
+	var factory_prod := ProductionDef.new()
+	factory_prod.produces = ["tank"]
+	factory_prod.queue_capacity = 1
+	factory_prod.rally_offset = Vector2i(0, 3)
+	factory.production = factory_prod
+	_save(factory, "%s/entities/buildings/factory.tres" % DATA_ROOT)
+
+	# Starport — trains helicopters.
+	var starport := EntityDef.new()
+	starport.id = "starport"
+	starport.display_name = "Starport"
+	starport.footprint = Vector2i(3, 3)
+	starport.tags = ["building", "starport", "structure", "ground"]
+	starport.health = _health(1300)
+	starport.vision = _vision(8)
+	starport.construction = _construction(12, 150, 100, "worker")
+	var starport_prod := ProductionDef.new()
+	starport_prod.produces = ["helicopter"]
+	starport_prod.queue_capacity = 1
+	starport_prod.rally_offset = Vector2i(0, 3)
+	starport.production = starport_prod
+	_save(starport, "%s/entities/buildings/starport.tres" % DATA_ROOT)
+
+	return 5
+
+
+# ---------- Neutrals ----------
+
+
+func _gen_neutrals() -> int:
+	# Mineral patch — passive resource source, no extractor needed.
+	var patch := EntityDef.new()
+	patch.id = "mineral_patch"
+	patch.display_name = "Mineral Patch"
+	patch.footprint = Vector2i(2, 1)
+	patch.tags = ["neutral", "resource_source", "minerals"]
+	var patch_source := ResourceSourceDef.new()
+	patch_source.resource_type = "minerals"
+	patch_source.yield_per_worker_per_turn = 1
+	patch_source.capacity = 1500
+	patch_source.requires_extractor = false
+	patch.resource_source = patch_source
+	_save(patch, "%s/entities/neutrals/mineral_patch.tres" % DATA_ROOT)
+
+	# Gas geyser — needs a refinery to extract.
+	var geyser := EntityDef.new()
+	geyser.id = "gas_geyser"
+	geyser.display_name = "Gas Geyser"
+	geyser.footprint = Vector2i(3, 3)
+	geyser.tags = ["neutral", "resource_source", "gas", "gas_geyser"]
+	var geyser_source := ResourceSourceDef.new()
+	geyser_source.resource_type = "gas"
+	geyser_source.yield_per_worker_per_turn = 1
+	geyser_source.capacity = -1
+	geyser_source.requires_extractor = true
+	geyser.resource_source = geyser_source
+	_save(geyser, "%s/entities/neutrals/gas_geyser.tres" % DATA_ROOT)
+
+	return 2
+
+
+# ---------- Tunables ----------
+
+
+func _gen_tunables() -> int:
+	var t := Tunables.new()
+	t.tile_pixel_size = 32
+	t.pop_cap = 50
+	t.starting_workers = 4
+	t.starting_minerals = 50
+	t.starting_gas = 0
+	t.default_turn_timer_ms = 30000
+	t.mineral_patch_yield_per_worker_per_turn = 1
+	t.mineral_patch_capacity = 1500
+	t.gas_geyser_yield_per_worker_per_turn = 1
+	t.gas_geyser_capacity = -1
+	t.worker_carry_amount = 5
+	t.layers_implying_hidden = ["burrowed"]
+	_save(t, "%s/tunables.tres" % DATA_ROOT)
+	return 1
+
+
+# ---------- Registry ----------
+
+
+func _gen_registry() -> int:
+	var registry := EntityRegistry.new()
+	var entity_paths := [
+		"%s/entities/units/marine.tres" % DATA_ROOT,
+		"%s/entities/units/tank.tres" % DATA_ROOT,
+		"%s/entities/units/siege_tank.tres" % DATA_ROOT,
+		"%s/entities/units/helicopter.tres" % DATA_ROOT,
+		"%s/entities/units/worker.tres" % DATA_ROOT,
+		"%s/entities/buildings/base.tres" % DATA_ROOT,
+		"%s/entities/buildings/refinery.tres" % DATA_ROOT,
+		"%s/entities/buildings/barracks.tres" % DATA_ROOT,
+		"%s/entities/buildings/factory.tres" % DATA_ROOT,
+		"%s/entities/buildings/starport.tres" % DATA_ROOT,
+		"%s/entities/neutrals/mineral_patch.tres" % DATA_ROOT,
+		"%s/entities/neutrals/gas_geyser.tres" % DATA_ROOT,
+	]
+	var entities: Array[EntityDef] = []
+	for path in entity_paths:
+		var def: EntityDef = load(path)
+		if def != null:
+			entities.append(def)
+		else:
+			push_warning("Could not load %s for registry" % path)
+	registry.entities = entities
+	_save(registry, "%s/entity_registry.tres" % DATA_ROOT)
+	return 1
+
+
+# ---------- Helpers ----------
+
+
+func _save(res: Resource, path: String) -> void:
+	var err := ResourceSaver.save(res, path)
+	if err != OK:
+		push_error("Failed to save %s (error %d)" % [path, err])
+	else:
+		print("  saved %s" % path)
+
+
+func _health(max_hp: int) -> HealthDef:
+	var h := HealthDef.new()
+	h.max_hp = max_hp
+	return h
+
+
+func _combat(
+	damage: int, range_tiles: int, target_layers: Array[String], modifiers: Array[AttackModifier]
+) -> CombatDef:
+	var c := CombatDef.new()
+	c.damage = damage
+	c.attack_range = range_tiles
+	c.target_layers = target_layers
+	c.attack_modifiers = modifiers
+	c.attacks_per_turn = 1
+	return c
+
+
+func _movement(speed: int, layer: String) -> MovementDef:
+	var m := MovementDef.new()
+	m.speed_tiles_per_turn = speed
+	m.default_layer = layer
+	return m
+
+
+func _vision(sight: int) -> VisionDef:
+	var v := VisionDef.new()
+	v.sight_radius = sight
+	v.detection_radius = 0
+	return v
+
+
+func _pop_cost(cost: int) -> PopulationDef:
+	var p := PopulationDef.new()
+	p.pop_cost = cost
+	p.pop_provides = 0
+	return p
+
+
+func _pop_provides(provides: int) -> PopulationDef:
+	var p := PopulationDef.new()
+	p.pop_cost = 0
+	p.pop_provides = provides
+	return p
+
+
+func _construction(turns: int, minerals: int, gas: int, built_by: String) -> ConstructionDef:
+	var c := ConstructionDef.new()
+	c.build_time_turns = turns
+	c.mineral_cost = minerals
+	c.gas_cost = gas
+	c.built_by_tag = built_by
+	return c
+
+
+func _gather(per_turn: int, carry: int, types: Array[String]) -> GatherDef:
+	var g := GatherDef.new()
+	g.gather_per_turn = per_turn
+	g.carry_amount = carry
+	g.accepts_resource_types = types
+	return g
+
+
+func _abilities(refs: Array[AbilityDef]) -> AbilitiesDef:
+	var a := AbilitiesDef.new()
+	a.abilities = refs
+	return a
+
+
+func _ability_ref(id: String) -> AbilityDef:
+	var path := "%s/abilities/%s.tres" % [DATA_ROOT, id]
+	var ability: AbilityDef = load(path)
+	if ability == null:
+		push_warning("Could not load ability %s" % path)
+	return ability

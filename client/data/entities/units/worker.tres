@@ -1,0 +1,56 @@
+[gd_resource type="Resource" script_class="EntityDef" format=3 uid="uid://dnrdcpfml60gu"]
+
+[ext_resource type="Script" uid="uid://cxbe8iowpag5f" path="res://scripts/data/attack_modifier.gd" id="1_qtkpp"]
+[ext_resource type="Script" uid="uid://voeakqpmilet" path="res://scripts/data/combat_def.gd" id="2_bihp2"]
+[ext_resource type="Script" uid="uid://d2s53qcs5kvti" path="res://scripts/data/construction_def.gd" id="3_0rill"]
+[ext_resource type="Script" uid="uid://cnxn1ibmjchiq" path="res://scripts/data/gather_def.gd" id="4_513v4"]
+[ext_resource type="Script" uid="uid://cegrh6taqqbqv" path="res://scripts/data/health_def.gd" id="5_nb1ru"]
+[ext_resource type="Script" uid="uid://bj1eo17jxsgl" path="res://scripts/data/movement_def.gd" id="6_uybqa"]
+[ext_resource type="Script" uid="uid://c1kfjxmjqsms8" path="res://scripts/data/population_def.gd" id="7_scf0o"]
+[ext_resource type="Script" uid="uid://bu8stqpbjt1we" path="res://scripts/data/entity_def.gd" id="8_66mnt"]
+[ext_resource type="Script" uid="uid://m84r6cs0begg" path="res://scripts/data/vision_def.gd" id="9_h6y0i"]
+
+[sub_resource type="Resource" id="Resource_qtkpp"]
+script = ExtResource("2_bihp2")
+damage = 2
+attack_range = 1
+target_layers = Array[String](["ground"])
+
+[sub_resource type="Resource" id="Resource_bihp2"]
+script = ExtResource("3_0rill")
+build_time_turns = 2
+mineral_cost = 50
+built_by_tag = "base"
+
+[sub_resource type="Resource" id="Resource_0rill"]
+script = ExtResource("4_513v4")
+accepts_resource_types = Array[String](["minerals", "gas"])
+
+[sub_resource type="Resource" id="Resource_513v4"]
+script = ExtResource("5_nb1ru")
+max_hp = 40
+
+[sub_resource type="Resource" id="Resource_nb1ru"]
+script = ExtResource("6_uybqa")
+speed_tiles_per_turn = 3
+
+[sub_resource type="Resource" id="Resource_uybqa"]
+script = ExtResource("7_scf0o")
+pop_cost = 1
+
+[sub_resource type="Resource" id="Resource_scf0o"]
+script = ExtResource("9_h6y0i")
+sight_radius = 5
+
+[resource]
+script = ExtResource("8_66mnt")
+id = "worker"
+display_name = "Worker"
+tags = Array[String](["worker", "light", "biological", "ground"])
+health = SubResource("Resource_513v4")
+combat = SubResource("Resource_qtkpp")
+movement = SubResource("Resource_nb1ru")
+vision = SubResource("Resource_scf0o")
+population = SubResource("Resource_uybqa")
+construction = SubResource("Resource_bihp2")
+gather = SubResource("Resource_0rill")

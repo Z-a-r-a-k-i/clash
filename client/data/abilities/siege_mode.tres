@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="AbilityDef" format=3 uid="uid://bijmmq4wuapj3"]
+
+[ext_resource type="Script" uid="uid://cmoonwj8wa6nt" path="res://scripts/data/ability_cost.gd" id="1_vmqvk"]
+[ext_resource type="Script" uid="uid://cyc8xpf0rpu3u" path="res://scripts/data/effects/transform_effect.gd" id="2_hr7kr"]
+[ext_resource type="Script" uid="uid://b520b3b4w1skc" path="res://scripts/data/ability_def.gd" id="3_iqh3a"]
+
+[sub_resource type="Resource" id="Resource_vmqvk"]
+script = ExtResource("2_hr7kr")
+to_def_id = "siege_tank"
+
+[resource]
+script = ExtResource("3_iqh3a")
+id = "siege_mode"
+display_name = "Siege Mode"
+cast_time_turns = 1
+effect = SubResource("Resource_vmqvk")

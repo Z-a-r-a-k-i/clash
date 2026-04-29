@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="EntityDef" format=3 uid="uid://s43x16a7sqjp"]
+
+[ext_resource type="Script" uid="uid://bnfpng11ou0nj" path="res://scripts/data/resource_source_def.gd" id="1_jto5k"]
+[ext_resource type="Script" uid="uid://bu8stqpbjt1we" path="res://scripts/data/entity_def.gd" id="2_tojot"]
+
+[sub_resource type="Resource" id="Resource_jto5k"]
+script = ExtResource("1_jto5k")
+capacity = 1500
+
+[resource]
+script = ExtResource("2_tojot")
+id = "mineral_patch"
+display_name = "Mineral Patch"
+footprint = Vector2i(2, 1)
+tags = Array[String](["neutral", "resource_source", "minerals"])
+resource_source = SubResource("Resource_jto5k")

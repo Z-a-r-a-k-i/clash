@@ -1,0 +1,6 @@
+[gd_resource type="Resource" script_class="Tunables" format=3 uid="uid://5nafkulwea1x"]
+
+[ext_resource type="Script" uid="uid://bdghmfam4ieg0" path="res://scripts/data/tunables.gd" id="1_y1f3l"]
+
+[resource]
+script = ExtResource("1_y1f3l")

@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="EntityDef" format=3 uid="uid://cd1twj52iqjff"]
+
+[ext_resource type="Script" uid="uid://d2s53qcs5kvti" path="res://scripts/data/construction_def.gd" id="1_teikm"]
+[ext_resource type="Script" uid="uid://cegrh6taqqbqv" path="res://scripts/data/health_def.gd" id="2_7sni7"]
+[ext_resource type="Script" uid="uid://cd7bu7qnf1qd0" path="res://scripts/data/production_def.gd" id="3_4m0gq"]
+[ext_resource type="Script" uid="uid://bu8stqpbjt1we" path="res://scripts/data/entity_def.gd" id="4_7dg4b"]
+[ext_resource type="Script" uid="uid://m84r6cs0begg" path="res://scripts/data/vision_def.gd" id="5_6vqm3"]
+
+[sub_resource type="Resource" id="Resource_teikm"]
+script = ExtResource("1_teikm")
+build_time_turns = 12
+mineral_cost = 200
+gas_cost = 100
+built_by_tag = "worker"
+
+[sub_resource type="Resource" id="Resource_7sni7"]
+script = ExtResource("2_7sni7")
+max_hp = 1250
+
+[sub_resource type="Resource" id="Resource_4m0gq"]
+script = ExtResource("3_4m0gq")
+produces = Array[String](["tank"])
+rally_offset = Vector2i(0, 3)
+
+[sub_resource type="Resource" id="Resource_7dg4b"]
+script = ExtResource("5_6vqm3")
+sight_radius = 8
+
+[resource]
+script = ExtResource("4_7dg4b")
+id = "factory"
+display_name = "Factory"
+footprint = Vector2i(3, 3)
+tags = Array[String](["building", "factory", "structure", "ground"])
+health = SubResource("Resource_7sni7")
+vision = SubResource("Resource_7dg4b")
+construction = SubResource("Resource_teikm")
+production = SubResource("Resource_4m0gq")
