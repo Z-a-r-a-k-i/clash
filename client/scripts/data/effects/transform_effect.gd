@@ -9,4 +9,6 @@ extends Effect
 # typed EntityDef reference to avoid the circular class_name dependency
 # EntityDef → AbilitiesDef → AbilityDef → Effect → TransformEffect → EntityDef.
 
-@export var to_def_id: String = ""
+# Inspector hint lists known M0 transform targets; freeform editing is
+# still possible for entries the placeholder enum doesn't yet cover.
+@export_placeholder("siege_tank, tank, ...") var to_def_id: String = ""

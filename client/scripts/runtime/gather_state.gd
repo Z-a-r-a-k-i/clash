@@ -6,7 +6,15 @@ extends RefCounted
 # assigned to, how much they're carrying, and whether they're currently
 # in the "deposit" phase of the gather loop.
 
+enum Phase {
+	IDLE,
+	MOVING_TO_SOURCE,
+	GATHERING,
+	MOVING_TO_BASE,
+	DEPOSITING,
+}
+
 var assigned_source_entity_id: int = -1  # -1 if unassigned
 var carrying_resource_type: String = ""  # "minerals" | "gas" | "" if empty
 var carrying_amount: int = 0
-var phase: String = "idle"  # "idle" | "moving_to_source" | "gathering" | "moving_to_base" | "depositing"
+var phase: Phase = Phase.IDLE

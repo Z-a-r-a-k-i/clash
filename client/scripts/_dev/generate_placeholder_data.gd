@@ -412,14 +412,30 @@ func _gather(per_turn: int, carry: int, types: Array[String]) -> GatherDef:
 
 
 func _abilities(refs: Array[AbilityDef]) -> AbilitiesDef:
+	# Defensive: drop any null entries so the saved AbilitiesDef never carries
+	# a null. _ability_ref already guarantees non-null on success, but if the
+	# caller composes refs from another source we want a second safety net.
+	var clean: Array[AbilityDef] = []
+	for r in refs:
+		if r != null:
+			clean.append(r)
 	var a := AbilitiesDef.new()
-	a.abilities = refs
+	a.abilities = clean
 	return a
 
 
 func _ability_ref(id: String) -> AbilityDef:
+	# Generator order matters: abilities are saved before entities, so the
+	# .tres files for stim / siege_mode / unsiege_mode exist by the time we
+	# build units. If load() ever returns null it's a bug in the generator's
+	# ordering — fail loud and substitute a default-constructed placeholder
+	# so the rest of the run continues and we don't propagate null into
+	# AbilitiesDef.abilities[].
 	var path := "%s/abilities/%s.tres" % [DATA_ROOT, id]
 	var ability: AbilityDef = load(path)
 	if ability == null:
-		push_warning("Could not load ability %s" % path)
+		push_error("Could not load ability '%s'; using placeholder" % path)
+		ability = AbilityDef.new()
+		ability.id = id
+		ability.display_name = id
 	return ability

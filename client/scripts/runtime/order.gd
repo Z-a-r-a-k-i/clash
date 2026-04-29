@@ -16,8 +16,12 @@ extends RefCounted
 # during first-compile in Godot 4.6 (the parser can't always resolve a
 # script's own class_name as its return type).
 
+# INVALID is the explicit sentinel for an uninitialized order. Without it,
+# `var type: Type` would default to enum value 0 (MOVE), masking bugs where
+# the type was never assigned.
 enum Type {
-	MOVE,
+	INVALID = -1,
+	MOVE = 0,
 	ATTACK_MOVE,
 	ATTACK,
 	HOLD_FIRE_TOGGLE,
@@ -28,7 +32,7 @@ enum Type {
 	SURRENDER,
 }
 
-var type: Type
+var type: Type = Type.INVALID
 
 # Common — owner of this order. -1 for player-level orders (e.g. SURRENDER).
 var entity_id: int = -1
@@ -36,10 +40,10 @@ var entity_id: int = -1
 # MOVE / ATTACK_MOVE / BUILD — destination tile.
 var target_tile: Vector2i = Vector2i.ZERO
 
-# ATTACK — primary target id.
-var target_entity_id: int = -1
-
-# ATTACK — priority chain (fall back to closest enemy if exhausted and not on hold-fire).
+# ATTACK — priority list. Resolver fires at the first live entity in this
+# list; if all are dead and unit isn't on hold-fire, falls back to closest
+# enemy in range. Primary target lives at index 0; the chain is a single
+# list per plan/m0/02-tick-based-resolver.md "Target chain resolution".
 var target_priority_chain: Array[int] = []
 
 # HOLD_FIRE_TOGGLE — desired hold-fire state.

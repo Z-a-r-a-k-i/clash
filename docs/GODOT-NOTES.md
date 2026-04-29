@@ -29,17 +29,19 @@ The `_console.exe` build prints stdout and stderr (the standard build does not o
 
 ## Working through the godot-ai-plugin MCP
 
-When an agent session has the `godot` MCP server registered (per ADR 0008 / the addon junction), these rules apply. Lifted verbatim from the plugin's MCP `instructions` block (the truncated version that arrives via system-reminder may be incomplete; the source of truth is `godot-ai-plugin/mcp-server/src/index.ts`).
+When an agent session has the `godot` MCP server registered (per ADR 0008 / the addon junction), these rules apply.
+
+> **Source of truth:** the plugin's MCP `instructions` block at `godot-ai-plugin/mcp-server/src/index.ts`. This section mirrors that text because the system-reminder version is truncated mid-list when delivered to agents. If the plugin instructions change, update this section.
 
 ### Key rules for game development
 
 - Use `"."` or `""` for scene root when creating nodes (not `"/root/Node2D"`).
-- After creating nodes, verify with `godot_get_scene_tree`.
-- After setting properties, read them back to confirm.
-- After writing scripts, check `godot_get_editor_log(filter: "error")` for parse errors.
+- Verify newly-created nodes with `godot_get_scene_tree`.
+- Confirm property writes by reading them back with `godot_get_node_properties`.
+- Surface parse errors via `godot_get_editor_log(filter: "error")` after every script write.
 - Save scenes immediately after setting `@export` properties (they can reset on script changes).
 - Use explicit types in GDScript for cross-script calls and array/dict access (`var pos: Vector2 = ...`) to avoid type-inference errors.
-- Use `* 0.5` instead of `/ 2` for integer division to avoid `INTEGER_DIVISION` warnings.
+- Prefer `* 0.5` over `/ 2` for integer division to avoid `INTEGER_DIVISION` warnings.
 - Build games iteratively: implement one feature, verify it works, then move on.
 
 ### Prefer editor APIs over direct file modification
@@ -74,12 +76,12 @@ When an agent session has the `godot` MCP server registered (per ADR 0008 / the 
 
 ### Testing and verification
 
-- After writing scripts, ALWAYS check `godot_get_editor_log(filter: "error")` for parse errors.
-- After setting properties, read them back with `godot_get_node_properties` to confirm.
-- Use `godot_run_game` to test, `godot_capture_game_viewport` to see what renders.
-- Use `godot_get_runtime_node_properties` to inspect live game state during gameplay.
-- Use input injection tools to test game mechanics without manual input.
-- Check `godot_get_dialogs` after file operations to catch blocking dialogs.
+The "Key rules" section above covers the post-script and post-property-write checks. A few additional practices specific to running and exercising a game build:
+
+- Run a build with `godot_run_game`; capture what renders via `godot_capture_game_viewport`.
+- During gameplay, inspect live state with `godot_get_runtime_node_properties` (editor `godot_get_node_properties` shows the SAVED scene, not the running game).
+- Drive input mechanics from the agent via the input injection tools instead of asking the user to press keys.
+- Check `godot_get_dialogs` after any file operation that could trigger a modal — dialogs block all subsequent commands until dismissed.
 
 ### Tool discovery (compact profile, the default)
 
