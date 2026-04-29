@@ -45,10 +45,10 @@ The full data model is specified in `docs/superpowers/specs/2026-04-29-entity-da
 
 ## Done when
 
-- [ ] All capability sub-resource C# classes (`HealthDef`, `CombatDef`, `MovementDef`, `VisionDef`, `PopulationDef`, `ConstructionDef`, `ProductionDef`, `GatherDef`, `ResourceSourceDef`, `AbilitiesDef`) exist in `client/scripts/Data/`, each marked `[GlobalClass]`.
-- [ ] `EntityDef.cs` wraps the capability sub-resources per the design spec.
-- [ ] `AbilityDef.cs`, `AbilityCost.cs`, `Effect.cs` (abstract) and `StatBuffEffect.cs`, `TransformEffect.cs` exist.
-- [ ] `EntityRegistry.cs` and `Tunables.cs` exist.
+- [ ] All capability sub-resource GDScript classes (`HealthDef`, `CombatDef`, `MovementDef`, `VisionDef`, `PopulationDef`, `ConstructionDef`, `ProductionDef`, `GatherDef`, `ResourceSourceDef`, `AbilitiesDef`) exist in `client/scripts/data/`, each declared with `class_name X extends Resource`.
+- [ ] `entity_def.gd` (`class_name EntityDef`) wraps the capability sub-resources per the design spec.
+- [ ] `ability_def.gd`, `ability_cost.gd`, `effect.gd` (base) and `stat_buff_effect.gd`, `transform_effect.gd` exist.
+- [ ] `entity_registry.gd` (`class_name EntityRegistry`) and `tunables.gd` (`class_name Tunables`) exist.
 - [ ] One `.tres` exists per MVP entity (5 units, 5 buildings, 2 neutrals) with placeholder values.
 - [ ] One `.tres` exists per MVP ability (stim, siege_mode, unsiege_mode).
 - [ ] `EntityRegistry.tres` lists all 12 entity defs.

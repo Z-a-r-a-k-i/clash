@@ -2,10 +2,10 @@
 
 help:
 	@echo "clash — make targets"
-	@echo "  generate   Generate code from .proto (buf generate)"
-	@echo "  lint       Lint all stacks (cs, gd, go, proto)"
+	@echo "  generate   Generate code from .proto (only when proto codegen is wired up at M2)"
+	@echo "  lint       Lint all stacks (gd, proto)"
 	@echo "  format     Format all stacks"
-	@echo "  test       Run all tests"
+	@echo "  test       Run all tests (server-side tests added at M2)"
 
 generate:
 	@if [ -f buf.gen.yaml ] || find proto -name '*.proto' 2>/dev/null | grep -q .; then \
@@ -17,21 +17,11 @@ generate:
 lint:
 	@if find proto -name '*.proto' 2>/dev/null | grep -q .; then buf lint; fi
 	@if find client -name '*.gd' 2>/dev/null | grep -q .; then gdlint client; fi
-	@if [ -f client/Clash.sln ] || ls client/*.csproj 2>/dev/null | grep -q .; then \
-		cd client && dotnet format --verify-no-changes; \
-	fi
-	@if [ -f server/go.mod ]; then cd server && go vet ./...; fi
 
 format:
 	@if find proto -name '*.proto' 2>/dev/null | grep -q .; then buf format -w; fi
 	@if find client -name '*.gd' 2>/dev/null | grep -q .; then gdformat client; fi
-	@if [ -f client/Clash.sln ] || ls client/*.csproj 2>/dev/null | grep -q .; then \
-		cd client && dotnet format; \
-	fi
-	@if [ -f server/go.mod ]; then cd server && golangci-lint fmt; fi
 
 test:
-	@if [ -f client/Clash.sln ] || ls client/*.csproj 2>/dev/null | grep -q .; then \
-		cd client && dotnet test --nologo; \
-	fi
-	@if [ -f server/go.mod ]; then cd server && go test -race ./...; fi
+	@echo "M0 tests are GDScript-based and run inside Godot or via headless --script invocations."
+	@echo "Server tests land at M2 alongside the server stack choice (ADR 0006)."

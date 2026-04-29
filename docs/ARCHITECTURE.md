@@ -31,14 +31,14 @@ Server technology and wire protocol are deferred to M2 per ADR 0006. Candidate p
 
 ### Client (`client/`)
 
-Godot 4.6+ project. C# is the primary language; GDScript is used only where it's meaningfully simpler. Responsibilities:
+Godot 4.6+ project. GDScript only (per ADR 0020). Responsibilities:
 
 - Render the board, units, and resolved events.
 - Let the player queue actions during the shared turn timer (move, attack, hold-fire toggle, target priority chain, build, train, research, surrender).
 - At M0/M1: run the resolver locally.
 - At M2 onward: submit the queued actions to the server, await the resolved frame, animate it. Authoritative game state moves to the server; client state becomes a faithful rendering of what the server sent plus the in-flight queue.
 
-The resolver itself is a pure C# function over POCO data structures (see the design spec). It runs unchanged whether invoked locally (M0/M1) or on a server (M2+).
+The resolver itself is a pure GDScript function over plain-data structures (see the design spec). At M0/M1 it runs in-client; at M2 it runs in whatever server stack is chosen. If the server stays Godot/GDScript, the resolver code is reused unchanged; otherwise a port is needed (the design's plain-data shape keeps that port mechanical).
 
 ### Server (`server/`)
 
@@ -52,9 +52,9 @@ Stateless across matches except for in-memory match state. No DB at M0/M1 (defer
 
 ### Protocol (`proto/`)
 
-Empty at M0. If protobuf is chosen at M2 as the wire format, definitions go in `proto/clash/v1/`, generated code is committed to `client/generated/` (C#) and `server/internal/proto/` (the server's language), and `make generate` plus the pre-commit gate verify no drift. ADR 0007 covers this.
+Empty at M0. If protobuf is chosen at M2 as the wire format, definitions go in `proto/clash/v1/`, generated code is committed to `client/generated/` (GDScript via [godobuf](https://github.com/oniksan/godobuf)) and `server/...` (whatever the server side needs), and `make generate` plus the pre-commit gate verify no drift. ADR 0007 covers this.
 
-If a non-proto wire format is chosen at M2 (e.g. Godot-native serialization, JSON, msgpack), `proto/` may stay empty and ADR 0007 becomes moot.
+If a non-proto wire format is chosen at M2 (e.g. Godot-native serialization, JSON, msgpack), `proto/` may stay empty and ADR 0007 becomes moot. Per ADR 0020, godobuf does not support proto `package` directives — name-prefix convention (`ClashV1TurnStart`, etc.) replaces it.
 
 ## Spatial model
 

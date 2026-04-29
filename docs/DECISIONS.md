@@ -16,13 +16,15 @@ Single repo with three top level stacks: `client/` (Godot, C#), `server/` (Go, d
 
 **Why:** The shape matches the [godot-go-protobuf-ws](https://github.com/ignoxx/godot-go-protobuf-ws) reference template and the termwatch project. Keeping Godot in `client/` rather than at the repo root prevents non Godot folders from polluting Godot's FileSystem dock.
 
-## 0003 — C# default, GDScript when ergonomic
+## 0003 — C# default, GDScript when ergonomic (SUPERSEDED by 0020)
 
 **Date:** 2026-04-28
 
 Game code defaults to C#. GDScript is allowed where it's meaningfully simpler (single file `@tool` editor scripts, simple signal wiring, scenes that don't justify a `.csproj` entry).
 
 **Why:** C# scales better for complex multiplayer logic and matches Go on the server side stylistically. GDScript stays available for trivial cases.
+
+**Superseded by ADR 0020 (2026-04-29).** Reason: the C# choice was made on aesthetic / scaling grounds before researching Godot's actual platform support matrix. C# does not support web export in Godot 4.6/4.7-beta (a clash core target), and C# mobile is officially experimental with documented crashes. GDScript ships production-ready on every clash target.
 
 ## 0004 — Simultaneous turn model with action-slot lockstep
 
@@ -59,17 +61,17 @@ Clients submit action queues; the server is the only authority for game state. C
 
 Full evaluation in `docs/superpowers/specs/2026-04-29-entity-data-model-design.md`. ADR 0007 (generated proto code committed) only applies if proto is chosen at M2.
 
-**Why:** Build the rules first; build the network when there's something worth networking. The resolver is a pure function on POCO data, so it's portable to any wire protocol — the M2 choice can be made on operational grounds (cost, scaling needs, team familiarity) without touching game logic.
+**Why:** Build the rules first; build the network when there's something worth networking. The resolver is a pure function on plain-data structures, so it's portable to any wire protocol — the M2 choice can be made on operational grounds (cost, scaling needs, team familiarity) without touching game logic.
 
 ## 0007 — Generated proto code is committed (conditional on proto being chosen)
 
 **Date:** 2026-04-28
 
-If protobuf is chosen as the wire format at M2 (see ADR 0006), generated C# and language-appropriate server-side proto files are checked into git. The pre-commit gate verifies no drift between `proto/` and the generated outputs.
+If protobuf is chosen as the wire format at M2 (see ADR 0006), generated GDScript (via godobuf) and language-appropriate server-side proto files are checked into git. The pre-commit gate verifies no drift between `proto/` and the generated outputs.
 
-**Why:** Matches termwatch and the godot-go-protobuf-ws template. Lets fresh clones build without a separate generation step, and surfaces protobuf changes in PR diffs.
+**Why:** Lets fresh clones build without a separate generation step, and surfaces protobuf changes in PR diffs.
 
-**Note:** Conditional on proto being the chosen wire format. If a non-proto path is picked at M2, this ADR becomes moot.
+**Note:** Conditional on proto being the chosen wire format. If a non-proto path is picked at M2 (e.g. JSON or Godot-native serialization), this ADR becomes moot. Per ADR 0020, the GDScript-side codegen would be [godobuf](https://github.com/oniksan/godobuf), which does not support proto `package` directives — workaround is a name-prefix convention (e.g. `ClashV1TurnStart`).
 
 ## 0008 — godot-ai-plugin used externally
 
@@ -172,13 +174,13 @@ All entities — units, buildings, neutrals (mineral patches, gas geysers), futu
 
 There is no separate `UnitDef` / `BuildingDef` / `NeutralDef` hierarchy. A "unit" is just an `EntityDef` with `Movement`; a "building" is one without; a sieged tank, a mineral patch, and a future lift-off-capable building are all just different capability compositions of the same `EntityDef` shape.
 
-Polymorphic concepts (e.g. ability effects: `StatBuffEffect`, `TransformEffect`) use C# Resource inheritance for editor ergonomics. If a future wire format requires a discriminated-union encoding (e.g. proto `oneof`), a thin mapping layer is added at that point.
+Polymorphic concepts (e.g. ability effects: `StatBuffEffect`, `TransformEffect`) use GDScript Resource inheritance (`class_name X extends Effect`) for editor ergonomics. If a future wire format requires a discriminated-union encoding (e.g. proto `oneof`), a thin mapping layer is added at that point.
 
 Full design: `docs/superpowers/specs/2026-04-29-entity-data-model-design.md`.
 
-**Why:** Future entities (transforming units, lift-off buildings, neutral creatures, asymmetric race units, deck-based card units) compose by combining different capabilities — no schema rewrites needed. Matches how SC2 internally models entities (a sieged tank is a different unit type sharing the same data shape) and keeps the resolver pure-function over POCO data.
+**Why:** Future entities (transforming units, lift-off buildings, neutral creatures, asymmetric race units, deck-based card units) compose by combining different capabilities — no schema rewrites needed. Matches how SC2 internally models entities (a sieged tank is a different unit type sharing the same data shape) and keeps the resolver pure-function over plain-data structures.
 
-**Implication:** The runtime `Entity` is a plain C# class (not a Godot `Node`), with optional state fields paralleling the def's optional capabilities (e.g. `ProductionState` is non-null only if `def.Production != null`). Plan node 00 and the design spec carry the field-level details.
+**Implication:** The runtime `Entity` is a plain GDScript class (not a Godot `Node`), with optional state fields paralleling the def's optional capabilities (e.g. `production_state` is non-null only if `def.production != null`). Plan node 00 and the design spec carry the field-level details.
 
 ## 0018 — Tunables are data-driven Godot Resources, never hardcoded
 
@@ -186,10 +188,31 @@ Full design: `docs/superpowers/specs/2026-04-29-entity-data-model-design.md`.
 
 All gameplay numbers live in Godot Resource files (`.tres`) or a single global `Tunables.tres`. This includes: unit stats (HP, damage, range, speed, vision, pop, footprint, tags), building stats (HP, footprint, build time), entity costs (minerals + gas), research effects, counter modifiers, tile pixel size, default turn timer, default starting workers / minerals / gas, mineral patch yields, gas geyser yields.
 
-Entity definitions use a single `EntityDef` C# Resource subclass with capability sub-resources (per ADR 0019); one `.tres` file per concrete entity (`marine.tres`, `tank.tres`, `barracks.tres`, etc.). Typed C# fields throughout for compile-time safety — a typo on a stat name fails to compile rather than silently reading garbage.
+Entity definitions use a single `EntityDef` GDScript Resource subclass with capability sub-resources (per ADR 0019); one `.tres` file per concrete entity (`marine.tres`, `tank.tres`, `barracks.tres`, etc.). Strict GDScript typing throughout — most stat-name typos surface as parse errors or runtime errors loud enough to catch quickly.
 
 Scenarios may override individual tunables for testing without mutating the canonical files.
 
-**Why:** During M0 and M1 we will retune dozens of numbers per playtest session. Hardcoding any of them costs a code change and a rebuild per tweak — fatal for iteration speed. Godot Resources are editor-friendly, hot-reloadable, version-controllable, and the typed-subclass approach catches mistakes at compile time that a generic config bag would not.
+**Why:** During M0 and M1 we will retune dozens of numbers per playtest session. Hardcoding any of them costs a code change per tweak — fatal for iteration speed. Godot Resources are editor-friendly, hot-reloadable, version-controllable, and the typed-subclass approach catches mistakes earlier than a generic config bag would.
 
 **Implication:** The resolver loads tunables at match start and treats them as immutable for the duration of the match (no live edits mid-turn). A "reload tunables, restart scenario" path is in scope for the dev play mode.
+
+## 0020 — GDScript primary, C# dropped
+
+**Date:** 2026-04-29
+
+Supersedes ADR 0003. Game code is GDScript. C# is not used.
+
+**Why:** As of Godot 4.6 stable and 4.7 beta 1, C# does not support web export — and clash's roadmap targets web at M4. C# mobile (iOS/Android) is also officially "experimental" with documented issues (SSL crashes on Android, NativeAOT reflection trimming on iOS). GDScript ships production-ready on every clash target (web, iOS, Android, desktop).
+
+The "C# scales better" framing in ADR 0003 was made on aesthetic / scaling grounds before the platform support matrix was researched; it does not survive contact with the actual platform constraints in 2026. GDScript 4.x typed instructions close most of the runtime perf gap for typical game logic, and clash is turn-based with ~50 entities — perf is not the bottleneck.
+
+The "C# enables proto-shared types with the Go server" framing from ADR 0007 also dissolves: [godobuf](https://github.com/oniksan/godobuf) (BSD-3, actively maintained, Godot 4.6 compatible) provides `.proto` → GDScript codegen, so proto-as-source-of-truth is still viable if proto is chosen at M2.
+
+**Implication:**
+
+- Capability composition pattern from ADR 0019 unchanged — same shape, GDScript syntax (`class_name X extends Resource`) instead of C# (`[GlobalClass] public partial class X : Resource`).
+- The pre-commit hook drops `dotnet format / build / test` checks; `gdlint` / `gdformat` remain.
+- The CI workflow drops the `cs` job.
+- Bootstrap skips "Project → Tools → C# → Create C# Solution".
+- ADR 0007's "if proto is chosen" framing still applies; if used, the GDScript-side codegen is godobuf instead of protoc.
+- C# may be reconsidered if Godot ships official C# web export AND mobile graduates from experimental. As of 2026-04-29, no timeline for either.

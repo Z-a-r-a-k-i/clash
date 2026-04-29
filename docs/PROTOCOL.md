@@ -37,7 +37,7 @@ message Envelope {
 
 ## Versioning
 
-Protobuf package is versioned: `clash.v1`. Breaking shape changes go to `clash.v2`. Both versions can run side by side during a migration window. The package version is part of the type identity (`go_package` / C# namespace), so type collisions are avoided.
+Versioning is by folder: `proto/clash/v1/`. Breaking shape changes go to `proto/clash/v2/`. Both versions can run side by side during a migration window. (Note per ADR 0020: godobuf, the GDScript-side codegen, does not support proto `package` directives — use a name-prefix convention like `ClashV1TurnStart` to keep type identity unambiguous.)
 
 Field number changes are free within a version (we have no on disk persistence yet). Once persistence is added, persisted enums and persisted messages are flagged in their `.proto` and renumbering requires confirmation.
 

@@ -31,9 +31,7 @@ if [[ -z "$staged" ]]; then
   exit 0
 fi
 
-has_cs=false
 has_gd=false
-has_go=false
 has_proto=false
 gd_files=""
 proto_files=""
@@ -41,12 +39,13 @@ proto_files=""
 while IFS= read -r f; do
   [[ -z "$f" ]] && continue
   case "$f" in
-    *.cs)    has_cs=true ;;
     *.gd)    has_gd=true; gd_files+="$f"$'\n' ;;
-    *.go)    has_go=true ;;
     *.proto) has_proto=true; proto_files+="$f"$'\n' ;;
   esac
 done <<< "$staged"
+
+# Per ADR 0020 clash is GDScript only; C# checks removed.
+# Per ADR 0006 the server stack is deferred to M2; server-side checks land then.
 
 fail() {
   echo "" >&2
@@ -55,18 +54,6 @@ fail() {
   exit 2
 }
 
-if $has_cs; then
-  if [[ -f client/Clash.sln ]] || ls client/*.csproj >/dev/null 2>&1; then
-    echo "pre commit gate: running C# checks (dotnet format / build / test)..." >&2
-    (cd client && dotnet format --verify-no-changes) >&2 \
-      || fail "dotnet format would reformat files; run 'cd client && dotnet format' first"
-    (cd client && dotnet build --nologo -v quiet) >&2 || fail "dotnet build failed"
-    (cd client && dotnet test --nologo -v quiet) >&2 || fail "dotnet test failed"
-  else
-    echo "pre commit gate: skipping C# checks (no .sln/.csproj in client/)" >&2
-  fi
-fi
-
 if $has_gd; then
   echo "pre commit gate: running GDScript checks (gdlint, gdformat)..." >&2
   command -v gdlint >/dev/null 2>&1 || fail "gdlint not found (install gdtoolkit: pip install gdtoolkit)"
@@ -74,16 +61,6 @@ if $has_gd; then
   printf '%s' "$gd_files" | grep -v '^$' | xargs -r gdlint >&2 || fail "gdlint failed"
   printf '%s' "$gd_files" | grep -v '^$' | xargs -r gdformat --check >&2 \
     || fail "gdformat would reformat files; run 'gdformat <files>' first"
-fi
-
-if $has_go; then
-  if [[ -f server/go.mod ]]; then
-    echo "pre commit gate: running Go checks (go vet, go test -race)..." >&2
-    (cd server && go vet ./...) >&2 || fail "go vet failed"
-    (cd server && go test -race ./...) >&2 || fail "go test failed"
-  else
-    echo "pre commit gate: skipping Go checks (no server/go.mod)" >&2
-  fi
 fi
 
 if $has_proto; then
@@ -95,7 +72,7 @@ if $has_proto; then
   if [[ -f buf.gen.yaml ]]; then
     echo "pre commit gate: regenerating protobuf code (buf generate)..." >&2
     buf generate >&2 || fail "buf generate failed"
-    if ! git diff --quiet -- client/generated/ server/internal/proto/ 2>/dev/null; then
+    if ! git diff --quiet -- client/generated/ 2>/dev/null; then
       fail "buf generate produced diffs in generated outputs; stage and commit them"
     fi
   fi

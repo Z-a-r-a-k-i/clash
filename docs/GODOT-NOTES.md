@@ -2,15 +2,11 @@
 
 Quick reference for Godot specific gotchas and conventions on clash.
 
-## C# vs GDScript
+## Language: GDScript only
 
-Default to C# for game code. Reach for GDScript when:
+clash uses GDScript for all game code per ADR 0020. C# was dropped because of platform support gaps (no web export in 4.6/4.7-beta, mobile experimental). All entity defs, resolver code, runtime state, and presentation are GDScript.
 
-- Writing a one off `@tool` editor script.
-- Hooking up a Godot signal where a 5 line GDScript matches the verbosity of a 20 line C# class.
-- Authoring a scene where Godot native typed nodes (`Tween`, `Timer`, `AnimationPlayer`) are wired with a few signals and no custom logic worth a `.csproj` entry.
-
-For everything that holds game state, performs simulation, runs the local resolver, or talks to the server, use C#.
+Use strict typing where reasonable: explicit type hints on `var` declarations, function parameter types, and return types. Define Resource subclasses with `class_name X extends Resource` (see the design spec at `docs/superpowers/specs/2026-04-29-entity-data-model-design.md`).
 
 ## `@tool` script pitfalls
 
@@ -35,11 +31,11 @@ The `_console.exe` build prints stdout and stderr (the standard build does not o
 
 Godot creates `.import/`, `.godot/`, and various `*.tmp` files when running tests. These are gitignored. If you ever see `test_*.tscn`, `test_*.tres`, or `.test_*.tmp` at the repo root, delete them; they are stray test outputs.
 
-## Generated protobuf in C#
+## Generated protobuf (if proto is chosen at M2)
 
-After `make generate`, generated C# protobuf files land in `client/generated/`. Do not hand edit them. They are committed to git so fresh clones can build without running codegen.
+If proto becomes the wire format at M2 (per ADR 0007), generated GDScript files land in `client/generated/` via [godobuf](https://github.com/oniksan/godobuf). Do not hand-edit them. They are committed to git so fresh clones can build without running codegen.
 
-The generated namespace is `Clash.V1.*` (matches the proto package `clash.v1`). Reference types as `using Clash.V1;` in game code.
+godobuf does not support proto `package` directives — message names use a name-prefix convention (e.g. `ClashV1TurnStart`).
 
 ## Mobile and web exports
 

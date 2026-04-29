@@ -36,35 +36,5 @@ jobs:
             echo "no GDScript files yet; skipping"
           fi
 
-  csharp:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0'
-      - run: |
-          if [ -f client/Clash.sln ] || ls client/*.csproj >/dev/null 2>&1; then
-            cd client
-            dotnet format --verify-no-changes
-            dotnet build --nologo
-            dotnet test --nologo
-          else
-            echo "no C# project yet; skipping"
-          fi
-
-  go:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-      - run: |
-          if [ -f server/go.mod ]; then
-            cd server
-            go vet ./...
-            go test -race ./...
-          else
-            echo "no Go module yet; skipping"
-          fi
+  # Server-side checks land at M2 once the server stack is chosen (per ADR 0006).
+  # Until then this workflow only gates GDScript and proto.

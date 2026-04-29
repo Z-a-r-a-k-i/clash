@@ -6,7 +6,7 @@ depends_on:
 
 # Tick-based resolver
 
-The deterministic engine that turns `(state, queue_a, queue_b)` into `events[]`. At M0 lives inside the Godot client (pure C# function over POCO state). Lifted to a server at M2; server language and wire protocol are deferred until then.
+The deterministic engine that turns `(state, queue_a, queue_b)` into `events[]`. At M0 lives inside the Godot client as a pure GDScript function over plain-data structures (per ADR 0020). Lifted to a server at M2; server language and wire protocol are deferred until then.
 
 ## Algorithm
 
