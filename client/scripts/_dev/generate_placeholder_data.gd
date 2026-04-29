@@ -30,12 +30,18 @@ func _enter_tree() -> void:
 	count += _gen_tunables()
 	count += _gen_registry()
 	print("[generate_placeholder_data] Generated %d resources, done." % count)
+	# Match the docstring: this is a one-shot generator. Self-free so re-saving
+	# the host scene doesn't trigger another generation pass while the same
+	# node is still mounted. Re-running is via re-opening the scene.
+	call_deferred("queue_free")
 
 
 # ---------- Abilities ----------
 
 
 func _gen_abilities() -> int:
+	var saved := 0
+
 	# Stim: HP cost, self-buff, instant.
 	var stim := AbilityDef.new()
 	stim.id = "stim"
@@ -53,7 +59,7 @@ func _gen_abilities() -> int:
 	stim_effect.damage_mult = 1.5
 	stim_effect.speed_mult = 1.5
 	stim.effect = stim_effect
-	_save(stim, "%s/abilities/stim.tres" % DATA_ROOT)
+	saved += int(_save(stim, "%s/abilities/stim.tres" % DATA_ROOT))
 
 	# Siege mode: 1-tick cast, no resource cost, transforms tank → siege_tank.
 	var siege := AbilityDef.new()
@@ -66,7 +72,7 @@ func _gen_abilities() -> int:
 	var siege_effect := TransformEffect.new()
 	siege_effect.to_def_id = "siege_tank"
 	siege.effect = siege_effect
-	_save(siege, "%s/abilities/siege_mode.tres" % DATA_ROOT)
+	saved += int(_save(siege, "%s/abilities/siege_mode.tres" % DATA_ROOT))
 
 	# Unsiege mode: same shape, transforms back.
 	var unsiege := AbilityDef.new()
@@ -79,15 +85,16 @@ func _gen_abilities() -> int:
 	var unsiege_effect := TransformEffect.new()
 	unsiege_effect.to_def_id = "tank"
 	unsiege.effect = unsiege_effect
-	_save(unsiege, "%s/abilities/unsiege_mode.tres" % DATA_ROOT)
+	saved += int(_save(unsiege, "%s/abilities/unsiege_mode.tres" % DATA_ROOT))
 
-	return 3
+	return saved
 
 
 # ---------- Units ----------
 
 
 func _gen_units() -> int:
+	var saved := 0
 	# Marine — light infantry, ground, can hit ground + flying. Stim ability.
 	var marine := EntityDef.new()
 	marine.id = "marine"
@@ -101,7 +108,7 @@ func _gen_units() -> int:
 	marine.population = _pop_cost(1)
 	marine.construction = _construction(3, 50, 0, "barracks")
 	marine.abilities = _abilities([_ability_ref("stim")])
-	_save(marine, "%s/entities/units/marine.tres" % DATA_ROOT)
+	saved += int(_save(marine, "%s/entities/units/marine.tres" % DATA_ROOT))
 
 	# Tank — heavy ground, hit ground only, big damage at long range. Siege ability.
 	var tank := EntityDef.new()
@@ -116,7 +123,7 @@ func _gen_units() -> int:
 	tank.population = _pop_cost(3)
 	tank.construction = _construction(8, 150, 100, "factory")
 	tank.abilities = _abilities([_ability_ref("siege_mode")])
-	_save(tank, "%s/entities/units/tank.tres" % DATA_ROOT)
+	saved += int(_save(tank, "%s/entities/units/tank.tres" % DATA_ROOT))
 
 	# Siege Tank — alt-form of tank. Bigger range, more damage, can't move.
 	var siege_tank := EntityDef.new()
@@ -131,7 +138,7 @@ func _gen_units() -> int:
 	siege_tank.population = _pop_cost(3)
 	# Not built directly; transform target only.
 	siege_tank.abilities = _abilities([_ability_ref("unsiege_mode")])
-	_save(siege_tank, "%s/entities/units/siege_tank.tres" % DATA_ROOT)
+	saved += int(_save(siege_tank, "%s/entities/units/siege_tank.tres" % DATA_ROOT))
 
 	# Helicopter — flying, mid stats, hit ground + flying.
 	var heli := EntityDef.new()
@@ -145,7 +152,7 @@ func _gen_units() -> int:
 	heli.vision = _vision(9)
 	heli.population = _pop_cost(4)
 	heli.construction = _construction(6, 100, 50, "starport")
-	_save(heli, "%s/entities/units/helicopter.tres" % DATA_ROOT)
+	saved += int(_save(heli, "%s/entities/units/helicopter.tres" % DATA_ROOT))
 
 	# Worker — gathers, builds, weak combat.
 	var worker := EntityDef.new()
@@ -160,15 +167,16 @@ func _gen_units() -> int:
 	worker.population = _pop_cost(1)
 	worker.construction = _construction(2, 50, 0, "base")
 	worker.gather = _gather(1, 5, ["minerals", "gas"])
-	_save(worker, "%s/entities/units/worker.tres" % DATA_ROOT)
+	saved += int(_save(worker, "%s/entities/units/worker.tres" % DATA_ROOT))
 
-	return 5
+	return saved
 
 
 # ---------- Buildings ----------
 
 
 func _gen_buildings() -> int:
+	var saved := 0
 	# Base — the home; provides population, trains workers.
 	var base := EntityDef.new()
 	base.id = "base"
@@ -184,7 +192,7 @@ func _gen_buildings() -> int:
 	base_prod.queue_capacity = 1
 	base_prod.rally_offset = Vector2i(0, 4)
 	base.production = base_prod
-	_save(base, "%s/entities/buildings/base.tres" % DATA_ROOT)
+	saved += int(_save(base, "%s/entities/buildings/base.tres" % DATA_ROOT))
 
 	# Refinery — built on a gas geyser; lets workers extract gas.
 	var refinery := EntityDef.new()
@@ -197,7 +205,7 @@ func _gen_buildings() -> int:
 	var refinery_construction := _construction(8, 75, 0, "worker")
 	refinery_construction.requires_target_tag = "gas_geyser"
 	refinery.construction = refinery_construction
-	_save(refinery, "%s/entities/buildings/refinery.tres" % DATA_ROOT)
+	saved += int(_save(refinery, "%s/entities/buildings/refinery.tres" % DATA_ROOT))
 
 	# Barracks — trains marines.
 	var barracks := EntityDef.new()
@@ -213,7 +221,7 @@ func _gen_buildings() -> int:
 	barracks_prod.queue_capacity = 1
 	barracks_prod.rally_offset = Vector2i(0, 3)
 	barracks.production = barracks_prod
-	_save(barracks, "%s/entities/buildings/barracks.tres" % DATA_ROOT)
+	saved += int(_save(barracks, "%s/entities/buildings/barracks.tres" % DATA_ROOT))
 
 	# Factory — trains tanks.
 	var factory := EntityDef.new()
@@ -229,7 +237,7 @@ func _gen_buildings() -> int:
 	factory_prod.queue_capacity = 1
 	factory_prod.rally_offset = Vector2i(0, 3)
 	factory.production = factory_prod
-	_save(factory, "%s/entities/buildings/factory.tres" % DATA_ROOT)
+	saved += int(_save(factory, "%s/entities/buildings/factory.tres" % DATA_ROOT))
 
 	# Starport — trains helicopters.
 	var starport := EntityDef.new()
@@ -245,15 +253,16 @@ func _gen_buildings() -> int:
 	starport_prod.queue_capacity = 1
 	starport_prod.rally_offset = Vector2i(0, 3)
 	starport.production = starport_prod
-	_save(starport, "%s/entities/buildings/starport.tres" % DATA_ROOT)
+	saved += int(_save(starport, "%s/entities/buildings/starport.tres" % DATA_ROOT))
 
-	return 5
+	return saved
 
 
 # ---------- Neutrals ----------
 
 
 func _gen_neutrals() -> int:
+	var saved := 0
 	# Mineral patch — passive resource source, no extractor needed.
 	var patch := EntityDef.new()
 	patch.id = "mineral_patch"
@@ -266,7 +275,7 @@ func _gen_neutrals() -> int:
 	patch_source.capacity = 1500
 	patch_source.requires_extractor = false
 	patch.resource_source = patch_source
-	_save(patch, "%s/entities/neutrals/mineral_patch.tres" % DATA_ROOT)
+	saved += int(_save(patch, "%s/entities/neutrals/mineral_patch.tres" % DATA_ROOT))
 
 	# Gas geyser — needs a refinery to extract.
 	var geyser := EntityDef.new()
@@ -280,9 +289,9 @@ func _gen_neutrals() -> int:
 	geyser_source.capacity = -1
 	geyser_source.requires_extractor = true
 	geyser.resource_source = geyser_source
-	_save(geyser, "%s/entities/neutrals/gas_geyser.tres" % DATA_ROOT)
+	saved += int(_save(geyser, "%s/entities/neutrals/gas_geyser.tres" % DATA_ROOT))
 
-	return 2
+	return saved
 
 
 # ---------- Tunables ----------
@@ -302,8 +311,7 @@ func _gen_tunables() -> int:
 	t.gas_geyser_capacity = -1
 	t.worker_carry_amount = 5
 	t.layers_implying_hidden = ["burrowed"]
-	_save(t, "%s/tunables.tres" % DATA_ROOT)
-	return 1
+	return int(_save(t, "%s/tunables.tres" % DATA_ROOT))
 
 
 # ---------- Registry ----------
@@ -326,26 +334,33 @@ func _gen_registry() -> int:
 		"%s/entities/neutrals/gas_geyser.tres" % DATA_ROOT,
 	]
 	var entities: Array[EntityDef] = []
+	var missing_any := false
 	for path in entity_paths:
 		var def: EntityDef = load(path)
 		if def != null:
 			entities.append(def)
 		else:
-			push_warning("Could not load %s for registry" % path)
+			push_error("Could not load %s for registry" % path)
+			missing_any = true
+	if missing_any:
+		# Refuse to save a truncated registry — silent partial state would
+		# surface later as resolver lookup failures, much harder to debug.
+		push_error("EntityRegistry generation aborted due to missing entity definitions.")
+		return 0
 	registry.entities = entities
-	_save(registry, "%s/entity_registry.tres" % DATA_ROOT)
-	return 1
+	return int(_save(registry, "%s/entity_registry.tres" % DATA_ROOT))
 
 
 # ---------- Helpers ----------
 
 
-func _save(res: Resource, path: String) -> void:
+func _save(res: Resource, path: String) -> bool:
 	var err := ResourceSaver.save(res, path)
 	if err != OK:
 		push_error("Failed to save %s (error %d)" % [path, err])
-	else:
-		print("  saved %s" % path)
+		return false
+	print("  saved %s" % path)
+	return true
 
 
 func _health(max_hp: int) -> HealthDef:
