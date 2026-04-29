@@ -8,16 +8,34 @@ Setup, code style, and testing for clash.
 - **gdtoolkit** for `gdlint` and `gdformat`: `pip install gdtoolkit`.
 - (M2+, if proto is chosen as the wire format) **godobuf** as a per-project addon for `.proto` → GDScript codegen: see [github.com/oniksan/godobuf](https://github.com/oniksan/godobuf).
 
-## First time project setup
+## Cloning the repo (fresh setup)
 
-The Godot project lives in `client/`. To create it the first time:
+The Godot project (`client/project.godot`) is already committed. For a fresh clone:
 
-1. Open Godot.
-2. New Project, browse to `<repo>/client/`. **Project Name:** `Clash`. **Renderer:** `Compatibility` (best for HTML5 / mobile export). Leave **Version Control Metadata** blank — repo-level git already exists.
-3. **Create & Edit**. Do NOT use the "Create C# Solution" tool — clash is GDScript per ADR 0020.
-4. The repo's `.gitignore` already covers `.godot/`, `.import/`, etc.
+1. **Install the godot-ai-plugin addon** (the project assumes it's enabled — see ADR 0008 and the note below). Either:
+   - Junction the source repo into `client/addons/godot_ai/` (Windows; junction stays gitignored):
+     ```powershell
+     New-Item -ItemType Junction `
+       -Path "client\addons\godot_ai" `
+       -Target "<absolute path to godot-ai-plugin>\addons\godot_ai"
+     ```
+   - Or copy/symlink the addon source into `client/addons/godot_ai/` by your platform's preferred mechanism.
+2. **Open Godot 4.6+** (any build — clash is GDScript per ADR 0020), open `client/`. The plugin should activate automatically because it's already listed in `[editor_plugins]` in `project.godot`.
+3. (Optional) Wire the godot-ai-plugin MCP server into Claude Code at user scope:
+   ```powershell
+   claude mcp add --scope user --transport stdio godot node "<plugin>\mcp-server\dist\godot-mcp.js"
+   ```
 
-For day-to-day work, open the `client/` folder in Godot.
+The committed `project.godot` deliberately enables the plugin (the plugin is part of the standard dev environment for clash). If a future collaborator wants to skip the plugin, they can disable it in Project Settings → Plugins; the local diff to `project.godot` should not be committed.
+
+## First time project bootstrap (already done)
+
+The initial bootstrap was performed once via the Godot editor:
+
+1. New Project at `client/`, name `Clash`, renderer `Compatibility`.
+2. Plugin enabled in Project Settings → Plugins.
+
+Documented for posterity. Future contributors don't run this step — they use the "Cloning the repo" steps above.
 
 ## Running Godot from CLI (Windows)
 
