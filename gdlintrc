@@ -1,0 +1,9 @@
+disable:
+- no-elif-return
+- no-else-return
+- max-returns
+- max-public-methods
+- function-arguments-number
+- trailing-whitespace
+- max-file-lines
+- max-line-length

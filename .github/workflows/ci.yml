@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  proto:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bufbuild/buf-setup-action@v1
+      - run: |
+          if find proto -name '*.proto' 2>/dev/null | grep -q .; then
+            buf lint
+            buf format --diff --exit-code
+          else
+            echo "no proto files yet; skipping"
+          fi
+
+  gdscript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: pip install gdtoolkit
+      - run: |
+          if find client -name '*.gd' 2>/dev/null | grep -q .; then
+            gdlint client
+            gdformat --check client
+          else
+            echo "no GDScript files yet; skipping"
+          fi
+
+  csharp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0'
+      - run: |
+          if [ -f client/Clash.sln ] || ls client/*.csproj >/dev/null 2>&1; then
+            cd client
+            dotnet format --verify-no-changes
+            dotnet build --nologo
+            dotnet test --nologo
+          else
+            echo "no C# project yet; skipping"
+          fi
+
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: |
+          if [ -f server/go.mod ]; then
+            cd server
+            go vet ./...
+            go test -race ./...
+          else
+            echo "no Go module yet; skipping"
+          fi

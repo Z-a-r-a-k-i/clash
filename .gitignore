@@ -1,0 +1,50 @@
+# Godot
+.godot/
+.import/
+*.tmp
+.test_*
+test_*.tscn
+test_*.tres
+test_*.gd
+
+# Godot exports / builds
+build/
+exports/
+client/.godot/
+client/.import/
+
+# C# / .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+
+# Go
+*.exe
+*.test
+*.out
+vendor/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local environment
+.env
+.env.local
+
+# Logs
+*.log
+
+# Claude Code: keep settings.json shared, ignore local overrides
+.claude/settings.local.json
