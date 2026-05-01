@@ -153,35 +153,35 @@ func _test_move_does_not_self_collide() -> bool:
 func _test_distance_overlap_zero() -> bool:
 	var a := Rect2i(0, 0, 3, 3)
 	var b := Rect2i(2, 2, 3, 3)
-	return TileGrid.new().distance_between_rects(a, b) == 0
+	return TileGrid.distance_between_rects(a, b) == 0
 
 
 func _test_distance_adjacent_diagonal() -> bool:
 	# Two 2x2 rects at (0,0)-(1,1) and (2,2)-(3,3). Tile (1,1) is corner-adjacent to (2,2).
 	var a := Rect2i(0, 0, 2, 2)
 	var b := Rect2i(2, 2, 2, 2)
-	return TileGrid.new().distance_between_rects(a, b) == 1
+	return TileGrid.distance_between_rects(a, b) == 1
 
 
 func _test_distance_adjacent_orthogonal() -> bool:
 	# (0,0)-(1,1) and (2,0)-(3,1). Tile (1,0) is edge-adjacent to (2,0).
 	var a := Rect2i(0, 0, 2, 2)
 	var b := Rect2i(2, 0, 2, 2)
-	return TileGrid.new().distance_between_rects(a, b) == 1
+	return TileGrid.distance_between_rects(a, b) == 1
 
 
 func _test_distance_one_tile_gap() -> bool:
 	# (0,0)-(1,1) and (3,3)-(4,4). One tile of gap at (2,2). Distance = 2.
 	var a := Rect2i(0, 0, 2, 2)
 	var b := Rect2i(3, 3, 2, 2)
-	return TileGrid.new().distance_between_rects(a, b) == 2
+	return TileGrid.distance_between_rects(a, b) == 2
 
 
 func _test_distance_far() -> bool:
 	var a := Rect2i(0, 0, 2, 2)
 	var b := Rect2i(10, 0, 2, 2)
 	# a.x range [0,1], b.x range [10,11]. dx = 10 - 1 = 9. dy = 0.
-	return TileGrid.new().distance_between_rects(a, b) == 9
+	return TileGrid.distance_between_rects(a, b) == 9
 
 
 func _test_adjacency_diagonal() -> bool:

@@ -22,7 +22,48 @@ var persistent_order: EntityOrder  # move/attack-move that persists across turns
 var ability_cooldowns: Dictionary = {}  # { ability_id: turns_remaining }
 var active_buffs: Array[ActiveBuff] = []
 var is_hidden: bool = false  # recomputed each turn
+var hold_fire: bool = false  # toggled by HOLD_FIRE_TOGGLE order
+
+# Per-turn move budget. Reset to 0 at end-of-turn; incremented by the
+# movement system on each successful step. Compared against
+# def.movement.speed_tiles_per_turn to gate further movement this turn.
+var moves_used_this_turn: int = 0
 
 # Optional capability-paired state — null unless def has the matching capability.
 var production_state: ProductionState
 var gather_state: GatherState
+
+
+func clone() -> Entity:
+	var c := Entity.new()
+	c.id = id
+	c.def_id = def_id
+	c.current_def_id = current_def_id
+	c.owner_player_id = owner_player_id
+	c.origin = origin
+	c.current_layer = current_layer
+	c.current_hp = current_hp
+
+	# order_queue holds EntityOrder instances. They're transient per-turn
+	# inputs and we don't expect callers to mutate them post-submission, so
+	# a shallow copy of the array is fine — the EntityOrder instances
+	# themselves are read-only by convention. If that convention is ever
+	# violated we'll deep-copy here too.
+	c.order_queue = order_queue.duplicate()
+	c.persistent_order = persistent_order  # same convention.
+
+	c.ability_cooldowns = ability_cooldowns.duplicate()
+	c.active_buffs = []
+	for b in active_buffs:
+		if b != null:
+			c.active_buffs.append(b.clone())
+	c.is_hidden = is_hidden
+	c.hold_fire = hold_fire
+	c.moves_used_this_turn = moves_used_this_turn
+
+	if production_state != null:
+		c.production_state = production_state.clone()
+	if gather_state != null:
+		c.gather_state = gather_state.clone()
+
+	return c
