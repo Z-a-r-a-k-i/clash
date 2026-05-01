@@ -78,6 +78,11 @@ static func advance_persistent_moves(
 		# already handled them.
 		if _has_fresh_order_at(per_entity, actor.id, tick):
 			continue
+		# Skip workers actively gathering. GatherSystem.advance_move_phase
+		# already stepped them in Phase 2; advancing a stale persistent_order
+		# here would double-step.
+		if actor.gather_state != null and actor.gather_state.phase != GatherState.Phase.IDLE:
+			continue
 
 		# ATTACK_MOVE persistent: halt if an enemy is in range.
 		var po: EntityOrder = actor.persistent_order

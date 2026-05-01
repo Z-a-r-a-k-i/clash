@@ -73,7 +73,9 @@ static func advance_state_phase(
 static func _step_to_source(
 	state: MatchState, actor: Entity, registry: EntityRegistry, events: Array[ResolverEvent]
 ) -> void:
-	var source := _resolve_source(state, registry, actor.gather_state.assigned_source_entity_id)
+	var source := _resolve_source(
+		state, registry, actor.gather_state.assigned_source_entity_id, actor.owner_player_id
+	)
 	if source == null:
 		# Source destroyed / refinery missing — idle in place.
 		actor.gather_state.phase = GatherState.Phase.IDLE
@@ -118,7 +120,9 @@ static func _step_to_base(
 static func _tick_gather(
 	state: MatchState, actor: Entity, registry: EntityRegistry, events: Array[ResolverEvent]
 ) -> void:
-	var source := _resolve_source(state, registry, actor.gather_state.assigned_source_entity_id)
+	var source := _resolve_source(
+		state, registry, actor.gather_state.assigned_source_entity_id, actor.owner_player_id
+	)
 	if source == null:
 		# Source went away mid-cycle — head back if we have cargo, idle if not.
 		if actor.gather_state.carrying_amount > 0:
@@ -142,25 +146,30 @@ static func _tick_gather(
 	var yield_amount: int = rsd.yield_per_worker_per_turn
 	if yield_amount <= 0:
 		return
-	# Capacity check: -1 = infinite. Otherwise can't gather more than what's left.
+	# Already drained?
 	if source.current_resource_amount == 0:
 		actor.gather_state.phase = GatherState.Phase.IDLE
 		return
+	# Compute the actual harvest before mutating anything: cap by carry
+	# space AND by source remaining (-1 = infinite). Doing it in one shot
+	# keeps the source from being over-drained when carry_cap is the
+	# binding constraint.
+	var carry_remaining := carry_cap - actor.gather_state.carrying_amount
+	var actual_harvest: int = min(yield_amount, carry_remaining)
 	if source.current_resource_amount > 0:
-		yield_amount = min(yield_amount, source.current_resource_amount)
-		source.current_resource_amount -= yield_amount
-	# Don't exceed the worker's carry capacity in a single tick either.
-	yield_amount = min(yield_amount, carry_cap - actor.gather_state.carrying_amount)
-	if yield_amount <= 0:
+		actual_harvest = min(actual_harvest, source.current_resource_amount)
+	if actual_harvest <= 0:
 		actor.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
 		return
-	actor.gather_state.carrying_amount += yield_amount
+	if source.current_resource_amount > 0:
+		source.current_resource_amount -= actual_harvest
+	actor.gather_state.carrying_amount += actual_harvest
 	actor.gather_state.carrying_resource_type = rsd.resource_type
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.WORKER_GATHERED
 	ev.actor_id = actor.id
 	ev.target_id = source.id
-	ev.amount = yield_amount
+	ev.amount = actual_harvest
 	events.append(ev)
 	# Did this tick deplete the source?
 	if source.current_resource_amount == 0:
@@ -202,7 +211,9 @@ static func _tick_deposit(
 	actor.gather_state.carrying_amount = 0
 	actor.gather_state.carrying_resource_type = ""
 	# Loop back to the assigned source if it's still valid; otherwise idle.
-	var source := _resolve_source(state, registry, actor.gather_state.assigned_source_entity_id)
+	var source := _resolve_source(
+		state, registry, actor.gather_state.assigned_source_entity_id, actor.owner_player_id
+	)
 	if source != null:
 		actor.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
 	else:
@@ -214,9 +225,11 @@ static func _tick_deposit(
 
 # Resolve a target entity id to a usable resource source. Handles
 # refinery → underlying-geyser translation. Returns null if the source
-# is gone, or if it's a geyser without a covering refinery.
+# is gone, or if it's a geyser without a covering refinery owned by the
+# worker. `owner_id` is the worker's `owner_player_id`: a refinery owned
+# by another player does NOT enable gas extraction for this worker.
 static func _resolve_source(
-	state: MatchState, registry: EntityRegistry, target_entity_id: int
+	state: MatchState, registry: EntityRegistry, target_entity_id: int, owner_id: int
 ) -> Entity:
 	if target_entity_id < 0 or registry == null:
 		return null
@@ -231,22 +244,26 @@ static func _resolve_source(
 		var rsd: ResourceSourceDef = def.resource_source
 		if not rsd.requires_extractor:
 			return target  # mineral patch, etc.
-		# Geyser: only usable if a covering refinery exists.
-		var extractor := _find_extractor_at(state, registry, target)
+		# Geyser: only usable if a covering refinery owned by `owner_id`
+		# exists.
+		var extractor := _find_extractor_at(state, registry, target, owner_id)
 		if extractor == null:
 			return null
 		return target
 	# Path 2: target is a refinery (extractor) — translate to its geyser.
+	# The refinery must belong to the worker.
 	if def.tags.has("extractor"):
+		if target.owner_player_id != owner_id:
+			return null
 		return _find_geyser_under(state, registry, target)
 	return null
 
 
-# Look for an entity at the same tile as `geyser` carrying the
-# `extractor` tag. The construction system places refineries on top of
-# a geyser, so they share the same origin.
+# Look for an entity owned by `owner_id` at the same tile as `geyser`
+# carrying the `extractor` tag. The construction system places refineries
+# on top of a geyser, so they share the same origin.
 static func _find_extractor_at(
-	state: MatchState, registry: EntityRegistry, geyser: Entity
+	state: MatchState, registry: EntityRegistry, geyser: Entity, owner_id: int
 ) -> Entity:
 	if state.tile_grid == null:
 		return null
@@ -255,6 +272,8 @@ static func _find_extractor_at(
 		return null
 	for e in state.entities_sorted_by_id():
 		if e.id == geyser.id or e.current_hp <= 0:
+			continue
+		if e.owner_player_id != owner_id:
 			continue
 		var def: EntityDef = registry.get_by_id(e.current_def_id) if registry != null else null
 		if def == null or not def.tags.has("extractor"):

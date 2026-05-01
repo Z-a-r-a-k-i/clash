@@ -1011,6 +1011,8 @@ func _events_equal(a: Array, b: Array) -> bool:
 			return false
 		if ea.winner_player_id != eb.winner_player_id:
 			return false
+		if ea.amount != eb.amount:
+			return false
 	return true
 
 
