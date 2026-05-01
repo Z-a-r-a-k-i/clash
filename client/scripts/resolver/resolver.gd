@@ -5,7 +5,7 @@ extends RefCounted
 # ADR 0013 (deterministic, no RNG).
 #
 # Contract:
-#   Resolver.resolve(state, queue_a, queue_b, registry, tunables) -> ResolveResult
+#   Resolver.resolve(state, submit_a, submit_b, registry, tunables) -> ResolveResult
 #
 # - Does NOT mutate the input `state`. A deep copy is made internally and
 #   the copy is returned in `ResolveResult.new_state`.
@@ -15,7 +15,7 @@ extends RefCounted
 #   see client/scripts/_dev/test_resolver.gd "determinism_golden").
 #
 # Algorithm summary (full text in plan/m0/02-tick-based-resolver.md):
-#   1. Apply player-level orders (SURRENDER) — short-circuits if present.
+#   1. Apply player-level orders (surrender flag) — short-circuits if set.
 #   2. Distribute per-entity orders; HOLD_FIRE_TOGGLE / CANCEL apply now.
 #   3. For tick in 1..N:
 #        Phase 1: every unit's k-th action that is an attack.
@@ -36,17 +36,23 @@ const _STATE_HELPERS := preload("res://scripts/resolver/_state_helpers.gd")
 
 static func resolve(
 	state: MatchState,
-	queue_a: Array[EntityOrder],
-	queue_b: Array[EntityOrder],
+	submit_a: SubmitTurn,
+	submit_b: SubmitTurn,
 	registry: EntityRegistry,
 	tunables: Tunables
 ) -> ResolveResult:
 	var result := ResolveResult.new()
 	var events: Array[ResolverEvent] = []
 
-	# 1. Working copy. Per the pure-function contract, the input `state` is
-	#    never mutated — we operate on a deep clone and return it.
+	# 1. Working copies. Per the pure-function contract, neither the input
+	#    `state` nor the input submissions can be aliased into the result.
+	#    Cloning state is obvious; cloning the SubmitTurns matters because
+	#    a fresh MOVE / ATTACK_MOVE gets stashed into Entity.persistent_order
+	#    by the movement system — without the clone, `result.new_state`
+	#    would alias the caller's EntityOrder instances.
 	var working: MatchState = state.clone()
+	var safe_submit_a: SubmitTurn = submit_a.clone() if submit_a != null else null
+	var safe_submit_b: SubmitTurn = submit_b.clone() if submit_b != null else null
 
 	# 1a. If the match is already over, return a clone with no further
 	#     processing. Prevents re-emitting MATCH_ENDED or mutating terminal
@@ -58,11 +64,10 @@ static func resolve(
 
 	# 2. Player-level surrender takes priority — if either side surrendered,
 	#    the match ends and remaining tick work is moot.
-	var surrender_a := _STATE_HELPERS.has_surrender(queue_a)
-	var surrender_b := _STATE_HELPERS.has_surrender(queue_b)
+	var surrender_a := safe_submit_a != null and safe_submit_a.surrender
+	var surrender_b := safe_submit_b != null and safe_submit_b.surrender
 	if surrender_a or surrender_b:
-		# queue_a corresponds to working.players[0], queue_b to working.players[1].
-		# Read the actual player_ids rather than hardcoding 0/1 so non-default
+		# Read the actual player_ids from working.players so non-default
 		# id assignments still produce correct winners. Both surrendered → -1
 		# (M0 has no draw rule; legitimate UI shouldn't produce this).
 		# Null slots are tolerated (clone preserves them) and fall back to
@@ -89,7 +94,13 @@ static func resolve(
 	# 3. Distribute orders into per-entity queues. HOLD_FIRE_TOGGLE and
 	#    CANCEL apply during distribution (they're mode changes, not
 	#    actions).
-	var per_entity := _STATE_HELPERS.distribute_orders(working, queue_a, queue_b)
+	var orders_a: Array[EntityOrder] = (
+		safe_submit_a.orders if safe_submit_a != null else [] as Array[EntityOrder]
+	)
+	var orders_b: Array[EntityOrder] = (
+		safe_submit_b.orders if safe_submit_b != null else [] as Array[EntityOrder]
+	)
+	var per_entity := _STATE_HELPERS.distribute_orders(working, orders_a, orders_b)
 
 	# 4. Tick loop — action-slot lockstep per ADR 0004.
 	var n_ticks := _STATE_HELPERS.max_queue_length(per_entity)

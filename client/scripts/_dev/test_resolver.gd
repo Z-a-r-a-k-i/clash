@@ -76,6 +76,16 @@ func _all_tests() -> Array:
 		["no_tile_grid_distance_fallback", _test_no_tile_grid_distance_fallback],
 		["closest_enemy_skips_dead", _test_closest_enemy_skips_dead],
 		["closest_enemy_ties_break_by_id", _test_closest_enemy_ties_break_by_id],
+		# Plan node 03a — submit-turn shape + group fan-out.
+		["submit_turn_clone_independence", _test_submit_turn_clone_independence],
+		["order_builder_fan_out_move", _test_order_builder_fan_out_move],
+		["order_builder_fan_out_attack_move", _test_order_builder_fan_out_attack_move],
+		["order_builder_fan_out_attack", _test_order_builder_fan_out_attack],
+		["order_builder_fan_out_hold_fire_toggle", _test_order_builder_fan_out_hold_fire_toggle],
+		["order_builder_fan_out_cancel", _test_order_builder_fan_out_cancel],
+		["validate_drops_unowned_order", _test_validate_drops_unowned_order],
+		["validate_drops_missing_entity_order", _test_validate_drops_missing_entity_order],
+		["submit_turn_input_not_aliased_in_result", _test_submit_turn_input_not_aliased_in_result],
 	]
 
 
@@ -87,7 +97,7 @@ func _test_smoke_empty_input() -> bool:
 	var state := MatchState.new()
 	var queue_a: Array[EntityOrder] = []
 	var queue_b: Array[EntityOrder] = []
-	var result := Resolver.resolve(state, queue_a, queue_b, null, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit(queue_b), null, null)
 	if result == null:
 		return false
 	if result.new_state == null:
@@ -114,22 +124,22 @@ func _test_smoke_no_orders_no_changes() -> bool:
 
 	var queue_a: Array[EntityOrder] = []
 	var queue_b: Array[EntityOrder] = []
-	var result := Resolver.resolve(state, queue_a, queue_b, registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit(queue_b), registry, null)
 	return result.events.size() == 0
 
 
 func _test_surrender_ends_match() -> bool:
 	# Player A surrenders → MATCH_ENDED event with winner = 1, match_over = true.
+	# Surrender is a per-turn flag on SubmitTurn, not an order in the queue
+	# (per plan/m0/03-action-queue-and-orders.md).
 	var state := MatchState.new()
 	state.players = [_player(0), _player(1)]
 
-	var surrender := EntityOrder.new()
-	surrender.type = EntityOrder.Type.SURRENDER
-	# entity_id stays -1 (player-level order).
-	var queue_a: Array[EntityOrder] = [surrender]
-	var queue_b: Array[EntityOrder] = []
+	var submit_a := SubmitTurn.new()
+	submit_a.surrender = true
+	var submit_b := SubmitTurn.new()
 
-	var result := Resolver.resolve(state, queue_a, queue_b, null, null)
+	var result := Resolver.resolve(state, submit_a, submit_b, null, null)
 	if result.events.size() != 1:
 		return false
 	var ev: ResolverEvent = result.events[0]
@@ -171,7 +181,7 @@ func _test_state_not_mutated() -> bool:
 
 	var queue_a: Array[EntityOrder] = []
 	var queue_b: Array[EntityOrder] = []
-	var result := Resolver.resolve(state, queue_a, queue_b, null, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit(queue_b), null, null)
 
 	# The result's new_state must be a different instance than the input.
 	if result.new_state == state:
@@ -248,7 +258,7 @@ func _test_attack_hits_target_in_chain() -> bool:
 	attack.target_priority_chain = [target.id]
 	var queue_a: Array[EntityOrder] = [attack]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	if result.events.size() < 1:
 		return false
 	var ev: ResolverEvent = result.events[0]
@@ -277,7 +287,7 @@ func _test_target_chain_fallback() -> bool:
 	var queue_a: Array[EntityOrder] = [attack]
 
 	state.tile_grid.place(t2.id, Rect2i(8, 5, 1, 1))
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 
 	# Expect exactly one ENTITY_DAMAGED on t2.
 	for ev in result.events:
@@ -302,7 +312,7 @@ func _test_hold_fire_blocks_auto_acquire() -> bool:
 	# Empty chain.
 	var queue_a: Array[EntityOrder] = [attack]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED:
 			return false
@@ -326,7 +336,7 @@ func _test_closest_enemy_acquired() -> bool:
 	# Empty chain → triggers closest-enemy auto-acquire.
 	var queue_a: Array[EntityOrder] = [attack]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED:
 			return ev.target_id == near_enemy.id
@@ -358,7 +368,7 @@ func _test_attack_layer_filter() -> bool:
 	attack.target_priority_chain = [heli.id]
 	var queue_a: Array[EntityOrder] = [attack]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED:
 			return false
@@ -389,7 +399,7 @@ func _test_attack_modifier_applies() -> bool:
 	attack.target_priority_chain = [target.id]
 	var queue_a: Array[EntityOrder] = [attack]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED:
 			return ev.damage == 9
@@ -411,7 +421,7 @@ func _test_lethal_attack_emits_destroyed() -> bool:
 	attack.target_priority_chain = [target.id]
 	var queue_a: Array[EntityOrder] = [attack]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	var saw_damaged := false
 	var saw_destroyed := false
 	for ev in result.events:
@@ -438,7 +448,7 @@ func _test_move_emits_event() -> bool:
 	move.target_tile = Vector2i(8, 5)
 	var queue_a: Array[EntityOrder] = [move]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
 			return ev.from_origin == Vector2i(5, 5) and ev.to_origin == Vector2i(6, 5)
@@ -461,7 +471,9 @@ func _test_multi_tile_move_collision() -> bool:
 	move.entity_id = mover.id
 	move.target_tile = Vector2i(8, 1)  # straight right, blocked.
 
-	var result := Resolver.resolve(state, [move] as Array[EntityOrder], [], registry, null)
+	var result := Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit([]), registry, null
+	)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == mover.id:
 			return false
@@ -503,7 +515,7 @@ func _test_persistent_move_continuation() -> bool:
 	dummy_move.target_tile = Vector2i(0, 0)  # already there, so step_toward returns false
 	var queue_a: Array[EntityOrder] = [dummy_move]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
 			# Persistent move should have advanced one tile toward (15, 5).
@@ -537,7 +549,9 @@ func _test_attacks_before_moves() -> bool:
 	move.entity_id = mover.id
 	move.target_tile = Vector2i(5, 0)
 
-	var result := Resolver.resolve(state, [attack, move] as Array[EntityOrder], [], registry, null)
+	var result := Resolver.resolve(
+		state, _submit([attack, move] as Array[EntityOrder]), _submit([]), registry, null
+	)
 	var damaged_idx := -1
 	var moved_idx := -1
 	for i in result.events.size():
@@ -564,7 +578,7 @@ func _test_move_budget_respected() -> bool:
 		move.target_tile = Vector2i(15, 5)
 		queue_a.append(move)
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	var move_count := 0
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
@@ -594,7 +608,7 @@ func _test_attack_move_halts_when_enemy_in_range() -> bool:
 	attack_move.target_priority_chain = [enemy.id]
 	var queue_a: Array[EntityOrder] = [attack_move]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
 			return false
@@ -623,7 +637,7 @@ func _test_cooldowns_decrement() -> bool:
 	move.target_tile = Vector2i(5, 5)  # noop step
 	var queue_a: Array[EntityOrder] = [move]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
 	return new_actor.ability_cooldowns.get("stim", 0) == 2
 
@@ -642,7 +656,7 @@ func _test_cooldown_removed_at_zero() -> bool:
 	move.target_tile = Vector2i(5, 5)
 	var queue_a: Array[EntityOrder] = [move]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
 	return not new_actor.ability_cooldowns.has("stim")
 
@@ -666,7 +680,7 @@ func _test_buff_expires_at_zero() -> bool:
 	move.target_tile = Vector2i(5, 5)
 	var queue_a: Array[EntityOrder] = [move]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
 	return new_actor.active_buffs.is_empty()
 
@@ -687,7 +701,7 @@ func _test_moves_used_resets_each_turn() -> bool:
 		move.target_tile = Vector2i(15, 5)
 		queue_a.append(move)
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
 	return new_actor.moves_used_this_turn == 0
 
@@ -725,7 +739,7 @@ func _test_production_progress_emits_completion() -> bool:
 	noop.target_tile = building.origin  # building has no Movement; resolve_move skips.
 	var queue_a: Array[EntityOrder] = [noop]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	var saw_completed := false
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.BUILD_COMPLETED and ev.def_id == "marine":
@@ -773,7 +787,7 @@ func _test_win_by_raze() -> bool:
 	noop.target_tile = attacker.origin
 	var queue_a: Array[EntityOrder] = [noop]
 
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	if not result.new_state.match_over:
 		return false
 	if result.new_state.winner_player_id != 0:
@@ -848,7 +862,7 @@ func _test_determinism_golden() -> bool:
 		move.target_tile = Vector2i(10, 5)
 
 		var queue_a: Array[EntityOrder] = [attack, move]
-		var result := Resolver.resolve(state, queue_a, [], registry, null)
+		var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 		event_lists.append(result.events)
 		state_lists.append(result.new_state)
 
@@ -1009,7 +1023,9 @@ func _test_hold_fire_toggle_distribution_sets_flag() -> bool:
 	attack.entity_id = attacker.id
 	# Empty chain — auto-acquire would normally fire; hold_fire blocks it.
 
-	var result := Resolver.resolve(state, [hf, attack] as Array[EntityOrder], [], registry, null)
+	var result := Resolver.resolve(
+		state, _submit([hf, attack] as Array[EntityOrder]), _submit([]), registry, null
+	)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED:
 			return false
@@ -1048,7 +1064,7 @@ func _test_cancel_clears_persistent_order() -> bool:
 	dummy_move.target_tile = dummy.origin
 
 	var queue_a: Array[EntityOrder] = [cancel, dummy_move]
-	var result := Resolver.resolve(state, queue_a, [], registry, null)
+	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
@@ -1080,7 +1096,9 @@ func _test_attack_move_no_enemy_in_range_advances() -> bool:
 	am.entity_id = actor.id
 	am.target_tile = Vector2i(10, 5)
 
-	var result := Resolver.resolve(state, [am] as Array[EntityOrder], [], registry, null)
+	var result := Resolver.resolve(
+		state, _submit([am] as Array[EntityOrder]), _submit([]), registry, null
+	)
 	var saw_moved := false
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
@@ -1115,7 +1133,9 @@ func _test_fresh_order_overrides_persistent_order() -> bool:
 	fresh.entity_id = actor.id
 	fresh.target_tile = Vector2i(5, 15)
 
-	var result := Resolver.resolve(state, [fresh] as Array[EntityOrder], [], registry, null)
+	var result := Resolver.resolve(
+		state, _submit([fresh] as Array[EntityOrder]), _submit([]), registry, null
+	)
 	var moved_to: Vector2i = Vector2i(-1, -1)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
@@ -1155,7 +1175,9 @@ func _test_multi_buff_stacks_multiplicatively() -> bool:
 	attack.entity_id = attacker.id
 	attack.target_priority_chain = [target.id]
 
-	var result := Resolver.resolve(state, [attack] as Array[EntityOrder], [], registry, null)
+	var result := Resolver.resolve(
+		state, _submit([attack] as Array[EntityOrder]), _submit([]), registry, null
+	)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED:
 			return ev.damage == 12
@@ -1177,7 +1199,9 @@ func _test_no_tile_grid_distance_fallback() -> bool:
 	attack.entity_id = attacker.id
 	attack.target_priority_chain = [target.id]
 
-	var result := Resolver.resolve(state, [attack] as Array[EntityOrder], [], registry, null)
+	var result := Resolver.resolve(
+		state, _submit([attack] as Array[EntityOrder]), _submit([]), registry, null
+	)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.target_id == target.id:
 			return ev.damage == 6
@@ -1206,7 +1230,9 @@ func _test_closest_enemy_ties_break_by_id() -> bool:
 	attack.entity_id = attacker.id
 	# Empty chain → triggers closest-enemy auto-acquire.
 
-	var result := Resolver.resolve(state, [attack] as Array[EntityOrder], [], registry, null)
+	var result := Resolver.resolve(
+		state, _submit([attack] as Array[EntityOrder]), _submit([]), registry, null
+	)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED:
 			return ev.target_id == enemy_low_id.id
@@ -1230,14 +1256,241 @@ func _test_closest_enemy_skips_dead() -> bool:
 	attack.entity_id = attacker.id
 	# Empty chain → triggers closest-enemy auto-acquire.
 
-	var result := Resolver.resolve(state, [attack] as Array[EntityOrder], [], registry, null)
+	var result := Resolver.resolve(
+		state, _submit([attack] as Array[EntityOrder]), _submit([]), registry, null
+	)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED:
 			return ev.target_id == alive_far.id
 	return false
 
 
+# ---------- Plan node 03a — SubmitTurn + OrderBuilder + validator ----------
+
+
+func _test_submit_turn_clone_independence() -> bool:
+	# clone() must return a SubmitTurn that is fully independent of the
+	# original — both at the array shell and at every EntityOrder inside.
+	# Mutating the clone (or any EntityOrder field, including the
+	# target_priority_chain) must not leak back to the original.
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = 7
+	move.target_tile = Vector2i(3, 3)
+	move.target_priority_chain = [1, 2, 3] as Array[int]
+	var s := SubmitTurn.new()
+	s.orders = [move] as Array[EntityOrder]
+	s.surrender = false
+
+	var c := s.clone()
+	# 1. Mutate the clone's array shell.
+	c.orders.append(move)
+	# 2. Mutate the clone's surrender flag.
+	c.surrender = true
+	# 3. Mutate fields inside the clone's EntityOrder.
+	var cloned_first: EntityOrder = c.orders[0]
+	cloned_first.target_tile = Vector2i(99, 99)
+	cloned_first.target_priority_chain.append(999)
+
+	# Original must be untouched on every axis.
+	if s.orders.size() != 1:
+		return false
+	if s.surrender:
+		return false
+	if s.orders[0].target_tile != Vector2i(3, 3):
+		return false
+	if s.orders[0].target_priority_chain != ([1, 2, 3] as Array[int]):
+		return false
+	# And the clone genuinely sees its own mutations.
+	return (
+		c.orders.size() == 2
+		and c.surrender
+		and c.orders[0].target_tile == Vector2i(99, 99)
+		and c.orders[0].target_priority_chain.size() == 4
+	)
+
+
+func _test_order_builder_fan_out_move() -> bool:
+	var ids: Array[int] = [3, 5, 9]
+	var orders := OrderBuilder.fan_out_move(ids, Vector2i(10, 10))
+	if orders.size() != 3:
+		return false
+	for i in 3:
+		var o: EntityOrder = orders[i]
+		if o.type != EntityOrder.Type.MOVE:
+			return false
+		if o.entity_id != ids[i]:
+			return false
+		if o.target_tile != Vector2i(10, 10):
+			return false
+	return true
+
+
+func _test_order_builder_fan_out_attack_move() -> bool:
+	var ids: Array[int] = [3, 5]
+	var chain: Array[int] = [42, 17]
+	var orders := OrderBuilder.fan_out_attack_move(ids, Vector2i(8, 8), chain)
+	if orders.size() != 2:
+		return false
+	for i in 2:
+		var o: EntityOrder = orders[i]
+		if o.type != EntityOrder.Type.ATTACK_MOVE:
+			return false
+		if o.entity_id != ids[i]:
+			return false
+		if o.target_tile != Vector2i(8, 8):
+			return false
+		if o.target_priority_chain != chain:
+			return false
+	# Mutating one order's chain must not leak into the others (each got a
+	# duplicated copy of the input chain).
+	orders[0].target_priority_chain.append(99)
+	return orders[1].target_priority_chain.size() == 2
+
+
+func _test_order_builder_fan_out_attack() -> bool:
+	var ids: Array[int] = [3, 5, 7]
+	var chain: Array[int] = [42]
+	var orders := OrderBuilder.fan_out_attack(ids, chain)
+	if orders.size() != 3:
+		return false
+	for i in 3:
+		var o: EntityOrder = orders[i]
+		if o.type != EntityOrder.Type.ATTACK:
+			return false
+		if o.entity_id != ids[i]:
+			return false
+		if o.target_priority_chain != chain:
+			return false
+	return true
+
+
+func _test_order_builder_fan_out_hold_fire_toggle() -> bool:
+	var ids: Array[int] = [3, 5]
+	var orders := OrderBuilder.fan_out_hold_fire_toggle(ids, true)
+	if orders.size() != 2:
+		return false
+	for i in 2:
+		var o: EntityOrder = orders[i]
+		if o.type != EntityOrder.Type.HOLD_FIRE_TOGGLE:
+			return false
+		if o.entity_id != ids[i]:
+			return false
+		if not o.hold_fire:
+			return false
+	return true
+
+
+func _test_order_builder_fan_out_cancel() -> bool:
+	var ids: Array[int] = [3, 5]
+	var orders := OrderBuilder.fan_out_cancel(ids, -1)
+	if orders.size() != 2:
+		return false
+	for i in 2:
+		var o: EntityOrder = orders[i]
+		if o.type != EntityOrder.Type.CANCEL:
+			return false
+		if o.entity_id != ids[i]:
+			return false
+		if o.cancel_index != -1:
+			return false
+	return true
+
+
+func _test_validate_drops_unowned_order() -> bool:
+	# submit_a contains a MOVE for an entity owned by player B → dropped,
+	# no event emitted. Verifies _state_helpers._distribute_one's
+	# ownership check.
+	var registry := _movable_registry(4)
+	var state := _state_with_grid(20, 20)
+	var enemy_unit := _make_entity(state, "marine", 1, Vector2i(5, 5), 50, "ground")
+	state.tile_grid.place(enemy_unit.id, Rect2i(5, 5, 1, 1))
+
+	var bad_move := EntityOrder.new()
+	bad_move.type = EntityOrder.Type.MOVE
+	bad_move.entity_id = enemy_unit.id  # owned by player 1 but submitted by A
+	bad_move.target_tile = Vector2i(10, 5)
+
+	var submit_a := SubmitTurn.new()
+	submit_a.orders = [bad_move] as Array[EntityOrder]
+
+	var result := Resolver.resolve(state, submit_a, SubmitTurn.new(), registry, null)
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED:
+			return false
+	# Entity stays put.
+	var new_enemy := result.new_state.get_entity_by_id(enemy_unit.id)
+	return new_enemy.origin == Vector2i(5, 5)
+
+
+func _test_submit_turn_input_not_aliased_in_result() -> bool:
+	# After resolve(), mutating the caller's submitted EntityOrder must
+	# NOT mutate anything stored in result.new_state. Specifically: a
+	# fresh MOVE order is stashed into Entity.persistent_order by the
+	# movement system — this test asserts the resolver clones the
+	# SubmitTurn at its boundary so that path doesn't leak.
+	var registry := _movable_registry(4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(15, 5)
+
+	var submit_a := SubmitTurn.new()
+	submit_a.orders = [move] as Array[EntityOrder]
+
+	var result := Resolver.resolve(state, submit_a, SubmitTurn.new(), registry, null)
+
+	# Now mutate the original caller-owned `move` instance.
+	move.target_tile = Vector2i(99, 99)
+	move.target_priority_chain = [42] as Array[int]
+
+	# The cloned actor's persistent_order in the result must NOT reflect
+	# those mutations.
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	if new_actor.persistent_order == null:
+		return false
+	if new_actor.persistent_order.target_tile != Vector2i(15, 5):
+		return false
+	return new_actor.persistent_order.target_priority_chain.is_empty()
+
+
+func _test_validate_drops_missing_entity_order() -> bool:
+	# Order references an entity_id that doesn't exist → dropped silently.
+	var registry := _movable_registry(4)
+	var state := _state_with_grid(20, 20)
+
+	var ghost_move := EntityOrder.new()
+	ghost_move.type = EntityOrder.Type.MOVE
+	ghost_move.entity_id = 9999
+	ghost_move.target_tile = Vector2i(5, 5)
+
+	var submit_a := SubmitTurn.new()
+	submit_a.orders = [ghost_move] as Array[EntityOrder]
+
+	var result := Resolver.resolve(state, submit_a, SubmitTurn.new(), registry, null)
+	# No entities exist, so the only events possible would be MATCH_ENDED
+	# from the win check (both players have zero buildings → -1 winner).
+	# Filter that out and assert no movement event leaked through.
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED:
+			return false
+	return true
+
+
 # ---------- Helpers ----------
+
+
+# Wrap a flat orders array into a SubmitTurn (the resolver's per-player
+# input shape). Default is an empty submit so test sites that pass `[]`
+# still read cleanly.
+func _submit(orders: Array[EntityOrder] = []) -> SubmitTurn:
+	var s := SubmitTurn.new()
+	s.orders = orders
+	return s
 
 
 func _player(id: int) -> PlayerState:

@@ -44,13 +44,16 @@ func clone() -> Entity:
 	c.current_layer = current_layer
 	c.current_hp = current_hp
 
-	# order_queue holds EntityOrder instances. They're transient per-turn
-	# inputs and we don't expect callers to mutate them post-submission, so
-	# a shallow copy of the array is fine — the EntityOrder instances
-	# themselves are read-only by convention. If that convention is ever
-	# violated we'll deep-copy here too.
-	c.order_queue = order_queue.duplicate()
-	c.persistent_order = persistent_order  # same convention.
+	# Deep-clone every EntityOrder so the cloned MatchState's orders never
+	# alias the input state's. Cheap at M0 scale (< handful of orders per
+	# entity per turn) and removes the "read-only by convention" footgun.
+	c.order_queue = []
+	for o in order_queue:
+		if o != null:
+			c.order_queue.append(o.clone())
+		else:
+			c.order_queue.append(null)
+	c.persistent_order = persistent_order.clone() if persistent_order != null else null
 
 	c.ability_cooldowns = ability_cooldowns.duplicate()
 	c.active_buffs = []
