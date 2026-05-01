@@ -24,3 +24,12 @@ const KIND_UNIT := "unit"
 const KIND_RESEARCH := "research"
 
 var queue: Array[Dictionary] = []
+
+
+func clone() -> ProductionState:
+	var c := ProductionState.new()
+	c.queue = []
+	for item in queue:
+		# Dictionaries hold primitive values; .duplicate() is sufficient.
+		c.queue.append(item.duplicate())
+	return c

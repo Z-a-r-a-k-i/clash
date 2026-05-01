@@ -38,6 +38,21 @@ func _init(grid_width: int = 0, grid_height: int = 0) -> void:
 	height = grid_height
 
 
+# ---------- Cloning ----------
+
+
+func clone() -> TileGrid:
+	# Deep-copy used by Resolver to maintain its pure-function contract.
+	# All values stored in the internal Dictionaries are primitive-ish
+	# (int, Vector2i, Rect2i, Array[String] of small string lists), so
+	# `Dictionary.duplicate(true)` is sufficient for full independence.
+	var c := TileGrid.new(width, height)
+	c._occupancy = _occupancy.duplicate(true)
+	c._terrain_tags = _terrain_tags.duplicate(true)
+	c._entity_rects = _entity_rects.duplicate(true)
+	return c
+
+
 # ---------- Bounds ----------
 
 
@@ -165,7 +180,7 @@ func set_tile_terrain_tags(tile: Vector2i, tags: Array[String]) -> void:
 # ---------- Distance and adjacency ----------
 
 
-func distance_between_rects(a: Rect2i, b: Rect2i) -> int:
+static func distance_between_rects(a: Rect2i, b: Rect2i) -> int:
 	# Chebyshev distance between two rects. 0 means the rects overlap or
 	# share at least one tile edge in common. 1 means adjacent (touching
 	# diagonally or orthogonally). N means N tiles apart.
@@ -199,7 +214,7 @@ func distance_between_rects(a: Rect2i, b: Rect2i) -> int:
 func are_rects_adjacent(a: Rect2i, b: Rect2i) -> bool:
 	# True if the two rects are adjacent (Chebyshev distance == 1).
 	# Note: returns false for overlapping rects (distance == 0).
-	return distance_between_rects(a, b) == 1
+	return TileGrid.distance_between_rects(a, b) == 1
 
 
 # ---------- Iteration helpers ----------

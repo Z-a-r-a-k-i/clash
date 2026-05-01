@@ -18,3 +18,12 @@ var assigned_source_entity_id: int = -1  # -1 if unassigned
 var carrying_resource_type: String = ""  # "minerals" | "gas" | "" if empty
 var carrying_amount: int = 0
 var phase: Phase = Phase.IDLE
+
+
+func clone() -> GatherState:
+	var c := GatherState.new()
+	c.assigned_source_entity_id = assigned_source_entity_id
+	c.carrying_resource_type = carrying_resource_type
+	c.carrying_amount = carrying_amount
+	c.phase = phase
+	return c

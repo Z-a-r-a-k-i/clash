@@ -3,18 +3,20 @@ extends Node
 
 # One-shot generator for the M0 placeholder data set.
 #
-# Trigger: attach this script to a node in a scene; loading or saving the
-# scene runs `_enter_tree()` which generates all 17 resources, then frees
-# the node. The companion scene at `res://scripts/_dev/generator_scene.tscn`
-# is created and opened by the agent — opening it runs this script.
+# Trigger: attach this script to a node in a scene; opening the scene runs
+# `_enter_tree()` which generates all 17 resources. The companion scene at
+# `res://scripts/_dev/generator_scene.tscn` is the canonical trigger.
 #
-# Re-run: open the generator scene again. Safe — overwrites existing files.
+# Re-run: open the generator scene again (or switch away and back). Safe —
+# overwrites existing files. `_enter_tree()` only fires when a node enters
+# the scene tree, so re-saving the host scene without re-opening does NOT
+# re-run generation.
 #
-# Why @tool extends Node and not EditorScript: an EditorScript only runs from
-# File > Run in the script editor (manual UI step). @tool on a node runs at
-# editor-time when the node enters the tree, which the agent CAN trigger via
-# the existing MCP scene tools (godot_new_scene + godot_add_script +
-# godot_save_scene + godot_open_scene).
+# Why @tool extends Node and not EditorScript: an EditorScript only runs
+# from File > Run in the script editor (manual UI step). @tool on a node
+# runs at editor-time when the node enters the tree, which the agent can
+# trigger via godot_new_scene + godot_add_script + godot_save_scene +
+# godot_open_scene.
 
 const DATA_ROOT := "res://data"
 
@@ -30,10 +32,12 @@ func _enter_tree() -> void:
 	count += _gen_tunables()
 	count += _gen_registry()
 	print("[generate_placeholder_data] Generated %d resources, done." % count)
-	# Match the docstring: this is a one-shot generator. Self-free so re-saving
-	# the host scene doesn't trigger another generation pass while the same
-	# node is still mounted. Re-running is via re-opening the scene.
-	call_deferred("queue_free")
+	# No queue_free here — `_enter_tree()` only fires when the node enters
+	# the scene tree (re-opening the scene), so there's no risk of a
+	# repeated run while the same node is still mounted. We previously
+	# tried `call_deferred("queue_free")` here on CodeRabbit's suggestion;
+	# Godot rejects freeing a scene's root Node in editor mode and emits a
+	# noisy error every run. Removed.
 
 
 # ---------- Abilities ----------

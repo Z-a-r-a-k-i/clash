@@ -15,6 +15,12 @@ extends RefCounted
 # referencing the class_name inside the class's own static methods can fail
 # during first-compile in Godot 4.6 (the parser can't always resolve a
 # script's own class_name as its return type).
+#
+# Mutation contract: EntityOrder fields are READ-ONLY once submitted to
+# the resolver. The resolver's pure-function deep-copy aliases EntityOrder
+# instances (Entity.clone() shallow-copies order_queue and persistent_order)
+# on the assumption that no caller mutates them post-submission. Adding any
+# in-place mutation here would silently leak into the input state.
 
 # INVALID is the explicit sentinel for an uninitialized order. Without it,
 # `var type: Type` would default to enum value 0 (MOVE), masking bugs where

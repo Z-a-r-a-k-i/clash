@@ -52,7 +52,41 @@ func entities_sorted_by_id() -> Array[Entity]:
 	# Stable iteration order for the resolver (per ADR 0013). Insertion order
 	# of `entities` happens to equal id order today (allocator is monotonic
 	# and removals don't reorder), but we don't want determinism to depend
-	# on that invariant — so we sort explicitly.
-	var out: Array[Entity] = entities.duplicate()
+	# on that invariant — so we sort explicitly. Null slots (preserved by
+	# `clone()` to keep positional indices) are filtered here because every
+	# resolver call site iterates the sorted output and would crash on null.
+	var out: Array[Entity] = []
+	for e in entities:
+		if e != null:
+			out.append(e)
 	out.sort_custom(func(a: Entity, b: Entity) -> bool: return a.id < b.id)
 	return out
+
+
+func clone() -> MatchState:
+	# Deep-copy used by Resolver.resolve to maintain its pure-function
+	# contract. Everything mutable is cloned; Resource (.tres) refs are
+	# treated as immutable and passed by reference.
+	var c := MatchState.new()
+	c.turn_index = turn_index
+	c.rng_seed = rng_seed
+	c.next_entity_id = next_entity_id
+	c.winner_player_id = winner_player_id
+	c.match_over = match_over
+
+	# Preserve array shape — slot 0 / slot 1 mapping to player A / player B
+	# is load-bearing for the resolver's surrender path, and `entities`
+	# uses positional indices in some lookups. Append null in null slots
+	# so indices never shift.
+	c.players = []
+	for p in players:
+		c.players.append(p.clone() if p != null else null)
+
+	c.entities = []
+	for e in entities:
+		c.entities.append(e.clone() if e != null else null)
+
+	if tile_grid != null:
+		c.tile_grid = tile_grid.clone()
+
+	return c
