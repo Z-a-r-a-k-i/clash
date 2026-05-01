@@ -111,7 +111,9 @@ static func _distribute_one(
 			# assignment + transition the FSM into MOVING_TO_SOURCE; the
 			# resolver's gather_system advances it from there each tick.
 			# Workers without a gather_state (non-worker units) silently
-			# drop the order.
+			# drop the order. Any prior MOVE / ATTACK_MOVE persistent_order
+			# is cleared — gathering supersedes it, otherwise the move
+			# would resume after the gather FSM returns to IDLE.
 			if entity.gather_state == null:
 				push_warning(
 					(
@@ -122,6 +124,7 @@ static func _distribute_one(
 				continue
 			entity.gather_state.assigned_source_entity_id = order.target_entity_id
 			entity.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
+			entity.persistent_order = null
 			continue
 		# Per-tick orders queue up.
 		if not per_entity.has(order.entity_id):

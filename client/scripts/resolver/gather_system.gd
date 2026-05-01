@@ -145,6 +145,13 @@ static func _tick_gather(
 	var rsd: ResourceSourceDef = source_def.resource_source
 	var yield_amount: int = rsd.yield_per_worker_per_turn
 	if yield_amount <= 0:
+		# A misconfigured source with zero yield would loop the worker in
+		# GATHERING forever. Bail out to MOVING_TO_BASE if we have cargo,
+		# otherwise IDLE.
+		if actor.gather_state.carrying_amount > 0:
+			actor.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
+		else:
+			actor.gather_state.phase = GatherState.Phase.IDLE
 		return
 	# Already drained?
 	if source.current_resource_amount == 0:

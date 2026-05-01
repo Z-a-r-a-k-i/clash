@@ -98,6 +98,7 @@ func _all_tests() -> Array:
 		],
 		["worker_idles_on_all_sinks_destroyed", _test_worker_idles_on_all_sinks_destroyed],
 		["nearest_deposit_sink_chosen", _test_nearest_deposit_sink_chosen],
+		["gather_clears_prior_persistent_move", _test_gather_clears_prior_persistent_move],
 	]
 
 
@@ -983,6 +984,16 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 	return true
 
 
+# Returns true if the event list contains any event of `event_type`.
+# Helper for tests that need to assert presence/absence of a specific
+# event type without iterating the list inline.
+func _has_event_of_type(events: Array, event_type: int) -> bool:
+	for ev in events:
+		if (ev as ResolverEvent).type == event_type:
+			return true
+	return false
+
+
 # Structural compare for two event lists. Returns false if any field
 # differs, including lengths.
 func _events_equal(a: Array, b: Array) -> bool:
@@ -1622,10 +1633,13 @@ func _test_gather_fails_geyser_without_refinery() -> bool:
 
 	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], geyser.id)
 	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	if _has_event_of_type(result.events, ResolverEvent.Type.WORKER_GATHERED):
+		return false
 	for _i in 10:
 		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
-	# Worker should have idled; player.gas stays 0; no WORKER_GATHERED in
-	# any of the events across all the resolve calls.
+		if _has_event_of_type(result.events, ResolverEvent.Type.WORKER_GATHERED):
+			return false
+	# Worker should have idled; player.gas stays 0.
 	var p := result.new_state.get_player(0)
 	if p == null or p.gas != 0:
 		return false
@@ -1761,6 +1775,54 @@ func _test_nearest_deposit_sink_chosen() -> bool:
 	var d_near := TileGrid.distance_between_rects(w_rect, near_rect)
 	var d_far := TileGrid.distance_between_rects(w_rect, far_rect)
 	return d_near < d_far
+
+
+func _test_gather_clears_prior_persistent_move() -> bool:
+	# Worker mid-MOVE (persistent_order set), then we hit it with a GATHER.
+	# After the gather cycle finishes (worker returns to IDLE) the prior
+	# MOVE must NOT resume — it should have been cleared at distribution.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(30, 30)
+	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	worker.gather_state = GatherState.new()
+	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	var base := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	state.tile_grid.place(base.id, Rect2i(0, 0, 4, 4))
+	var patch := _make_entity(state, "minpatch", -1, Vector2i(8, 5), 100, "ground")
+	patch.current_resource_amount = 20
+	state.tile_grid.place(patch.id, Rect2i(8, 5, 1, 1))
+	# Stash a stale persistent MOVE pointing far away. If it resumes after
+	# gather, the worker drifts toward (25, 25) instead of staying put.
+	var stale := EntityOrder.new()
+	stale.type = EntityOrder.Type.MOVE
+	stale.entity_id = worker.id
+	stale.target_tile = Vector2i(25, 25)
+	worker.persistent_order = stale
+
+	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
+	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	# After distribution the worker's persistent_order should already be
+	# null — gathering supersedes prior movement.
+	var w := result.new_state.get_entity_by_id(worker.id)
+	if w.persistent_order != null:
+		return false
+	# Run enough turns for the worker to gather, deposit, and idle once
+	# the patch is exhausted.
+	for _i in 60:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		w = result.new_state.get_entity_by_id(worker.id)
+		if w.gather_state.phase == GatherState.Phase.IDLE and w.gather_state.carrying_amount == 0:
+			break
+	# Worker should be IDLE and persistent_order should still be null —
+	# the stale MOVE must not have resumed.
+	if w.gather_state.phase != GatherState.Phase.IDLE:
+		return false
+	if w.persistent_order != null:
+		return false
+	# Sanity: at least one deposit must have happened, otherwise the FSM
+	# never finished a cycle and the assertion above is vacuous.
+	var p := result.new_state.get_player(0)
+	return p != null and p.minerals > 0
 
 
 # ---------- Helpers ----------
