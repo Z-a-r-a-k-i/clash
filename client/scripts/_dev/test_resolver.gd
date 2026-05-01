@@ -86,6 +86,8 @@ func _all_tests() -> Array:
 		["validate_drops_unowned_order", _test_validate_drops_unowned_order],
 		["validate_drops_missing_entity_order", _test_validate_drops_missing_entity_order],
 		["submit_turn_input_not_aliased_in_result", _test_submit_turn_input_not_aliased_in_result],
+		# Plan node 04 — economy / gather pipeline.
+		["gather_order_distribution_sets_phase", _test_gather_order_distribution_sets_phase],
 	]
 
 
@@ -1479,6 +1481,36 @@ func _test_validate_drops_missing_entity_order() -> bool:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED:
 			return false
 	return true
+
+
+# ---------- Plan node 04 — economy / gather pipeline ----------
+
+
+func _test_gather_order_distribution_sets_phase() -> bool:
+	# Submitting a GATHER order should, at distribute-time, set the
+	# worker's gather_state.assigned_source_entity_id and flip phase to
+	# MOVING_TO_SOURCE. No per-tick action consumed.
+	var registry := _movable_registry(4)
+	var state := _state_with_grid(20, 20)
+	var worker := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	# Workers carry a GatherState — synthesize one for the test (the def
+	# layer that pairs gather_state to GatherDef will land with plan 05).
+	worker.gather_state = GatherState.new()
+	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+
+	# Phantom source id — the FSM advance lands in chunk 3+; for chunk 1
+	# we only assert distribution sets the assignment correctly.
+	var source_id := 9999
+
+	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], source_id)
+
+	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	var new_worker := result.new_state.get_entity_by_id(worker.id)
+	if new_worker.gather_state == null:
+		return false
+	if new_worker.gather_state.assigned_source_entity_id != source_id:
+		return false
+	return new_worker.gather_state.phase == GatherState.Phase.MOVING_TO_SOURCE
 
 
 # ---------- Helpers ----------
