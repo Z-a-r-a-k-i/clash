@@ -8,18 +8,6 @@ extends RefCounted
 # and queue dispatch can be implemented and unit-tested before any system
 # logic exists.
 
-# ---------- Surrender detection ----------
-
-
-# Player-level orders short-circuit normal resolution. Returns true if any
-# order in the queue is SURRENDER (entity_id is -1 for player-level orders).
-static func has_surrender(queue: Array[EntityOrder]) -> bool:
-	for o in queue:
-		if o != null and o.type == EntityOrder.Type.SURRENDER:
-			return true
-	return false
-
-
 # ---------- Order distribution ----------
 
 
@@ -81,9 +69,6 @@ static func _distribute_one(
 ) -> void:
 	for order in queue:
 		if order == null or order.type == EntityOrder.Type.INVALID:
-			continue
-		# Player-level orders (SURRENDER) handled separately by Resolver.
-		if order.type == EntityOrder.Type.SURRENDER:
 			continue
 		var entity := state.get_entity_by_id(order.entity_id)
 		if entity == null:
