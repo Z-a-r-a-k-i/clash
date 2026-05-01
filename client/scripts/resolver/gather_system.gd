@@ -130,6 +130,16 @@ static func _tick_gather(
 		else:
 			actor.gather_state.phase = GatherState.Phase.IDLE
 		return
+	# Range check — a fresh MOVE / nudged origin could leave the worker
+	# in GATHERING phase while no longer next to the source. Don't drain
+	# from afar; transition back into travel.
+	if not _is_adjacent_to(state, actor, source):
+		var carry_cap_now := _worker_carry_cap(actor, registry)
+		if actor.gather_state.carrying_amount >= carry_cap_now and carry_cap_now > 0:
+			actor.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
+		else:
+			actor.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
+		return
 	# Cargo full? Head back.
 	var carry_cap := _worker_carry_cap(actor, registry)
 	if actor.gather_state.carrying_amount >= carry_cap:
@@ -153,9 +163,12 @@ static func _tick_gather(
 		else:
 			actor.gather_state.phase = GatherState.Phase.IDLE
 		return
-	# Already drained?
+	# Already drained? Head home with whatever cargo we have.
 	if source.current_resource_amount == 0:
-		actor.gather_state.phase = GatherState.Phase.IDLE
+		if actor.gather_state.carrying_amount > 0:
+			actor.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
+		else:
+			actor.gather_state.phase = GatherState.Phase.IDLE
 		return
 	# Compute the actual harvest before mutating anything: cap by carry
 	# space AND by source remaining (-1 = infinite). Doing it in one shot

@@ -123,7 +123,14 @@ static func _distribute_one(
 				)
 				continue
 			entity.gather_state.assigned_source_entity_id = order.target_entity_id
-			entity.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
+			# A loaded worker must drop its existing cargo before starting
+			# the new cycle, otherwise switching to a different resource
+			# type would mis-credit the deposit (carrying_resource_type is
+			# overwritten in _tick_gather).
+			if entity.gather_state.carrying_amount > 0:
+				entity.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
+			else:
+				entity.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
 			entity.persistent_order = null
 			continue
 		# Per-tick orders queue up.
