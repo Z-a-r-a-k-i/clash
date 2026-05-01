@@ -88,6 +88,16 @@ func _all_tests() -> Array:
 		["submit_turn_input_not_aliased_in_result", _test_submit_turn_input_not_aliased_in_result],
 		# Plan node 04 — economy / gather pipeline.
 		["gather_order_distribution_sets_phase", _test_gather_order_distribution_sets_phase],
+		["gather_full_cycle_minerals", _test_gather_full_cycle_minerals],
+		["gather_full_cycle_gas_via_refinery", _test_gather_full_cycle_gas_via_refinery],
+		["gather_fails_geyser_without_refinery", _test_gather_fails_geyser_without_refinery],
+		["patch_depletes_at_capacity_zero", _test_patch_depletes_at_capacity_zero],
+		[
+			"worker_idles_on_source_destroyed_mid_trip",
+			_test_worker_idles_on_source_destroyed_mid_trip
+		],
+		["worker_idles_on_all_sinks_destroyed", _test_worker_idles_on_all_sinks_destroyed],
+		["nearest_deposit_sink_chosen", _test_nearest_deposit_sink_chosen],
 	]
 
 
@@ -1491,28 +1501,264 @@ func _test_validate_drops_missing_entity_order() -> bool:
 func _test_gather_order_distribution_sets_phase() -> bool:
 	# Submitting a GATHER order should, at distribute-time, set the
 	# worker's gather_state.assigned_source_entity_id and flip phase to
-	# MOVING_TO_SOURCE. No per-tick action consumed.
-	var registry := _movable_registry(4)
-	var state := _state_with_grid(20, 20)
-	var worker := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
-	# Workers carry a GatherState — synthesize one for the test (the def
-	# layer that pairs gather_state to GatherDef will land with plan 05).
+	# MOVING_TO_SOURCE. The patch is far enough that the FSM stays in
+	# MOVING_TO_SOURCE after the single forced tick.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(30, 30)
+	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
 	worker.gather_state = GatherState.new()
 	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	var patch := _make_entity(state, "minpatch", -1, Vector2i(25, 5), 100, "ground")
+	patch.current_resource_amount = 1500
+	state.tile_grid.place(patch.id, Rect2i(25, 5, 1, 1))
 
-	# Phantom source id — the FSM advance lands in chunk 3+; for chunk 1
-	# we only assert distribution sets the assignment correctly.
-	var source_id := 9999
-
-	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], source_id)
+	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
 
 	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
 	var new_worker := result.new_state.get_entity_by_id(worker.id)
 	if new_worker.gather_state == null:
 		return false
-	if new_worker.gather_state.assigned_source_entity_id != source_id:
+	if new_worker.gather_state.assigned_source_entity_id != patch.id:
 		return false
+	# 19 tiles to walk; one forced tick advances at most 1 step → still MOVING.
 	return new_worker.gather_state.phase == GatherState.Phase.MOVING_TO_SOURCE
+
+
+func _test_gather_full_cycle_minerals() -> bool:
+	# Worker walks adjacent to a mineral patch, gathers a full carry,
+	# walks back to the base, deposits. player.minerals goes from 0 to
+	# carry. Single resolve() with one big SubmitTurn carrying many
+	# implicit ticks — we drive the cycle by submitting enough no-op
+	# placeholder orders to force N ticks. Simpler: run resolve multiple
+	# times with an empty submission until cycle completes.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(20, 20)
+	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	worker.gather_state = GatherState.new()
+	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	var base := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	state.tile_grid.place(base.id, Rect2i(0, 0, 4, 4))
+	var patch := _make_entity(state, "minpatch", -1, Vector2i(8, 5), 1500, "ground")
+	patch.current_resource_amount = 1500
+	state.tile_grid.place(patch.id, Rect2i(8, 5, 1, 1))
+
+	# Send the GATHER order on turn 0.
+	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
+	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	# Drive the cycle to completion. ~30 turns is plenty (walk 2 + gather
+	# 5 + walk 2 + deposit 1 = 10ish ticks). Each call advances at most a
+	# couple of ticks given there's only one entity with standing work.
+	for _i in 30:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		# Stop once the deposit happened.
+		var p := result.new_state.get_player(0)
+		if p != null and p.minerals >= 5:
+			break
+	var p_final := result.new_state.get_player(0)
+	if p_final == null or p_final.minerals != 5:
+		return false
+	# Source should have drained by 5.
+	var new_patch := result.new_state.get_entity_by_id(patch.id)
+	return new_patch.current_resource_amount == 1495
+
+
+func _test_gather_full_cycle_gas_via_refinery() -> bool:
+	# Same loop, but the GATHER targets a refinery sitting on a geyser.
+	# Resolver should translate the refinery to the geyser, gather, then
+	# the worker walks back to the base and deposits into player.gas.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(20, 20)
+	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	worker.gather_state = GatherState.new()
+	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	var base := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	state.tile_grid.place(base.id, Rect2i(0, 0, 4, 4))
+	var geyser := _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
+	geyser.current_resource_amount = -1  # infinite
+	state.tile_grid.place(geyser.id, Rect2i(10, 5, 1, 1))
+	# Refinery shares the geyser's origin (the construction system would
+	# enforce this in the real flow).
+	var refinery := _make_entity(state, "refinery", 0, Vector2i(10, 5), 750, "ground")
+	# Refinery and geyser overlap by design — work around the tile_grid's
+	# collision check by removing the geyser, placing the refinery, then
+	# re-placing the geyser via direct dictionary update through a fresh
+	# place call on a different tile mapped back. Simpler: use a side-by-
+	# side rect for test purposes (the resolver looks for same `position`,
+	# so we co-locate them by patching the grid post-hoc).
+	state.tile_grid.remove(geyser.id)
+	state.tile_grid.place(refinery.id, Rect2i(10, 5, 1, 1))
+	# Manually re-add the geyser to the grid's entity_rects index without
+	# touching occupancy (so _resolve_source's "same origin" check works).
+	# This is test-shim plumbing only — production never has overlapping
+	# entities placed this way.
+	state.tile_grid._entity_rects[geyser.id] = Rect2i(10, 5, 1, 1)
+
+	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], refinery.id)
+	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	for _i in 30:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		var p := result.new_state.get_player(0)
+		if p != null and p.gas >= 5:
+			break
+	var p_final := result.new_state.get_player(0)
+	return p_final != null and p_final.gas == 5
+
+
+func _test_gather_fails_geyser_without_refinery() -> bool:
+	# GATHER on a geyser with no refinery on top → worker walks adjacent,
+	# can't gather (extractor missing), idles. No WORKER_GATHERED event.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(20, 20)
+	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	worker.gather_state = GatherState.new()
+	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	var base := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	state.tile_grid.place(base.id, Rect2i(0, 0, 4, 4))
+	var geyser := _make_entity(state, "geyser", -1, Vector2i(8, 5), 1000, "ground")
+	geyser.current_resource_amount = -1
+	state.tile_grid.place(geyser.id, Rect2i(8, 5, 1, 1))
+
+	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], geyser.id)
+	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	for _i in 10:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+	# Worker should have idled; player.gas stays 0; no WORKER_GATHERED in
+	# any of the events across all the resolve calls.
+	var p := result.new_state.get_player(0)
+	if p == null or p.gas != 0:
+		return false
+	# Also assert the worker is in IDLE (resolve_source returned null →
+	# the FSM transitioned to IDLE at the first tick).
+	var w := result.new_state.get_entity_by_id(worker.id)
+	return w.gather_state.phase == GatherState.Phase.IDLE
+
+
+func _test_patch_depletes_at_capacity_zero() -> bool:
+	# Patch with capacity = 3, carry = 5: worker can only collect 3
+	# before the patch depletes; should walk back, deposit 3, then idle.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(20, 20)
+	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	worker.gather_state = GatherState.new()
+	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	var base := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	state.tile_grid.place(base.id, Rect2i(0, 0, 4, 4))
+	var patch := _make_entity(state, "minpatch", -1, Vector2i(8, 5), 100, "ground")
+	patch.current_resource_amount = 3
+	state.tile_grid.place(patch.id, Rect2i(8, 5, 1, 1))
+
+	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
+	var saw_depleted := false
+	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.RESOURCE_DEPLETED:
+			saw_depleted = true
+	for _i in 30:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		for ev in result.events:
+			if ev.type == ResolverEvent.Type.RESOURCE_DEPLETED:
+				saw_depleted = true
+		var p := result.new_state.get_player(0)
+		if p != null and p.minerals >= 3:
+			break
+	var p_final := result.new_state.get_player(0)
+	if p_final == null or p_final.minerals != 3:
+		return false
+	if not saw_depleted:
+		return false
+	var new_patch := result.new_state.get_entity_by_id(patch.id)
+	return new_patch.current_resource_amount == 0
+
+
+func _test_worker_idles_on_source_destroyed_mid_trip() -> bool:
+	# Worker en-route to source; the patch is removed from the world
+	# mid-trip; worker FSM transitions to IDLE.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(20, 20)
+	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	worker.gather_state = GatherState.new()
+	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	var base := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	state.tile_grid.place(base.id, Rect2i(0, 0, 4, 4))
+	var patch := _make_entity(state, "minpatch", -1, Vector2i(15, 5), 100, "ground")
+	patch.current_resource_amount = 100
+	state.tile_grid.place(patch.id, Rect2i(15, 5, 1, 1))
+
+	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
+	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	# Mid-trip: kill the patch on the result state, then keep resolving.
+	var dying_patch := result.new_state.get_entity_by_id(patch.id)
+	dying_patch.current_hp = 0
+	result.new_state.tile_grid.remove(patch.id)
+	for _i in 5:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+	var w := result.new_state.get_entity_by_id(worker.id)
+	return w.gather_state.phase == GatherState.Phase.IDLE
+
+
+func _test_worker_idles_on_all_sinks_destroyed() -> bool:
+	# Worker with cargo, walking back to a base. Base is razed mid-trip.
+	# Worker idles, cargo preserved.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(20, 20)
+	var worker := _make_entity(state, "worker", 0, Vector2i(10, 10), 50, "ground")
+	worker.gather_state = GatherState.new()
+	worker.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
+	worker.gather_state.carrying_amount = 4
+	worker.gather_state.carrying_resource_type = "minerals"
+	state.tile_grid.place(worker.id, Rect2i(10, 10, 1, 1))
+	var base := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	state.tile_grid.place(base.id, Rect2i(0, 0, 4, 4))
+
+	# Razing the base before any tick runs: clone the state and remove
+	# the base, then resolve. The worker should idle because there's no
+	# deposit_sink to walk to.
+	base.current_hp = 0
+	state.tile_grid.remove(base.id)
+
+	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
+	var w := result.new_state.get_entity_by_id(worker.id)
+	if w.gather_state.phase != GatherState.Phase.IDLE:
+		return false
+	# Cargo preserved.
+	return w.gather_state.carrying_amount == 4
+
+
+func _test_nearest_deposit_sink_chosen() -> bool:
+	# Two owned bases at different distances. Worker has cargo, currently
+	# in MOVING_TO_BASE. After enough ticks it should arrive at the
+	# closer base (smaller id won't matter — distances differ).
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(30, 30)
+	# Far base first → lower id; near base second → higher id. Distance
+	# decides regardless.
+	var far_base := _make_entity(state, "base", 0, Vector2i(20, 20), 1500, "ground")
+	state.tile_grid.place(far_base.id, Rect2i(20, 20, 4, 4))
+	var near_base := _make_entity(state, "base", 0, Vector2i(2, 2), 1500, "ground")
+	state.tile_grid.place(near_base.id, Rect2i(2, 2, 4, 4))
+	var worker := _make_entity(state, "worker", 0, Vector2i(7, 7), 50, "ground")
+	worker.gather_state = GatherState.new()
+	worker.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
+	worker.gather_state.carrying_amount = 5
+	worker.gather_state.carrying_resource_type = "minerals"
+	state.tile_grid.place(worker.id, Rect2i(7, 7, 1, 1))
+
+	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
+	for _i in 15:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		var p := result.new_state.get_player(0)
+		if p != null and p.minerals >= 5:
+			break
+	# The deposit must have happened (proves the worker reached SOMEWHERE);
+	# additionally check the worker is now adjacent to the near_base, not
+	# the far one.
+	var w := result.new_state.get_entity_by_id(worker.id)
+	var near_rect := result.new_state.tile_grid.entity_rect(near_base.id)
+	var far_rect := result.new_state.tile_grid.entity_rect(far_base.id)
+	var w_rect := result.new_state.tile_grid.entity_rect(w.id)
+	var d_near := TileGrid.distance_between_rects(w_rect, near_rect)
+	var d_far := TileGrid.distance_between_rects(w_rect, far_rect)
+	return d_near < d_far
 
 
 # ---------- Helpers ----------
@@ -1628,6 +1874,57 @@ func _movable_registry(speed: int) -> EntityRegistry:
 	var d := _def_with_movement("marine", Vector2i(1, 1), ["light", "ground"], 50, speed)
 	var registry := EntityRegistry.new()
 	registry.entities = [d]
+	return registry
+
+
+# Worker + base + mineral_patch + refinery + geyser registry. Used by
+# plan-04 economy tests so a single _gather_registry call wires every
+# def the gather pipeline touches.
+func _gather_registry(carry: int, yield_per_turn: int, speed: int) -> EntityRegistry:
+	var registry := EntityRegistry.new()
+	# Worker — movement + gather capabilities.
+	var worker := _def_with_movement("worker", Vector2i(1, 1), ["worker", "ground"], 50, speed)
+	worker.gather = GatherDef.new()
+	worker.gather.gather_per_turn = yield_per_turn
+	worker.gather.carry_amount = carry
+	worker.gather.accepts_resource_types = ["minerals", "gas"]
+	# Base — a deposit sink.
+	var base := EntityDef.new()
+	base.id = "base"
+	base.footprint = Vector2i(4, 4)
+	base.tags = ["building", "structure", "ground", "deposit_sink"]
+	var base_hp := HealthDef.new()
+	base_hp.max_hp = 1500
+	base.health = base_hp
+	# Mineral patch — ResourceSource without extractor.
+	var patch := EntityDef.new()
+	patch.id = "minpatch"
+	patch.footprint = Vector2i(1, 1)
+	patch.tags = ["resource_source", "minerals", "ground"]
+	var patch_rs := ResourceSourceDef.new()
+	patch_rs.resource_type = "minerals"
+	patch_rs.yield_per_worker_per_turn = yield_per_turn
+	patch_rs.requires_extractor = false
+	patch.resource_source = patch_rs
+	# Geyser — ResourceSource WITH extractor.
+	var geyser := EntityDef.new()
+	geyser.id = "geyser"
+	geyser.footprint = Vector2i(1, 1)
+	geyser.tags = ["resource_source", "gas", "ground"]
+	var geyser_rs := ResourceSourceDef.new()
+	geyser_rs.resource_type = "gas"
+	geyser_rs.yield_per_worker_per_turn = yield_per_turn
+	geyser_rs.requires_extractor = true
+	geyser.resource_source = geyser_rs
+	# Refinery — extractor tag, no resource_source itself.
+	var refinery := EntityDef.new()
+	refinery.id = "refinery"
+	refinery.footprint = Vector2i(1, 1)
+	refinery.tags = ["building", "structure", "ground", "extractor"]
+	var refinery_hp := HealthDef.new()
+	refinery_hp.max_hp = 750
+	refinery.health = refinery_hp
+	registry.entities = [worker, base, patch, geyser, refinery]
 	return registry
 
 

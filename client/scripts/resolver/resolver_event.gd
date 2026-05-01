@@ -16,6 +16,9 @@ enum Type {
 	ENTITY_TRANSFORMED,
 	BUILD_COMPLETED,
 	MATCH_ENDED,
+	WORKER_GATHERED,
+	WORKER_DEPOSITED,
+	RESOURCE_DEPLETED,
 }
 
 var type: Type = Type.INVALID
@@ -30,6 +33,8 @@ var from_origin: Vector2i = Vector2i.ZERO
 var to_origin: Vector2i = Vector2i.ZERO
 
 # ENTITY_DAMAGED — damage dealt this tick + the target's HP after.
+# WORKER_GATHERED / WORKER_DEPOSITED — amount field reused (ints, no unit
+# conflict).
 var damage: int = 0
 var hp_after: int = 0
 
@@ -37,7 +42,12 @@ var hp_after: int = 0
 var new_def_id: String = ""
 
 # BUILD_COMPLETED — the def id that finished construction / training.
+# WORKER_DEPOSITED — the resource type ("minerals" | "gas").
 var def_id: String = ""
 
 # MATCH_ENDED — winner. -1 means unknown / draw (M0 has no draws).
 var winner_player_id: int = -1
+
+# WORKER_GATHERED — yield this tick.
+# WORKER_DEPOSITED — total amount deposited (= worker.gather_state.carry).
+var amount: int = 0

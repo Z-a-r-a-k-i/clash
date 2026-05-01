@@ -19,16 +19,17 @@ extends RefCounted
 #   2. Distribute per-entity orders; HOLD_FIRE_TOGGLE / CANCEL apply now.
 #   3. For tick in 1..N:
 #        Phase 1: every unit's k-th action that is an attack.
-#        Phase 2: every unit's k-th action that is a move.
-#        Phase 3: persistent move advance for units with no fresh order.
+#        Phase 2: every unit's k-th action that is a move (+ gather travel).
+#        Phase 3: persistent move advance + gather state ticks (yield/deposit).
 #   4. End-of-turn pass: cooldowns, buffs, production progress, is_hidden,
 #      win check.
 #
 # The resolver is split across these files for chunked implementation:
 # - resolver.gd          (this) — entry point + tick loop
-# - combat_system.gd     — attack resolution + target chains (chunk 3)
-# - movement_system.gd   — move + attack-move + persistent (chunk 4)
-# - end_of_turn_system.gd — bookkeeping + win check (chunk 5)
+# - combat_system.gd     — attack resolution + target chains
+# - movement_system.gd   — move + attack-move + persistent
+# - gather_system.gd     — worker FSM (move-to-source, gather, deposit)
+# - end_of_turn_system.gd — bookkeeping + win check
 # - _state_helpers.gd    — deep-copy + queue distribution
 
 const _STATE_HELPERS := preload("res://scripts/resolver/_state_helpers.gd")
@@ -104,10 +105,9 @@ static func resolve(
 
 	# 4. Tick loop — action-slot lockstep per ADR 0004.
 	var n_ticks := _STATE_HELPERS.max_queue_length(per_entity)
-	# Ensure persistent moves still advance on turns with no submitted
-	# orders: if any live entity has a persistent_order, force at least
-	# one tick so Phase 3 runs.
-	if n_ticks == 0 and _has_any_persistent_order(working):
+	# Ensure persistent moves and active gather cycles still advance on
+	# turns with no submitted orders.
+	if n_ticks == 0 and _has_standing_work(working):
 		n_ticks = 1
 	for tick in n_ticks:
 		# Sort once per tick and reuse across phases. Determinism still
@@ -134,10 +134,18 @@ static func resolve(
 			if order.type == EntityOrder.Type.MOVE or order.type == EntityOrder.Type.ATTACK_MOVE:
 				MovementSystem.resolve_move(working, entity, order, registry, tunables, events)
 
+		# Phase 2 extension: gather workers that are walking to a source or
+		# a deposit sink step here too — same lockstep as MOVE.
+		GatherSystem.advance_move_phase(working, per_entity, tick, registry, tunables, events)
+
 		# Phase 3: persistent move advance for entities with no fresh order.
 		MovementSystem.advance_persistent_moves(
 			working, per_entity, tick, registry, tunables, events
 		)
+
+		# Phase 3 extension: gather workers at a source / sink tick yields
+		# and deposits.
+		GatherSystem.advance_state_phase(working, registry, tunables, events)
 
 	# 5. End-of-turn pass.
 	EndOfTurnSystem.run(working, registry, tunables, events)
@@ -148,11 +156,16 @@ static func resolve(
 	return result
 
 
-# Returns true if any live entity has a persistent_order set. Used by
-# resolve() to force a tick on turns where no orders were submitted but
-# persistent moves still need to advance.
-static func _has_any_persistent_order(state: MatchState) -> bool:
+# Returns true if any live entity has standing work that needs at least
+# one tick to advance: a `persistent_order`, or a non-IDLE gather phase.
+# Used by resolve() to force n_ticks ≥ 1 on turns with no submitted
+# orders.
+static func _has_standing_work(state: MatchState) -> bool:
 	for e in state.entities:
-		if e != null and e.current_hp > 0 and e.persistent_order != null:
+		if e == null or e.current_hp <= 0:
+			continue
+		if e.persistent_order != null:
+			return true
+		if e.gather_state != null and e.gather_state.phase != GatherState.Phase.IDLE:
 			return true
 	return false
