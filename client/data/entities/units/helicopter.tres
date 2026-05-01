@@ -1,5 +1,6 @@
 [gd_resource type="Resource" script_class="EntityDef" format=3 uid="uid://bdkq3belyi1gx"]
 
+[ext_resource type="Script" uid="uid://cxbe8iowpag5f" path="res://scripts/data/attack_modifier.gd" id="1_s3tq7"]
 [ext_resource type="Script" uid="uid://voeakqpmilet" path="res://scripts/data/combat_def.gd" id="2_hhtxd"]
 [ext_resource type="Script" uid="uid://d2s53qcs5kvti" path="res://scripts/data/construction_def.gd" id="3_ehlqm"]
 [ext_resource type="Script" uid="uid://cegrh6taqqbqv" path="res://scripts/data/health_def.gd" id="4_5viv5"]

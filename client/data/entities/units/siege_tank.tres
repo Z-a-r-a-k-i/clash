@@ -3,6 +3,7 @@
 [ext_resource type="Script" uid="uid://b520b3b4w1skc" path="res://scripts/data/ability_def.gd" id="1_rw1mx"]
 [ext_resource type="Resource" uid="uid://w8ewc0ti8361" path="res://data/abilities/unsiege_mode.tres" id="2_hxqc7"]
 [ext_resource type="Script" uid="uid://dl3urbbllej16" path="res://scripts/data/abilities_def.gd" id="3_f2lhg"]
+[ext_resource type="Script" uid="uid://cxbe8iowpag5f" path="res://scripts/data/attack_modifier.gd" id="4_jxj1c"]
 [ext_resource type="Script" uid="uid://voeakqpmilet" path="res://scripts/data/combat_def.gd" id="5_4v1ei"]
 [ext_resource type="Script" uid="uid://cegrh6taqqbqv" path="res://scripts/data/health_def.gd" id="6_j7gj2"]
 [ext_resource type="Script" uid="uid://c1kfjxmjqsms8" path="res://scripts/data/population_def.gd" id="7_jpa3c"]

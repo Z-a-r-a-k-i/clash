@@ -938,6 +938,8 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 			return false
 		if ea.is_hidden != eb.is_hidden:
 			return false
+		if ea.current_resource_amount != eb.current_resource_amount:
+			return false
 		if ea.ability_cooldowns != eb.ability_cooldowns:
 			return false
 		if ea.active_buffs.size() != eb.active_buffs.size():
