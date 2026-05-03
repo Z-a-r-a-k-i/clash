@@ -101,7 +101,9 @@ static func resolve(
 	var orders_b: Array[EntityOrder] = (
 		safe_submit_b.orders if safe_submit_b != null else [] as Array[EntityOrder]
 	)
-	var per_entity := _STATE_HELPERS.distribute_orders(working, orders_a, orders_b, events)
+	var per_entity := _STATE_HELPERS.distribute_orders(
+		working, orders_a, orders_b, registry, events
+	)
 
 	# 3a. Idle producers that just received a TRAIN/RESEARCH this turn
 	#     should start producing immediately (so build-time is N turns
@@ -143,6 +145,10 @@ static func resolve(
 		# a deposit sink step here too — same lockstep as MOVE.
 		GatherSystem.advance_move_phase(working, per_entity, tick, registry, tunables, events)
 
+		# Phase 2 extension: workers locked to an in-progress build walk
+		# toward the building's rect. Plan node 05.
+		ConstructionSystem.advance_move_phase(working, per_entity, tick, registry, tunables, events)
+
 		# Phase 3: persistent move advance for entities with no fresh order.
 		MovementSystem.advance_persistent_moves(
 			working, per_entity, tick, registry, tunables, events
@@ -172,5 +178,9 @@ static func _has_standing_work(state: MatchState) -> bool:
 		if e.persistent_order != null:
 			return true
 		if e.gather_state != null and e.gather_state.phase != GatherState.Phase.IDLE:
+			return true
+		if e.locked_to_building_id >= 0:
+			return true
+		if e.is_constructing:
 			return true
 	return false

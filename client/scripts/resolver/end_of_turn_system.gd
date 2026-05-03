@@ -29,6 +29,11 @@ static func run(
 		entity.moves_used_this_turn = 0
 		_recompute_is_hidden(entity, registry, tunables)
 
+	# Construction lifecycle (plan node 05). ConstructionSystem runs
+	# BEFORE ProductionSystem so a building completing this turn can
+	# install its first queued production item the same turn.
+	ConstructionSystem.finalize_completed(state, registry, events)
+
 	# Production lifecycle (plan node 05). ProductionSystem ticks active
 	# slots, finalizes completions (spawn unit / apply research), and
 	# runs a final try-fill so a freshly-emptied slot can install the

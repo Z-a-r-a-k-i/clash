@@ -27,6 +27,7 @@ static func distribute_orders(
 	state: MatchState,
 	queue_a: Array[EntityOrder],
 	queue_b: Array[EntityOrder],
+	registry: EntityRegistry,
 	events: Array[ResolverEvent]
 ) -> Dictionary:
 	var per_entity: Dictionary = {}  # int entity_id -> Array[EntityOrder]
@@ -37,8 +38,8 @@ static func distribute_orders(
 	var p_b: PlayerState = state.players[1] if state.players.size() >= 2 else null
 	var owner_a := p_a.player_id if p_a != null else 0
 	var owner_b := p_b.player_id if p_b != null else 1
-	_distribute_one(state, queue_a, owner_a, per_entity, events)
-	_distribute_one(state, queue_b, owner_b, per_entity, events)
+	_distribute_one(state, queue_a, owner_a, per_entity, registry, events)
+	_distribute_one(state, queue_b, owner_b, per_entity, registry, events)
 	return per_entity
 
 
@@ -75,6 +76,7 @@ static func _distribute_one(
 	queue: Array[EntityOrder],
 	expected_owner: int,
 	per_entity: Dictionary,
+	registry: EntityRegistry,
 	events: Array[ResolverEvent]
 ) -> void:
 	for order in queue:
@@ -109,6 +111,13 @@ static func _distribute_one(
 		if order.type == EntityOrder.Type.RESEARCH:
 			_handle_research_order(state, entity, order, events)
 			continue
+		if order.type == EntityOrder.Type.BUILD:
+			_handle_build_order(state, entity, order, registry, events)
+			continue
+		# Locked workers (mid-construction) reject any tick-action orders.
+		if entity.locked_to_building_id >= 0:
+			_emit_order_rejected(order.entity_id, "worker_locked", events)
+			continue
 		if order.type == EntityOrder.Type.GATHER:
 			# A GATHER turns into standing state on the worker: we set the
 			# assignment + transition the FSM into MOVING_TO_SOURCE; the
@@ -140,6 +149,191 @@ static func _distribute_one(
 		if not per_entity.has(order.entity_id):
 			per_entity[order.entity_id] = []
 		per_entity[order.entity_id].append(order)
+
+
+# BUILD handler — eager-deduct (cost is paid up front). Two paths:
+# new construction (target_entity_id < 0) and resume of a paused
+# building (target_entity_id is the paused building). Plan node 05
+# chunk 5/6.
+static func _handle_build_order(
+	state: MatchState,
+	worker: Entity,
+	order: EntityOrder,
+	registry: EntityRegistry,
+	events: Array[ResolverEvent]
+) -> void:
+	if order.target_entity_id >= 0:
+		_handle_build_resume(state, worker, order, events)
+		return
+	# New construction.
+	if worker.locked_to_building_id >= 0:
+		_emit_order_rejected(order.entity_id, "worker_locked", events)
+		return
+	if registry == null:
+		_emit_order_rejected(order.entity_id, "no_registry", events)
+		return
+	var def: EntityDef = registry.get_by_id(order.def_id)
+	if def == null or def.construction == null:
+		_emit_order_rejected(order.entity_id, "bad_build_target", events)
+		return
+	var built_by: String = def.construction.built_by_tag
+	if built_by != "" and not _worker_has_tag(worker, registry, built_by):
+		_emit_order_rejected(order.entity_id, "wrong_builder", events)
+		return
+	var footprint := def.footprint if def.footprint != Vector2i.ZERO else Vector2i.ONE
+	var rect := Rect2i(order.target_tile, footprint)
+	if state.tile_grid == null or not state.tile_grid.is_rect_in_bounds(rect):
+		_emit_order_rejected(order.entity_id, "off_grid", events)
+		return
+	# Refinery / overlap path lands in chunk 7. For now, basic clearance.
+	var require_tag: String = def.construction.requires_target_tag
+	if require_tag != "":
+		# Defer to chunk 7 (place_overlapping); reject for now if the tile
+		# isn't already free.
+		if not state.tile_grid.is_rect_clear(rect):
+			# Allow overlap if the only existing entity carries the
+			# required tag — placeholder until tile_grid.place_overlapping
+			# lands in chunk 7. Currently rejects anything else.
+			if not _overlap_allowed(state, registry, rect, require_tag):
+				_emit_order_rejected(order.entity_id, "tile_occupied", events)
+				return
+	else:
+		if not state.tile_grid.is_rect_clear(rect):
+			_emit_order_rejected(order.entity_id, "tile_occupied", events)
+			return
+	var player := state.get_player(worker.owner_player_id)
+	if player == null:
+		return
+	var pop_cost := 0
+	if def.population != null:
+		pop_cost = def.population.pop_cost
+	if (
+		player.minerals < def.construction.mineral_cost
+		or player.gas < def.construction.gas_cost
+		or player.pop_used + pop_cost > player.pop_cap
+	):
+		_emit_order_rejected(order.entity_id, "insufficient_resources", events)
+		return
+	# Deduct + spawn building entity.
+	player.minerals -= def.construction.mineral_cost
+	player.gas -= def.construction.gas_cost
+	player.pop_used += pop_cost
+	var building := Entity.new()
+	building.id = state.allocate_entity_id()
+	building.def_id = def.id
+	building.current_def_id = def.id
+	building.owner_player_id = worker.owner_player_id
+	building.origin = order.target_tile
+	building.current_layer = "ground"
+	if def.health != null:
+		building.current_hp = def.health.max_hp
+	building.is_constructing = true
+	building.construction_turns_remaining = def.construction.build_time_turns
+	building.construction_worker_id = worker.id
+	if def.production != null:
+		building.production_state = ProductionState.new()
+	state.entities.append(building)
+	# Place. Refinery overlap is chunk 7's job — for now assume clear.
+	if require_tag != "":
+		_place_overlapping(state, registry, building.id, rect, require_tag)
+	else:
+		state.tile_grid.place(building.id, rect)
+	worker.locked_to_building_id = building.id
+	worker.persistent_order = null
+	if worker.gather_state != null:
+		worker.gather_state.phase = GatherState.Phase.IDLE
+		worker.gather_state.assigned_source_entity_id = -1
+	var ev := ResolverEvent.new()
+	ev.type = ResolverEvent.Type.BUILD_STARTED
+	ev.actor_id = worker.id
+	ev.target_id = building.id
+	ev.def_id = def.id
+	events.append(ev)
+
+
+static func _handle_build_resume(
+	state: MatchState, worker: Entity, order: EntityOrder, events: Array[ResolverEvent]
+) -> void:
+	var building := state.get_entity_by_id(order.target_entity_id)
+	if building == null or building.current_hp <= 0:
+		_emit_order_rejected(order.entity_id, "missing_resume_target", events)
+		return
+	if not building.is_constructing:
+		_emit_order_rejected(order.entity_id, "not_constructing", events)
+		return
+	if building.construction_worker_id >= 0:
+		_emit_order_rejected(order.entity_id, "already_has_worker", events)
+		return
+	if building.owner_player_id != worker.owner_player_id:
+		_emit_order_rejected(order.entity_id, "wrong_owner", events)
+		return
+	if worker.locked_to_building_id >= 0:
+		_emit_order_rejected(order.entity_id, "worker_locked", events)
+		return
+	building.construction_worker_id = worker.id
+	worker.locked_to_building_id = building.id
+	worker.persistent_order = null
+	if worker.gather_state != null:
+		worker.gather_state.phase = GatherState.Phase.IDLE
+		worker.gather_state.assigned_source_entity_id = -1
+	var ev := ResolverEvent.new()
+	ev.type = ResolverEvent.Type.BUILD_RESUMED
+	ev.actor_id = worker.id
+	ev.target_id = building.id
+	events.append(ev)
+
+
+# Returns true if the worker's def carries `tag`. Used by BUILD validation.
+static func _worker_has_tag(worker: Entity, registry: EntityRegistry, tag: String) -> bool:
+	if registry == null:
+		return false
+	var def: EntityDef = registry.get_by_id(worker.current_def_id)
+	if def == null:
+		return false
+	return def.tags.has(tag)
+
+
+# Allow placement to overlap with an existing entity carrying `tag`
+# (e.g. refinery on geyser). Full implementation lands in chunk 7;
+# this scaffold supports the simple "only the tagged entity is in the
+# rect" case via direct rect-index manipulation.
+static func _overlap_allowed(
+	state: MatchState, registry: EntityRegistry, rect: Rect2i, tag: String
+) -> bool:
+	if state.tile_grid == null or registry == null:
+		return false
+	var occupants: Array[int] = []
+	for x in range(rect.position.x, rect.position.x + rect.size.x):
+		for y in range(rect.position.y, rect.position.y + rect.size.y):
+			var occ := state.tile_grid.entity_at(Vector2i(x, y))
+			if occ != -1 and not occupants.has(occ):
+				occupants.append(occ)
+	if occupants.size() != 1:
+		return false
+	var occupant := state.get_entity_by_id(occupants[0])
+	if occupant == null:
+		return false
+	var def: EntityDef = registry.get_by_id(occupant.current_def_id)
+	return def != null and def.tags.has(tag)
+
+
+# Place a building atop an entity that carries `allow_overlap_tag`. The
+# overlap-tagged entity stays on the grid (the index allows multiple
+# entries per tile via separate rects, but tile_grid.place rejects any
+# overlap). Workaround: write directly to the rect index. Plan node 05
+# chunk 7 will replace this with TileGrid.place_overlapping.
+static func _place_overlapping(
+	state: MatchState,
+	_registry: EntityRegistry,
+	entity_id: int,
+	rect: Rect2i,
+	_allow_overlap_tag: String
+) -> void:
+	# Direct rect index — bypass tile_grid.place's collision check. The
+	# previous tagged entity stays in _occupancy at those tiles; future
+	# queries for "what's at tile X" will return whichever entity was
+	# placed last. Tracked TODO.
+	state.tile_grid._entity_rects[entity_id] = rect
 
 
 # RESEARCH handler — appends a queue declaration on the producer's

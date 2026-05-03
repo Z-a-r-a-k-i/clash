@@ -123,6 +123,18 @@ func _all_tests() -> Array:
 		["research_full_cycle", _test_research_full_cycle],
 		["research_already_unlocked_rejected", _test_research_already_unlocked_rejected],
 		["research_stalls_on_funds", _test_research_stalls_on_funds],
+		[
+			"build_distributes_creates_constructing_entity",
+			_test_build_distributes_creates_constructing_entity
+		],
+		["build_worker_walks_to_site", _test_build_worker_walks_to_site],
+		[
+			"build_progress_only_while_worker_adjacent",
+			_test_build_progress_only_while_worker_adjacent
+		],
+		["build_completes_applies_pop_provides", _test_build_completes_applies_pop_provides],
+		["build_locked_worker_rejects_new_orders", _test_build_locked_worker_rejects_new_orders],
+		["building_death_drops_pop_cap", _test_building_death_drops_pop_cap],
 	]
 
 
@@ -2407,6 +2419,220 @@ func _test_train_pop_overflow_stalls_at_install() -> bool:
 	return false
 
 
+func _test_build_distributes_creates_constructing_entity() -> bool:
+	# BUILD order at distribution → new building entity exists with
+	# is_constructing=true, full HP, on tile_grid; cost deducted; worker
+	# locked; BUILD_STARTED emitted.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	worker.def_id = "worker"
+	worker.current_def_id = "worker"
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	var p := result.new_state.get_player(0)
+	# Barracks costs 150 in the test registry.
+	if p.minerals != 350:
+		return false
+	# Find the new building entity.
+	var found_building: Entity = null
+	for e in result.new_state.entities:
+		if e != null and e.def_id == "barracks":
+			found_building = e
+	if found_building == null:
+		return false
+	if not found_building.is_constructing:
+		return false
+	if found_building.current_hp != 1000:
+		return false
+	# Worker should be locked to the building.
+	var w := result.new_state.get_entity_by_id(worker.id)
+	if w.locked_to_building_id != found_building.id:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_STARTED)
+
+
+func _test_build_worker_walks_to_site() -> bool:
+	# Worker at distance 5 from build target reaches adjacency in ~5 ticks.
+	var registry := _build_registry()
+	var state := _state_with_grid(30, 30)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(10, 10)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	# Worker speed is 4; barracks rect at (10,10,3,3); distance from (0,0)
+	# rect to that rect is max(10-0, 10-0) = 10. So walk takes ~10/4 = 3
+	# turns to be adjacent. Run 6 turns to be safe.
+	var building_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			building_id = ev.target_id
+	for _i in 6:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+	var w := result.new_state.get_entity_by_id(worker.id)
+	var b := result.new_state.get_entity_by_id(building_id)
+	var w_rect := result.new_state.tile_grid.entity_rect(w.id)
+	var b_rect := result.new_state.tile_grid.entity_rect(b.id)
+	return TileGrid.distance_between_rects(w_rect, b_rect) <= 1
+
+
+func _test_build_progress_only_while_worker_adjacent() -> bool:
+	# Worker far from site → construction_turns_remaining doesn't
+	# decrement until worker arrives. While worker is en-route the build
+	# is "paused" (construction_worker_id == -1) each EOT and emits
+	# BUILD_PAUSED. Once adjacent, ticks resume.
+	var registry := _build_registry()
+	var state := _state_with_grid(40, 40)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(20, 20)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	var building_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			building_id = ev.target_id
+	# T0 EOT: worker not adjacent → BUILD_PAUSED, no progress.
+	var b0 := result.new_state.get_entity_by_id(building_id)
+	if not _has_event_of_type(result.events, ResolverEvent.Type.BUILD_PAUSED):
+		return false
+	# Run until adjacency + at least one progress tick.
+	var initial_remaining := b0.construction_turns_remaining
+	var saw_progress := false
+	for _i in 15:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		var b := result.new_state.get_entity_by_id(building_id)
+		if b == null:
+			return false
+		if b.construction_turns_remaining < initial_remaining:
+			saw_progress = true
+			break
+	return saw_progress
+
+
+func _test_build_completes_applies_pop_provides() -> bool:
+	# A barracks that completes adds its pop_provides to player.pop_cap.
+	var registry := _build_registry()
+	# Add pop_provides to barracks for this test.
+	registry.entities[1].population = PopulationDef.new()
+	registry.entities[1].population.pop_provides = 8
+	var state := _state_with_grid(15, 15)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	state.players[0].pop_cap = 0
+	var worker := _make_entity(state, "worker", 0, Vector2i(4, 4), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(4, 4, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	# Barracks build_time = 4 in test registry. Worker is right next to
+	# it (4,4 adjacent to 5..7,5..7), so progress ticks every turn.
+	# Loop until BUILD_COMPLETED.
+	var saw_completed := false
+	for _i in 8:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		if _has_event_of_type(result.events, ResolverEvent.Type.BUILD_COMPLETED):
+			saw_completed = true
+			break
+	if not saw_completed:
+		return false
+	var p := result.new_state.get_player(0)
+	return p.pop_cap == 8
+
+
+func _test_build_locked_worker_rejects_new_orders() -> bool:
+	# A locked worker should refuse a fresh MOVE order.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	# Now submit a MOVE on the locked worker.
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = worker.id
+	move.target_tile = Vector2i(15, 15)
+	result = Resolver.resolve(result.new_state, _submit([move]), _submit(), registry, null)
+
+	# Locked worker should not have moved toward the MOVE target.
+	var w := result.new_state.get_entity_by_id(worker.id)
+	# Worker should be walking toward the build site, not (15, 15). The
+	# direction toward the build is +x/+y; toward (15,15) is also +x/+y
+	# from (0,0) so we can't disambiguate by direction. Instead, assert
+	# ORDER_REJECTED was emitted.
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ORDER_REJECTED and ev.def_id == "worker_locked":
+			return w.locked_to_building_id >= 0
+	return false
+
+
+func _test_building_death_drops_pop_cap() -> bool:
+	# A completed barracks (pop_provides = 8) is killed → pop_cap drops by 8.
+	var registry := _two_unit_registry(2000, 5, ["ground"], 50)
+	# Add a barracks def to this combat-style registry.
+	var b_def := EntityDef.new()
+	b_def.id = "barracks"
+	b_def.footprint = Vector2i(3, 3)
+	b_def.tags = ["building", "ground"]
+	var b_hp := HealthDef.new()
+	b_hp.max_hp = 1
+	b_def.health = b_hp
+	b_def.population = PopulationDef.new()
+	b_def.population.pop_provides = 8
+	registry.entities.append(b_def)
+
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].pop_cap = 8  # already credited by the (already-built) barracks
+	var attacker := _make_entity(state, "marine", 1, Vector2i(0, 5), 50, "ground")
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 5), 1, "ground")
+	# Barracks is_constructing = false (already complete).
+	state.tile_grid.place(attacker.id, Rect2i(0, 5, 1, 1))
+	state.tile_grid.place(barracks.id, Rect2i(2, 5, 3, 3))
+
+	var atk := EntityOrder.new()
+	atk.type = EntityOrder.Type.ATTACK
+	atk.entity_id = attacker.id
+	atk.target_priority_chain = [barracks.id]
+	var result := Resolver.resolve(state, _submit(), _submit([atk]), registry, null)
+	return result.new_state.get_player(0).pop_cap == 0
+
+
 # ---------- Helpers ----------
 
 
@@ -2618,6 +2844,51 @@ func _production_registry() -> EntityRegistry:
 	bl_hp.max_hp = 50
 	blocker.health = bl_hp
 	registry.entities = [barracks, marine, blocker]
+	return registry
+
+
+# Worker + barracks + blocker registry for plan-05 chunk 5/6/7 BUILD
+# tests. Worker has movement, barracks has construction + (optionally)
+# population, blocker is a 1x1 ground entity for spawn-deferral / tile
+# occupancy tests.
+func _build_registry() -> EntityRegistry:
+	var registry := EntityRegistry.new()
+	# Worker.
+	var worker := EntityDef.new()
+	worker.id = "worker"
+	worker.footprint = Vector2i(1, 1)
+	worker.tags = ["worker", "light", "ground"]
+	var w_hp := HealthDef.new()
+	w_hp.max_hp = 50
+	worker.health = w_hp
+	worker.movement = MovementDef.new()
+	worker.movement.speed_tiles_per_turn = 4
+	worker.movement.default_layer = "ground"
+	# Barracks.
+	var barracks := EntityDef.new()
+	barracks.id = "barracks"
+	barracks.footprint = Vector2i(3, 3)
+	barracks.tags = ["building", "structure", "ground"]
+	var b_hp := HealthDef.new()
+	b_hp.max_hp = 1000
+	barracks.health = b_hp
+	barracks.construction = ConstructionDef.new()
+	barracks.construction.build_time_turns = 4
+	barracks.construction.mineral_cost = 150
+	barracks.construction.gas_cost = 0
+	barracks.construction.built_by_tag = "worker"
+	barracks.production = ProductionDef.new()
+	barracks.production.produces = ["marine"]
+	barracks.production.rally_offset = Vector2i(0, 4)
+	# Blocker.
+	var blocker := EntityDef.new()
+	blocker.id = "blocker"
+	blocker.footprint = Vector2i(1, 1)
+	blocker.tags = ["ground"]
+	var bl_hp := HealthDef.new()
+	bl_hp.max_hp = 50
+	blocker.health = bl_hp
+	registry.entities = [worker, barracks, blocker]
 	return registry
 
 
