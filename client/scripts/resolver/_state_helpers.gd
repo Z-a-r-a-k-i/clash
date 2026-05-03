@@ -101,20 +101,7 @@ static func _distribute_one(
 			entity.hold_fire = order.hold_fire
 			continue
 		if order.type == EntityOrder.Type.CANCEL:
-			if order.cancel_index < 0:
-				entity.persistent_order = null
-			else:
-				# M0 stub: cancel-by-queue-index for production isn't wired
-				# yet (plan node 05's job). Surface the gap so it's visible.
-				push_warning(
-					(
-						(
-							"CANCEL with cancel_index=%d is not yet handled "
-							+ "(production cancel arrives with plan node 05); dropping."
-						)
-						% order.cancel_index
-					)
-				)
+			_handle_cancel_order(state, entity, order, events)
 			continue
 		if order.type == EntityOrder.Type.TRAIN:
 			_handle_train_order(entity, order, events)
@@ -197,4 +184,70 @@ static func _emit_order_rejected(
 	ev.type = ResolverEvent.Type.ORDER_REJECTED
 	ev.actor_id = actor_id
 	ev.def_id = reason
+	events.append(ev)
+
+
+# CANCEL handler — splits the three semantic flavours per plan node 05:
+#   cancel_index == -1: clear persistent_order (and, in chunks 5/6,
+#                       cancel a BUILD via the worker).
+#   cancel_index == 0:  cancel the active production slot, refund the
+#                       paid amounts. Queue head can install same turn
+#                       (resolver runs try_fill after distribution).
+#   cancel_index >= 1:  remove queue[cancel_index - 1]. No cost
+#                       movement (queue items are unpaid).
+static func _handle_cancel_order(
+	_state: MatchState, entity: Entity, order: EntityOrder, events: Array[ResolverEvent]
+) -> void:
+	if order.cancel_index < 0:
+		entity.persistent_order = null
+		return
+	if order.cancel_index == 0:
+		_cancel_active_production(_state, entity, events)
+		return
+	_cancel_queued_production(entity, order.cancel_index, events)
+
+
+static func _cancel_active_production(
+	state: MatchState, entity: Entity, events: Array[ResolverEvent]
+) -> void:
+	if entity.production_state == null or entity.production_state.active.is_empty():
+		_emit_order_rejected(entity.id, "no_active_production", events)
+		return
+	var active: Dictionary = entity.production_state.active
+	var paid_minerals: int = active.get(ProductionState.KEY_PAID_MINERALS, 0)
+	var paid_gas: int = active.get(ProductionState.KEY_PAID_GAS, 0)
+	var paid_pop: int = active.get(ProductionState.KEY_PAID_POP, 0)
+	var def_id: String = active.get(ProductionState.KEY_DEF_ID, "")
+	var player := state.get_player(entity.owner_player_id)
+	if player != null:
+		player.minerals += paid_minerals
+		player.gas += paid_gas
+		player.pop_used = max(0, player.pop_used - paid_pop)
+	entity.production_state.active = {}
+	var ev := ResolverEvent.new()
+	ev.type = ResolverEvent.Type.PRODUCTION_CANCELLED
+	ev.actor_id = entity.id
+	ev.def_id = def_id
+	ev.amount = 0  # cancel_index 0 = active
+	events.append(ev)
+
+
+static func _cancel_queued_production(
+	entity: Entity, cancel_index: int, events: Array[ResolverEvent]
+) -> void:
+	if entity.production_state == null:
+		_emit_order_rejected(entity.id, "no_production_capability", events)
+		return
+	var queue_index := cancel_index - 1
+	if queue_index < 0 or queue_index >= entity.production_state.queue.size():
+		_emit_order_rejected(entity.id, "queue_index_out_of_range", events)
+		return
+	var item: Dictionary = entity.production_state.queue[queue_index]
+	var def_id: String = item.get(ProductionState.KEY_DEF_ID, "")
+	entity.production_state.queue.remove_at(queue_index)
+	var ev := ResolverEvent.new()
+	ev.type = ResolverEvent.Type.PRODUCTION_CANCELLED
+	ev.actor_id = entity.id
+	ev.def_id = def_id
+	ev.amount = cancel_index
 	events.append(ev)

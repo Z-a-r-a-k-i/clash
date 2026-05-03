@@ -116,6 +116,10 @@ func _all_tests() -> Array:
 		],
 		["train_spawn_deferred_no_free_tile", _test_train_spawn_deferred_no_free_tile],
 		["unit_death_returns_pop", _test_unit_death_returns_pop],
+		["cancel_active_full_refund", _test_cancel_active_full_refund],
+		["cancel_queued_no_cost_movement", _test_cancel_queued_no_cost_movement],
+		["cancel_active_triggers_try_fill", _test_cancel_active_triggers_try_fill],
+		["train_pop_overflow_stalls_at_install", _test_train_pop_overflow_stalls_at_install],
 	]
 
 
@@ -2123,6 +2127,188 @@ func _test_unit_death_returns_pop() -> bool:
 
 	var p := result.new_state.get_player(0)
 	return p.pop_used == 0
+
+
+func _test_cancel_active_full_refund() -> bool:
+	# Active marine paid 50 min + 1 pop. CANCEL(producer, 0) refunds
+	# minerals + pop, clears active, emits PRODUCTION_CANCELLED.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 100
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	# Submit a TRAIN to reach a paid active state, then cancel it next turn.
+	var train := EntityOrder.new()
+	train.type = EntityOrder.Type.TRAIN
+	train.entity_id = barracks.id
+	train.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([train]), _submit(), registry, null)
+	# After T0: minerals = 100 - 50 = 50; pop_used = 1.
+	if result.new_state.get_player(0).minerals != 50:
+		return false
+	if result.new_state.get_player(0).pop_used != 1:
+		return false
+
+	var cancel := EntityOrder.new()
+	cancel.type = EntityOrder.Type.CANCEL
+	cancel.entity_id = barracks.id
+	cancel.cancel_index = 0
+	result = Resolver.resolve(result.new_state, _submit([cancel]), _submit(), registry, null)
+	# Refund: minerals back to 100, pop_used back to 0, active cleared.
+	var p := result.new_state.get_player(0)
+	if p.minerals != 100:
+		return false
+	if p.pop_used != 0:
+		return false
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.active.is_empty():
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.PRODUCTION_CANCELLED)
+
+
+func _test_cancel_queued_no_cost_movement() -> bool:
+	# 3-item queue → CANCEL(2) removes queue[1]; queue.size() drops to
+	# 2; minerals unchanged; the right item is removed.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 50  # only enough for active install
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	# Three TRAIN orders this turn. The first becomes active (cost paid);
+	# the next two queue without payment.
+	var orders: Array[EntityOrder] = []
+	for _i in 3:
+		var t := EntityOrder.new()
+		t.type = EntityOrder.Type.TRAIN
+		t.entity_id = barracks.id
+		t.def_id = "marine"
+		orders.append(t)
+	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	# Active = 1 marine, queue = 2 marines.
+	if b.production_state.active.is_empty():
+		return false
+	if b.production_state.queue.size() != 2:
+		return false
+	var minerals_before: int = result.new_state.get_player(0).minerals
+
+	# Cancel the second queued item (cancel_index = 2 maps to queue[1]).
+	var cancel := EntityOrder.new()
+	cancel.type = EntityOrder.Type.CANCEL
+	cancel.entity_id = barracks.id
+	cancel.cancel_index = 2
+	result = Resolver.resolve(result.new_state, _submit([cancel]), _submit(), registry, null)
+	b = result.new_state.get_entity_by_id(barracks.id)
+	# Queue dropped by one; minerals unchanged (queued items are unpaid).
+	if b.production_state.queue.size() != 1:
+		return false
+	return result.new_state.get_player(0).minerals == minerals_before
+
+
+func _test_cancel_active_triggers_try_fill() -> bool:
+	# Active marine + queued tank → cancel active → tank installs same
+	# turn (resolver runs try_fill after distribution).
+	var registry := _production_registry()
+	# Add a tank def so the queue can hold a different unit type.
+	var tank := EntityDef.new()
+	tank.id = "tank"
+	tank.footprint = Vector2i(1, 1)
+	tank.tags = ["heavy", "ground"]
+	var t_hp := HealthDef.new()
+	t_hp.max_hp = 150
+	tank.health = t_hp
+	tank.movement = MovementDef.new()
+	tank.movement.speed_tiles_per_turn = 3
+	tank.movement.default_layer = "ground"
+	tank.construction = ConstructionDef.new()
+	tank.construction.build_time_turns = 5
+	tank.construction.mineral_cost = 30
+	tank.construction.gas_cost = 0
+	tank.population = PopulationDef.new()
+	tank.population.pop_cost = 2
+	registry.entities.append(tank)
+
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 80  # enough for marine (50) + tank (30)
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	# Submit TRAIN(marine), TRAIN(tank). Marine becomes active (50 paid),
+	# tank queues unpaid.
+	var t1 := EntityOrder.new()
+	t1.type = EntityOrder.Type.TRAIN
+	t1.entity_id = barracks.id
+	t1.def_id = "marine"
+	var t2 := EntityOrder.new()
+	t2.type = EntityOrder.Type.TRAIN
+	t2.entity_id = barracks.id
+	t2.def_id = "tank"
+	var result := Resolver.resolve(state, _submit([t1, t2]), _submit(), registry, null)
+	# After T0: minerals = 80-50 = 30; queue has tank.
+	# Cancel marine; tank should auto-install (refund 50, then deduct 30).
+	var cancel := EntityOrder.new()
+	cancel.type = EntityOrder.Type.CANCEL
+	cancel.entity_id = barracks.id
+	cancel.cancel_index = 0
+	result = Resolver.resolve(result.new_state, _submit([cancel]), _submit(), registry, null)
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	# Active should now be the tank, queue empty.
+	if b.production_state.active.is_empty():
+		return false
+	if b.production_state.active[ProductionState.KEY_DEF_ID] != "tank":
+		return false
+	if b.production_state.queue.size() != 0:
+		return false
+	# Funds: refunded 50 (marine), deducted 30 (tank). Started at 30 in
+	# new_state (after T0 marine deduct), ends at 30 + 50 - 30 = 50.
+	return result.new_state.get_player(0).minerals == 50
+
+
+func _test_train_pop_overflow_stalls_at_install() -> bool:
+	# Queue head pop_cost overflows pop_cap → stall at try-fill.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 200
+	state.players[0].pop_used = 5
+	state.players[0].pop_cap = 5  # no room for more pop
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+
+	var p := result.new_state.get_player(0)
+	# Stalled — no install.
+	if p.minerals != 200:
+		return false
+	if p.pop_used != 5:
+		return false
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.active.is_empty():
+		return false
+	if b.production_state.queue.size() != 1:
+		return false
+	# PRODUCTION_STALLED with STALL_POP bit set.
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.PRODUCTION_STALLED:
+			return (ev.amount & ProductionSystem.STALL_POP) != 0
+	return false
 
 
 # ---------- Helpers ----------
