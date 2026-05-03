@@ -135,6 +135,13 @@ func _all_tests() -> Array:
 		["build_completes_applies_pop_provides", _test_build_completes_applies_pop_provides],
 		["build_locked_worker_rejects_new_orders", _test_build_locked_worker_rejects_new_orders],
 		["building_death_drops_pop_cap", _test_building_death_drops_pop_cap],
+		["build_worker_death_pauses", _test_build_worker_death_pauses],
+		["build_resume_via_new_worker", _test_build_resume_via_new_worker],
+		[
+			"build_constructing_building_dies_no_refund",
+			_test_build_constructing_building_dies_no_refund
+		],
+		["build_cancel_via_worker_full_refund", _test_build_cancel_via_worker_full_refund],
 	]
 
 
@@ -2631,6 +2638,224 @@ func _test_building_death_drops_pop_cap() -> bool:
 	atk.target_priority_chain = [barracks.id]
 	var result := Resolver.resolve(state, _submit(), _submit([atk]), registry, null)
 	return result.new_state.get_player(0).pop_cap == 0
+
+
+func _test_build_worker_death_pauses() -> bool:
+	# Worker dies mid-build → building stays alive, construction_worker_id
+	# = -1, BUILD_PAUSED emitted.
+	var registry := _build_registry()
+	# Add an enemy to kill the worker; reuse blocker as enemy by giving
+	# it minimal combat to deal lethal damage.
+	registry.entities[2].combat = CombatDef.new()
+	registry.entities[2].combat.damage = 100
+	registry.entities[2].combat.attack_range = 5
+	registry.entities[2].combat.target_layers = ["ground"]
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
+	var enemy := _make_entity(state, "blocker", 1, Vector2i(0, 5), 50, "ground")
+	state.tile_grid.place(enemy.id, Rect2i(0, 5, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	# Find the building.
+	var building_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			building_id = ev.target_id
+	# Now kill the worker. enemy is at (0,5), worker at (4,5) — out of
+	# range (5). Move enemy adjacent first via direct attack with a long
+	# chain. Easier: just zero-out worker hp to simulate death.
+	result.new_state.get_entity_by_id(worker.id).current_hp = 0
+	result.new_state.tile_grid.remove(worker.id)
+
+	result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+	var building := result.new_state.get_entity_by_id(building_id)
+	if building == null or building.current_hp <= 0:
+		return false
+	if not building.is_constructing:
+		return false
+	if building.construction_worker_id != -1:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_PAUSED)
+
+
+func _test_build_resume_via_new_worker() -> bool:
+	# After pause, BUILD with target_entity_id=paused_building and a new
+	# worker → resume; cost NOT charged again; building eventually
+	# completes.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	var building_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			building_id = ev.target_id
+	# Cost was deducted: 500 - 150 = 350.
+	if result.new_state.get_player(0).minerals != 350:
+		return false
+	# Kill the worker.
+	result.new_state.get_entity_by_id(worker.id).current_hp = 0
+	result.new_state.tile_grid.remove(worker.id)
+	# One turn to register pause.
+	result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+	var b := result.new_state.get_entity_by_id(building_id)
+	if b.construction_worker_id != -1:
+		return false
+	# Spawn a new worker and issue BUILD with target_entity_id.
+	var new_worker := Entity.new()
+	new_worker.id = result.new_state.allocate_entity_id()
+	new_worker.def_id = "worker"
+	new_worker.current_def_id = "worker"
+	new_worker.owner_player_id = 0
+	new_worker.origin = Vector2i(4, 5)
+	new_worker.current_hp = 50
+	new_worker.current_layer = "ground"
+	result.new_state.entities.append(new_worker)
+	result.new_state.tile_grid.place(new_worker.id, Rect2i(4, 5, 1, 1))
+	var minerals_before_resume: int = result.new_state.get_player(0).minerals
+
+	var resume_order := EntityOrder.new()
+	resume_order.type = EntityOrder.Type.BUILD
+	resume_order.entity_id = new_worker.id
+	resume_order.def_id = "barracks"
+	resume_order.target_tile = Vector2i(5, 5)
+	resume_order.target_entity_id = building_id
+	result = Resolver.resolve(result.new_state, _submit([resume_order]), _submit(), registry, null)
+	# No additional cost.
+	if result.new_state.get_player(0).minerals != minerals_before_resume:
+		return false
+	# Building should now have construction_worker_id set, BUILD_RESUMED
+	# emitted.
+	b = result.new_state.get_entity_by_id(building_id)
+	if b.construction_worker_id != new_worker.id:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_RESUMED)
+
+
+func _test_build_constructing_building_dies_no_refund() -> bool:
+	# Kill the constructing building → entity gone, pop_cap unchanged
+	# (pop_provides never applied), worker freed, NO refund.
+	var registry := _build_registry()
+	# Add combat to enemy blocker.
+	registry.entities[2].combat = CombatDef.new()
+	registry.entities[2].combat.damage = 2000
+	registry.entities[2].combat.attack_range = 5
+	registry.entities[2].combat.target_layers = ["ground"]
+	# Add population to barracks so we can verify pop_provides was never granted.
+	registry.entities[1].population = PopulationDef.new()
+	registry.entities[1].population.pop_provides = 8
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	state.players[0].pop_cap = 0
+	var worker := _make_entity(state, "worker", 0, Vector2i(8, 5), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(8, 5, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	# Player should now have 350 minerals (500 - 150).
+	if result.new_state.get_player(0).minerals != 350:
+		return false
+	var building_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			building_id = ev.target_id
+
+	# Now kill the building (set hp to 0, remove from grid). Use direct
+	# state mutation rather than an attack to keep the test focused.
+	var b := result.new_state.get_entity_by_id(building_id)
+	# Spawn an enemy and have them attack the building (so death goes
+	# through CombatSystem._destroy_entity).
+	var enemy := _make_entity(result.new_state, "blocker", 1, Vector2i(0, 5), 50, "ground")
+	result.new_state.tile_grid.place(enemy.id, Rect2i(0, 5, 1, 1))
+	b.current_hp = 1
+	var atk := EntityOrder.new()
+	atk.type = EntityOrder.Type.ATTACK
+	atk.entity_id = enemy.id
+	atk.target_priority_chain = [b.id]
+	# Move enemy adjacent first by re-placing close.
+	result.new_state.tile_grid.remove(enemy.id)
+	result.new_state.tile_grid.place(enemy.id, Rect2i(3, 5, 1, 1))
+	enemy.origin = Vector2i(3, 5)
+	result = Resolver.resolve(result.new_state, _submit(), _submit([atk]), registry, null)
+
+	# Building should be dead.
+	var b_after := result.new_state.get_entity_by_id(building_id)
+	if b_after.current_hp > 0:
+		return false
+	# pop_cap unchanged (was 0, pop_provides never granted).
+	if result.new_state.get_player(0).pop_cap != 0:
+		return false
+	# Minerals NOT refunded — death is not cancel.
+	if result.new_state.get_player(0).minerals != 350:
+		return false
+	# Worker freed.
+	var w_after := result.new_state.get_entity_by_id(worker.id)
+	return w_after.locked_to_building_id == -1
+
+
+func _test_build_cancel_via_worker_full_refund() -> bool:
+	# CANCEL(worker, -1) on a worker locked to a building → full refund,
+	# remove building entity, free worker.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	if result.new_state.get_player(0).minerals != 350:
+		return false
+	var building_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			building_id = ev.target_id
+
+	# Now cancel via the worker.
+	var cancel := EntityOrder.new()
+	cancel.type = EntityOrder.Type.CANCEL
+	cancel.entity_id = worker.id
+	cancel.cancel_index = -1
+	result = Resolver.resolve(result.new_state, _submit([cancel]), _submit(), registry, null)
+	# Full refund.
+	if result.new_state.get_player(0).minerals != 500:
+		return false
+	# Building gone.
+	var b := result.new_state.get_entity_by_id(building_id)
+	if b != null and b.current_hp > 0:
+		return false
+	# Worker freed.
+	var w := result.new_state.get_entity_by_id(worker.id)
+	if w.locked_to_building_id != -1:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_CANCELLED)
 
 
 # ---------- Helpers ----------

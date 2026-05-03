@@ -103,7 +103,7 @@ static func _distribute_one(
 			entity.hold_fire = order.hold_fire
 			continue
 		if order.type == EntityOrder.Type.CANCEL:
-			_handle_cancel_order(state, entity, order, events)
+			_handle_cancel_order(state, entity, order, registry, events)
 			continue
 		if order.type == EntityOrder.Type.TRAIN:
 			_handle_train_order(entity, order, events)
@@ -430,15 +430,57 @@ static func _emit_order_rejected(
 #   cancel_index >= 1:  remove queue[cancel_index - 1]. No cost
 #                       movement (queue items are unpaid).
 static func _handle_cancel_order(
-	_state: MatchState, entity: Entity, order: EntityOrder, events: Array[ResolverEvent]
+	state: MatchState,
+	entity: Entity,
+	order: EntityOrder,
+	registry: EntityRegistry,
+	events: Array[ResolverEvent]
 ) -> void:
 	if order.cancel_index < 0:
 		entity.persistent_order = null
+		# If the entity is a worker locked to an in-progress build,
+		# cancel the build too: refund full cost, remove the building
+		# entity, free the worker. Plan node 05 chunk 6.
+		if entity.locked_to_building_id >= 0:
+			_cancel_build_via_worker(state, entity, registry, events)
 		return
 	if order.cancel_index == 0:
-		_cancel_active_production(_state, entity, events)
+		_cancel_active_production(state, entity, events)
 		return
 	_cancel_queued_production(entity, order.cancel_index, events)
+
+
+static func _cancel_build_via_worker(
+	state: MatchState, worker: Entity, registry: EntityRegistry, events: Array[ResolverEvent]
+) -> void:
+	var building := state.get_entity_by_id(worker.locked_to_building_id)
+	worker.locked_to_building_id = -1
+	if building == null or building.current_hp <= 0 or not building.is_constructing:
+		return
+	# Refund the cost. BUILD doesn't record paid_* fields (the cost is
+	# always the def's mineral/gas/pop_cost since BUILD is eager-deduct
+	# at distribution); read it back from the def.
+	if registry != null:
+		var def: EntityDef = registry.get_by_id(building.current_def_id)
+		if def != null and def.construction != null:
+			var player := state.get_player(building.owner_player_id)
+			if player != null:
+				player.minerals += def.construction.mineral_cost
+				player.gas += def.construction.gas_cost
+				if def.population != null:
+					player.pop_used = max(0, player.pop_used - def.population.pop_cost)
+	# Remove from grid.
+	if state.tile_grid != null:
+		state.tile_grid.remove(building.id)
+	# Mark dead so subsequent code paths don't see it as live.
+	building.current_hp = 0
+	building.is_constructing = false
+	building.construction_turns_remaining = -1
+	building.construction_worker_id = -1
+	var ev := ResolverEvent.new()
+	ev.type = ResolverEvent.Type.BUILD_CANCELLED
+	ev.actor_id = building.id
+	events.append(ev)
 
 
 static func _cancel_active_production(

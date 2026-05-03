@@ -216,6 +216,14 @@ static func _destroy_entity(
 			else:
 				player.pop_used = max(0, player.pop_used - def.population.pop_cost)
 
+	# If a constructing building dies, free its locked worker.
+	if dead.is_constructing and dead.construction_worker_id >= 0:
+		var worker := state.get_entity_by_id(dead.construction_worker_id)
+		if worker != null and worker.locked_to_building_id == dead.id:
+			worker.locked_to_building_id = -1
+		dead.construction_worker_id = -1
+		dead.is_constructing = false
+
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.ENTITY_DESTROYED
 	ev.actor_id = killer_id
