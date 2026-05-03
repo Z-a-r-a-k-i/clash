@@ -101,12 +101,17 @@ static func resolve(
 	var orders_b: Array[EntityOrder] = (
 		safe_submit_b.orders if safe_submit_b != null else [] as Array[EntityOrder]
 	)
-	var per_entity := _STATE_HELPERS.distribute_orders(working, orders_a, orders_b)
+	var per_entity := _STATE_HELPERS.distribute_orders(working, orders_a, orders_b, events)
+
+	# 3a. Idle producers that just received a TRAIN/RESEARCH this turn
+	#     should start producing immediately (so build-time is N turns
+	#     from order submission, not N+1). Plan node 05.
+	ProductionSystem.try_fill_active_slots(working, registry, events)
 
 	# 4. Tick loop — action-slot lockstep per ADR 0004.
 	var n_ticks := _STATE_HELPERS.max_queue_length(per_entity)
-	# Ensure persistent moves and active gather cycles still advance on
-	# turns with no submitted orders.
+	# Ensure persistent moves, active gather cycles, and active production
+	# slots still advance on turns with no submitted orders.
 	if n_ticks == 0 and _has_standing_work(working):
 		n_ticks = 1
 	for tick in n_ticks:

@@ -99,6 +99,23 @@ func _all_tests() -> Array:
 		["worker_idles_on_all_sinks_destroyed", _test_worker_idles_on_all_sinks_destroyed],
 		["nearest_deposit_sink_chosen", _test_nearest_deposit_sink_chosen],
 		["gather_clears_prior_persistent_move", _test_gather_clears_prior_persistent_move],
+		# Plan node 05 — production / build / research.
+		[
+			"train_appended_to_queue_no_immediate_cost",
+			_test_train_appended_to_queue_no_immediate_cost
+		],
+		["train_idle_producer_immediate_install", _test_train_idle_producer_immediate_install],
+		[
+			"train_insufficient_minerals_stalls_at_install",
+			_test_train_insufficient_minerals_stalls_at_install
+		],
+		["train_resumes_after_funds_arrive", _test_train_resumes_after_funds_arrive],
+		[
+			"train_spawn_adjacent_with_persistent_move_to_rally",
+			_test_train_spawn_adjacent_with_persistent_move_to_rally
+		],
+		["train_spawn_deferred_no_free_tile", _test_train_spawn_deferred_no_free_tile],
+		["unit_death_returns_pop", _test_unit_death_returns_pop],
 	]
 
 
@@ -720,17 +737,32 @@ func _test_moves_used_resets_each_turn() -> bool:
 
 
 func _test_production_progress_emits_completion() -> bool:
-	# Building with one queued production item, turns_remaining=1 →
-	# end-of-turn emits BUILD_COMPLETED, queue empties.
+	# Building with one active production item, turns_remaining=1 →
+	# end-of-turn ticks to 0, finalizes by spawning a marine adjacent,
+	# emits TRAIN_COMPLETED, active slot empties.
 	var registry := EntityRegistry.new()
 	var building_def := EntityDef.new()
 	building_def.id = "barracks"
 	building_def.tags = ["building", "ground"]
 	building_def.footprint = Vector2i(3, 3)
-	var hd := HealthDef.new()
-	hd.max_hp = 1000
-	building_def.health = hd
-	registry.entities = [building_def]
+	var bd_hp := HealthDef.new()
+	bd_hp.max_hp = 1000
+	building_def.health = bd_hp
+	building_def.production = ProductionDef.new()
+	building_def.production.produces = ["marine"]
+	building_def.production.rally_offset = Vector2i(0, 4)
+	# Marine def for spawn.
+	var marine_def := EntityDef.new()
+	marine_def.id = "marine"
+	marine_def.tags = ["light", "ground"]
+	marine_def.footprint = Vector2i(1, 1)
+	var md_hp := HealthDef.new()
+	md_hp.max_hp = 50
+	marine_def.health = md_hp
+	marine_def.movement = MovementDef.new()
+	marine_def.movement.speed_tiles_per_turn = 4
+	marine_def.movement.default_layer = "ground"
+	registry.entities = [building_def, marine_def]
 
 	var state := _state_with_grid(20, 20)
 	var building := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
@@ -740,22 +772,14 @@ func _test_production_progress_emits_completion() -> bool:
 		ProductionState.KEY_DEF_ID: "marine",
 		ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
 		ProductionState.KEY_TURNS_REMAINING: 1,
+		ProductionState.KEY_PAID_MINERALS: 0,
+		ProductionState.KEY_PAID_GAS: 0,
+		ProductionState.KEY_PAID_POP: 0,
 	}
 	building.production_state = ps
 
-	# Force at least one tick (any noop order).
-	var noop := EntityOrder.new()
-	noop.type = EntityOrder.Type.MOVE
-	noop.entity_id = building.id
-	noop.target_tile = building.origin  # building has no Movement; resolve_move skips.
-	var queue_a: Array[EntityOrder] = [noop]
-
-	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
-	var saw_completed := false
-	for ev in result.events:
-		if ev.type == ResolverEvent.Type.BUILD_COMPLETED and ev.def_id == "marine":
-			saw_completed = true
-	if not saw_completed:
+	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
+	if not _has_event_of_type(result.events, ResolverEvent.Type.TRAIN_COMPLETED):
 		return false
 	var new_building := result.new_state.get_entity_by_id(building.id)
 	return new_building.production_state.active.is_empty()
@@ -1845,6 +1869,262 @@ func _test_gather_clears_prior_persistent_move() -> bool:
 	return p != null and p.minerals > 0
 
 
+# ---------- Plan node 05: production / build / research ----------
+
+
+func _test_train_appended_to_queue_no_immediate_cost() -> bool:
+	# TRAIN order to a producer with non-empty active slot → queued, no
+	# cost deducted (lazy queue model).
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	# Pre-occupied active slot so the new TRAIN goes into queue, not active.
+	barracks.production_state.active = {
+		ProductionState.KEY_DEF_ID: "marine",
+		ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
+		ProductionState.KEY_TURNS_REMAINING: 2,
+		ProductionState.KEY_PAID_MINERALS: 50,
+		ProductionState.KEY_PAID_GAS: 0,
+		ProductionState.KEY_PAID_POP: 1,
+	}
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+
+	var p := result.new_state.get_player(0)
+	# Funds unchanged by appending to queue.
+	if p.minerals != 500:
+		return false
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	# Queue grew by one (the new marine).
+	if b.production_state.queue.size() != 1:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.TRAIN_QUEUED)
+
+
+func _test_train_idle_producer_immediate_install() -> bool:
+	# TRAIN order to an idle producer with affordable cost → installed
+	# in active slot the same turn, cost deducted, pop reserved.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 200
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+
+	var p := result.new_state.get_player(0)
+	# Marine costs 50 minerals + 1 pop in the test registry. Note that
+	# advance_queues at EOT also decrements turns_remaining once, so the
+	# active slot starts at build_time and ends this first turn at
+	# build_time - 1.
+	if p.minerals != 150:
+		return false
+	if p.pop_used != 1:
+		return false
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if b.production_state.queue.size() != 0:
+		return false
+	if b.production_state.active.is_empty():
+		return false
+	if b.production_state.active[ProductionState.KEY_DEF_ID] != "marine":
+		return false
+	# TRAIN_STARTED must have been emitted at install time.
+	return _has_event_of_type(result.events, ResolverEvent.Type.TRAIN_STARTED)
+
+
+func _test_train_insufficient_minerals_stalls_at_install() -> bool:
+	# TRAIN order to an idle producer but player can't afford → queue
+	# grows, active stays empty, no deduction, PRODUCTION_STALLED.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 30  # marine costs 50
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+
+	var p := result.new_state.get_player(0)
+	if p.minerals != 30:
+		return false
+	if p.pop_used != 0:
+		return false
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.active.is_empty():
+		return false
+	if b.production_state.queue.size() != 1:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.PRODUCTION_STALLED)
+
+
+func _test_train_resumes_after_funds_arrive() -> bool:
+	# Stalled queue head + funds arrive → next try-fill installs and
+	# starts ticking.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 0  # nothing
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+	# Stalled.
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.active.is_empty():
+		return false
+	if b.production_state.queue.size() != 1:
+		return false
+	# Inject funds into the cloned new_state and run another turn.
+	result.new_state.get_player(0).minerals = 100
+	result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+	b = result.new_state.get_entity_by_id(barracks.id)
+	if b.production_state.active.is_empty():
+		return false
+	# Install consumes 50; turns_remaining decremented once at EOT same turn.
+	return result.new_state.get_player(0).minerals == 50
+
+
+func _test_train_spawn_adjacent_with_persistent_move_to_rally() -> bool:
+	# Full cycle: TRAIN → install → tick to completion → spawn adjacent
+	# → spawned unit has persistent MOVE to producer.origin + rally_offset.
+	var registry := _production_registry()
+	var state := _state_with_grid(30, 30)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(5, 5, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+	# Marine build_time = 3 in our registry. Run more turns until we see
+	# a TRAIN_COMPLETED.
+	var saw_completed := false
+	var spawned_id: int = -1
+	for _i in 5:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		for ev in result.events:
+			if ev.type == ResolverEvent.Type.TRAIN_COMPLETED:
+				saw_completed = true
+				spawned_id = ev.target_id
+		if saw_completed:
+			break
+	if not saw_completed or spawned_id < 0:
+		return false
+	var marine := result.new_state.get_entity_by_id(spawned_id)
+	if marine == null or marine.def_id != "marine":
+		return false
+	# Marine should be adjacent to barracks rect.
+	var br: Rect2i = result.new_state.tile_grid.entity_rect(barracks.id)
+	var mr: Rect2i = result.new_state.tile_grid.entity_rect(marine.id)
+	if TileGrid.distance_between_rects(br, mr) != 1:
+		return false
+	# persistent_order = MOVE to rally tile (5+0, 5+4) = (5, 9).
+	if marine.persistent_order == null:
+		return false
+	if marine.persistent_order.type != EntityOrder.Type.MOVE:
+		return false
+	return marine.persistent_order.target_tile == Vector2i(5, 9)
+
+
+func _test_train_spawn_deferred_no_free_tile() -> bool:
+	# Block every adjacent tile around the barracks so spawn defers.
+	var registry := _production_registry()
+	var state := _state_with_grid(15, 15)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(5, 5, 3, 3))
+	# Surround barracks (rect 5..7, 5..7) with blockers on every adjacent
+	# tile. The perimeter at 4..8 forms an outer ring of 5x5 - 3x3 = 16
+	# tiles. Each blocker is a 1x1 entity — _make_entity allocates an id.
+	for x in range(4, 9):
+		for y in range(4, 9):
+			if x >= 5 and x <= 7 and y >= 5 and y <= 7:
+				continue  # skip the barracks footprint itself
+			var blk := _make_entity(state, "blocker", 1, Vector2i(x, y), 50, "ground")
+			state.tile_grid.place(blk.id, Rect2i(x, y, 1, 1))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+	# Run a few turns until completion-attempt.
+	var saw_deferred := false
+	for _i in 5:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		if _has_event_of_type(result.events, ResolverEvent.Type.SPAWN_DEFERRED):
+			saw_deferred = true
+			break
+	if not saw_deferred:
+		return false
+	# Active slot should still be populated with turns_remaining = 0.
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if b.production_state.active.is_empty():
+		return false
+	return b.production_state.active[ProductionState.KEY_TURNS_REMAINING] == 0
+
+
+func _test_unit_death_returns_pop() -> bool:
+	# Killing a unit returns its pop_cost to the player's pop_used.
+	var registry := _two_unit_registry(2000, 5, ["ground"], 50)
+	# Add population to the shared marine def.
+	registry.entities[0].population = PopulationDef.new()
+	registry.entities[0].population.pop_cost = 1
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].pop_used = 1  # represents the marine's reservation
+	var attacker := _make_entity(state, "marine", 1, Vector2i(5, 5), 50, "ground")
+	var victim := _make_entity(state, "marine", 0, Vector2i(7, 5), 50, "ground")
+	state.tile_grid.place(attacker.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(victim.id, Rect2i(7, 5, 1, 1))
+	# Set HP low so a single attack kills.
+	victim.current_hp = 1
+
+	var atk := EntityOrder.new()
+	atk.type = EntityOrder.Type.ATTACK
+	atk.entity_id = attacker.id
+	atk.target_priority_chain = [victim.id]
+	var result := Resolver.resolve(state, _submit(), _submit([atk]), registry, null)
+
+	var p := result.new_state.get_player(0)
+	return p.pop_used == 0
+
+
 # ---------- Helpers ----------
 
 
@@ -2009,6 +2289,53 @@ func _gather_registry(carry: int, yield_per_turn: int, speed: int) -> EntityRegi
 	refinery_hp.max_hp = 750
 	refinery.health = refinery_hp
 	registry.entities = [worker, base, patch, geyser, refinery]
+	return registry
+
+
+# Barracks + marine + blocker registry. Used by plan-05 production tests
+# so a single _production_registry() call wires every def the production
+# pipeline touches: a producer with rally_offset, a unit with cost + pop,
+# and a footprint-1 blocker for spawn-deferral tests.
+func _production_registry() -> EntityRegistry:
+	var registry := EntityRegistry.new()
+	# Barracks — producer.
+	var barracks := EntityDef.new()
+	barracks.id = "barracks"
+	barracks.footprint = Vector2i(3, 3)
+	barracks.tags = ["building", "structure", "ground"]
+	var b_hp := HealthDef.new()
+	b_hp.max_hp = 1000
+	barracks.health = b_hp
+	barracks.production = ProductionDef.new()
+	barracks.production.produces = ["marine"]
+	barracks.production.rally_offset = Vector2i(0, 4)
+	# Marine — produced unit.
+	var marine := EntityDef.new()
+	marine.id = "marine"
+	marine.footprint = Vector2i(1, 1)
+	marine.tags = ["light", "ground"]
+	var m_hp := HealthDef.new()
+	m_hp.max_hp = 50
+	marine.health = m_hp
+	marine.movement = MovementDef.new()
+	marine.movement.speed_tiles_per_turn = 4
+	marine.movement.default_layer = "ground"
+	marine.construction = ConstructionDef.new()
+	marine.construction.build_time_turns = 3
+	marine.construction.mineral_cost = 50
+	marine.construction.gas_cost = 0
+	marine.construction.built_by_tag = "barracks"
+	marine.population = PopulationDef.new()
+	marine.population.pop_cost = 1
+	# Blocker — generic 1x1 entity for occupying tiles in tests.
+	var blocker := EntityDef.new()
+	blocker.id = "blocker"
+	blocker.footprint = Vector2i(1, 1)
+	blocker.tags = ["ground"]
+	var bl_hp := HealthDef.new()
+	bl_hp.max_hp = 50
+	blocker.health = bl_hp
+	registry.entities = [barracks, marine, blocker]
 	return registry
 
 

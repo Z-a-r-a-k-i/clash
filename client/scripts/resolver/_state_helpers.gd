@@ -16,12 +16,18 @@ extends RefCounted
 # player doesn't own are dropped with a push_warning (M0 — at M2 this
 # would be a wire-validation error).
 #
-# HOLD_FIRE_TOGGLE, CANCEL, and GATHER apply immediately during
-# distribution (state mutation, no tick — they're mode changes / standing
-# orders, not per-tick actions). Other order types accumulate into the
-# per-entity arrays for the tick loop to consume.
+# HOLD_FIRE_TOGGLE, CANCEL, GATHER, TRAIN, and RESEARCH apply immediately
+# during distribution (state mutation, no tick — they're mode changes /
+# standing orders, not per-tick actions). Other order types accumulate
+# into the per-entity arrays for the tick loop to consume. The caller
+# (resolver) is responsible for running ProductionSystem.try_fill_active_slots
+# after this returns, so an idle producer that just received a TRAIN
+# this turn starts producing the same turn.
 static func distribute_orders(
-	state: MatchState, queue_a: Array[EntityOrder], queue_b: Array[EntityOrder]
+	state: MatchState,
+	queue_a: Array[EntityOrder],
+	queue_b: Array[EntityOrder],
+	events: Array[ResolverEvent]
 ) -> Dictionary:
 	var per_entity: Dictionary = {}  # int entity_id -> Array[EntityOrder]
 	# Resolve expected owner from state.players so non-default player_id
@@ -31,8 +37,8 @@ static func distribute_orders(
 	var p_b: PlayerState = state.players[1] if state.players.size() >= 2 else null
 	var owner_a := p_a.player_id if p_a != null else 0
 	var owner_b := p_b.player_id if p_b != null else 1
-	_distribute_one(state, queue_a, owner_a, per_entity)
-	_distribute_one(state, queue_b, owner_b, per_entity)
+	_distribute_one(state, queue_a, owner_a, per_entity, events)
+	_distribute_one(state, queue_b, owner_b, per_entity, events)
 	return per_entity
 
 
@@ -65,7 +71,11 @@ static func action_at(per_entity: Dictionary, entity_id: int, tick: int) -> Enti
 
 
 static func _distribute_one(
-	state: MatchState, queue: Array[EntityOrder], expected_owner: int, per_entity: Dictionary
+	state: MatchState,
+	queue: Array[EntityOrder],
+	expected_owner: int,
+	per_entity: Dictionary,
+	events: Array[ResolverEvent]
 ) -> void:
 	for order in queue:
 		if order == null or order.type == EntityOrder.Type.INVALID:
@@ -106,6 +116,9 @@ static func _distribute_one(
 					)
 				)
 			continue
+		if order.type == EntityOrder.Type.TRAIN:
+			_handle_train_order(entity, order, events)
+			continue
 		if order.type == EntityOrder.Type.GATHER:
 			# A GATHER turns into standing state on the worker: we set the
 			# assignment + transition the FSM into MOVING_TO_SOURCE; the
@@ -137,3 +150,51 @@ static func _distribute_one(
 		if not per_entity.has(order.entity_id):
 			per_entity[order.entity_id] = []
 		per_entity[order.entity_id].append(order)
+
+
+# TRAIN handler — appends a queue declaration on the producer's
+# ProductionState. No cost is deducted here; ProductionSystem.try_fill
+# does that at slot transition. Plan node 05 chunk 2.
+static func _handle_train_order(
+	entity: Entity, order: EntityOrder, events: Array[ResolverEvent]
+) -> void:
+	if entity.production_state == null:
+		_emit_order_rejected(order.entity_id, "not_a_producer", events)
+		push_warning(
+			"TRAIN for entity %d which has no production capability; dropping." % order.entity_id
+		)
+		return
+	if order.def_id == "":
+		_emit_order_rejected(order.entity_id, "missing_def_id", events)
+		return
+	# Membership check (def_id must be in producer's `produces` list)
+	# happens here at distribution. Registry-driven check is folded in
+	# at try_fill time when the cost is looked up; producing an unknown
+	# def at distribution should still be flagged early so the player
+	# sees the rejection event rather than a silent stall.
+	(
+		entity
+		. production_state
+		. queue
+		. append(
+			{
+				ProductionState.KEY_DEF_ID: order.def_id,
+				ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
+			}
+		)
+	)
+	var ev := ResolverEvent.new()
+	ev.type = ResolverEvent.Type.TRAIN_QUEUED
+	ev.actor_id = order.entity_id
+	ev.def_id = order.def_id
+	events.append(ev)
+
+
+static func _emit_order_rejected(
+	actor_id: int, reason: String, events: Array[ResolverEvent]
+) -> void:
+	var ev := ResolverEvent.new()
+	ev.type = ResolverEvent.Type.ORDER_REJECTED
+	ev.actor_id = actor_id
+	ev.def_id = reason
+	events.append(ev)
