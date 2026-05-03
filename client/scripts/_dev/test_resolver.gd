@@ -2644,30 +2644,14 @@ func _test_production_determinism_golden() -> bool:
 	# Run a complex scenario twice (same orders, same starting state)
 	# and assert identical end states + identical event streams. Covers
 	# BUILD + TRAIN + RESEARCH end-to-end.
-	var orders_per_turn := _build_determinism_scenario_orders()
-	var run_a := _run_determinism_scenario(orders_per_turn)
-	var run_b := _run_determinism_scenario(orders_per_turn)
+	var run_a := _run_determinism_scenario()
+	var run_b := _run_determinism_scenario()
 	if not _states_equal(run_a.new_state, run_b.new_state):
 		return false
 	return _events_equal(run_a.events, run_b.events)
 
 
-func _build_determinism_scenario_orders() -> Array:
-	# Returns a list of [orders_a, orders_b] pairs for each turn.
-	var turns: Array = []
-	# Turn 0: each player issues TRAIN(marine).
-	var t0a: Array[EntityOrder] = []
-	var t0b: Array[EntityOrder] = []
-	# Turn 1: BUILD a barracks (we'll fill in entity ids inside _run).
-	turns.append([t0a, t0b])
-	turns.append([t0a, t0b])  # placeholder; filled at runtime
-	turns.append([t0a, t0b])
-	turns.append([t0a, t0b])
-	turns.append([t0a, t0b])
-	return turns
-
-
-func _run_determinism_scenario(_orders_per_turn: Array) -> ResolveResult:
+func _run_determinism_scenario() -> ResolveResult:
 	# Build a small two-player scenario with one barracks each + a
 	# minerals patch. Issue TRAIN orders on both barracks every turn
 	# for a fixed number of turns.

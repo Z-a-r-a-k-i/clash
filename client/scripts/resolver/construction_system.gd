@@ -44,7 +44,7 @@ static func advance_move_phase(
 		# workers reject new orders at distribution, but a CANCEL
 		# distributed at this tick could have just freed the worker
 		# (see _state_helpers cancel-via-worker path).
-		if MovementSystem._has_fresh_order_at(per_entity, actor.id, tick):
+		if MovementSystem.has_fresh_order_at(per_entity, actor.id, tick):
 			continue
 		var building := state.get_entity_by_id(actor.locked_to_building_id)
 		if building == null or building.current_hp <= 0:
@@ -62,7 +62,7 @@ static func advance_move_phase(
 		var building_rect := state.tile_grid.entity_rect(building.id)
 		if building_rect.size == Vector2i.ZERO:
 			continue
-		if MovementSystem._step_toward(state, actor, building_rect.position, events):
+		if MovementSystem.step_toward(state, actor, building_rect.position, events):
 			actor.moves_used_this_turn += 1
 
 

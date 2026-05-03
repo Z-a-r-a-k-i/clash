@@ -52,7 +52,7 @@ static func resolve_move(
 	if actor.moves_used_this_turn >= def.movement.speed_tiles_per_turn:
 		return
 
-	if _step_toward(state, actor, order.target_tile, events):
+	if step_toward(state, actor, order.target_tile, events):
 		actor.moves_used_this_turn += 1
 		actor.persistent_order = order
 		if actor.origin == order.target_tile:
@@ -76,7 +76,7 @@ static func advance_persistent_moves(
 			continue
 		# Skip entities that had a fresh order at this tick — Phase 2
 		# already handled them.
-		if _has_fresh_order_at(per_entity, actor.id, tick):
+		if has_fresh_order_at(per_entity, actor.id, tick):
 			continue
 		# Skip workers actively gathering. GatherSystem.advance_move_phase
 		# already stepped them in Phase 2; advancing a stale persistent_order
@@ -95,7 +95,7 @@ static func advance_persistent_moves(
 		if actor.moves_used_this_turn >= def.movement.speed_tiles_per_turn:
 			continue
 
-		if _step_toward(state, actor, po.target_tile, events):
+		if step_toward(state, actor, po.target_tile, events):
 			actor.moves_used_this_turn += 1
 			if actor.origin == po.target_tile:
 				actor.persistent_order = null
@@ -106,7 +106,7 @@ static func advance_persistent_moves(
 
 # Try to advance one tile toward `target_tile`. Returns true on success.
 # Tries the diagonal step first; on collision falls back to axis-aligned.
-static func _step_toward(
+static func step_toward(
 	state: MatchState, actor: Entity, target_tile: Vector2i, events: Array[ResolverEvent]
 ) -> bool:
 	if actor.origin == target_tile:
@@ -141,7 +141,7 @@ static func _step_toward(
 
 
 # Lookup-only helper — does this entity have a queued action at this tick?
-static func _has_fresh_order_at(per_entity: Dictionary, entity_id: int, tick: int) -> bool:
+static func has_fresh_order_at(per_entity: Dictionary, entity_id: int, tick: int) -> bool:
 	if not per_entity.has(entity_id):
 		return false
 	var queue: Array = per_entity[entity_id]

@@ -40,7 +40,7 @@ static func advance_move_phase(
 		if actor.gather_state == null:
 			continue
 		# A fresh per-tick order takes priority over auto-advance.
-		if MovementSystem._has_fresh_order_at(per_entity, actor.id, tick):
+		if MovementSystem.has_fresh_order_at(per_entity, actor.id, tick):
 			continue
 		var phase := actor.gather_state.phase
 		if phase == GatherState.Phase.MOVING_TO_SOURCE:
@@ -86,7 +86,7 @@ static func _step_to_source(
 	if not _can_step(actor, registry):
 		return
 	var target_tile := _approach_tile_for(state, source)
-	if MovementSystem._step_toward(state, actor, target_tile, events):
+	if MovementSystem.step_toward(state, actor, target_tile, events):
 		actor.moves_used_this_turn += 1
 		# Re-check adjacency after the step so we transition the same tick
 		# we land in range.
@@ -108,7 +108,7 @@ static func _step_to_base(
 	if not _can_step(actor, registry):
 		return
 	var target_tile := _approach_tile_for(state, sink)
-	if MovementSystem._step_toward(state, actor, target_tile, events):
+	if MovementSystem.step_toward(state, actor, target_tile, events):
 		actor.moves_used_this_turn += 1
 		if _is_adjacent_to(state, actor, sink):
 			actor.gather_state.phase = GatherState.Phase.DEPOSITING
