@@ -106,6 +106,9 @@ static func _distribute_one(
 		if order.type == EntityOrder.Type.TRAIN:
 			_handle_train_order(entity, order, events)
 			continue
+		if order.type == EntityOrder.Type.RESEARCH:
+			_handle_research_order(state, entity, order, events)
+			continue
 		if order.type == EntityOrder.Type.GATHER:
 			# A GATHER turns into standing state on the worker: we set the
 			# assignment + transition the FSM into MOVING_TO_SOURCE; the
@@ -137,6 +140,43 @@ static func _distribute_one(
 		if not per_entity.has(order.entity_id):
 			per_entity[order.entity_id] = []
 		per_entity[order.entity_id].append(order)
+
+
+# RESEARCH handler — appends a queue declaration on the producer's
+# ProductionState. Mirrors TRAIN but rejects research items the player
+# has already unlocked. Plan node 05 chunk 4.
+static func _handle_research_order(
+	state: MatchState, entity: Entity, order: EntityOrder, events: Array[ResolverEvent]
+) -> void:
+	if entity.production_state == null:
+		_emit_order_rejected(order.entity_id, "not_a_producer", events)
+		push_warning(
+			"RESEARCH for entity %d which has no production capability; dropping." % order.entity_id
+		)
+		return
+	if order.def_id == "":
+		_emit_order_rejected(order.entity_id, "missing_def_id", events)
+		return
+	var player := state.get_player(entity.owner_player_id)
+	if player != null and player.unlocked_researches.has(order.def_id):
+		_emit_order_rejected(order.entity_id, "duplicate_research", events)
+		return
+	(
+		entity
+		. production_state
+		. queue
+		. append(
+			{
+				ProductionState.KEY_DEF_ID: order.def_id,
+				ProductionState.KEY_KIND: ProductionState.KIND_RESEARCH,
+			}
+		)
+	)
+	var ev := ResolverEvent.new()
+	ev.type = ResolverEvent.Type.RESEARCH_QUEUED
+	ev.actor_id = order.entity_id
+	ev.def_id = order.def_id
+	events.append(ev)
 
 
 # TRAIN handler — appends a queue declaration on the producer's

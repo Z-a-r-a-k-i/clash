@@ -120,6 +120,9 @@ func _all_tests() -> Array:
 		["cancel_queued_no_cost_movement", _test_cancel_queued_no_cost_movement],
 		["cancel_active_triggers_try_fill", _test_cancel_active_triggers_try_fill],
 		["train_pop_overflow_stalls_at_install", _test_train_pop_overflow_stalls_at_install],
+		["research_full_cycle", _test_research_full_cycle],
+		["research_already_unlocked_rejected", _test_research_already_unlocked_rejected],
+		["research_stalls_on_funds", _test_research_stalls_on_funds],
 	]
 
 
@@ -2275,6 +2278,99 @@ func _test_cancel_active_triggers_try_fill() -> bool:
 	return result.new_state.get_player(0).minerals == 50
 
 
+func _test_research_full_cycle() -> bool:
+	# RESEARCH order: queue → install → tick → completion → unlocked.
+	var registry := _production_registry()
+	registry.researches = [_make_research_def("stim_research", 100, 0, 3)]
+	# Producer must list the research id in production.researches.
+	registry.entities[0].production.researches = ["stim_research"]
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 200
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.RESEARCH
+	order.entity_id = barracks.id
+	order.def_id = "stim_research"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+	# Run more turns until completion.
+	var saw_completed := false
+	for _i in 6:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		for ev in result.events:
+			if ev.type == ResolverEvent.Type.RESEARCH_COMPLETED and ev.def_id == "stim_research":
+				saw_completed = true
+		if saw_completed:
+			break
+	if not saw_completed:
+		return false
+	var p := result.new_state.get_player(0)
+	if not p.unlocked_researches.has("stim_research"):
+		return false
+	# Cost was 100 minerals; pop_cost=0.
+	return p.minerals == 100
+
+
+func _test_research_already_unlocked_rejected() -> bool:
+	# Submitting a duplicate RESEARCH for an already-unlocked research →
+	# ORDER_REJECTED with reason "duplicate_research"; nothing queued.
+	var registry := _production_registry()
+	registry.researches = [_make_research_def("stim_research", 100, 0, 3)]
+	registry.entities[0].production.researches = ["stim_research"]
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	state.players[0].unlocked_researches = ["stim_research"]
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.RESEARCH
+	order.entity_id = barracks.id
+	order.def_id = "stim_research"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.queue.is_empty():
+		return false
+	if not b.production_state.active.is_empty():
+		return false
+	# Look for the rejection event.
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ORDER_REJECTED and ev.def_id == "duplicate_research":
+			return true
+	return false
+
+
+func _test_research_stalls_on_funds() -> bool:
+	# RESEARCH stalls on insufficient minerals, mirrors TRAIN.
+	var registry := _production_registry()
+	registry.researches = [_make_research_def("stim_research", 100, 0, 3)]
+	registry.entities[0].production.researches = ["stim_research"]
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 50  # not enough
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.RESEARCH
+	order.entity_id = barracks.id
+	order.def_id = "stim_research"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.active.is_empty():
+		return false
+	if b.production_state.queue.size() != 1:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.PRODUCTION_STALLED)
+
+
 func _test_train_pop_overflow_stalls_at_install() -> bool:
 	# Queue head pop_cost overflows pop_cap → stall at try-fill.
 	var registry := _production_registry()
@@ -2523,6 +2619,19 @@ func _production_registry() -> EntityRegistry:
 	blocker.health = bl_hp
 	registry.entities = [barracks, marine, blocker]
 	return registry
+
+
+# Lightweight ResearchDef factory for plan-05 chunk 4 tests.
+func _make_research_def(
+	id: String, mineral_cost: int, gas_cost: int, time_turns: int
+) -> ResearchDef:
+	var r := ResearchDef.new()
+	r.id = id
+	r.display_name = id
+	r.mineral_cost = mineral_cost
+	r.gas_cost = gas_cost
+	r.research_time_turns = time_turns
+	return r
 
 
 # Tank-shaped (2x2) registry with movement; used by multi-tile collision

@@ -14,3 +14,4 @@ id = "unsiege_mode"
 display_name = "Unsiege Mode"
 cast_time_turns = 1
 effect = SubResource("Resource_pojod")
+requires_research_id = "siege_mode_research"
