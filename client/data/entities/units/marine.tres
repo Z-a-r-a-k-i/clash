@@ -29,7 +29,7 @@ built_by_tag = "barracks"
 
 [sub_resource type="Resource" id="Resource_uk2a5"]
 script = ExtResource("7_1yx6c")
-max_hp = 50
+max_hp = 45
 
 [sub_resource type="Resource" id="Resource_gupk4"]
 script = ExtResource("8_vfsmm")

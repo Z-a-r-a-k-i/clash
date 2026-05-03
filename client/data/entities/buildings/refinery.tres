@@ -7,14 +7,14 @@
 
 [sub_resource type="Resource" id="Resource_pqxwg"]
 script = ExtResource("1_pqxwg")
-build_time_turns = 8
+build_time_turns = 3
 mineral_cost = 75
 built_by_tag = "worker"
 requires_target_tag = "gas_geyser"
 
 [sub_resource type="Resource" id="Resource_jocst"]
 script = ExtResource("2_jocst")
-max_hp = 750
+max_hp = 500
 
 [sub_resource type="Resource" id="Resource_gati6"]
 script = ExtResource("4_vmnr7")

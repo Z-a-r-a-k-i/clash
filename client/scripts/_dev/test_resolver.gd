@@ -150,6 +150,19 @@ func _all_tests() -> Array:
 		["build_target_tile_occupied_rejected", _test_build_target_tile_occupied_rejected],
 		["build_off_grid_rejected", _test_build_off_grid_rejected],
 		["production_determinism_golden", _test_production_determinism_golden],
+		# Plan node 06 — combat data wiring.
+		["siege_tank_has_anti_heavy_modifier_data", _test_siege_tank_has_anti_heavy_modifier_data],
+		["helicopter_has_anti_light_modifier_data", _test_helicopter_has_anti_light_modifier_data],
+		["marine_has_no_attack_modifiers_data", _test_marine_has_no_attack_modifiers_data],
+		[
+			"siege_tank_anti_heavy_damage_at_data_values",
+			_test_siege_tank_anti_heavy_damage_at_data_values
+		],
+		[
+			"helicopter_anti_light_damage_at_data_values",
+			_test_helicopter_anti_light_damage_at_data_values
+		],
+		["registry_loads_from_data", _test_registry_loads_from_data],
 	]
 
 
@@ -3044,7 +3057,129 @@ func _test_build_cancel_via_worker_full_refund() -> bool:
 	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_CANCELLED)
 
 
+# ---------- Plan node 06 — combat data wiring ----------
+
+
+func _test_siege_tank_has_anti_heavy_modifier_data() -> bool:
+	# Smoke-test the .tres data: the merged registry must produce a
+	# siege_tank def with exactly one AttackModifier targeting "heavy"
+	# at 1.5x damage. Catches accidental data drift on the .tres files.
+	var registry := _load_data_registry()
+	if registry == null:
+		return false
+	var def: EntityDef = registry.get_by_id("siege_tank")
+	if def == null or def.combat == null:
+		return false
+	if def.combat.attack_modifiers.size() != 1:
+		return false
+	var mod: AttackModifier = def.combat.attack_modifiers[0]
+	return mod != null and mod.target_tag == "heavy" and is_equal_approx(mod.damage_mult, 1.5)
+
+
+func _test_helicopter_has_anti_light_modifier_data() -> bool:
+	# Same shape as siege_tank, but for helicopter vs light.
+	var registry := _load_data_registry()
+	if registry == null:
+		return false
+	var def: EntityDef = registry.get_by_id("helicopter")
+	if def == null or def.combat == null:
+		return false
+	if def.combat.attack_modifiers.size() != 1:
+		return false
+	var mod: AttackModifier = def.combat.attack_modifiers[0]
+	return mod != null and mod.target_tag == "light" and is_equal_approx(mod.damage_mult, 1.5)
+
+
+func _test_marine_has_no_attack_modifiers_data() -> bool:
+	# Marine is the generalist — no counters. Per spec: "keep modifiers
+	# small (one or two per unit)"; marine carries none.
+	var registry := _load_data_registry()
+	if registry == null:
+		return false
+	var def: EntityDef = registry.get_by_id("marine")
+	if def == null or def.combat == null:
+		return false
+	return def.combat.attack_modifiers.is_empty()
+
+
+func _test_siege_tank_anti_heavy_damage_at_data_values() -> bool:
+	# Behavioral test using actual .tres values: siege_tank base damage
+	# is 15; with the +heavy 1.5x modifier, vs another siege_tank (heavy
+	# tag) deals round(15 * 1.5) = 23.
+	var registry := _load_data_registry()
+	if registry == null:
+		return false
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	var attacker := _make_entity(state, "siege_tank", 0, Vector2i(0, 5), 175, "ground")
+	var target := _make_entity(state, "siege_tank", 1, Vector2i(5, 5), 175, "ground")
+	state.tile_grid.place(attacker.id, Rect2i(0, 5, 2, 2))
+	state.tile_grid.place(target.id, Rect2i(5, 5, 2, 2))
+
+	var atk := EntityOrder.new()
+	atk.type = EntityOrder.Type.ATTACK
+	atk.entity_id = attacker.id
+	atk.target_priority_chain = [target.id]
+	var result := Resolver.resolve(state, _submit([atk]), _submit(), registry, null)
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.target_id == target.id:
+			return ev.damage == 23
+	return false
+
+
+func _test_helicopter_anti_light_damage_at_data_values() -> bool:
+	# Behavioral test: helicopter base damage 12; vs light marine
+	# (light tag), round(12 * 1.5) = 18.
+	var registry := _load_data_registry()
+	if registry == null:
+		return false
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	var heli := _make_entity(state, "helicopter", 0, Vector2i(0, 5), 140, "flying")
+	var marine := _make_entity(state, "marine", 1, Vector2i(4, 5), 45, "ground")
+	state.tile_grid.place(heli.id, Rect2i(0, 5, 1, 1))
+	state.tile_grid.place(marine.id, Rect2i(4, 5, 1, 1))
+
+	var atk := EntityOrder.new()
+	atk.type = EntityOrder.Type.ATTACK
+	atk.entity_id = heli.id
+	atk.target_priority_chain = [marine.id]
+	var result := Resolver.resolve(state, _submit([atk]), _submit(), registry, null)
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.target_id == marine.id:
+			return ev.damage == 18
+	return false
+
+
+func _test_registry_loads_from_data() -> bool:
+	# Sanity: every roster entity AND research is present in the loaded
+	# registry. Catches accidental dropped imports / id renames in
+	# entity_registry.tres or its referenced .tres files.
+	var registry := _load_data_registry()
+	if registry == null:
+		return false
+	for unit in ["marine", "siege_tank", "helicopter"]:
+		if registry.get_by_id(unit) == null:
+			return false
+	for building in ["base", "barracks", "factory", "starport", "refinery"]:
+		if registry.get_by_id(building) == null:
+			return false
+	for research in ["stim_research", "siege_mode_research"]:
+		if registry.get_research_by_id(research) == null:
+			return false
+	return true
+
+
 # ---------- Helpers ----------
+
+
+# Loads `client/data/entity_registry.tres` and returns it. Returns null
+# if the file isn't loadable in the test context (the @tool runner runs
+# inside the editor, so res:// loads work). Used by plan-06 data-wiring
+# tests.
+func _load_data_registry() -> EntityRegistry:
+	var registry: EntityRegistry = load("res://data/entity_registry.tres") as EntityRegistry
+	return registry
 
 
 # Wrap a flat orders array into a SubmitTurn (the resolver's per-player
