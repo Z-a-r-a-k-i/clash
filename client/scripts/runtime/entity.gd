@@ -29,6 +29,13 @@ var hold_fire: bool = false  # toggled by HOLD_FIRE_TOGGLE order
 # def.movement.speed_tiles_per_turn to gate further movement this turn.
 var moves_used_this_turn: int = 0
 
+# Per-instance remaining capacity for ResourceSource entities (mineral
+# patches, gas geysers). -1 = infinite or N/A (non-source entities). The
+# scenario loader / spawner seeds this from def.resource_source.capacity
+# when the entity is created. The gather system decrements it on each
+# yield tick.
+var current_resource_amount: int = -1
+
 # Optional capability-paired state — null unless def has the matching capability.
 var production_state: ProductionState
 var gather_state: GatherState
@@ -63,6 +70,7 @@ func clone() -> Entity:
 	c.is_hidden = is_hidden
 	c.hold_fire = hold_fire
 	c.moves_used_this_turn = moves_used_this_turn
+	c.current_resource_amount = current_resource_amount
 
 	if production_state != null:
 		c.production_state = production_state.clone()

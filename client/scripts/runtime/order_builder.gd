@@ -72,3 +72,14 @@ static func fan_out_cancel(entity_ids: Array[int], cancel_index: int = -1) -> Ar
 		o.cancel_index = cancel_index
 		out.append(o)
 	return out
+
+
+static func fan_out_gather(entity_ids: Array[int], target_entity_id: int) -> Array[EntityOrder]:
+	var out: Array[EntityOrder] = []
+	for id in entity_ids:
+		var o := EntityOrder.new()
+		o.type = EntityOrder.Type.GATHER
+		o.entity_id = id
+		o.target_entity_id = target_entity_id
+		out.append(o)
+	return out

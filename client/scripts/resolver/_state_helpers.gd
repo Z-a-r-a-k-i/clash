@@ -16,10 +16,10 @@ extends RefCounted
 # player doesn't own are dropped with a push_warning (M0 — at M2 this
 # would be a wire-validation error).
 #
-# HOLD_FIRE_TOGGLE and CANCEL apply immediately during distribution
-# (state mutation, no tick — they're not "actions" but mode changes).
-# Other order types accumulate into the per-entity arrays for the tick
-# loop to consume.
+# HOLD_FIRE_TOGGLE, CANCEL, and GATHER apply immediately during
+# distribution (state mutation, no tick — they're mode changes / standing
+# orders, not per-tick actions). Other order types accumulate into the
+# per-entity arrays for the tick loop to consume.
 static func distribute_orders(
 	state: MatchState, queue_a: Array[EntityOrder], queue_b: Array[EntityOrder]
 ) -> Dictionary:
@@ -82,8 +82,9 @@ static func _distribute_one(
 				)
 			)
 			continue
-		# HOLD_FIRE_TOGGLE and CANCEL apply at distribution time, not in the
-		# tick loop — they're mode changes, not actions.
+		# HOLD_FIRE_TOGGLE, CANCEL, and GATHER apply at distribution time,
+		# not in the tick loop — they're mode changes / standing orders,
+		# not per-tick actions.
 		if order.type == EntityOrder.Type.HOLD_FIRE_TOGGLE:
 			# `hold_fire` on the order is the desired state, not a delta.
 			# Naming kept as TOGGLE to match plan/m0/03 vocabulary.
@@ -104,6 +105,33 @@ static func _distribute_one(
 						% order.cancel_index
 					)
 				)
+			continue
+		if order.type == EntityOrder.Type.GATHER:
+			# A GATHER turns into standing state on the worker: we set the
+			# assignment + transition the FSM into MOVING_TO_SOURCE; the
+			# resolver's gather_system advances it from there each tick.
+			# Workers without a gather_state (non-worker units) silently
+			# drop the order. Any prior MOVE / ATTACK_MOVE persistent_order
+			# is cleared — gathering supersedes it, otherwise the move
+			# would resume after the gather FSM returns to IDLE.
+			if entity.gather_state == null:
+				push_warning(
+					(
+						"GATHER for entity %d has no gather_state (not a worker); dropping."
+						% order.entity_id
+					)
+				)
+				continue
+			entity.gather_state.assigned_source_entity_id = order.target_entity_id
+			# A loaded worker must drop its existing cargo before starting
+			# the new cycle, otherwise switching to a different resource
+			# type would mis-credit the deposit (carrying_resource_type is
+			# overwritten in _tick_gather).
+			if entity.gather_state.carrying_amount > 0:
+				entity.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
+			else:
+				entity.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
+			entity.persistent_order = null
 			continue
 		# Per-tick orders queue up.
 		if not per_entity.has(order.entity_id):

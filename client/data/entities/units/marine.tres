@@ -1,16 +1,15 @@
 [gd_resource type="Resource" script_class="EntityDef" format=3 uid="uid://chxjuhbbl0mji"]
 
 [ext_resource type="Script" uid="uid://b520b3b4w1skc" path="res://scripts/data/ability_def.gd" id="1_8lhvr"]
-[ext_resource type="Script" uid="uid://bu8stqpbjt1we" path="res://scripts/data/entity_def.gd" id="1_entity_def"]
 [ext_resource type="Resource" uid="uid://d2qhm13ef06jl" path="res://data/abilities/stim.tres" id="2_fhr86"]
 [ext_resource type="Script" uid="uid://dl3urbbllej16" path="res://scripts/data/abilities_def.gd" id="3_5pl11"]
-[ext_resource type="Script" uid="uid://cxbe8iowpag5f" path="res://scripts/data/attack_modifier.gd" id="4_uk2a5"]
 [ext_resource type="Script" uid="uid://voeakqpmilet" path="res://scripts/data/combat_def.gd" id="5_gupk4"]
 [ext_resource type="Script" uid="uid://d2s53qcs5kvti" path="res://scripts/data/construction_def.gd" id="6_sxt4m"]
 [ext_resource type="Script" uid="uid://cegrh6taqqbqv" path="res://scripts/data/health_def.gd" id="7_1yx6c"]
 [ext_resource type="Script" uid="uid://bj1eo17jxsgl" path="res://scripts/data/movement_def.gd" id="8_vfsmm"]
 [ext_resource type="Script" uid="uid://c1kfjxmjqsms8" path="res://scripts/data/population_def.gd" id="9_vc1w1"]
-[ext_resource type="Script" uid="uid://m84r6cs0begg" path="res://scripts/data/vision_def.gd" id="11_3nnfw"]
+[ext_resource type="Script" uid="uid://bu8stqpbjt1we" path="res://scripts/data/entity_def.gd" id="10_3nnfw"]
+[ext_resource type="Script" uid="uid://m84r6cs0begg" path="res://scripts/data/vision_def.gd" id="11_io4my"]
 
 [sub_resource type="Resource" id="Resource_8lhvr"]
 script = ExtResource("3_5pl11")
@@ -41,11 +40,11 @@ script = ExtResource("9_vc1w1")
 pop_cost = 1
 
 [sub_resource type="Resource" id="Resource_1yx6c"]
-script = ExtResource("11_3nnfw")
+script = ExtResource("11_io4my")
 sight_radius = 7
 
 [resource]
-script = ExtResource("1_entity_def")
+script = ExtResource("10_3nnfw")
 id = "marine"
 display_name = "Marine"
 tags = Array[String](["light", "biological", "ground"])

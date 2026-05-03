@@ -38,6 +38,7 @@ enum Type {
 	TRAIN,
 	RESEARCH,
 	CANCEL,
+	GATHER,
 }
 
 var type: Type = Type.INVALID
@@ -64,6 +65,11 @@ var def_id: String = ""
 # CANCEL — index into the entity's order_queue, or -1 to cancel persistent_order.
 var cancel_index: int = -1
 
+# GATHER — entity to gather from. Can be a ResourceSource (mineral patch /
+# geyser) or a refinery (the resolver translates to the underlying geyser).
+# -1 = unset.
+var target_entity_id: int = -1
+
 
 func clone() -> EntityOrder:
 	var c := EntityOrder.new()
@@ -77,4 +83,5 @@ func clone() -> EntityOrder:
 	c.hold_fire = hold_fire
 	c.def_id = def_id
 	c.cancel_index = cancel_index
+	c.target_entity_id = target_entity_id
 	return c
