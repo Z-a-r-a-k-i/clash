@@ -99,6 +99,57 @@ func _all_tests() -> Array:
 		["worker_idles_on_all_sinks_destroyed", _test_worker_idles_on_all_sinks_destroyed],
 		["nearest_deposit_sink_chosen", _test_nearest_deposit_sink_chosen],
 		["gather_clears_prior_persistent_move", _test_gather_clears_prior_persistent_move],
+		# Plan node 05 — production / build / research.
+		[
+			"train_appended_to_queue_no_immediate_cost",
+			_test_train_appended_to_queue_no_immediate_cost
+		],
+		["train_idle_producer_immediate_install", _test_train_idle_producer_immediate_install],
+		[
+			"train_insufficient_minerals_stalls_at_install",
+			_test_train_insufficient_minerals_stalls_at_install
+		],
+		["train_resumes_after_funds_arrive", _test_train_resumes_after_funds_arrive],
+		[
+			"train_spawn_adjacent_with_persistent_move_to_rally",
+			_test_train_spawn_adjacent_with_persistent_move_to_rally
+		],
+		["train_spawn_deferred_no_free_tile", _test_train_spawn_deferred_no_free_tile],
+		["unit_death_returns_pop", _test_unit_death_returns_pop],
+		["cancel_active_full_refund", _test_cancel_active_full_refund],
+		["cancel_queued_no_cost_movement", _test_cancel_queued_no_cost_movement],
+		["cancel_active_triggers_try_fill", _test_cancel_active_triggers_try_fill],
+		["train_pop_overflow_stalls_at_install", _test_train_pop_overflow_stalls_at_install],
+		["research_full_cycle", _test_research_full_cycle],
+		["research_already_unlocked_rejected", _test_research_already_unlocked_rejected],
+		["research_stalls_on_funds", _test_research_stalls_on_funds],
+		[
+			"build_distributes_creates_constructing_entity",
+			_test_build_distributes_creates_constructing_entity
+		],
+		["build_worker_walks_to_site", _test_build_worker_walks_to_site],
+		[
+			"build_progress_only_while_worker_adjacent",
+			_test_build_progress_only_while_worker_adjacent
+		],
+		["build_completes_applies_pop_provides", _test_build_completes_applies_pop_provides],
+		["build_locked_worker_rejects_new_orders", _test_build_locked_worker_rejects_new_orders],
+		["building_death_drops_pop_cap", _test_building_death_drops_pop_cap],
+		["build_worker_death_pauses", _test_build_worker_death_pauses],
+		["build_resume_via_new_worker", _test_build_resume_via_new_worker],
+		[
+			"build_constructing_building_dies_no_refund",
+			_test_build_constructing_building_dies_no_refund
+		],
+		["build_cancel_via_worker_full_refund", _test_build_cancel_via_worker_full_refund],
+		[
+			"build_refinery_on_geyser_overlap_allowed",
+			_test_build_refinery_on_geyser_overlap_allowed
+		],
+		["build_refinery_double_target_rejected", _test_build_refinery_double_target_rejected],
+		["build_target_tile_occupied_rejected", _test_build_target_tile_occupied_rejected],
+		["build_off_grid_rejected", _test_build_off_grid_rejected],
+		["production_determinism_golden", _test_production_determinism_golden],
 	]
 
 
@@ -720,47 +771,52 @@ func _test_moves_used_resets_each_turn() -> bool:
 
 
 func _test_production_progress_emits_completion() -> bool:
-	# Building with one queued production item, turns_remaining=1 →
-	# end-of-turn emits BUILD_COMPLETED, queue empties.
+	# Building with one active production item, turns_remaining=1 →
+	# end-of-turn ticks to 0, finalizes by spawning a marine adjacent,
+	# emits TRAIN_COMPLETED, active slot empties.
 	var registry := EntityRegistry.new()
 	var building_def := EntityDef.new()
 	building_def.id = "barracks"
 	building_def.tags = ["building", "ground"]
 	building_def.footprint = Vector2i(3, 3)
-	var hd := HealthDef.new()
-	hd.max_hp = 1000
-	building_def.health = hd
-	registry.entities = [building_def]
+	var bd_hp := HealthDef.new()
+	bd_hp.max_hp = 1000
+	building_def.health = bd_hp
+	building_def.production = ProductionDef.new()
+	building_def.production.produces = ["marine"]
+	building_def.production.rally_offset = Vector2i(0, 4)
+	# Marine def for spawn.
+	var marine_def := EntityDef.new()
+	marine_def.id = "marine"
+	marine_def.tags = ["light", "ground"]
+	marine_def.footprint = Vector2i(1, 1)
+	var md_hp := HealthDef.new()
+	md_hp.max_hp = 50
+	marine_def.health = md_hp
+	marine_def.movement = MovementDef.new()
+	marine_def.movement.speed_tiles_per_turn = 4
+	marine_def.movement.default_layer = "ground"
+	registry.entities = [building_def, marine_def]
 
 	var state := _state_with_grid(20, 20)
 	var building := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
 	state.tile_grid.place(building.id, Rect2i(2, 2, 3, 3))
 	var ps := ProductionState.new()
-	ps.queue = [
-		{
-			ProductionState.KEY_DEF_ID: "marine",
-			ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
-			ProductionState.KEY_TURNS_REMAINING: 1,
-		}
-	]
+	ps.active = {
+		ProductionState.KEY_DEF_ID: "marine",
+		ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
+		ProductionState.KEY_TURNS_REMAINING: 1,
+		ProductionState.KEY_PAID_MINERALS: 0,
+		ProductionState.KEY_PAID_GAS: 0,
+		ProductionState.KEY_PAID_POP: 0,
+	}
 	building.production_state = ps
 
-	# Force at least one tick (any noop order).
-	var noop := EntityOrder.new()
-	noop.type = EntityOrder.Type.MOVE
-	noop.entity_id = building.id
-	noop.target_tile = building.origin  # building has no Movement; resolve_move skips.
-	var queue_a: Array[EntityOrder] = [noop]
-
-	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
-	var saw_completed := false
-	for ev in result.events:
-		if ev.type == ResolverEvent.Type.BUILD_COMPLETED and ev.def_id == "marine":
-			saw_completed = true
-	if not saw_completed:
+	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
+	if not _has_event_of_type(result.events, ResolverEvent.Type.TRAIN_COMPLETED):
 		return false
 	var new_building := result.new_state.get_entity_by_id(building.id)
-	return new_building.production_state.queue.is_empty()
+	return new_building.production_state.active.is_empty()
 
 
 func _test_win_by_raze() -> bool:
@@ -926,7 +982,11 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 			return false
 		if pa.pop_used != pb.pop_used:
 			return false
+		if pa.pop_cap != pb.pop_cap:
+			return false
 		if pa.has_surrendered != pb.has_surrendered:
+			return false
+		if pa.unlocked_researches != pb.unlocked_researches:
 			return false
 	var ents_a := a.entities_sorted_by_id()
 	var ents_b := b.entities_sorted_by_id()
@@ -951,6 +1011,24 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 			return false
 		if ea.current_resource_amount != eb.current_resource_amount:
 			return false
+		if ea.is_constructing != eb.is_constructing:
+			return false
+		if ea.construction_turns_remaining != eb.construction_turns_remaining:
+			return false
+		if ea.construction_worker_id != eb.construction_worker_id:
+			return false
+		if ea.locked_to_building_id != eb.locked_to_building_id:
+			return false
+		if (ea.production_state == null) != (eb.production_state == null):
+			return false
+		if ea.production_state != null:
+			if ea.production_state.active != eb.production_state.active:
+				return false
+			if ea.production_state.queue.size() != eb.production_state.queue.size():
+				return false
+			for j in ea.production_state.queue.size():
+				if ea.production_state.queue[j] != eb.production_state.queue[j]:
+					return false
 		if ea.ability_cooldowns != eb.ability_cooldowns:
 			return false
 		if ea.active_buffs.size() != eb.active_buffs.size():
@@ -1589,22 +1667,12 @@ func _test_gather_full_cycle_gas_via_refinery() -> bool:
 	var geyser := _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
 	geyser.current_resource_amount = -1  # infinite
 	state.tile_grid.place(geyser.id, Rect2i(10, 5, 1, 1))
-	# Refinery shares the geyser's origin (the construction system would
-	# enforce this in the real flow).
+	# Refinery shares the geyser's origin. Use place_overlapping (added in
+	# plan node 05 chunk 7) so the refinery's rect is registered without
+	# evicting the geyser from _occupancy. This replaces the previous
+	# test-shim that poked _entity_rects directly.
 	var refinery := _make_entity(state, "refinery", 0, Vector2i(10, 5), 750, "ground")
-	# Refinery and geyser overlap by design — work around the tile_grid's
-	# collision check by removing the geyser, placing the refinery, then
-	# re-placing the geyser via direct dictionary update through a fresh
-	# place call on a different tile mapped back. Simpler: use a side-by-
-	# side rect for test purposes (the resolver looks for same `position`,
-	# so we co-locate them by patching the grid post-hoc).
-	state.tile_grid.remove(geyser.id)
-	state.tile_grid.place(refinery.id, Rect2i(10, 5, 1, 1))
-	# Manually re-add the geyser to the grid's entity_rects index without
-	# touching occupancy (so _resolve_source's "same origin" check works).
-	# This is test-shim plumbing only — production never has overlapping
-	# entities placed this way.
-	state.tile_grid._entity_rects[geyser.id] = Rect2i(10, 5, 1, 1)
+	state.tile_grid.place_overlapping(refinery.id, Rect2i(10, 5, 1, 1), geyser.id)
 
 	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], refinery.id)
 	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
@@ -1825,6 +1893,1157 @@ func _test_gather_clears_prior_persistent_move() -> bool:
 	return p != null and p.minerals > 0
 
 
+# ---------- Plan node 05: production / build / research ----------
+
+
+func _test_train_appended_to_queue_no_immediate_cost() -> bool:
+	# TRAIN order to a producer with non-empty active slot → queued, no
+	# cost deducted (lazy queue model).
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	# Pre-occupied active slot so the new TRAIN goes into queue, not active.
+	barracks.production_state.active = {
+		ProductionState.KEY_DEF_ID: "marine",
+		ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
+		ProductionState.KEY_TURNS_REMAINING: 2,
+		ProductionState.KEY_PAID_MINERALS: 50,
+		ProductionState.KEY_PAID_GAS: 0,
+		ProductionState.KEY_PAID_POP: 1,
+	}
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+
+	var p := result.new_state.get_player(0)
+	# Funds unchanged by appending to queue.
+	if p.minerals != 500:
+		return false
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	# Queue grew by one (the new marine).
+	if b.production_state.queue.size() != 1:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.TRAIN_QUEUED)
+
+
+func _test_train_idle_producer_immediate_install() -> bool:
+	# TRAIN order to an idle producer with affordable cost → installed
+	# in active slot the same turn, cost deducted, pop reserved.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 200
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+
+	var p := result.new_state.get_player(0)
+	# Marine costs 50 minerals + 1 pop in the test registry. Note that
+	# advance_queues at EOT also decrements turns_remaining once, so the
+	# active slot starts at build_time and ends this first turn at
+	# build_time - 1.
+	if p.minerals != 150:
+		return false
+	if p.pop_used != 1:
+		return false
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if b.production_state.queue.size() != 0:
+		return false
+	if b.production_state.active.is_empty():
+		return false
+	if b.production_state.active[ProductionState.KEY_DEF_ID] != "marine":
+		return false
+	# TRAIN_STARTED must have been emitted at install time.
+	return _has_event_of_type(result.events, ResolverEvent.Type.TRAIN_STARTED)
+
+
+func _test_train_insufficient_minerals_stalls_at_install() -> bool:
+	# TRAIN order to an idle producer but player can't afford → queue
+	# grows, active stays empty, no deduction, PRODUCTION_STALLED.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 30  # marine costs 50
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+
+	var p := result.new_state.get_player(0)
+	if p.minerals != 30:
+		return false
+	if p.pop_used != 0:
+		return false
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.active.is_empty():
+		return false
+	if b.production_state.queue.size() != 1:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.PRODUCTION_STALLED)
+
+
+func _test_train_resumes_after_funds_arrive() -> bool:
+	# Stalled queue head + funds arrive → next try-fill installs and
+	# starts ticking.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 0  # nothing
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+	# Stalled.
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.active.is_empty():
+		return false
+	if b.production_state.queue.size() != 1:
+		return false
+	# Inject funds into the cloned new_state and run another turn.
+	result.new_state.get_player(0).minerals = 100
+	result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+	b = result.new_state.get_entity_by_id(barracks.id)
+	if b.production_state.active.is_empty():
+		return false
+	# Install consumes 50; turns_remaining decremented once at EOT same turn.
+	return result.new_state.get_player(0).minerals == 50
+
+
+func _test_train_spawn_adjacent_with_persistent_move_to_rally() -> bool:
+	# Full cycle: TRAIN → install → tick to completion → spawn adjacent
+	# → spawned unit has persistent MOVE to producer.origin + rally_offset.
+	var registry := _production_registry()
+	var state := _state_with_grid(30, 30)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(5, 5, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+	# Marine build_time = 3 in our registry. Run more turns until we see
+	# a TRAIN_COMPLETED.
+	var saw_completed := false
+	var spawned_id: int = -1
+	for _i in 5:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		for ev in result.events:
+			if ev.type == ResolverEvent.Type.TRAIN_COMPLETED:
+				saw_completed = true
+				spawned_id = ev.target_id
+		if saw_completed:
+			break
+	if not saw_completed or spawned_id < 0:
+		return false
+	var marine := result.new_state.get_entity_by_id(spawned_id)
+	if marine == null or marine.def_id != "marine":
+		return false
+	# Marine should be adjacent to barracks rect.
+	var br: Rect2i = result.new_state.tile_grid.entity_rect(barracks.id)
+	var mr: Rect2i = result.new_state.tile_grid.entity_rect(marine.id)
+	if TileGrid.distance_between_rects(br, mr) != 1:
+		return false
+	# persistent_order = MOVE to rally tile (5+0, 5+4) = (5, 9).
+	if marine.persistent_order == null:
+		return false
+	if marine.persistent_order.type != EntityOrder.Type.MOVE:
+		return false
+	return marine.persistent_order.target_tile == Vector2i(5, 9)
+
+
+func _test_train_spawn_deferred_no_free_tile() -> bool:
+	# Block every adjacent tile around the barracks so spawn defers.
+	var registry := _production_registry()
+	var state := _state_with_grid(15, 15)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(5, 5, 3, 3))
+	# Surround barracks (rect 5..7, 5..7) with blockers on every adjacent
+	# tile. The perimeter at 4..8 forms an outer ring of 5x5 - 3x3 = 16
+	# tiles. Each blocker is a 1x1 entity — _make_entity allocates an id.
+	for x in range(4, 9):
+		for y in range(4, 9):
+			if x >= 5 and x <= 7 and y >= 5 and y <= 7:
+				continue  # skip the barracks footprint itself
+			var blk := _make_entity(state, "blocker", 1, Vector2i(x, y), 50, "ground")
+			state.tile_grid.place(blk.id, Rect2i(x, y, 1, 1))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+	# Run a few turns until completion-attempt.
+	var saw_deferred := false
+	for _i in 5:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		if _has_event_of_type(result.events, ResolverEvent.Type.SPAWN_DEFERRED):
+			saw_deferred = true
+			break
+	if not saw_deferred:
+		return false
+	# Active slot should still be populated with turns_remaining = 0.
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if b.production_state.active.is_empty():
+		return false
+	return b.production_state.active[ProductionState.KEY_TURNS_REMAINING] == 0
+
+
+func _test_unit_death_returns_pop() -> bool:
+	# Killing a unit returns its pop_cost to the player's pop_used.
+	var registry := _two_unit_registry(2000, 5, ["ground"], 50)
+	# Add population to the shared marine def.
+	registry.entities[0].population = PopulationDef.new()
+	registry.entities[0].population.pop_cost = 1
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].pop_used = 1  # represents the marine's reservation
+	var attacker := _make_entity(state, "marine", 1, Vector2i(5, 5), 50, "ground")
+	var victim := _make_entity(state, "marine", 0, Vector2i(7, 5), 50, "ground")
+	state.tile_grid.place(attacker.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(victim.id, Rect2i(7, 5, 1, 1))
+	# Set HP low so a single attack kills.
+	victim.current_hp = 1
+
+	var atk := EntityOrder.new()
+	atk.type = EntityOrder.Type.ATTACK
+	atk.entity_id = attacker.id
+	atk.target_priority_chain = [victim.id]
+	var result := Resolver.resolve(state, _submit(), _submit([atk]), registry, null)
+
+	var p := result.new_state.get_player(0)
+	return p.pop_used == 0
+
+
+func _test_cancel_active_full_refund() -> bool:
+	# Active marine paid 50 min + 1 pop. CANCEL(producer, 0) refunds
+	# minerals + pop, clears active, emits PRODUCTION_CANCELLED.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 100
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	# Submit a TRAIN to reach a paid active state, then cancel it next turn.
+	var train := EntityOrder.new()
+	train.type = EntityOrder.Type.TRAIN
+	train.entity_id = barracks.id
+	train.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([train]), _submit(), registry, null)
+	# After T0: minerals = 100 - 50 = 50; pop_used = 1.
+	if result.new_state.get_player(0).minerals != 50:
+		return false
+	if result.new_state.get_player(0).pop_used != 1:
+		return false
+
+	var cancel := EntityOrder.new()
+	cancel.type = EntityOrder.Type.CANCEL
+	cancel.entity_id = barracks.id
+	cancel.cancel_index = 0
+	result = Resolver.resolve(result.new_state, _submit([cancel]), _submit(), registry, null)
+	# Refund: minerals back to 100, pop_used back to 0, active cleared.
+	var p := result.new_state.get_player(0)
+	if p.minerals != 100:
+		return false
+	if p.pop_used != 0:
+		return false
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.active.is_empty():
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.PRODUCTION_CANCELLED)
+
+
+func _test_cancel_queued_no_cost_movement() -> bool:
+	# 3-item queue → CANCEL(2) removes queue[1]; queue.size() drops to
+	# 2; minerals unchanged; the right item is removed.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 50  # only enough for active install
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	# Three TRAIN orders this turn. The first becomes active (cost paid);
+	# the next two queue without payment.
+	var orders: Array[EntityOrder] = []
+	for _i in 3:
+		var t := EntityOrder.new()
+		t.type = EntityOrder.Type.TRAIN
+		t.entity_id = barracks.id
+		t.def_id = "marine"
+		orders.append(t)
+	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	# Active = 1 marine, queue = 2 marines.
+	if b.production_state.active.is_empty():
+		return false
+	if b.production_state.queue.size() != 2:
+		return false
+	var minerals_before: int = result.new_state.get_player(0).minerals
+
+	# Cancel the second queued item (cancel_index = 2 maps to queue[1]).
+	var cancel := EntityOrder.new()
+	cancel.type = EntityOrder.Type.CANCEL
+	cancel.entity_id = barracks.id
+	cancel.cancel_index = 2
+	result = Resolver.resolve(result.new_state, _submit([cancel]), _submit(), registry, null)
+	b = result.new_state.get_entity_by_id(barracks.id)
+	# Queue dropped by one; minerals unchanged (queued items are unpaid).
+	if b.production_state.queue.size() != 1:
+		return false
+	return result.new_state.get_player(0).minerals == minerals_before
+
+
+func _test_cancel_active_triggers_try_fill() -> bool:
+	# Active marine + queued tank → cancel active → tank installs same
+	# turn (resolver runs try_fill after distribution).
+	var registry := _production_registry()
+	# Add a tank def so the queue can hold a different unit type.
+	var tank := EntityDef.new()
+	tank.id = "tank"
+	tank.footprint = Vector2i(1, 1)
+	tank.tags = ["heavy", "ground"]
+	var t_hp := HealthDef.new()
+	t_hp.max_hp = 150
+	tank.health = t_hp
+	tank.movement = MovementDef.new()
+	tank.movement.speed_tiles_per_turn = 3
+	tank.movement.default_layer = "ground"
+	tank.construction = ConstructionDef.new()
+	tank.construction.build_time_turns = 5
+	tank.construction.mineral_cost = 30
+	tank.construction.gas_cost = 0
+	tank.population = PopulationDef.new()
+	tank.population.pop_cost = 2
+	registry.entities.append(tank)
+	# barracks.produces must list "tank" too for the new membership check.
+	registry.entities[0].production.produces = ["marine", "tank"]
+
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 80  # enough for marine (50) + tank (30)
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	# Submit TRAIN(marine), TRAIN(tank). Marine becomes active (50 paid),
+	# tank queues unpaid.
+	var t1 := EntityOrder.new()
+	t1.type = EntityOrder.Type.TRAIN
+	t1.entity_id = barracks.id
+	t1.def_id = "marine"
+	var t2 := EntityOrder.new()
+	t2.type = EntityOrder.Type.TRAIN
+	t2.entity_id = barracks.id
+	t2.def_id = "tank"
+	var result := Resolver.resolve(state, _submit([t1, t2]), _submit(), registry, null)
+	# After T0: minerals = 80-50 = 30; queue has tank.
+	# Cancel marine; tank should auto-install (refund 50, then deduct 30).
+	var cancel := EntityOrder.new()
+	cancel.type = EntityOrder.Type.CANCEL
+	cancel.entity_id = barracks.id
+	cancel.cancel_index = 0
+	result = Resolver.resolve(result.new_state, _submit([cancel]), _submit(), registry, null)
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	# Active should now be the tank, queue empty.
+	if b.production_state.active.is_empty():
+		return false
+	if b.production_state.active[ProductionState.KEY_DEF_ID] != "tank":
+		return false
+	if b.production_state.queue.size() != 0:
+		return false
+	# Funds: refunded 50 (marine), deducted 30 (tank). Started at 30 in
+	# new_state (after T0 marine deduct), ends at 30 + 50 - 30 = 50.
+	return result.new_state.get_player(0).minerals == 50
+
+
+func _test_research_full_cycle() -> bool:
+	# RESEARCH order: queue → install → tick → completion → unlocked.
+	var registry := _production_registry()
+	registry.researches = [_make_research_def("stim_research", 100, 0, 3)]
+	# Producer must list the research id in production.researches.
+	registry.entities[0].production.researches = ["stim_research"]
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 200
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.RESEARCH
+	order.entity_id = barracks.id
+	order.def_id = "stim_research"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+	# Run more turns until completion.
+	var saw_completed := false
+	for _i in 6:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		for ev in result.events:
+			if ev.type == ResolverEvent.Type.RESEARCH_COMPLETED and ev.def_id == "stim_research":
+				saw_completed = true
+		if saw_completed:
+			break
+	if not saw_completed:
+		return false
+	var p := result.new_state.get_player(0)
+	if not p.unlocked_researches.has("stim_research"):
+		return false
+	# Cost was 100 minerals; pop_cost=0.
+	return p.minerals == 100
+
+
+func _test_research_already_unlocked_rejected() -> bool:
+	# Submitting a duplicate RESEARCH for an already-unlocked research →
+	# ORDER_REJECTED with reason "duplicate_research"; nothing queued.
+	var registry := _production_registry()
+	registry.researches = [_make_research_def("stim_research", 100, 0, 3)]
+	registry.entities[0].production.researches = ["stim_research"]
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	state.players[0].unlocked_researches = ["stim_research"]
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.RESEARCH
+	order.entity_id = barracks.id
+	order.def_id = "stim_research"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.queue.is_empty():
+		return false
+	if not b.production_state.active.is_empty():
+		return false
+	# Look for the rejection event.
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ORDER_REJECTED and ev.def_id == "duplicate_research":
+			return true
+	return false
+
+
+func _test_research_stalls_on_funds() -> bool:
+	# RESEARCH stalls on insufficient minerals, mirrors TRAIN.
+	var registry := _production_registry()
+	registry.researches = [_make_research_def("stim_research", 100, 0, 3)]
+	registry.entities[0].production.researches = ["stim_research"]
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 50  # not enough
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.RESEARCH
+	order.entity_id = barracks.id
+	order.def_id = "stim_research"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.active.is_empty():
+		return false
+	if b.production_state.queue.size() != 1:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.PRODUCTION_STALLED)
+
+
+func _test_train_pop_overflow_stalls_at_install() -> bool:
+	# Queue head pop_cost overflows pop_cap → stall at try-fill.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 200
+	state.players[0].pop_used = 5
+	state.players[0].pop_cap = 5  # no room for more pop
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = barracks.id
+	order.def_id = "marine"
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+
+	var p := result.new_state.get_player(0)
+	# Stalled — no install.
+	if p.minerals != 200:
+		return false
+	if p.pop_used != 5:
+		return false
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.active.is_empty():
+		return false
+	if b.production_state.queue.size() != 1:
+		return false
+	# PRODUCTION_STALLED with STALL_POP bit set.
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.PRODUCTION_STALLED:
+			return (ev.amount & ProductionSystem.STALL_POP) != 0
+	return false
+
+
+func _test_build_distributes_creates_constructing_entity() -> bool:
+	# BUILD order at distribution → new building entity exists with
+	# is_constructing=true, full HP, on tile_grid; cost deducted; worker
+	# locked; BUILD_STARTED emitted.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	worker.def_id = "worker"
+	worker.current_def_id = "worker"
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	var p := result.new_state.get_player(0)
+	# Barracks costs 150 in the test registry.
+	if p.minerals != 350:
+		return false
+	# Find the new building entity.
+	var found_building: Entity = null
+	for e in result.new_state.entities:
+		if e != null and e.def_id == "barracks":
+			found_building = e
+	if found_building == null:
+		return false
+	if not found_building.is_constructing:
+		return false
+	if found_building.current_hp != 1000:
+		return false
+	# Worker should be locked to the building.
+	var w := result.new_state.get_entity_by_id(worker.id)
+	if w.locked_to_building_id != found_building.id:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_STARTED)
+
+
+func _test_build_worker_walks_to_site() -> bool:
+	# Worker at distance 5 from build target reaches adjacency in ~5 ticks.
+	var registry := _build_registry()
+	var state := _state_with_grid(30, 30)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(10, 10)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	# Worker speed is 4; barracks rect at (10,10,3,3); distance from (0,0)
+	# rect to that rect is max(10-0, 10-0) = 10. So walk takes ~10/4 = 3
+	# turns to be adjacent. Run 6 turns to be safe.
+	var building_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			building_id = ev.target_id
+	for _i in 6:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+	var w := result.new_state.get_entity_by_id(worker.id)
+	var b := result.new_state.get_entity_by_id(building_id)
+	var w_rect := result.new_state.tile_grid.entity_rect(w.id)
+	var b_rect := result.new_state.tile_grid.entity_rect(b.id)
+	return TileGrid.distance_between_rects(w_rect, b_rect) <= 1
+
+
+func _test_build_progress_only_while_worker_adjacent() -> bool:
+	# Worker far from site → construction_turns_remaining doesn't
+	# decrement until worker arrives. While walking, no BUILD_PROGRESSED
+	# fires; once adjacent, ticks resume. The construction_worker_id link
+	# is preserved across the walk so progress picks up automatically.
+	var registry := _build_registry()
+	var state := _state_with_grid(40, 40)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(20, 20)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	var building_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			building_id = ev.target_id
+	# T0 EOT: worker not adjacent → no progress event.
+	var b0 := result.new_state.get_entity_by_id(building_id)
+	if _has_event_of_type(result.events, ResolverEvent.Type.BUILD_PROGRESSED):
+		return false
+	# Worker link preserved while walking.
+	if b0.construction_worker_id != worker.id:
+		return false
+	# Run until adjacency + at least one progress tick.
+	var initial_remaining := b0.construction_turns_remaining
+	var saw_progress := false
+	for _i in 15:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		var b := result.new_state.get_entity_by_id(building_id)
+		if b == null:
+			return false
+		if b.construction_turns_remaining < initial_remaining:
+			saw_progress = true
+			break
+	return saw_progress
+
+
+func _test_build_completes_applies_pop_provides() -> bool:
+	# A barracks that completes adds its pop_provides to player.pop_cap.
+	var registry := _build_registry()
+	# Add pop_provides to barracks for this test.
+	registry.entities[1].population = PopulationDef.new()
+	registry.entities[1].population.pop_provides = 8
+	var state := _state_with_grid(15, 15)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	state.players[0].pop_cap = 0
+	var worker := _make_entity(state, "worker", 0, Vector2i(4, 4), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(4, 4, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	# Barracks build_time = 4 in test registry. Worker is right next to
+	# it (4,4 adjacent to 5..7,5..7), so progress ticks every turn.
+	# Loop until BUILD_COMPLETED.
+	var saw_completed := false
+	for _i in 8:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		if _has_event_of_type(result.events, ResolverEvent.Type.BUILD_COMPLETED):
+			saw_completed = true
+			break
+	if not saw_completed:
+		return false
+	var p := result.new_state.get_player(0)
+	return p.pop_cap == 8
+
+
+func _test_build_locked_worker_rejects_new_orders() -> bool:
+	# A locked worker should refuse a fresh MOVE order.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	# Now submit a MOVE on the locked worker.
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = worker.id
+	move.target_tile = Vector2i(15, 15)
+	result = Resolver.resolve(result.new_state, _submit([move]), _submit(), registry, null)
+
+	# Locked worker should not have moved toward the MOVE target.
+	var w := result.new_state.get_entity_by_id(worker.id)
+	# Worker should be walking toward the build site, not (15, 15). The
+	# direction toward the build is +x/+y; toward (15,15) is also +x/+y
+	# from (0,0) so we can't disambiguate by direction. Instead, assert
+	# ORDER_REJECTED was emitted.
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ORDER_REJECTED and ev.def_id == "worker_locked":
+			return w.locked_to_building_id >= 0
+	return false
+
+
+func _test_building_death_drops_pop_cap() -> bool:
+	# A completed barracks (pop_provides = 8) is killed → pop_cap drops by 8.
+	var registry := _two_unit_registry(2000, 5, ["ground"], 50)
+	# Add a barracks def to this combat-style registry.
+	var b_def := EntityDef.new()
+	b_def.id = "barracks"
+	b_def.footprint = Vector2i(3, 3)
+	b_def.tags = ["building", "ground"]
+	var b_hp := HealthDef.new()
+	b_hp.max_hp = 1
+	b_def.health = b_hp
+	b_def.population = PopulationDef.new()
+	b_def.population.pop_provides = 8
+	registry.entities.append(b_def)
+
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].pop_cap = 8  # already credited by the (already-built) barracks
+	var attacker := _make_entity(state, "marine", 1, Vector2i(0, 5), 50, "ground")
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 5), 1, "ground")
+	# Barracks is_constructing = false (already complete).
+	state.tile_grid.place(attacker.id, Rect2i(0, 5, 1, 1))
+	state.tile_grid.place(barracks.id, Rect2i(2, 5, 3, 3))
+
+	var atk := EntityOrder.new()
+	atk.type = EntityOrder.Type.ATTACK
+	atk.entity_id = attacker.id
+	atk.target_priority_chain = [barracks.id]
+	var result := Resolver.resolve(state, _submit(), _submit([atk]), registry, null)
+	return result.new_state.get_player(0).pop_cap == 0
+
+
+func _test_production_determinism_golden() -> bool:
+	# Run a complex scenario twice (same orders, same starting state)
+	# and assert identical end states + identical event streams. Covers
+	# BUILD + TRAIN + RESEARCH end-to-end.
+	var run_a := _run_determinism_scenario()
+	var run_b := _run_determinism_scenario()
+	if not _states_equal(run_a.new_state, run_b.new_state):
+		return false
+	return _events_equal(run_a.events, run_b.events)
+
+
+func _run_determinism_scenario() -> ResolveResult:
+	# Build a small two-player scenario with one barracks each + a
+	# minerals patch. Issue TRAIN orders on both barracks every turn
+	# for a fixed number of turns.
+	var registry := _production_registry()
+	var state := _state_with_grid(30, 30)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 1000
+	state.players[1].minerals = 1000
+	state.players[0].pop_cap = 50
+	state.players[1].pop_cap = 50
+	var b0 := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	b0.production_state = ProductionState.new()
+	state.tile_grid.place(b0.id, Rect2i(2, 2, 3, 3))
+	var b1 := _make_entity(state, "barracks", 1, Vector2i(20, 20), 1000, "ground")
+	b1.production_state = ProductionState.new()
+	state.tile_grid.place(b1.id, Rect2i(20, 20, 3, 3))
+
+	var t_a := EntityOrder.new()
+	t_a.type = EntityOrder.Type.TRAIN
+	t_a.entity_id = b0.id
+	t_a.def_id = "marine"
+	var t_b := EntityOrder.new()
+	t_b.type = EntityOrder.Type.TRAIN
+	t_b.entity_id = b1.id
+	t_b.def_id = "marine"
+
+	var result := Resolver.resolve(state, _submit([t_a]), _submit([t_b]), registry, null)
+	for _i in 8:
+		# Keep submitting TRAIN every turn to fill the queues.
+		var ta := EntityOrder.new()
+		ta.type = EntityOrder.Type.TRAIN
+		ta.entity_id = b0.id
+		ta.def_id = "marine"
+		var tb := EntityOrder.new()
+		tb.type = EntityOrder.Type.TRAIN
+		tb.entity_id = b1.id
+		tb.def_id = "marine"
+		result = Resolver.resolve(result.new_state, _submit([ta]), _submit([tb]), registry, null)
+	return result
+
+
+func _test_build_refinery_on_geyser_overlap_allowed() -> bool:
+	# BUILD(refinery, target=geyser_tile) succeeds; both entities on
+	# grid at the same rect; gas gather works post-completion.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	# Place a base + a worker + a geyser.
+	var base := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	state.tile_grid.place(base.id, Rect2i(0, 0, 4, 4))
+	var worker := _make_entity(state, "worker", 0, Vector2i(9, 5), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(9, 5, 1, 1))
+	var geyser := _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
+	geyser.current_resource_amount = -1
+	state.tile_grid.place(geyser.id, Rect2i(10, 5, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "refinery"
+	build_order.target_tile = Vector2i(10, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	# Refinery created, cost deducted.
+	if result.new_state.get_player(0).minerals != 425:
+		return false
+	# Both refinery and geyser have rects at (10, 5).
+	var refinery_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			refinery_id = ev.target_id
+	var refinery_rect: Rect2i = result.new_state.tile_grid.entity_rect(refinery_id)
+	var geyser_rect: Rect2i = result.new_state.tile_grid.entity_rect(geyser.id)
+	if refinery_rect.position != Vector2i(10, 5):
+		return false
+	if geyser_rect.position != Vector2i(10, 5):
+		return false
+	# Refinery and geyser have the same footprint (both 1x1) — confirms
+	# the design choice of matching dimensions.
+	return refinery_rect.size == geyser_rect.size
+
+
+func _test_build_refinery_double_target_rejected() -> bool:
+	# Two players target the same geyser the same turn → player 0 lands,
+	# player 1 rejected (no cost deducted on player 1).
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	state.players[1].minerals = 500
+	var w0 := _make_entity(state, "worker", 0, Vector2i(9, 5), 50, "ground")
+	state.tile_grid.place(w0.id, Rect2i(9, 5, 1, 1))
+	var w1 := _make_entity(state, "worker", 1, Vector2i(11, 5), 50, "ground")
+	state.tile_grid.place(w1.id, Rect2i(11, 5, 1, 1))
+	var geyser := _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
+	geyser.current_resource_amount = -1
+	state.tile_grid.place(geyser.id, Rect2i(10, 5, 1, 1))
+
+	var b0 := EntityOrder.new()
+	b0.type = EntityOrder.Type.BUILD
+	b0.entity_id = w0.id
+	b0.def_id = "refinery"
+	b0.target_tile = Vector2i(10, 5)
+	var b1 := EntityOrder.new()
+	b1.type = EntityOrder.Type.BUILD
+	b1.entity_id = w1.id
+	b1.def_id = "refinery"
+	b1.target_tile = Vector2i(10, 5)
+	var result := Resolver.resolve(state, _submit([b0]), _submit([b1]), registry, null)
+	# Player 0 paid; player 1 did NOT (rejected because the geyser already
+	# has a refinery on it after player 0's BUILD).
+	if result.new_state.get_player(0).minerals != 425:
+		return false
+	return result.new_state.get_player(1).minerals == 500
+
+
+func _test_build_target_tile_occupied_rejected() -> bool:
+	# BUILD on an occupied non-target-tag tile → rejected; no cost deducted.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+	# Place a blocker on the build target.
+	var blocker := _make_entity(state, "blocker", 0, Vector2i(5, 5), 50, "ground")
+	state.tile_grid.place(blocker.id, Rect2i(5, 5, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	# Cost not deducted.
+	if result.new_state.get_player(0).minerals != 500:
+		return false
+	# ORDER_REJECTED with reason "tile_occupied".
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ORDER_REJECTED and ev.def_id == "tile_occupied":
+			return true
+	return false
+
+
+func _test_build_off_grid_rejected() -> bool:
+	# BUILD with footprint partially outside grid → rejected.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	# barracks is 3x3; placing at (19, 19) extends to (21, 21) — off-grid.
+	build_order.target_tile = Vector2i(19, 19)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	if result.new_state.get_player(0).minerals != 500:
+		return false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ORDER_REJECTED and ev.def_id == "off_grid":
+			return true
+	return false
+
+
+func _test_build_worker_death_pauses() -> bool:
+	# Worker dies mid-build → building stays alive, construction_worker_id
+	# = -1, BUILD_PAUSED emitted.
+	var registry := _build_registry()
+	# Add an enemy to kill the worker; reuse blocker as enemy by giving
+	# it minimal combat to deal lethal damage.
+	registry.entities[2].combat = CombatDef.new()
+	registry.entities[2].combat.damage = 100
+	registry.entities[2].combat.attack_range = 5
+	registry.entities[2].combat.target_layers = ["ground"]
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
+	var enemy := _make_entity(state, "blocker", 1, Vector2i(0, 5), 50, "ground")
+	state.tile_grid.place(enemy.id, Rect2i(0, 5, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	# Find the building.
+	var building_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			building_id = ev.target_id
+	# Now kill the worker. enemy is at (0,5), worker at (4,5) — out of
+	# range (5). Move enemy adjacent first via direct attack with a long
+	# chain. Easier: just zero-out worker hp to simulate death.
+	result.new_state.get_entity_by_id(worker.id).current_hp = 0
+	result.new_state.tile_grid.remove(worker.id)
+
+	result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+	var building := result.new_state.get_entity_by_id(building_id)
+	if building == null or building.current_hp <= 0:
+		return false
+	if not building.is_constructing:
+		return false
+	if building.construction_worker_id != -1:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_PAUSED)
+
+
+func _test_build_resume_via_new_worker() -> bool:
+	# After pause, BUILD with target_entity_id=paused_building and a new
+	# worker → resume; cost NOT charged again; building eventually
+	# completes.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	var building_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			building_id = ev.target_id
+	# Cost was deducted: 500 - 150 = 350.
+	if result.new_state.get_player(0).minerals != 350:
+		return false
+	# Kill the worker.
+	result.new_state.get_entity_by_id(worker.id).current_hp = 0
+	result.new_state.tile_grid.remove(worker.id)
+	# One turn to register pause.
+	result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+	var b := result.new_state.get_entity_by_id(building_id)
+	if b.construction_worker_id != -1:
+		return false
+	# Spawn a new worker and issue BUILD with target_entity_id.
+	var new_worker := Entity.new()
+	new_worker.id = result.new_state.allocate_entity_id()
+	new_worker.def_id = "worker"
+	new_worker.current_def_id = "worker"
+	new_worker.owner_player_id = 0
+	new_worker.origin = Vector2i(4, 5)
+	new_worker.current_hp = 50
+	new_worker.current_layer = "ground"
+	result.new_state.entities.append(new_worker)
+	result.new_state.tile_grid.place(new_worker.id, Rect2i(4, 5, 1, 1))
+	var minerals_before_resume: int = result.new_state.get_player(0).minerals
+
+	var resume_order := EntityOrder.new()
+	resume_order.type = EntityOrder.Type.BUILD
+	resume_order.entity_id = new_worker.id
+	resume_order.def_id = "barracks"
+	resume_order.target_tile = Vector2i(5, 5)
+	resume_order.target_entity_id = building_id
+	result = Resolver.resolve(result.new_state, _submit([resume_order]), _submit(), registry, null)
+	# No additional cost.
+	if result.new_state.get_player(0).minerals != minerals_before_resume:
+		return false
+	# Building should now have construction_worker_id set, BUILD_RESUMED
+	# emitted.
+	b = result.new_state.get_entity_by_id(building_id)
+	if b.construction_worker_id != new_worker.id:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_RESUMED)
+
+
+func _test_build_constructing_building_dies_no_refund() -> bool:
+	# Kill the constructing building → entity gone, pop_cap unchanged
+	# (pop_provides never applied), worker freed, NO refund.
+	var registry := _build_registry()
+	# Add combat to enemy blocker.
+	registry.entities[2].combat = CombatDef.new()
+	registry.entities[2].combat.damage = 2000
+	registry.entities[2].combat.attack_range = 5
+	registry.entities[2].combat.target_layers = ["ground"]
+	# Add population to barracks so we can verify pop_provides was never granted.
+	registry.entities[1].population = PopulationDef.new()
+	registry.entities[1].population.pop_provides = 8
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	state.players[0].pop_cap = 0
+	var worker := _make_entity(state, "worker", 0, Vector2i(8, 5), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(8, 5, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	# Player should now have 350 minerals (500 - 150).
+	if result.new_state.get_player(0).minerals != 350:
+		return false
+	var building_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			building_id = ev.target_id
+
+	# Now kill the building (set hp to 0, remove from grid). Use direct
+	# state mutation rather than an attack to keep the test focused.
+	var b := result.new_state.get_entity_by_id(building_id)
+	# Spawn an enemy and have them attack the building (so death goes
+	# through CombatSystem._destroy_entity).
+	var enemy := _make_entity(result.new_state, "blocker", 1, Vector2i(0, 5), 50, "ground")
+	result.new_state.tile_grid.place(enemy.id, Rect2i(0, 5, 1, 1))
+	b.current_hp = 1
+	var atk := EntityOrder.new()
+	atk.type = EntityOrder.Type.ATTACK
+	atk.entity_id = enemy.id
+	atk.target_priority_chain = [b.id]
+	# Move enemy adjacent first by re-placing close.
+	result.new_state.tile_grid.remove(enemy.id)
+	result.new_state.tile_grid.place(enemy.id, Rect2i(3, 5, 1, 1))
+	enemy.origin = Vector2i(3, 5)
+	result = Resolver.resolve(result.new_state, _submit(), _submit([atk]), registry, null)
+
+	# Building should be dead.
+	var b_after := result.new_state.get_entity_by_id(building_id)
+	if b_after.current_hp > 0:
+		return false
+	# pop_cap unchanged (was 0, pop_provides never granted).
+	if result.new_state.get_player(0).pop_cap != 0:
+		return false
+	# Minerals NOT refunded — death is not cancel.
+	if result.new_state.get_player(0).minerals != 350:
+		return false
+	# Worker freed.
+	var w_after := result.new_state.get_entity_by_id(worker.id)
+	return w_after.locked_to_building_id == -1
+
+
+func _test_build_cancel_via_worker_full_refund() -> bool:
+	# CANCEL(worker, -1) on a worker locked to a building → full refund,
+	# remove building entity, free worker.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	if result.new_state.get_player(0).minerals != 350:
+		return false
+	var building_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			building_id = ev.target_id
+
+	# Now cancel via the worker.
+	var cancel := EntityOrder.new()
+	cancel.type = EntityOrder.Type.CANCEL
+	cancel.entity_id = worker.id
+	cancel.cancel_index = -1
+	result = Resolver.resolve(result.new_state, _submit([cancel]), _submit(), registry, null)
+	# Full refund.
+	if result.new_state.get_player(0).minerals != 500:
+		return false
+	# Building gone.
+	var b := result.new_state.get_entity_by_id(building_id)
+	if b != null and b.current_hp > 0:
+		return false
+	# Worker freed.
+	var w := result.new_state.get_entity_by_id(worker.id)
+	if w.locked_to_building_id != -1:
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_CANCELLED)
+
+
 # ---------- Helpers ----------
 
 
@@ -1970,17 +3189,21 @@ func _gather_registry(carry: int, yield_per_turn: int, speed: int) -> EntityRegi
 	patch_rs.yield_per_worker_per_turn = yield_per_turn
 	patch_rs.requires_extractor = false
 	patch.resource_source = patch_rs
-	# Geyser — ResourceSource WITH extractor.
+	# Geyser — ResourceSource WITH extractor. The "gas_geyser" tag lets
+	# BUILD's requires_target_tag check find it.
 	var geyser := EntityDef.new()
 	geyser.id = "geyser"
 	geyser.footprint = Vector2i(1, 1)
-	geyser.tags = ["resource_source", "gas", "ground"]
+	geyser.tags = ["resource_source", "gas", "ground", "gas_geyser"]
 	var geyser_rs := ResourceSourceDef.new()
 	geyser_rs.resource_type = "gas"
 	geyser_rs.yield_per_worker_per_turn = yield_per_turn
 	geyser_rs.requires_extractor = true
 	geyser.resource_source = geyser_rs
-	# Refinery — extractor tag, no resource_source itself.
+	# Refinery — same 1x1 footprint as the geyser (per the design choice
+	# locked in plan node 05: refinery and geyser share dimensions to
+	# keep the overlap rule clean). Construction wired so BUILD tests
+	# can target a geyser.
 	var refinery := EntityDef.new()
 	refinery.id = "refinery"
 	refinery.footprint = Vector2i(1, 1)
@@ -1988,8 +3211,119 @@ func _gather_registry(carry: int, yield_per_turn: int, speed: int) -> EntityRegi
 	var refinery_hp := HealthDef.new()
 	refinery_hp.max_hp = 750
 	refinery.health = refinery_hp
+	refinery.construction = ConstructionDef.new()
+	refinery.construction.build_time_turns = 4
+	refinery.construction.mineral_cost = 75
+	refinery.construction.gas_cost = 0
+	refinery.construction.built_by_tag = "worker"
+	refinery.construction.requires_target_tag = "gas_geyser"
 	registry.entities = [worker, base, patch, geyser, refinery]
 	return registry
+
+
+# Barracks + marine + blocker registry. Used by plan-05 production tests
+# so a single _production_registry() call wires every def the production
+# pipeline touches: a producer with rally_offset, a unit with cost + pop,
+# and a footprint-1 blocker for spawn-deferral tests.
+func _production_registry() -> EntityRegistry:
+	var registry := EntityRegistry.new()
+	# Barracks — producer.
+	var barracks := EntityDef.new()
+	barracks.id = "barracks"
+	barracks.footprint = Vector2i(3, 3)
+	barracks.tags = ["building", "structure", "ground"]
+	var b_hp := HealthDef.new()
+	b_hp.max_hp = 1000
+	barracks.health = b_hp
+	barracks.production = ProductionDef.new()
+	barracks.production.produces = ["marine"]
+	barracks.production.rally_offset = Vector2i(0, 4)
+	# Marine — produced unit.
+	var marine := EntityDef.new()
+	marine.id = "marine"
+	marine.footprint = Vector2i(1, 1)
+	marine.tags = ["light", "ground"]
+	var m_hp := HealthDef.new()
+	m_hp.max_hp = 50
+	marine.health = m_hp
+	marine.movement = MovementDef.new()
+	marine.movement.speed_tiles_per_turn = 4
+	marine.movement.default_layer = "ground"
+	marine.construction = ConstructionDef.new()
+	marine.construction.build_time_turns = 3
+	marine.construction.mineral_cost = 50
+	marine.construction.gas_cost = 0
+	marine.construction.built_by_tag = "barracks"
+	marine.population = PopulationDef.new()
+	marine.population.pop_cost = 1
+	# Blocker — generic 1x1 entity for occupying tiles in tests.
+	var blocker := EntityDef.new()
+	blocker.id = "blocker"
+	blocker.footprint = Vector2i(1, 1)
+	blocker.tags = ["ground"]
+	var bl_hp := HealthDef.new()
+	bl_hp.max_hp = 50
+	blocker.health = bl_hp
+	registry.entities = [barracks, marine, blocker]
+	return registry
+
+
+# Worker + barracks + blocker registry for plan-05 chunk 5/6/7 BUILD
+# tests. Worker has movement, barracks has construction + (optionally)
+# population, blocker is a 1x1 ground entity for spawn-deferral / tile
+# occupancy tests.
+func _build_registry() -> EntityRegistry:
+	var registry := EntityRegistry.new()
+	# Worker.
+	var worker := EntityDef.new()
+	worker.id = "worker"
+	worker.footprint = Vector2i(1, 1)
+	worker.tags = ["worker", "light", "ground"]
+	var w_hp := HealthDef.new()
+	w_hp.max_hp = 50
+	worker.health = w_hp
+	worker.movement = MovementDef.new()
+	worker.movement.speed_tiles_per_turn = 4
+	worker.movement.default_layer = "ground"
+	# Barracks.
+	var barracks := EntityDef.new()
+	barracks.id = "barracks"
+	barracks.footprint = Vector2i(3, 3)
+	barracks.tags = ["building", "structure", "ground"]
+	var b_hp := HealthDef.new()
+	b_hp.max_hp = 1000
+	barracks.health = b_hp
+	barracks.construction = ConstructionDef.new()
+	barracks.construction.build_time_turns = 4
+	barracks.construction.mineral_cost = 150
+	barracks.construction.gas_cost = 0
+	barracks.construction.built_by_tag = "worker"
+	barracks.production = ProductionDef.new()
+	barracks.production.produces = ["marine"]
+	barracks.production.rally_offset = Vector2i(0, 4)
+	# Blocker.
+	var blocker := EntityDef.new()
+	blocker.id = "blocker"
+	blocker.footprint = Vector2i(1, 1)
+	blocker.tags = ["ground"]
+	var bl_hp := HealthDef.new()
+	bl_hp.max_hp = 50
+	blocker.health = bl_hp
+	registry.entities = [worker, barracks, blocker]
+	return registry
+
+
+# Lightweight ResearchDef factory for plan-05 chunk 4 tests.
+func _make_research_def(
+	id: String, mineral_cost: int, gas_cost: int, time_turns: int
+) -> ResearchDef:
+	var r := ResearchDef.new()
+	r.id = id
+	r.display_name = id
+	r.mineral_cost = mineral_cost
+	r.gas_cost = gas_cost
+	r.research_time_turns = time_turns
+	return r
 
 
 # Tank-shaped (2x2) registry with movement; used by multi-tile collision

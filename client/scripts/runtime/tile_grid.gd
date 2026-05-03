@@ -119,14 +119,68 @@ func place(entity_id: int, rect: Rect2i) -> bool:
 	return true
 
 
+# Plan node 05: special-case placement allowing rect overlap with one
+# existing entity carrying `allow_overlap_id`. Used by BUILD when the
+# def has `requires_target_tag` set (refinery on geyser).
+#
+# The original entity's `_occupancy` entries are PRESERVED — queries
+# like `entity_at(tile)` still return the underlying entity. Only the
+# new entity's rect is recorded in `_entity_rects`. Code that needs to
+# discover the overlay (e.g. gather_system._find_extractor_at) iterates
+# entities and matches rect positions.
+#
+# Returns false if the rect is out of bounds, contains more than one
+# distinct existing occupant, or that occupant's id != `allow_overlap_id`.
+func place_overlapping(entity_id: int, rect: Rect2i, allow_overlap_id: int) -> bool:
+	if entity_id < 0:
+		return false
+	if _entity_rects.has(entity_id):
+		return false
+	if not is_rect_in_bounds(rect):
+		return false
+	# Walk the rect, gathering distinct occupants (ignoring allow_overlap_id).
+	var occupants: Dictionary = {}
+	for x in range(rect.position.x, rect.position.x + rect.size.x):
+		for y in range(rect.position.y, rect.position.y + rect.size.y):
+			var occ: int = _occupancy.get(Vector2i(x, y), -1)
+			if occ != -1 and occ != allow_overlap_id:
+				occupants[occ] = true
+	if not occupants.is_empty():
+		# A non-allowed occupant blocks the placement.
+		return false
+	# Also reject if any OTHER entity already has a rect overlapping this
+	# rect (not just _occupancy occupants — a previously place_overlapping'd
+	# entity lives in _entity_rects only). This catches the second
+	# refinery-on-geyser case: player 0's refinery isn't in _occupancy but
+	# is in _entity_rects, and a second player targeting the same geyser
+	# must be rejected.
+	for existing_id in _entity_rects:
+		if existing_id == allow_overlap_id:
+			continue
+		var existing: Rect2i = _entity_rects[existing_id]
+		if existing.intersects(rect):
+			return false
+	# Record the rect WITHOUT updating _occupancy. The underlying entity
+	# (if any) keeps its occupancy entries; the new entity's footprint
+	# is discoverable via _entity_rects only.
+	_entity_rects[entity_id] = rect
+	return true
+
+
 func remove(entity_id: int) -> bool:
-	# Remove an entity. Returns false if it wasn't placed.
+	# Remove an entity. Returns false if it wasn't placed. Only clears
+	# `_occupancy` entries that actually point at `entity_id` — overlapping
+	# entities (e.g. a refinery placed via place_overlapping on top of a
+	# geyser, where _occupancy still points at the geyser) leave the
+	# underlying entity's tiles intact.
 	if not _entity_rects.has(entity_id):
 		return false
 	var rect: Rect2i = _entity_rects[entity_id]
 	for x in range(rect.position.x, rect.position.x + rect.size.x):
 		for y in range(rect.position.y, rect.position.y + rect.size.y):
-			_occupancy.erase(Vector2i(x, y))
+			var tile := Vector2i(x, y)
+			if _occupancy.get(tile, -1) == entity_id:
+				_occupancy.erase(tile)
 	_entity_rects.erase(entity_id)
 	return true
 
@@ -142,10 +196,12 @@ func move(entity_id: int, new_origin: Vector2i) -> bool:
 	var target := Rect2i(new_origin, current.size)
 	if not is_rect_clear(target, entity_id):
 		return false
-	# Clear current tiles.
+	# Clear only tiles we actually own (see remove() rationale).
 	for x in range(current.position.x, current.position.x + current.size.x):
 		for y in range(current.position.y, current.position.y + current.size.y):
-			_occupancy.erase(Vector2i(x, y))
+			var tile := Vector2i(x, y)
+			if _occupancy.get(tile, -1) == entity_id:
+				_occupancy.erase(tile)
 	# Mark new tiles.
 	for x in range(target.position.x, target.position.x + target.size.x):
 		for y in range(target.position.y, target.position.y + target.size.y):

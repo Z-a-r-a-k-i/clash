@@ -20,15 +20,25 @@ static func run(
 ) -> void:
 	# Decrement / expire per-entity bookkeeping. Dead entities (current_hp
 	# <= 0) are skipped: no point ticking cooldowns / buffs on a corpse,
-	# and a freshly-destroyed barracks must not still emit BUILD_COMPLETED.
+	# and a freshly-destroyed barracks must not still finalize production.
 	for entity in state.entities_sorted_by_id():
 		if entity.current_hp <= 0:
 			continue
 		_tick_ability_cooldowns(entity)
 		_tick_active_buffs(entity)
-		_tick_production(entity, events)
 		entity.moves_used_this_turn = 0
 		_recompute_is_hidden(entity, registry, tunables)
+
+	# Construction lifecycle (plan node 05). ConstructionSystem runs
+	# BEFORE ProductionSystem so a building completing this turn can
+	# install its first queued production item the same turn.
+	ConstructionSystem.finalize_completed(state, registry, events)
+
+	# Production lifecycle (plan node 05). ProductionSystem ticks active
+	# slots, finalizes completions (spawn unit / apply research), and
+	# runs a final try-fill so a freshly-emptied slot can install the
+	# next queued item the same turn.
+	ProductionSystem.advance_queues(state, registry, events)
 
 	# Win check. Resolver short-circuits on surrender before reaching this
 	# point, so match_over is always false at entry.
@@ -65,32 +75,6 @@ static func _tick_active_buffs(entity: Entity) -> void:
 		if buff.turns_remaining > 0:
 			kept.append(buff)
 	entity.active_buffs = kept
-
-
-static func _tick_production(entity: Entity, events: Array[ResolverEvent]) -> void:
-	# Decrement turns_remaining on each queue item. The head item
-	# completes (emits BUILD_COMPLETED) when it hits 0; the rest of the
-	# queue does NOT advance until the head is gone (matches SC2's
-	# single-active-build per building).
-	#
-	# M0: emit a stub event only. Plan node 05 will actually spawn the
-	# unit, deduct costs, place it adjacent to the producer, etc.
-	if entity.production_state == null:
-		return
-	if entity.production_state.queue.is_empty():
-		return
-	var head: Dictionary = entity.production_state.queue[0]
-	var remaining: int = head.get(ProductionState.KEY_TURNS_REMAINING, 0)
-	remaining -= 1
-	if remaining <= 0:
-		var ev := ResolverEvent.new()
-		ev.type = ResolverEvent.Type.BUILD_COMPLETED
-		ev.actor_id = entity.id
-		ev.def_id = head.get(ProductionState.KEY_DEF_ID, "")
-		events.append(ev)
-		entity.production_state.queue.pop_front()
-	else:
-		head[ProductionState.KEY_TURNS_REMAINING] = remaining
 
 
 static func _recompute_is_hidden(

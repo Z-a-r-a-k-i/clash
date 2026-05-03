@@ -2,34 +2,50 @@ class_name ProductionState
 extends RefCounted
 
 # Per-entity runtime state for entities with a ProductionDef capability.
-# Tracks the build queue and per-item progress.
+# Two-part shape introduced in plan node 05:
 #
-# Each queue item is a Dictionary keyed by KEY_*; values for KEY_KIND are
-# one of the KIND_* constants. Kept as a Dictionary rather than a typed
-# class to avoid an extra class_name file for what is essentially a small
-# tagged record; we may promote to a typed ProductionItem class later
-# if the dictionary access pattern becomes painful.
+#   `active` is the slot currently paying & ticking. Empty Dict = idle.
+#   `queue`  is an ordered list of unpaid declarations.
 #
-# All accesses to queue entries should use these constants — never raw
+# Lazy-deduct: TRAIN/RESEARCH orders append to `queue` without deducting
+# cost. Cost is deducted when the slot transitions — i.e., when `active`
+# becomes empty and the queue head is affordable. This lets a player
+# declare a long production plan up front without sinking minerals.
+#
+# Active slot keys: KEY_DEF_ID, KEY_KIND, KEY_TURNS_REMAINING, plus the
+# per-slot KEY_PAID_* fields recording exactly what was deducted (so
+# cancel-active can refund symmetrically and partial-pop refunds work).
+#
+# Queue items keep only KEY_DEF_ID and KEY_KIND. Cost lookup happens at
+# install time via the EntityRegistry — keeping the queue lean.
+#
+# All accesses to dict entries should use these constants — never raw
 # string literals — to prevent typos and keep the schema centralised.
 
-# Dictionary keys for items in `queue`.
+# Dictionary keys for items in `active` and `queue`.
 const KEY_DEF_ID := "def_id"
 const KEY_KIND := "kind"
 const KEY_TURNS_REMAINING := "turns_remaining"
+
+# Active-only keys — recorded at install time so cancel-active can refund
+# the exact amount that was paid.
+const KEY_PAID_MINERALS := "paid_minerals"
+const KEY_PAID_GAS := "paid_gas"
+const KEY_PAID_POP := "paid_pop"
 
 # Values for `KEY_KIND` — distinguishes whether `def_id` refers to an
 # EntityDef (unit/building to spawn) or a ResearchDef (effect to apply).
 const KIND_UNIT := "unit"
 const KIND_RESEARCH := "research"
 
+var active: Dictionary = {}
 var queue: Array[Dictionary] = []
 
 
 func clone() -> ProductionState:
 	var c := ProductionState.new()
+	c.active = active.duplicate()  # primitive values; shallow duplicate is enough
 	c.queue = []
 	for item in queue:
-		# Dictionaries hold primitive values; .duplicate() is sufficient.
 		c.queue.append(item.duplicate())
 	return c

@@ -21,3 +21,4 @@ display_name = "Stim"
 costs = Array[ExtResource("1_xv8wm")]([SubResource("Resource_xv8wm")])
 cooldown_turns = 5
 effect = SubResource("Resource_foqqi")
+requires_research_id = "stim_research"

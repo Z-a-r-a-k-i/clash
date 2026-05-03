@@ -52,7 +52,7 @@ static func resolve_attack(
 	events.append(damaged)
 
 	if target.current_hp <= 0:
-		_destroy_entity(state, target, attacker.id, events)
+		_destroy_entity(state, target, attacker.id, registry, events)
 
 
 # ---------- Target selection ----------
@@ -187,7 +187,11 @@ static func _compute_damage(
 
 
 static func _destroy_entity(
-	state: MatchState, dead: Entity, killer_id: int, events: Array[ResolverEvent]
+	state: MatchState,
+	dead: Entity,
+	killer_id: int,
+	registry: EntityRegistry,
+	events: Array[ResolverEvent]
 ) -> void:
 	# Remove from tile grid; the entity's record stays in MatchState with
 	# current_hp == 0 so referencing IDs continue to resolve (e.g. for
@@ -196,6 +200,41 @@ static func _destroy_entity(
 	# here to avoid invalidating iteration in the caller.
 	if state.tile_grid != null:
 		state.tile_grid.remove(dead.id)
+
+	# Pop accounting (plan node 05). A dying unit returns its pop_cost.
+	# A dying COMPLETED building returns its pop_provides (i.e. pop_cap
+	# drops). Buildings still under construction never granted pop_provides
+	# in the first place — they only had cost paid up front, which is NOT
+	# refunded on death (death isn't cancel).
+	var def: EntityDef = registry.get_by_id(dead.current_def_id) if registry != null else null
+	if def != null:
+		var player := state.get_player(dead.owner_player_id)
+		if player != null and def.population != null:
+			if def.tags.has("building"):
+				if not dead.is_constructing:
+					player.pop_cap = max(0, player.pop_cap - def.population.pop_provides)
+			else:
+				player.pop_used = max(0, player.pop_used - def.population.pop_cost)
+
+	# If a constructing building dies, free its locked worker.
+	if dead.is_constructing and dead.construction_worker_id >= 0:
+		var worker := state.get_entity_by_id(dead.construction_worker_id)
+		if worker != null and worker.locked_to_building_id == dead.id:
+			worker.locked_to_building_id = -1
+		dead.construction_worker_id = -1
+		dead.is_constructing = false
+
+	# A producer dying with an active production slot leaks pop_used
+	# unless we refund the reservation. Minerals/gas paid into the slot
+	# are NOT refunded (death isn't cancel), but pop is structural — the
+	# unit will never spawn, so the reservation has to come back or
+	# pop_cap erodes monotonically across the match.
+	if dead.production_state != null and not dead.production_state.active.is_empty():
+		var paid_pop: int = dead.production_state.active.get(ProductionState.KEY_PAID_POP, 0)
+		if paid_pop > 0:
+			var owner := state.get_player(dead.owner_player_id)
+			if owner != null:
+				owner.pop_used = max(0, owner.pop_used - paid_pop)
 
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.ENTITY_DESTROYED
