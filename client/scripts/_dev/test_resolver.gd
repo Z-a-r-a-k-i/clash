@@ -142,6 +142,13 @@ func _all_tests() -> Array:
 			_test_build_constructing_building_dies_no_refund
 		],
 		["build_cancel_via_worker_full_refund", _test_build_cancel_via_worker_full_refund],
+		[
+			"build_refinery_on_geyser_overlap_allowed",
+			_test_build_refinery_on_geyser_overlap_allowed
+		],
+		["build_refinery_double_target_rejected", _test_build_refinery_double_target_rejected],
+		["build_target_tile_occupied_rejected", _test_build_target_tile_occupied_rejected],
+		["build_off_grid_rejected", _test_build_off_grid_rejected],
 	]
 
 
@@ -2640,6 +2647,136 @@ func _test_building_death_drops_pop_cap() -> bool:
 	return result.new_state.get_player(0).pop_cap == 0
 
 
+func _test_build_refinery_on_geyser_overlap_allowed() -> bool:
+	# BUILD(refinery, target=geyser_tile) succeeds; both entities on
+	# grid at the same rect; gas gather works post-completion.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	# Place a base + a worker + a geyser.
+	var base := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	state.tile_grid.place(base.id, Rect2i(0, 0, 4, 4))
+	var worker := _make_entity(state, "worker", 0, Vector2i(9, 5), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(9, 5, 1, 1))
+	var geyser := _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
+	geyser.current_resource_amount = -1
+	state.tile_grid.place(geyser.id, Rect2i(10, 5, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "refinery"
+	build_order.target_tile = Vector2i(10, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	# Refinery created, cost deducted.
+	if result.new_state.get_player(0).minerals != 425:
+		return false
+	# Both refinery and geyser have rects at (10, 5).
+	var refinery_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			refinery_id = ev.target_id
+	var refinery_rect: Rect2i = result.new_state.tile_grid.entity_rect(refinery_id)
+	var geyser_rect: Rect2i = result.new_state.tile_grid.entity_rect(geyser.id)
+	if refinery_rect.position != Vector2i(10, 5):
+		return false
+	if geyser_rect.position != Vector2i(10, 5):
+		return false
+	# Refinery and geyser have the same footprint (both 1x1) — confirms
+	# the design choice of matching dimensions.
+	return refinery_rect.size == geyser_rect.size
+
+
+func _test_build_refinery_double_target_rejected() -> bool:
+	# Two players target the same geyser the same turn → player 0 lands,
+	# player 1 rejected (no cost deducted on player 1).
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	state.players[1].minerals = 500
+	var w0 := _make_entity(state, "worker", 0, Vector2i(9, 5), 50, "ground")
+	state.tile_grid.place(w0.id, Rect2i(9, 5, 1, 1))
+	var w1 := _make_entity(state, "worker", 1, Vector2i(11, 5), 50, "ground")
+	state.tile_grid.place(w1.id, Rect2i(11, 5, 1, 1))
+	var geyser := _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
+	geyser.current_resource_amount = -1
+	state.tile_grid.place(geyser.id, Rect2i(10, 5, 1, 1))
+
+	var b0 := EntityOrder.new()
+	b0.type = EntityOrder.Type.BUILD
+	b0.entity_id = w0.id
+	b0.def_id = "refinery"
+	b0.target_tile = Vector2i(10, 5)
+	var b1 := EntityOrder.new()
+	b1.type = EntityOrder.Type.BUILD
+	b1.entity_id = w1.id
+	b1.def_id = "refinery"
+	b1.target_tile = Vector2i(10, 5)
+	var result := Resolver.resolve(state, _submit([b0]), _submit([b1]), registry, null)
+	# Player 0 paid; player 1 did NOT (rejected because the geyser already
+	# has a refinery on it after player 0's BUILD).
+	if result.new_state.get_player(0).minerals != 425:
+		return false
+	return result.new_state.get_player(1).minerals == 500
+
+
+func _test_build_target_tile_occupied_rejected() -> bool:
+	# BUILD on an occupied non-target-tag tile → rejected; no cost deducted.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+	# Place a blocker on the build target.
+	var blocker := _make_entity(state, "blocker", 0, Vector2i(5, 5), 50, "ground")
+	state.tile_grid.place(blocker.id, Rect2i(5, 5, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	# Cost not deducted.
+	if result.new_state.get_player(0).minerals != 500:
+		return false
+	# ORDER_REJECTED with reason "tile_occupied".
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ORDER_REJECTED and ev.def_id == "tile_occupied":
+			return true
+	return false
+
+
+func _test_build_off_grid_rejected() -> bool:
+	# BUILD with footprint partially outside grid → rejected.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	# barracks is 3x3; placing at (19, 19) extends to (21, 21) — off-grid.
+	build_order.target_tile = Vector2i(19, 19)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	if result.new_state.get_player(0).minerals != 500:
+		return false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ORDER_REJECTED and ev.def_id == "off_grid":
+			return true
+	return false
+
+
 func _test_build_worker_death_pauses() -> bool:
 	# Worker dies mid-build → building stays alive, construction_worker_id
 	# = -1, BUILD_PAUSED emitted.
@@ -3003,17 +3140,21 @@ func _gather_registry(carry: int, yield_per_turn: int, speed: int) -> EntityRegi
 	patch_rs.yield_per_worker_per_turn = yield_per_turn
 	patch_rs.requires_extractor = false
 	patch.resource_source = patch_rs
-	# Geyser — ResourceSource WITH extractor.
+	# Geyser — ResourceSource WITH extractor. The "gas_geyser" tag lets
+	# BUILD's requires_target_tag check find it.
 	var geyser := EntityDef.new()
 	geyser.id = "geyser"
 	geyser.footprint = Vector2i(1, 1)
-	geyser.tags = ["resource_source", "gas", "ground"]
+	geyser.tags = ["resource_source", "gas", "ground", "gas_geyser"]
 	var geyser_rs := ResourceSourceDef.new()
 	geyser_rs.resource_type = "gas"
 	geyser_rs.yield_per_worker_per_turn = yield_per_turn
 	geyser_rs.requires_extractor = true
 	geyser.resource_source = geyser_rs
-	# Refinery — extractor tag, no resource_source itself.
+	# Refinery — same 1x1 footprint as the geyser (per the design choice
+	# locked in plan node 05: refinery and geyser share dimensions to
+	# keep the overlap rule clean). Construction wired so BUILD tests
+	# can target a geyser.
 	var refinery := EntityDef.new()
 	refinery.id = "refinery"
 	refinery.footprint = Vector2i(1, 1)
@@ -3021,6 +3162,12 @@ func _gather_registry(carry: int, yield_per_turn: int, speed: int) -> EntityRegi
 	var refinery_hp := HealthDef.new()
 	refinery_hp.max_hp = 750
 	refinery.health = refinery_hp
+	refinery.construction = ConstructionDef.new()
+	refinery.construction.build_time_turns = 4
+	refinery.construction.mineral_cost = 75
+	refinery.construction.gas_cost = 0
+	refinery.construction.built_by_tag = "worker"
+	refinery.construction.requires_target_tag = "gas_geyser"
 	registry.entities = [worker, base, patch, geyser, refinery]
 	return registry
 

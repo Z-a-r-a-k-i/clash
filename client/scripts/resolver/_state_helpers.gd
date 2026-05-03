@@ -185,22 +185,16 @@ static func _handle_build_order(
 	if state.tile_grid == null or not state.tile_grid.is_rect_in_bounds(rect):
 		_emit_order_rejected(order.entity_id, "off_grid", events)
 		return
-	# Refinery / overlap path lands in chunk 7. For now, basic clearance.
 	var require_tag: String = def.construction.requires_target_tag
+	var overlap_target_id := -1
 	if require_tag != "":
-		# Defer to chunk 7 (place_overlapping); reject for now if the tile
-		# isn't already free.
-		if not state.tile_grid.is_rect_clear(rect):
-			# Allow overlap if the only existing entity carries the
-			# required tag — placeholder until tile_grid.place_overlapping
-			# lands in chunk 7. Currently rejects anything else.
-			if not _overlap_allowed(state, registry, rect, require_tag):
-				_emit_order_rejected(order.entity_id, "tile_occupied", events)
-				return
-	else:
-		if not state.tile_grid.is_rect_clear(rect):
-			_emit_order_rejected(order.entity_id, "tile_occupied", events)
+		overlap_target_id = _find_overlap_target(state, registry, rect, require_tag)
+		if overlap_target_id < 0:
+			_emit_order_rejected(order.entity_id, "missing_target_tag", events)
 			return
+	elif not state.tile_grid.is_rect_clear(rect):
+		_emit_order_rejected(order.entity_id, "tile_occupied", events)
+		return
 	var player := state.get_player(worker.owner_player_id)
 	if player == null:
 		return
@@ -233,9 +227,8 @@ static func _handle_build_order(
 	if def.production != null:
 		building.production_state = ProductionState.new()
 	state.entities.append(building)
-	# Place. Refinery overlap is chunk 7's job — for now assume clear.
 	if require_tag != "":
-		_place_overlapping(state, registry, building.id, rect, require_tag)
+		state.tile_grid.place_overlapping(building.id, rect, overlap_target_id)
 	else:
 		state.tile_grid.place(building.id, rect)
 	worker.locked_to_building_id = building.id
@@ -293,15 +286,16 @@ static func _worker_has_tag(worker: Entity, registry: EntityRegistry, tag: Strin
 	return def.tags.has(tag)
 
 
-# Allow placement to overlap with an existing entity carrying `tag`
-# (e.g. refinery on geyser). Full implementation lands in chunk 7;
-# this scaffold supports the simple "only the tagged entity is in the
-# rect" case via direct rect-index manipulation.
-static func _overlap_allowed(
+# For BUILD with `requires_target_tag`: returns the id of the (single)
+# overlap-target entity in `rect` whose def carries `tag`, or -1 if no
+# such target exists or the rect is occupied by something else.
+# Used by BUILD's refinery-on-geyser path; the actual placement uses
+# TileGrid.place_overlapping with this id.
+static func _find_overlap_target(
 	state: MatchState, registry: EntityRegistry, rect: Rect2i, tag: String
-) -> bool:
+) -> int:
 	if state.tile_grid == null or registry == null:
-		return false
+		return -1
 	var occupants: Array[int] = []
 	for x in range(rect.position.x, rect.position.x + rect.size.x):
 		for y in range(rect.position.y, rect.position.y + rect.size.y):
@@ -309,31 +303,14 @@ static func _overlap_allowed(
 			if occ != -1 and not occupants.has(occ):
 				occupants.append(occ)
 	if occupants.size() != 1:
-		return false
+		return -1
 	var occupant := state.get_entity_by_id(occupants[0])
 	if occupant == null:
-		return false
+		return -1
 	var def: EntityDef = registry.get_by_id(occupant.current_def_id)
-	return def != null and def.tags.has(tag)
-
-
-# Place a building atop an entity that carries `allow_overlap_tag`. The
-# overlap-tagged entity stays on the grid (the index allows multiple
-# entries per tile via separate rects, but tile_grid.place rejects any
-# overlap). Workaround: write directly to the rect index. Plan node 05
-# chunk 7 will replace this with TileGrid.place_overlapping.
-static func _place_overlapping(
-	state: MatchState,
-	_registry: EntityRegistry,
-	entity_id: int,
-	rect: Rect2i,
-	_allow_overlap_tag: String
-) -> void:
-	# Direct rect index — bypass tile_grid.place's collision check. The
-	# previous tagged entity stays in _occupancy at those tiles; future
-	# queries for "what's at tile X" will return whichever entity was
-	# placed last. Tracked TODO.
-	state.tile_grid._entity_rects[entity_id] = rect
+	if def == null or not def.tags.has(tag):
+		return -1
+	return occupant.id
 
 
 # RESEARCH handler — appends a queue declaration on the producer's
