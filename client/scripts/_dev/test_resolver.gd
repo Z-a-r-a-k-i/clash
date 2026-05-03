@@ -2501,9 +2501,9 @@ func _test_build_worker_walks_to_site() -> bool:
 
 func _test_build_progress_only_while_worker_adjacent() -> bool:
 	# Worker far from site → construction_turns_remaining doesn't
-	# decrement until worker arrives. While worker is en-route the build
-	# is "paused" (construction_worker_id == -1) each EOT and emits
-	# BUILD_PAUSED. Once adjacent, ticks resume.
+	# decrement until worker arrives. While walking, no BUILD_PROGRESSED
+	# fires; once adjacent, ticks resume. The construction_worker_id link
+	# is preserved across the walk so progress picks up automatically.
 	var registry := _build_registry()
 	var state := _state_with_grid(40, 40)
 	state.players = [_player(0), _player(1)]
@@ -2521,9 +2521,12 @@ func _test_build_progress_only_while_worker_adjacent() -> bool:
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.BUILD_STARTED:
 			building_id = ev.target_id
-	# T0 EOT: worker not adjacent → BUILD_PAUSED, no progress.
+	# T0 EOT: worker not adjacent → no progress event.
 	var b0 := result.new_state.get_entity_by_id(building_id)
-	if not _has_event_of_type(result.events, ResolverEvent.Type.BUILD_PAUSED):
+	if _has_event_of_type(result.events, ResolverEvent.Type.BUILD_PROGRESSED):
+		return false
+	# Worker link preserved while walking.
+	if b0.construction_worker_id != worker.id:
 		return false
 	# Run until adjacency + at least one progress tick.
 	var initial_remaining := b0.construction_turns_remaining
