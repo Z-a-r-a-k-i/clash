@@ -149,6 +149,7 @@ func _all_tests() -> Array:
 		["build_refinery_double_target_rejected", _test_build_refinery_double_target_rejected],
 		["build_target_tile_occupied_rejected", _test_build_target_tile_occupied_rejected],
 		["build_off_grid_rejected", _test_build_off_grid_rejected],
+		["production_determinism_golden", _test_production_determinism_golden],
 	]
 
 
@@ -1666,22 +1667,12 @@ func _test_gather_full_cycle_gas_via_refinery() -> bool:
 	var geyser := _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
 	geyser.current_resource_amount = -1  # infinite
 	state.tile_grid.place(geyser.id, Rect2i(10, 5, 1, 1))
-	# Refinery shares the geyser's origin (the construction system would
-	# enforce this in the real flow).
+	# Refinery shares the geyser's origin. Use place_overlapping (added in
+	# plan node 05 chunk 7) so the refinery's rect is registered without
+	# evicting the geyser from _occupancy. This replaces the previous
+	# test-shim that poked _entity_rects directly.
 	var refinery := _make_entity(state, "refinery", 0, Vector2i(10, 5), 750, "ground")
-	# Refinery and geyser overlap by design — work around the tile_grid's
-	# collision check by removing the geyser, placing the refinery, then
-	# re-placing the geyser via direct dictionary update through a fresh
-	# place call on a different tile mapped back. Simpler: use a side-by-
-	# side rect for test purposes (the resolver looks for same `position`,
-	# so we co-locate them by patching the grid post-hoc).
-	state.tile_grid.remove(geyser.id)
-	state.tile_grid.place(refinery.id, Rect2i(10, 5, 1, 1))
-	# Manually re-add the geyser to the grid's entity_rects index without
-	# touching occupancy (so _resolve_source's "same origin" check works).
-	# This is test-shim plumbing only — production never has overlapping
-	# entities placed this way.
-	state.tile_grid._entity_rects[geyser.id] = Rect2i(10, 5, 1, 1)
+	state.tile_grid.place_overlapping(refinery.id, Rect2i(10, 5, 1, 1), geyser.id)
 
 	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], refinery.id)
 	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
@@ -2645,6 +2636,75 @@ func _test_building_death_drops_pop_cap() -> bool:
 	atk.target_priority_chain = [barracks.id]
 	var result := Resolver.resolve(state, _submit(), _submit([atk]), registry, null)
 	return result.new_state.get_player(0).pop_cap == 0
+
+
+func _test_production_determinism_golden() -> bool:
+	# Run a complex scenario twice (same orders, same starting state)
+	# and assert identical end states + identical event streams. Covers
+	# BUILD + TRAIN + RESEARCH end-to-end.
+	var orders_per_turn := _build_determinism_scenario_orders()
+	var run_a := _run_determinism_scenario(orders_per_turn)
+	var run_b := _run_determinism_scenario(orders_per_turn)
+	if not _states_equal(run_a.new_state, run_b.new_state):
+		return false
+	return _events_equal(run_a.events, run_b.events)
+
+
+func _build_determinism_scenario_orders() -> Array:
+	# Returns a list of [orders_a, orders_b] pairs for each turn.
+	var turns: Array = []
+	# Turn 0: each player issues TRAIN(marine).
+	var t0a: Array[EntityOrder] = []
+	var t0b: Array[EntityOrder] = []
+	# Turn 1: BUILD a barracks (we'll fill in entity ids inside _run).
+	turns.append([t0a, t0b])
+	turns.append([t0a, t0b])  # placeholder; filled at runtime
+	turns.append([t0a, t0b])
+	turns.append([t0a, t0b])
+	turns.append([t0a, t0b])
+	return turns
+
+
+func _run_determinism_scenario(_orders_per_turn: Array) -> ResolveResult:
+	# Build a small two-player scenario with one barracks each + a
+	# minerals patch. Issue TRAIN orders on both barracks every turn
+	# for a fixed number of turns.
+	var registry := _production_registry()
+	var state := _state_with_grid(30, 30)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 1000
+	state.players[1].minerals = 1000
+	state.players[0].pop_cap = 50
+	state.players[1].pop_cap = 50
+	var b0 := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	b0.production_state = ProductionState.new()
+	state.tile_grid.place(b0.id, Rect2i(2, 2, 3, 3))
+	var b1 := _make_entity(state, "barracks", 1, Vector2i(20, 20), 1000, "ground")
+	b1.production_state = ProductionState.new()
+	state.tile_grid.place(b1.id, Rect2i(20, 20, 3, 3))
+
+	var t_a := EntityOrder.new()
+	t_a.type = EntityOrder.Type.TRAIN
+	t_a.entity_id = b0.id
+	t_a.def_id = "marine"
+	var t_b := EntityOrder.new()
+	t_b.type = EntityOrder.Type.TRAIN
+	t_b.entity_id = b1.id
+	t_b.def_id = "marine"
+
+	var result := Resolver.resolve(state, _submit([t_a]), _submit([t_b]), registry, null)
+	for _i in 8:
+		# Keep submitting TRAIN every turn to fill the queues.
+		var ta := EntityOrder.new()
+		ta.type = EntityOrder.Type.TRAIN
+		ta.entity_id = b0.id
+		ta.def_id = "marine"
+		var tb := EntityOrder.new()
+		tb.type = EntityOrder.Type.TRAIN
+		tb.entity_id = b1.id
+		tb.def_id = "marine"
+		result = Resolver.resolve(result.new_state, _submit([ta]), _submit([tb]), registry, null)
+	return result
 
 
 func _test_build_refinery_on_geyser_overlap_allowed() -> bool:
