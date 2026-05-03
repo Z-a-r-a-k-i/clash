@@ -2255,6 +2255,8 @@ func _test_cancel_active_triggers_try_fill() -> bool:
 	tank.population = PopulationDef.new()
 	tank.population.pop_cost = 2
 	registry.entities.append(tank)
+	# barracks.produces must list "tank" too for the new membership check.
+	registry.entities[0].production.produces = ["marine", "tank"]
 
 	var state := _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]

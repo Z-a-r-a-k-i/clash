@@ -106,10 +106,10 @@ static func _distribute_one(
 			_handle_cancel_order(state, entity, order, registry, events)
 			continue
 		if order.type == EntityOrder.Type.TRAIN:
-			_handle_train_order(entity, order, events)
+			_handle_train_order(entity, order, registry, events)
 			continue
 		if order.type == EntityOrder.Type.RESEARCH:
-			_handle_research_order(state, entity, order, events)
+			_handle_research_order(state, entity, order, registry, events)
 			continue
 		if order.type == EntityOrder.Type.BUILD:
 			_handle_build_order(state, entity, order, registry, events)
@@ -163,7 +163,7 @@ static func _handle_build_order(
 	events: Array[ResolverEvent]
 ) -> void:
 	if order.target_entity_id >= 0:
-		_handle_build_resume(state, worker, order, events)
+		_handle_build_resume(state, worker, order, registry, events)
 		return
 	# New construction.
 	if worker.locked_to_building_id >= 0:
@@ -227,10 +227,23 @@ static func _handle_build_order(
 	if def.production != null:
 		building.production_state = ProductionState.new()
 	state.entities.append(building)
+	var placed: bool
 	if require_tag != "":
-		state.tile_grid.place_overlapping(building.id, rect, overlap_target_id)
+		placed = state.tile_grid.place_overlapping(building.id, rect, overlap_target_id)
 	else:
-		state.tile_grid.place(building.id, rect)
+		placed = state.tile_grid.place(building.id, rect)
+	if not placed:
+		# Roll back: refund cost+pop, drop the dangling building entity,
+		# don't lock the worker, don't emit BUILD_STARTED. This protects
+		# against races between the validation pass and the actual place
+		# (e.g. simultaneous BUILD orders on the same tile in the same
+		# turn from the same player).
+		player.minerals += def.construction.mineral_cost
+		player.gas += def.construction.gas_cost
+		player.pop_used = max(0, player.pop_used - pop_cost)
+		state.entities.erase(building)
+		_emit_order_rejected(order.entity_id, "tile_occupied", events)
+		return
 	worker.locked_to_building_id = building.id
 	worker.persistent_order = null
 	if worker.gather_state != null:
@@ -245,7 +258,11 @@ static func _handle_build_order(
 
 
 static func _handle_build_resume(
-	state: MatchState, worker: Entity, order: EntityOrder, events: Array[ResolverEvent]
+	state: MatchState,
+	worker: Entity,
+	order: EntityOrder,
+	registry: EntityRegistry,
+	events: Array[ResolverEvent]
 ) -> void:
 	var building := state.get_entity_by_id(order.target_entity_id)
 	if building == null or building.current_hp <= 0:
@@ -263,6 +280,15 @@ static func _handle_build_resume(
 	if worker.locked_to_building_id >= 0:
 		_emit_order_rejected(order.entity_id, "worker_locked", events)
 		return
+	# Resume must use a worker whose tag matches the building def's
+	# built_by_tag — same constraint as new construction.
+	if registry != null:
+		var b_def: EntityDef = registry.get_by_id(building.current_def_id)
+		if b_def != null and b_def.construction != null:
+			var tag := b_def.construction.built_by_tag
+			if tag != "" and not _worker_has_tag(worker, registry, tag):
+				_emit_order_rejected(order.entity_id, "wrong_builder", events)
+				return
 	building.construction_worker_id = worker.id
 	worker.locked_to_building_id = building.id
 	worker.persistent_order = null
@@ -317,7 +343,11 @@ static func _find_overlap_target(
 # ProductionState. Mirrors TRAIN but rejects research items the player
 # has already unlocked. Plan node 05 chunk 4.
 static func _handle_research_order(
-	state: MatchState, entity: Entity, order: EntityOrder, events: Array[ResolverEvent]
+	state: MatchState,
+	entity: Entity,
+	order: EntityOrder,
+	registry: EntityRegistry,
+	events: Array[ResolverEvent]
 ) -> void:
 	if entity.production_state == null:
 		_emit_order_rejected(order.entity_id, "not_a_producer", events)
@@ -325,9 +355,21 @@ static func _handle_research_order(
 			"RESEARCH for entity %d which has no production capability; dropping." % order.entity_id
 		)
 		return
+	if entity.is_constructing:
+		_emit_order_rejected(order.entity_id, "producer_constructing", events)
+		return
 	if order.def_id == "":
 		_emit_order_rejected(order.entity_id, "missing_def_id", events)
 		return
+	if registry != null:
+		var producer_def: EntityDef = registry.get_by_id(entity.current_def_id)
+		if (
+			producer_def == null
+			or producer_def.production == null
+			or not producer_def.production.researches.has(order.def_id)
+		):
+			_emit_order_rejected(order.entity_id, "not_in_researches", events)
+			return
 	var player := state.get_player(entity.owner_player_id)
 	if player != null and player.unlocked_researches.has(order.def_id):
 		_emit_order_rejected(order.entity_id, "duplicate_research", events)
@@ -354,7 +396,7 @@ static func _handle_research_order(
 # ProductionState. No cost is deducted here; ProductionSystem.try_fill
 # does that at slot transition. Plan node 05 chunk 2.
 static func _handle_train_order(
-	entity: Entity, order: EntityOrder, events: Array[ResolverEvent]
+	entity: Entity, order: EntityOrder, registry: EntityRegistry, events: Array[ResolverEvent]
 ) -> void:
 	if entity.production_state == null:
 		_emit_order_rejected(order.entity_id, "not_a_producer", events)
@@ -362,14 +404,21 @@ static func _handle_train_order(
 			"TRAIN for entity %d which has no production capability; dropping." % order.entity_id
 		)
 		return
+	if entity.is_constructing:
+		_emit_order_rejected(order.entity_id, "producer_constructing", events)
+		return
 	if order.def_id == "":
 		_emit_order_rejected(order.entity_id, "missing_def_id", events)
 		return
-	# Membership check (def_id must be in producer's `produces` list)
-	# happens here at distribution. Registry-driven check is folded in
-	# at try_fill time when the cost is looked up; producing an unknown
-	# def at distribution should still be flagged early so the player
-	# sees the rejection event rather than a silent stall.
+	if registry != null:
+		var producer_def: EntityDef = registry.get_by_id(entity.current_def_id)
+		if (
+			producer_def == null
+			or producer_def.production == null
+			or not producer_def.production.produces.has(order.def_id)
+		):
+			_emit_order_rejected(order.entity_id, "not_in_produces", events)
+			return
 	(
 		entity
 		. production_state

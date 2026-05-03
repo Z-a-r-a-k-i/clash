@@ -224,6 +224,18 @@ static func _destroy_entity(
 		dead.construction_worker_id = -1
 		dead.is_constructing = false
 
+	# A producer dying with an active production slot leaks pop_used
+	# unless we refund the reservation. Minerals/gas paid into the slot
+	# are NOT refunded (death isn't cancel), but pop is structural — the
+	# unit will never spawn, so the reservation has to come back or
+	# pop_cap erodes monotonically across the match.
+	if dead.production_state != null and not dead.production_state.active.is_empty():
+		var paid_pop: int = dead.production_state.active.get(ProductionState.KEY_PAID_POP, 0)
+		if paid_pop > 0:
+			var owner := state.get_player(dead.owner_player_id)
+			if owner != null:
+				owner.pop_used = max(0, owner.pop_used - paid_pop)
+
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.ENTITY_DESTROYED
 	ev.actor_id = killer_id
