@@ -3152,8 +3152,9 @@ func _test_helicopter_anti_light_damage_at_data_values() -> bool:
 
 
 func _test_registry_loads_from_data() -> bool:
-	# Sanity: every roster entity is present in the loaded registry.
-	# Catches accidental dropped imports / id renames.
+	# Sanity: every roster entity AND research is present in the loaded
+	# registry. Catches accidental dropped imports / id renames in
+	# entity_registry.tres or its referenced .tres files.
 	var registry := _load_data_registry()
 	if registry == null:
 		return false
@@ -3162,6 +3163,9 @@ func _test_registry_loads_from_data() -> bool:
 			return false
 	for building in ["base", "barracks", "factory", "starport", "refinery"]:
 		if registry.get_by_id(building) == null:
+			return false
+	for research in ["stim_research", "siege_mode_research"]:
+		if registry.get_research_by_id(research) == null:
 			return false
 	return true
 
