@@ -9,3 +9,7 @@ extends Resource
 @export var cooldown_turns: int = 0
 @export var cast_time_turns: int = 0
 @export var effect: Effect
+# Research id required to use this ability. Empty = always available.
+# Forward-compat data field (plan node 05) — the gate-check consumer
+# lands when USE_ABILITY is wired in a future plan node.
+@export var requires_research_id: String = ""

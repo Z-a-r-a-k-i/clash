@@ -36,6 +36,23 @@ var moves_used_this_turn: int = 0
 # yield tick.
 var current_resource_amount: int = -1
 
+# Construction lifecycle (plan node 05). Buildings only.
+# `is_constructing` is set to true at BUILD distribution and cleared on
+# completion. While true, the building blocks pathing and is vulnerable
+# but doesn't function (no production / no pop_provides).
+var is_constructing: bool = false
+# Turns until completion. -1 = N/A (not under construction).
+var construction_turns_remaining: int = -1
+# Worker currently locked to this build. -1 = paused (worker dead/missing
+# or never assigned). When non-(-1) and that worker is alive + adjacent,
+# construction_turns_remaining ticks each turn.
+var construction_worker_id: int = -1
+
+# Worker side of the lock. -1 = free. While non-(-1), the worker rejects
+# new MOVE / ATTACK / GATHER orders — it's committed to constructing the
+# referenced building.
+var locked_to_building_id: int = -1
+
 # Optional capability-paired state — null unless def has the matching capability.
 var production_state: ProductionState
 var gather_state: GatherState
@@ -71,6 +88,10 @@ func clone() -> Entity:
 	c.hold_fire = hold_fire
 	c.moves_used_this_turn = moves_used_this_turn
 	c.current_resource_amount = current_resource_amount
+	c.is_constructing = is_constructing
+	c.construction_turns_remaining = construction_turns_remaining
+	c.construction_worker_id = construction_worker_id
+	c.locked_to_building_id = locked_to_building_id
 
 	if production_state != null:
 		c.production_state = production_state.clone()

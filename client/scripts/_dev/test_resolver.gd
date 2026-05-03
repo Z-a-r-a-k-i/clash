@@ -736,13 +736,11 @@ func _test_production_progress_emits_completion() -> bool:
 	var building := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
 	state.tile_grid.place(building.id, Rect2i(2, 2, 3, 3))
 	var ps := ProductionState.new()
-	ps.queue = [
-		{
-			ProductionState.KEY_DEF_ID: "marine",
-			ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
-			ProductionState.KEY_TURNS_REMAINING: 1,
-		}
-	]
+	ps.active = {
+		ProductionState.KEY_DEF_ID: "marine",
+		ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
+		ProductionState.KEY_TURNS_REMAINING: 1,
+	}
 	building.production_state = ps
 
 	# Force at least one tick (any noop order).
@@ -760,7 +758,7 @@ func _test_production_progress_emits_completion() -> bool:
 	if not saw_completed:
 		return false
 	var new_building := result.new_state.get_entity_by_id(building.id)
-	return new_building.production_state.queue.is_empty()
+	return new_building.production_state.active.is_empty()
 
 
 func _test_win_by_raze() -> bool:
@@ -926,7 +924,11 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 			return false
 		if pa.pop_used != pb.pop_used:
 			return false
+		if pa.pop_cap != pb.pop_cap:
+			return false
 		if pa.has_surrendered != pb.has_surrendered:
+			return false
+		if pa.unlocked_researches != pb.unlocked_researches:
 			return false
 	var ents_a := a.entities_sorted_by_id()
 	var ents_b := b.entities_sorted_by_id()
@@ -951,6 +953,24 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 			return false
 		if ea.current_resource_amount != eb.current_resource_amount:
 			return false
+		if ea.is_constructing != eb.is_constructing:
+			return false
+		if ea.construction_turns_remaining != eb.construction_turns_remaining:
+			return false
+		if ea.construction_worker_id != eb.construction_worker_id:
+			return false
+		if ea.locked_to_building_id != eb.locked_to_building_id:
+			return false
+		if (ea.production_state == null) != (eb.production_state == null):
+			return false
+		if ea.production_state != null:
+			if ea.production_state.active != eb.production_state.active:
+				return false
+			if ea.production_state.queue.size() != eb.production_state.queue.size():
+				return false
+			for j in ea.production_state.queue.size():
+				if ea.production_state.queue[j] != eb.production_state.queue[j]:
+					return false
 		if ea.ability_cooldowns != eb.ability_cooldowns:
 			return false
 		if ea.active_buffs.size() != eb.active_buffs.size():

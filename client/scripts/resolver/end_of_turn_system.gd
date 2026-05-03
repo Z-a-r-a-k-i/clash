@@ -68,29 +68,30 @@ static func _tick_active_buffs(entity: Entity) -> void:
 
 
 static func _tick_production(entity: Entity, events: Array[ResolverEvent]) -> void:
-	# Decrement turns_remaining on each queue item. The head item
-	# completes (emits BUILD_COMPLETED) when it hits 0; the rest of the
-	# queue does NOT advance until the head is gone (matches SC2's
-	# single-active-build per building).
+	# Tick the active production slot. Plan node 05 splits production
+	# into `active` (paying & ticking, single slot) and `queue` (unpaid
+	# declarations). Only the active slot ticks; the queue advances at
+	# install time via ProductionSystem.advance_queues.
 	#
-	# M0: emit a stub event only. Plan node 05 will actually spawn the
-	# unit, deduct costs, place it adjacent to the producer, etc.
+	# M0 stub: emits BUILD_COMPLETED on completion and clears the active
+	# slot. Spawn / cost-refund / pop-accounting / queue-promotion all
+	# land with chunks 2+ of plan node 05.
 	if entity.production_state == null:
 		return
-	if entity.production_state.queue.is_empty():
+	if entity.production_state.active.is_empty():
 		return
-	var head: Dictionary = entity.production_state.queue[0]
-	var remaining: int = head.get(ProductionState.KEY_TURNS_REMAINING, 0)
+	var active: Dictionary = entity.production_state.active
+	var remaining: int = active.get(ProductionState.KEY_TURNS_REMAINING, 0)
 	remaining -= 1
 	if remaining <= 0:
 		var ev := ResolverEvent.new()
 		ev.type = ResolverEvent.Type.BUILD_COMPLETED
 		ev.actor_id = entity.id
-		ev.def_id = head.get(ProductionState.KEY_DEF_ID, "")
+		ev.def_id = active.get(ProductionState.KEY_DEF_ID, "")
 		events.append(ev)
-		entity.production_state.queue.pop_front()
+		entity.production_state.active = {}
 	else:
-		head[ProductionState.KEY_TURNS_REMAINING] = remaining
+		active[ProductionState.KEY_TURNS_REMAINING] = remaining
 
 
 static func _recompute_is_hidden(
