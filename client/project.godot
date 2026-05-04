@@ -24,7 +24,7 @@ project/assembly_name="Clash"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/godot_ai/plugin.cfg")
+enabled=PackedStringArray("res://addons/godot_ai/plugin.cfg", "res://addons/clash_dev/plugin.cfg")
 
 [physics]
 
