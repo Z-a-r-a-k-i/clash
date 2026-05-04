@@ -175,6 +175,10 @@ func _all_tests() -> Array:
 		],
 		["scenario_loader_applies_stat_overrides", _test_scenario_loader_applies_stat_overrides],
 		["match_state_save_load_roundtrip", _test_match_state_save_load_roundtrip],
+		[
+			"match_state_save_load_preserves_overrides",
+			_test_match_state_save_load_preserves_overrides
+		],
 	]
 
 
@@ -3467,6 +3471,49 @@ func _test_match_state_save_load_roundtrip() -> bool:
 		if orig_r.id != loaded_r.id:
 			return false
 	return true
+
+
+func _test_match_state_save_load_preserves_overrides() -> bool:
+	# Verifies the SavedSession round-trip preserves a stat-override-
+	# patched registry. Without this, a regression that saves the
+	# canonical registry alongside the state (instead of the patched
+	# one) would silently revert overrides on reload — and the rest of
+	# the suite wouldn't catch it.
+	var canonical := _load_data_registry()
+	if canonical == null:
+		return false
+	var scenario := ScenarioDef.new()
+	scenario.map_width = 20
+	scenario.map_height = 20
+	var ov := ScenarioStatOverride.new()
+	ov.entity_def_id = "marine"
+	ov.capability = "combat"
+	ov.field = "damage"
+	ov.value_kind = "int"
+	ov.value_int = 20
+	scenario.stat_overrides = [ov]
+	var loaded := ScenarioLoader.load(scenario, canonical, null)
+	if loaded == null:
+		return false
+	# Patched registry has the override.
+	if loaded.registry.get_by_id("marine").combat.damage != 20:
+		return false
+
+	var path := "user://test_override_roundtrip_%d.tres" % Time.get_ticks_usec()
+	if MatchSaver.save(loaded.state, loaded.registry, path) != OK:
+		return false
+	var reloaded: SavedSession = MatchSaver.load_from(path)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	if reloaded == null:
+		return false
+	# Override survived the round-trip.
+	var reloaded_marine: EntityDef = reloaded.registry.get_by_id("marine")
+	if reloaded_marine == null or reloaded_marine.combat == null:
+		return false
+	if reloaded_marine.combat.damage != 20:
+		return false
+	# Canonical untouched (sanity check that the override didn't leak).
+	return canonical.get_by_id("marine").combat.damage == 6
 
 
 # ---------- Helpers ----------
