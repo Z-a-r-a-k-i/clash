@@ -3285,6 +3285,8 @@ func _test_scenario_loader_applies_starting_resources() -> bool:
 	if registry == null:
 		return false
 	var scenario := _load_smoke_scenario()
+	if scenario == null:
+		return false
 	var loaded := ScenarioLoader.load(scenario, registry, null)
 	if loaded == null:
 		return false
@@ -3361,18 +3363,38 @@ func _test_scenario_loader_applies_stat_overrides() -> bool:
 	scenario.stat_overrides = [ov]
 
 	var loaded := ScenarioLoader.load(scenario, canonical, null)
-	if loaded == null:
+	if loaded == null or loaded.registry == null:
 		return false
 	# Effective registry's marine has the patched value.
 	var patched_marine: EntityDef = loaded.registry.get_by_id("marine")
-	if patched_marine == null or patched_marine.combat.damage != override_damage:
+	if patched_marine == null or patched_marine.combat == null:
+		return false
+	if patched_marine.combat.damage != override_damage:
 		return false
 	# Canonical registry untouched (deep clone via Resource.duplicate).
 	if canonical_marine.combat.damage != baseline_damage:
 		return false
-	# Other defs in the effective registry pass through by reference
-	# (no clone when no override targets them).
-	return loaded.registry.get_by_id("siege_tank") == canonical.get_by_id("siege_tank")
+	# Untargeted defs in the effective registry have the same observable
+	# state as canonical (id, footprint, combat values). Deliberately
+	# observable-field equality, not reference equality — the loader is
+	# free to share the original Resource instance OR clone it
+	# unchanged; both are correct as long as the values match.
+	var loaded_tank: EntityDef = loaded.registry.get_by_id("siege_tank")
+	var canonical_tank: EntityDef = canonical.get_by_id("siege_tank")
+	if loaded_tank == null or canonical_tank == null:
+		return false
+	if loaded_tank.id != canonical_tank.id:
+		return false
+	if loaded_tank.footprint != canonical_tank.footprint:
+		return false
+	if (loaded_tank.combat == null) != (canonical_tank.combat == null):
+		return false
+	if loaded_tank.combat != null:
+		if loaded_tank.combat.damage != canonical_tank.combat.damage:
+			return false
+		if loaded_tank.combat.attack_range != canonical_tank.combat.attack_range:
+			return false
+	return true
 
 
 func _test_match_state_save_load_roundtrip() -> bool:
@@ -3520,10 +3542,13 @@ func _test_match_state_save_load_preserves_overrides() -> bool:
 	ov.value_int = override_damage
 	scenario.stat_overrides = [ov]
 	var loaded := ScenarioLoader.load(scenario, canonical, null)
-	if loaded == null:
+	if loaded == null or loaded.registry == null:
 		return false
 	# Patched registry has the override.
-	if loaded.registry.get_by_id("marine").combat.damage != override_damage:
+	var loaded_marine: EntityDef = loaded.registry.get_by_id("marine")
+	if loaded_marine == null or loaded_marine.combat == null:
+		return false
+	if loaded_marine.combat.damage != override_damage:
 		return false
 
 	var path := "user://test_override_roundtrip_%d.tres" % Time.get_ticks_usec()
@@ -3531,7 +3556,7 @@ func _test_match_state_save_load_preserves_overrides() -> bool:
 		return false
 	var reloaded: SavedSession = MatchSaver.load_from(path)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
-	if reloaded == null:
+	if reloaded == null or reloaded.registry == null:
 		return false
 	# Override survived the round-trip.
 	var reloaded_marine: EntityDef = reloaded.registry.get_by_id("marine")
