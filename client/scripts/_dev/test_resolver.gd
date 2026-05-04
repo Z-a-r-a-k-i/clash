@@ -3278,7 +3278,9 @@ func _test_scenario_loader_minimal() -> bool:
 
 
 func _test_scenario_loader_applies_starting_resources() -> bool:
-	# smoke_minimal sets each player to {minerals: 50, gas: 0, pop_cap: 10}.
+	# Loader applies starting_resources_per_player and auto-credits
+	# pop_provides from placed buildings. Values derived from the
+	# scenario + def so balance changes don't break the test.
 	var registry := _load_data_registry()
 	if registry == null:
 		return false
@@ -3287,14 +3289,22 @@ func _test_scenario_loader_applies_starting_resources() -> bool:
 	if loaded == null:
 		return false
 	var state: MatchState = loaded.state
-	# Each player starts at pop_cap 10 (from starting_resources) plus
-	# 15 auto-credited from the placed base (base.population.pop_provides).
+	var base_def: EntityDef = registry.get_by_id("base")
+	if base_def == null or base_def.population == null:
+		return false
 	for p in state.players:
-		if p.minerals != 50:
+		var src: Dictionary = scenario.starting_resources_per_player.get(p.player_id, {})
+		var expected_minerals: int = src.get("minerals", 0)
+		var expected_gas: int = src.get("gas", 0)
+		var starting_pop_cap: int = src.get("pop_cap", 0)
+		# Each player owns exactly one base in smoke_minimal; it credits
+		# pop_provides into pop_cap on top of the starting value.
+		var expected_pop_cap: int = starting_pop_cap + base_def.population.pop_provides
+		if p.minerals != expected_minerals:
 			return false
-		if p.gas != 0:
+		if p.gas != expected_gas:
 			return false
-		if p.pop_cap != 25:
+		if p.pop_cap != expected_pop_cap:
 			return false
 		if p.pop_used != 0:
 			return false
@@ -3326,16 +3336,19 @@ func _test_scenario_loader_applies_initial_hp_override() -> bool:
 
 
 func _test_scenario_loader_applies_stat_overrides() -> bool:
-	# A scenario that patches `marine.combat.damage = 20` should produce
-	# an effective registry where the patched value is live, while the
-	# canonical registry (loaded fresh) still has the original 6.
+	# A scenario that patches `marine.combat.damage = (canonical + 14)`
+	# produces an effective registry where the patched value is live,
+	# while the canonical registry stays untouched. The baseline is
+	# captured from the canonical def itself so a balance change to
+	# marine damage doesn't break this test.
 	var canonical := _load_data_registry()
 	if canonical == null:
 		return false
-	# Sanity: canonical marine starts at damage 6.
 	var canonical_marine: EntityDef = canonical.get_by_id("marine")
-	if canonical_marine == null or canonical_marine.combat.damage != 6:
+	if canonical_marine == null or canonical_marine.combat == null:
 		return false
+	var baseline_damage: int = canonical_marine.combat.damage
+	var override_damage: int = baseline_damage + 14
 	var scenario := ScenarioDef.new()
 	scenario.map_width = 20
 	scenario.map_height = 20
@@ -3344,7 +3357,7 @@ func _test_scenario_loader_applies_stat_overrides() -> bool:
 	ov.capability = "combat"
 	ov.field = "damage"
 	ov.value_kind = "int"
-	ov.value_int = 20
+	ov.value_int = override_damage
 	scenario.stat_overrides = [ov]
 
 	var loaded := ScenarioLoader.load(scenario, canonical, null)
@@ -3352,10 +3365,10 @@ func _test_scenario_loader_applies_stat_overrides() -> bool:
 		return false
 	# Effective registry's marine has the patched value.
 	var patched_marine: EntityDef = loaded.registry.get_by_id("marine")
-	if patched_marine == null or patched_marine.combat.damage != 20:
+	if patched_marine == null or patched_marine.combat.damage != override_damage:
 		return false
 	# Canonical registry untouched (deep clone via Resource.duplicate).
-	if canonical_marine.combat.damage != 6:
+	if canonical_marine.combat.damage != baseline_damage:
 		return false
 	# Other defs in the effective registry pass through by reference
 	# (no clone when no override targets them).
@@ -3477,11 +3490,17 @@ func _test_match_state_save_load_preserves_overrides() -> bool:
 	# Verifies the SavedSession round-trip preserves a stat-override-
 	# patched registry. Without this, a regression that saves the
 	# canonical registry alongside the state (instead of the patched
-	# one) would silently revert overrides on reload — and the rest of
-	# the suite wouldn't catch it.
+	# one) would silently revert overrides on reload. Override value is
+	# derived from the canonical baseline so a balance change to marine
+	# damage doesn't break this test.
 	var canonical := _load_data_registry()
 	if canonical == null:
 		return false
+	var canonical_marine: EntityDef = canonical.get_by_id("marine")
+	if canonical_marine == null or canonical_marine.combat == null:
+		return false
+	var baseline_damage: int = canonical_marine.combat.damage
+	var override_damage: int = baseline_damage + 14
 	var scenario := ScenarioDef.new()
 	scenario.map_width = 20
 	scenario.map_height = 20
@@ -3490,13 +3509,13 @@ func _test_match_state_save_load_preserves_overrides() -> bool:
 	ov.capability = "combat"
 	ov.field = "damage"
 	ov.value_kind = "int"
-	ov.value_int = 20
+	ov.value_int = override_damage
 	scenario.stat_overrides = [ov]
 	var loaded := ScenarioLoader.load(scenario, canonical, null)
 	if loaded == null:
 		return false
 	# Patched registry has the override.
-	if loaded.registry.get_by_id("marine").combat.damage != 20:
+	if loaded.registry.get_by_id("marine").combat.damage != override_damage:
 		return false
 
 	var path := "user://test_override_roundtrip_%d.tres" % Time.get_ticks_usec()
@@ -3510,10 +3529,10 @@ func _test_match_state_save_load_preserves_overrides() -> bool:
 	var reloaded_marine: EntityDef = reloaded.registry.get_by_id("marine")
 	if reloaded_marine == null or reloaded_marine.combat == null:
 		return false
-	if reloaded_marine.combat.damage != 20:
+	if reloaded_marine.combat.damage != override_damage:
 		return false
 	# Canonical untouched (sanity check that the override didn't leak).
-	return canonical.get_by_id("marine").combat.damage == 6
+	return canonical.get_by_id("marine").combat.damage == baseline_damage
 
 
 # ---------- Helpers ----------
