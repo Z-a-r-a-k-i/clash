@@ -3428,6 +3428,14 @@ func _test_match_state_save_load_roundtrip() -> bool:
 	po.entity_id = marine.id
 	po.target_tile = Vector2i(15, 15)
 	marine.persistent_order = po
+	# Populate order_queue too so save/load actually exercises that
+	# field (otherwise _states_equal compares two empty arrays and the
+	# coverage is vacuous).
+	var queued := EntityOrder.new()
+	queued.type = EntityOrder.Type.ATTACK
+	queued.entity_id = marine.id
+	queued.target_priority_chain = [42, 99]
+	marine.order_queue = [queued]
 
 	# Entity 3: a worker mid-gather with a non-IDLE phase + cargo.
 	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
