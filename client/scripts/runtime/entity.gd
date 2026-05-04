@@ -1,5 +1,5 @@
 class_name Entity
-extends RefCounted
+extends Resource
 
 # Per-instance runtime state for one entity on the field. Distinct from
 # EntityDef (the immutable type definition). Many entities share the same
@@ -7,55 +7,61 @@ extends RefCounted
 #
 # Optional state fields parallel the def's optional capabilities:
 # `production_state` is non-null only if def.production != null, etc.
+#
+# Resource (not RefCounted) so MatchState save/load round-trips every
+# field via ResourceSaver. Each runtime field is @export. clone() stays
+# explicit for the resolver's pure-function contract; Resource.duplicate
+# semantics differ in subtle ways (cache-mode interactions) we don't want
+# in the hot path.
 
-var id: int = -1  # unique runtime id (not def_id). -1 = unallocated; MatchState.allocate_entity_id() starts at 1.
-var def_id: String = ""  # canonical EntityDef id
-var current_def_id: String = ""  # == def_id unless TransformEffect swapped
-var owner_player_id: int = 0
-var origin: Vector2i = Vector2i.ZERO
-var current_layer: String = ""  # may differ from def.movement.default_layer
-var current_hp: int = 0
+@export var id: int = -1  # unique runtime id (not def_id). -1 = unallocated; MatchState.allocate_entity_id() starts at 1.
+@export var def_id: String = ""  # canonical EntityDef id
+@export var current_def_id: String = ""  # == def_id unless TransformEffect swapped
+@export var owner_player_id: int = 0
+@export var origin: Vector2i = Vector2i.ZERO
+@export var current_layer: String = ""  # may differ from def.movement.default_layer
+@export var current_hp: int = 0
 
-var order_queue: Array[EntityOrder] = []  # orders queued for this turn
-var persistent_order: EntityOrder  # move/attack-move that persists across turns
+@export var order_queue: Array[EntityOrder] = []  # orders queued for this turn
+@export var persistent_order: EntityOrder  # move/attack-move that persists across turns
 
-var ability_cooldowns: Dictionary = {}  # { ability_id: turns_remaining }
-var active_buffs: Array[ActiveBuff] = []
-var is_hidden: bool = false  # recomputed each turn
-var hold_fire: bool = false  # toggled by HOLD_FIRE_TOGGLE order
+@export var ability_cooldowns: Dictionary = {}  # { ability_id: turns_remaining }
+@export var active_buffs: Array[ActiveBuff] = []
+@export var is_hidden: bool = false  # recomputed each turn
+@export var hold_fire: bool = false  # toggled by HOLD_FIRE_TOGGLE order
 
 # Per-turn move budget. Reset to 0 at end-of-turn; incremented by the
 # movement system on each successful step. Compared against
 # def.movement.speed_tiles_per_turn to gate further movement this turn.
-var moves_used_this_turn: int = 0
+@export var moves_used_this_turn: int = 0
 
 # Per-instance remaining capacity for ResourceSource entities (mineral
 # patches, gas geysers). -1 = infinite or N/A (non-source entities). The
 # scenario loader / spawner seeds this from def.resource_source.capacity
 # when the entity is created. The gather system decrements it on each
 # yield tick.
-var current_resource_amount: int = -1
+@export var current_resource_amount: int = -1
 
 # Construction lifecycle (plan node 05). Buildings only.
 # `is_constructing` is set to true at BUILD distribution and cleared on
 # completion. While true, the building blocks pathing and is vulnerable
 # but doesn't function (no production / no pop_provides).
-var is_constructing: bool = false
+@export var is_constructing: bool = false
 # Turns until completion. -1 = N/A (not under construction).
-var construction_turns_remaining: int = -1
+@export var construction_turns_remaining: int = -1
 # Worker currently locked to this build. -1 = paused (worker dead/missing
 # or never assigned). When non-(-1) and that worker is alive + adjacent,
 # construction_turns_remaining ticks each turn.
-var construction_worker_id: int = -1
+@export var construction_worker_id: int = -1
 
 # Worker side of the lock. -1 = free. While non-(-1), the worker rejects
 # new MOVE / ATTACK / GATHER orders — it's committed to constructing the
 # referenced building.
-var locked_to_building_id: int = -1
+@export var locked_to_building_id: int = -1
 
 # Optional capability-paired state — null unless def has the matching capability.
-var production_state: ProductionState
-var gather_state: GatherState
+@export var production_state: ProductionState
+@export var gather_state: GatherState
 
 
 func clone() -> Entity:

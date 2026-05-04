@@ -1,19 +1,23 @@
 class_name PlayerState
-extends RefCounted
+extends Resource
 
 # Per-player runtime state. Two players per match at MVP.
+#
+# Resource (not RefCounted) so a MatchState save via ResourceSaver
+# round-trips player resources, pop, and unlocked_researches without
+# a mirror class.
 
-var player_id: int = 0
-var minerals: int = 0
-var gas: int = 0
-var pop_used: int = 0
-var pop_cap: int = 0
-var has_surrendered: bool = false
+@export var player_id: int = 0
+@export var minerals: int = 0
+@export var gas: int = 0
+@export var pop_used: int = 0
+@export var pop_cap: int = 0
+@export var has_surrendered: bool = false
 
 # Set of completed research def_ids. Append-only at M0 (no research can
 # be unlearned). Read by future ability-gating code (plan node wires
 # USE_ABILITY); written by ProductionSystem on RESEARCH completion.
-var unlocked_researches: Array[String] = []
+@export var unlocked_researches: Array[String] = []
 
 
 func clone() -> PlayerState:

@@ -1,9 +1,9 @@
 class_name MatchState
-extends RefCounted
+extends Resource
 
 # Top-level mutable state container for a single match. Passed to the
-# resolver each turn; the resolver returns a new MatchState (or mutates
-# in place — TBD during resolver implementation).
+# resolver each turn; the resolver returns a new MatchState (deep copy
+# via clone()) so the input is never aliased into the result.
 #
 # Holds:
 # - turn counter and seeded RNG seed (RNG unused at M0 per ADR 0013)
@@ -12,18 +12,22 @@ extends RefCounted
 # - tile grid (terrain, occupancy) — populated by TileGrid (plan node 01)
 # - per-player visibility mask — populated by VisionSystem; deferred until
 #   plan node 02 / 06 implementation
+#
+# Resource (not RefCounted) so MatchSaver can round-trip a snapshot via
+# ResourceSaver.save / ResourceLoader.load (plan node 07a). Every field
+# is @export.
 
-var turn_index: int = 0
-var rng_seed: int = 0  # reserved; unused at M0
+@export var turn_index: int = 0
+@export var rng_seed: int = 0  # reserved; unused at M0
 
-var players: Array[PlayerState] = []
-var entities: Array[Entity] = []
-var next_entity_id: int = 1  # monotonic id allocator
+@export var players: Array[PlayerState] = []
+@export var entities: Array[Entity] = []
+@export var next_entity_id: int = 1  # monotonic id allocator
 
-var tile_grid: TileGrid  # populated at scenario load; null until then.
+@export var tile_grid: TileGrid  # populated at scenario load; null until then.
 
-var winner_player_id: int = -1  # -1 = ongoing; >=0 = match over
-var match_over: bool = false
+@export var winner_player_id: int = -1  # -1 = ongoing; >=0 = match over
+@export var match_over: bool = false
 
 
 func get_entity_by_id(id: int) -> Entity:

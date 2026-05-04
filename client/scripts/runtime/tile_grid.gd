@@ -1,5 +1,5 @@
 class_name TileGrid
-extends RefCounted
+extends Resource
 
 # The grid data structure for clash. Square tiles; entities occupy a
 # rectangular footprint described by (origin: Vector2i, footprint: Vector2i).
@@ -20,17 +20,19 @@ extends RefCounted
 # scenes. Rendering is the presentation layer's job (plan node 01 also
 # calls for a placeholder render scene; that lives in client/scripts/game/).
 
-var width: int = 0
-var height: int = 0
+@export var width: int = 0
+@export var height: int = 0
 
 # Internal occupancy: Vector2i tile -> int entity_id. Tiles with no entry are clear.
-var _occupancy: Dictionary = {}
+# @export_storage so saves round-trip the placement state without
+# cluttering the Inspector with a raw dict.
+@export_storage var _occupancy: Dictionary = {}
 
 # Internal terrain: Vector2i tile -> Array[String]. Tiles with no entry default to no tags.
-var _terrain_tags: Dictionary = {}
+@export_storage var _terrain_tags: Dictionary = {}
 
 # Entity index: int entity_id -> Rect2i (origin, footprint as size).
-var _entity_rects: Dictionary = {}
+@export_storage var _entity_rects: Dictionary = {}
 
 
 func _init(grid_width: int = 0, grid_height: int = 0) -> void:
