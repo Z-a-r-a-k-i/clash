@@ -2,6 +2,8 @@ class_name Tunables
 extends Resource
 
 # Map / spatial
+@export var map_width: int = 50
+@export var map_height: int = 50
 @export var tile_pixel_size: int = 32
 
 # Population

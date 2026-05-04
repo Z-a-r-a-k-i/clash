@@ -271,7 +271,7 @@ func _gen_neutrals() -> int:
 	var patch := EntityDef.new()
 	patch.id = "mineral_patch"
 	patch.display_name = "Mineral Patch"
-	patch.footprint = Vector2i(2, 1)
+	patch.footprint = Vector2i(1, 3)
 	patch.tags = ["neutral", "resource_source", "minerals"]
 	var patch_source := ResourceSourceDef.new()
 	patch_source.resource_type = "minerals"
@@ -280,6 +280,22 @@ func _gen_neutrals() -> int:
 	patch_source.requires_extractor = false
 	patch.resource_source = patch_source
 	saved += int(_save(patch, "%s/entities/neutrals/mineral_patch.tres" % DATA_ROOT))
+
+	# Golden mineral patch — same shape as mineral_patch but with a higher
+	# capacity (60% boost, matching SC2 gold:standard ratio). Used as a
+	# contested neutral objective on mvp_map.
+	var gold_patch := EntityDef.new()
+	gold_patch.id = "mineral_patch_gold"
+	gold_patch.display_name = "Golden Mineral Patch"
+	gold_patch.footprint = Vector2i(1, 3)
+	gold_patch.tags = ["neutral", "resource_source", "minerals", "golden"]
+	var gold_patch_source := ResourceSourceDef.new()
+	gold_patch_source.resource_type = "minerals"
+	gold_patch_source.yield_per_worker_per_turn = 1
+	gold_patch_source.capacity = 2400
+	gold_patch_source.requires_extractor = false
+	gold_patch.resource_source = gold_patch_source
+	saved += int(_save(gold_patch, "%s/entities/neutrals/mineral_patch_gold.tres" % DATA_ROOT))
 
 	# Gas geyser — needs a refinery to extract.
 	var geyser := EntityDef.new()
@@ -303,6 +319,8 @@ func _gen_neutrals() -> int:
 
 func _gen_tunables() -> int:
 	var t := Tunables.new()
+	t.map_width = 50
+	t.map_height = 50
 	t.tile_pixel_size = 32
 	t.pop_cap = 50
 	t.starting_workers = 4
@@ -335,6 +353,7 @@ func _gen_registry() -> int:
 		"%s/entities/buildings/factory.tres" % DATA_ROOT,
 		"%s/entities/buildings/starport.tres" % DATA_ROOT,
 		"%s/entities/neutrals/mineral_patch.tres" % DATA_ROOT,
+		"%s/entities/neutrals/mineral_patch_gold.tres" % DATA_ROOT,
 		"%s/entities/neutrals/gas_geyser.tres" % DATA_ROOT,
 	]
 	var entities: Array[EntityDef] = []

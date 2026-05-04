@@ -13,6 +13,7 @@
 [ext_resource type="Resource" uid="uid://cwvlx330r66ve" path="res://data/entities/buildings/starport.tres" id="11_x0qfn"]
 [ext_resource type="Resource" uid="uid://s43x16a7sqjp" path="res://data/entities/neutrals/mineral_patch.tres" id="12_l3hdr"]
 [ext_resource type="Resource" uid="uid://d0cxw2hy14ovw" path="res://data/entities/neutrals/gas_geyser.tres" id="13_ey0nv"]
+[ext_resource type="Resource" uid="uid://cpxqwlskra5bc" path="res://data/entities/neutrals/mineral_patch_gold.tres" id="g_gold"]
 [ext_resource type="Script" uid="uid://c782qlb0756ib" path="res://scripts/data/research_def.gd" id="14_resdef"]
 [ext_resource type="Resource" uid="uid://eoe0x45ckk1o" path="res://data/researches/stim_research.tres" id="15_stim"]
 [ext_resource type="Resource" uid="uid://bkgjxakwptaie" path="res://data/researches/siege_mode_research.tres" id="16_siege"]
@@ -20,5 +21,5 @@
 
 [resource]
 script = ExtResource("17_5wh38")
-entities = Array[ExtResource("1_eugh3")]([ExtResource("2_0tnu8"), ExtResource("3_mji4p"), ExtResource("4_d2x8y"), ExtResource("5_kgdv2"), ExtResource("6_8ir33"), ExtResource("7_a5dd7"), ExtResource("8_atv13"), ExtResource("9_jc8ir"), ExtResource("10_08hum"), ExtResource("11_x0qfn"), ExtResource("12_l3hdr"), ExtResource("13_ey0nv")])
+entities = Array[ExtResource("1_eugh3")]([ExtResource("2_0tnu8"), ExtResource("3_mji4p"), ExtResource("4_d2x8y"), ExtResource("5_kgdv2"), ExtResource("6_8ir33"), ExtResource("7_a5dd7"), ExtResource("8_atv13"), ExtResource("9_jc8ir"), ExtResource("10_08hum"), ExtResource("11_x0qfn"), ExtResource("12_l3hdr"), ExtResource("13_ey0nv"), ExtResource("g_gold")])
 researches = Array[ExtResource("14_resdef")]([ExtResource("15_stim"), ExtResource("16_siege")])
