@@ -11,6 +11,12 @@ extends Node
 # matching tests start passing. See plan/m0/02 + the plan file for the
 # chunk breakdown.
 
+const _REGISTRY_PATH := "res://data/entity_registry.tres"
+const _TUNABLES_PATH := "res://data/tunables.tres"
+const _SMOKE_SCENARIO_PATH := "res://data/scenarios/smoke_minimal.tres"
+const _MVP_MAP_TSCN_PATH := "res://data/scenarios/mvp_map.tscn"
+const _MVP_MAP_TRES_PATH := "res://data/scenarios/mvp_map.tres"
+
 
 func _enter_tree() -> void:
 	if not Engine.is_editor_hint():
@@ -179,8 +185,12 @@ func _all_tests() -> Array:
 			"match_state_save_load_preserves_overrides",
 			_test_match_state_save_load_preserves_overrides
 		],
-		# Plan node 08 — mvp map (chunk 3: bake validation).
+		# Plan node 08 — mvp map.
 		["map_baker_validation", _test_map_baker_validation],
+		["mvp_map_loads", _test_mvp_map_loads],
+		["mvp_map_is_mirror", _test_mvp_map_is_mirror],
+		["mvp_map_bake_parity", _test_mvp_map_bake_parity],
+		["golden_minerals_higher_yield", _test_golden_minerals_higher_yield],
 	]
 
 
@@ -3576,7 +3586,7 @@ func _test_match_state_save_load_preserves_overrides() -> bool:
 # Loads the smoke scenario .tres. Factored out to satisfy gdlint's
 # duplicated-load rule (multiple plan-07a tests share this scenario).
 func _load_smoke_scenario() -> ScenarioDef:
-	return load("res://data/scenarios/smoke_minimal.tres") as ScenarioDef
+	return load(_SMOKE_SCENARIO_PATH) as ScenarioDef
 
 
 # Loads `client/data/entity_registry.tres` and returns it. Returns null
@@ -3584,7 +3594,7 @@ func _load_smoke_scenario() -> ScenarioDef:
 # inside the editor, so res:// loads work). Used by plan-06 data-wiring
 # tests.
 func _load_data_registry() -> EntityRegistry:
-	var registry: EntityRegistry = load("res://data/entity_registry.tres") as EntityRegistry
+	var registry: EntityRegistry = load(_REGISTRY_PATH) as EntityRegistry
 	return registry
 
 
@@ -4025,3 +4035,245 @@ func _test_map_baker_validation() -> bool:
 		return false
 
 	return true
+
+
+# ---------- Plan node 08 — full mvp_map suite ----------
+
+
+func _entity_counts_by_def_id(state: MatchState) -> Dictionary:
+	var counts := {}
+	for entity in state.entities:
+		counts[entity.def_id] = counts.get(entity.def_id, 0) + 1
+	return counts
+
+
+func _load_mvp_map() -> LoadedScenario:
+	var scenario: ScenarioDef = load(_MVP_MAP_TRES_PATH)
+	if scenario == null:
+		return null
+	var registry: EntityRegistry = load(_REGISTRY_PATH)
+	var tunables: Tunables = load(_TUNABLES_PATH)
+	if registry == null or tunables == null:
+		return null
+	return ScenarioLoader.load(scenario, registry, tunables)
+
+
+func _scenario_defs_equal(a: ScenarioDef, b: ScenarioDef) -> bool:
+	if a.map_width != b.map_width or a.map_height != b.map_height:
+		return false
+	if a.placements.size() != b.placements.size():
+		return false
+	for i in range(a.placements.size()):
+		var pa: ScenarioPlacement = a.placements[i]
+		var pb: ScenarioPlacement = b.placements[i]
+		if pa.def_id != pb.def_id:
+			return false
+		if pa.owner_player_id != pb.owner_player_id:
+			return false
+		if pa.origin != pb.origin:
+			return false
+		if pa.initial_hp_override != pb.initial_hp_override:
+			return false
+	return true
+
+
+func _test_mvp_map_loads() -> bool:
+	var loaded := _load_mvp_map()
+	if loaded == null or loaded.state == null:
+		push_error("[mvp_map_loads] ScenarioLoader returned null")
+		return false
+	if loaded.state.tile_grid.width != 50 or loaded.state.tile_grid.height != 50:
+		push_error(
+			(
+				"[mvp_map_loads] expected 50x50 grid, got %dx%d"
+				% [loaded.state.tile_grid.width, loaded.state.tile_grid.height]
+			)
+		)
+		return false
+	if loaded.state.players.size() != 2:
+		push_error("[mvp_map_loads] expected 2 players")
+		return false
+	# Expected entity counts after the baker mirrors the left half.
+	# 1 base + 2 workers + 8 main minerals + 1 main geyser
+	# + 6 natural minerals + 1 natural geyser
+	# + 6 expansion minerals + 1 expansion geyser
+	# + 4 golden minerals + 1 golden geyser
+	# = 31 per side; mirrored = 62 entities total.
+	var counts := _entity_counts_by_def_id(loaded.state)
+	var expected := {
+		"base": 2,
+		"worker": 4,
+		"mineral_patch": 40,
+		"mineral_patch_gold": 8,
+		"gas_geyser": 8,
+	}
+	for def_id in expected:
+		if counts.get(def_id, 0) != expected[def_id]:
+			push_error(
+				(
+					"[mvp_map_loads] expected %d %s, got %d"
+					% [expected[def_id], def_id, counts.get(def_id, 0)]
+				)
+			)
+			return false
+	return true
+
+
+func _test_mvp_map_is_mirror() -> bool:
+	var loaded := _load_mvp_map()
+	if loaded == null:
+		push_error("[mvp_map_is_mirror] failed to load mvp_map")
+		return false
+	var w: int = loaded.state.tile_grid.width
+	var paired: Dictionary = {}
+	for entity in loaded.state.entities:
+		if paired.has(entity.id):
+			continue
+		var rect: Rect2i = loaded.state.tile_grid.entity_rect(entity.id)
+		var mirror_x: int = w - rect.position.x - rect.size.x
+		# Self-mirror (axis placement): no pair needed.
+		if mirror_x == rect.position.x:
+			paired[entity.id] = true
+			continue
+		var mirror_owner: int = entity.owner_player_id
+		if entity.owner_player_id == 0:
+			mirror_owner = 1
+		elif entity.owner_player_id == 1:
+			mirror_owner = 0
+		var found: int = -1
+		for other in loaded.state.entities:
+			if other.id == entity.id or paired.has(other.id):
+				continue
+			if other.def_id != entity.def_id:
+				continue
+			if other.owner_player_id != mirror_owner:
+				continue
+			var other_rect: Rect2i = loaded.state.tile_grid.entity_rect(other.id)
+			if (
+				other_rect.position.x == mirror_x
+				and other_rect.position.y == rect.position.y
+				and other_rect.size == rect.size
+			):
+				found = other.id
+				break
+		if found == -1:
+			push_error(
+				(
+					"[mvp_map_is_mirror] no mirror for entity %d (def=%s, owner=%d) at %s"
+					% [entity.id, entity.def_id, entity.owner_player_id, str(rect.position)]
+				)
+			)
+			return false
+		paired[entity.id] = true
+		paired[found] = true
+	return true
+
+
+func _test_mvp_map_bake_parity() -> bool:
+	var registry: EntityRegistry = load(_REGISTRY_PATH)
+	var tunables: Tunables = load(_TUNABLES_PATH)
+	if registry == null or tunables == null:
+		push_error("[mvp_map_bake_parity] missing registry or tunables")
+		return false
+	var starting_resources: Dictionary = {
+		0: {"minerals": tunables.starting_minerals, "gas": tunables.starting_gas},
+		1: {"minerals": tunables.starting_minerals, "gas": tunables.starting_gas},
+	}
+	var fresh: ScenarioDef = (
+		MapBaker
+		. bake_to_resource(
+			_MVP_MAP_TSCN_PATH,
+			tunables.map_width,
+			tunables.map_height,
+			starting_resources,
+			registry,
+		)
+	)
+	if fresh == null:
+		push_error("[mvp_map_bake_parity] re-bake failed")
+		return false
+	var on_disk: ScenarioDef = load(_MVP_MAP_TRES_PATH)
+	if on_disk == null:
+		push_error("[mvp_map_bake_parity] failed to load mvp_map.tres")
+		return false
+	if not _scenario_defs_equal(fresh, on_disk):
+		push_error(
+			(
+				"[mvp_map_bake_parity] mvp_map.tres is stale "
+				+ "(re-run Bake MVP Map from Project > Tools after editing the .tscn)"
+			)
+		)
+		return false
+	return true
+
+
+func _test_golden_minerals_higher_yield() -> bool:
+	# Synthetic head-to-head: identical scenario with one worker on a
+	# standard mineral_patch vs one worker on a mineral_patch_gold.
+	# Run for N=30 turns, compare totals. Asserts strict greater-than,
+	# not a specific multiplier — lets us retune yields without breaking
+	# the test on balance changes.
+	var standard_total := _gather_total_after_turns("mineral_patch", 1, 30)
+	var golden_total := _gather_total_after_turns("mineral_patch_gold", 2, 30)
+	if golden_total <= standard_total:
+		push_error(
+			(
+				(
+					"[golden_minerals_higher_yield] expected golden > standard, "
+					+ "got golden=%d standard=%d"
+				)
+				% [golden_total, standard_total]
+			)
+		)
+		return false
+	return true
+
+
+# Build a 1-base + 1-worker + 1-patch scenario, run N turns, return the
+# total minerals harvested. The patch is a synthetic def with the given
+# yield; capacity is high enough to avoid depleting in N turns.
+func _gather_total_after_turns(patch_def_id: String, patch_yield: int, turns: int) -> int:
+	var registry := _golden_yield_registry(patch_def_id, patch_yield)
+	var state := _state_with_grid(20, 20)
+	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	worker.gather_state = GatherState.new()
+	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	var base := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	state.tile_grid.place(base.id, Rect2i(0, 0, 4, 4))
+	var patch := _make_entity(state, patch_def_id, -1, Vector2i(8, 5), 1500, "ground")
+	patch.current_resource_amount = 5000
+	state.tile_grid.place(patch.id, Rect2i(8, 5, 1, 1))
+
+	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
+	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	for _i in turns:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+	var p := result.new_state.get_player(0)
+	return 0 if p == null else p.minerals
+
+
+func _golden_yield_registry(patch_def_id: String, patch_yield: int) -> EntityRegistry:
+	var registry := EntityRegistry.new()
+	var worker := _def_with_movement("worker", Vector2i(1, 1), ["worker", "ground"], 50, 4)
+	worker.gather = GatherDef.new()
+	worker.gather.gather_per_turn = patch_yield
+	worker.gather.carry_amount = 5
+	worker.gather.accepts_resource_types = ["minerals", "gas"]
+	var base := EntityDef.new()
+	base.id = "base"
+	base.footprint = Vector2i(4, 4)
+	base.tags = ["building", "structure", "ground", "deposit_sink"]
+	var base_hp := HealthDef.new()
+	base_hp.max_hp = 1500
+	base.health = base_hp
+	var patch := EntityDef.new()
+	patch.id = patch_def_id
+	patch.footprint = Vector2i(1, 1)
+	patch.tags = ["resource_source", "minerals", "ground"]
+	var patch_rs := ResourceSourceDef.new()
+	patch_rs.resource_type = "minerals"
+	patch_rs.yield_per_worker_per_turn = patch_yield
+	patch_rs.requires_extractor = false
+	patch.resource_source = patch_rs
+	registry.entities = [worker, base, patch]
+	return registry

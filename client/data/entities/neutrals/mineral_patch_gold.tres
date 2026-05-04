@@ -5,6 +5,7 @@
 
 [sub_resource type="Resource" id="Resource_gold"]
 script = ExtResource("1_rsd")
+yield_per_worker_per_turn = 2
 capacity = 2400
 
 [resource]

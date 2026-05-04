@@ -291,7 +291,7 @@ func _gen_neutrals() -> int:
 	gold_patch.tags = ["neutral", "resource_source", "minerals", "golden"]
 	var gold_patch_source := ResourceSourceDef.new()
 	gold_patch_source.resource_type = "minerals"
-	gold_patch_source.yield_per_worker_per_turn = 1
+	gold_patch_source.yield_per_worker_per_turn = 2
 	gold_patch_source.capacity = 2400
 	gold_patch_source.requires_extractor = false
 	gold_patch.resource_source = gold_patch_source
