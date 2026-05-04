@@ -7,6 +7,18 @@ extends Resource
 # a real match. Save / load reuses the same shape.
 
 @export var map_scene: PackedScene
+# Tile grid dimensions for the loaded match. Required to be > 0 — the
+# setters clamp to 1 so a scenario .tres can never declare a degenerate
+# map. Defaults are a sensible smoke size (50x50); plan-08's mvp_map.tres
+# overrides them to the actual map size. Visual map_scene handles
+# rendering; these give the headless resolver the grid it needs without
+# instantiating the scene.
+@export var map_width: int = 50:
+	set(value):
+		map_width = max(1, value)
+@export var map_height: int = 50:
+	set(value):
+		map_height = max(1, value)
 @export var starting_resources_per_player: Dictionary = {}
 @export var placements: Array[ScenarioPlacement] = []
 @export var registry_override: EntityRegistry  # optional; null => standard registry

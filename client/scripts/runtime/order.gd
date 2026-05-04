@@ -1,5 +1,5 @@
 class_name EntityOrder
-extends RefCounted
+extends Resource
 
 # Orders are runtime queue entries describing what an entity should do.
 # Tagged-union shape: a `type` enum + the relevant fields filled in. Other
@@ -41,34 +41,34 @@ enum Type {
 	GATHER,
 }
 
-var type: Type = Type.INVALID
+@export var type: Type = Type.INVALID
 
 # Owner of this order; the resolver validates it against the submitting
 # player's id and drops orders that don't match.
-var entity_id: int = -1
+@export var entity_id: int = -1
 
 # MOVE / ATTACK_MOVE / BUILD — destination tile.
-var target_tile: Vector2i = Vector2i.ZERO
+@export var target_tile: Vector2i = Vector2i.ZERO
 
 # ATTACK — priority list. Resolver fires at the first live entity in this
 # list; if all are dead and unit isn't on hold-fire, falls back to closest
 # enemy in range. Primary target lives at index 0; the chain is a single
 # list per plan/m0/02-tick-based-resolver.md "Target chain resolution".
-var target_priority_chain: Array[int] = []
+@export var target_priority_chain: Array[int] = []
 
 # HOLD_FIRE_TOGGLE — desired hold-fire state.
-var hold_fire: bool = false
+@export var hold_fire: bool = false
 
 # BUILD / TRAIN / RESEARCH — what to produce, by string id.
-var def_id: String = ""
+@export var def_id: String = ""
 
 # CANCEL — index into the entity's order_queue, or -1 to cancel persistent_order.
-var cancel_index: int = -1
+@export var cancel_index: int = -1
 
 # GATHER — entity to gather from. Can be a ResourceSource (mineral patch /
 # geyser) or a refinery (the resolver translates to the underlying geyser).
 # -1 = unset.
-var target_entity_id: int = -1
+@export var target_entity_id: int = -1
 
 
 func clone() -> EntityOrder:

@@ -1,10 +1,15 @@
 class_name GatherState
-extends RefCounted
+extends Resource
 
 # Per-entity runtime state for entities with a GatherDef capability
 # (workers). Tracks autonomous gathering: which resource source they're
 # assigned to, how much they're carrying, and whether they're currently
 # in the "deposit" phase of the gather loop.
+#
+# Resource (not RefCounted) so MatchState save/load via ResourceSaver
+# round-trips the gather phase cleanly. Fields are @export for that
+# round-trip; clone() stays explicit for the resolver's pure-function
+# contract (Resource.duplicate semantics differ from our needs).
 
 enum Phase {
 	IDLE,
@@ -14,10 +19,10 @@ enum Phase {
 	DEPOSITING,
 }
 
-var assigned_source_entity_id: int = -1  # -1 if unassigned
-var carrying_resource_type: String = ""  # "minerals" | "gas" | "" if empty
-var carrying_amount: int = 0
-var phase: Phase = Phase.IDLE
+@export var assigned_source_entity_id: int = -1  # -1 if unassigned
+@export var carrying_resource_type: String = ""  # "minerals" | "gas" | "" if empty
+@export var carrying_amount: int = 0
+@export var phase: Phase = Phase.IDLE
 
 
 func clone() -> GatherState:

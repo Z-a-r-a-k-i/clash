@@ -1,0 +1,40 @@
+[gd_resource type="Resource" script_class="ScenarioDef" format=3 uid="uid://nlxsw4d350rn"]
+
+[ext_resource type="Script" uid="uid://52bndl3xhdrr" path="res://scripts/data/scenario_def.gd" id="1_scendef"]
+[ext_resource type="Script" uid="uid://dlxuhy3agr5d2" path="res://scripts/data/scenario_placement.gd" id="2_place"]
+
+; 3 marines (player 0) vs 1 siege tank (player 1) at ~7 tile gap.
+; Siege tank's range is 7, so the tank gets first crack; marines have
+; range 5 so they need to close. Used to validate the +heavy modifier
+; in a controlled scenario (tank vs anti-light marines).
+
+[sub_resource type="Resource" id="Resource_m0"]
+script = ExtResource("2_place")
+def_id = "marine"
+owner_player_id = 0
+origin = Vector2i(5, 10)
+
+[sub_resource type="Resource" id="Resource_m1"]
+script = ExtResource("2_place")
+def_id = "marine"
+owner_player_id = 0
+origin = Vector2i(5, 11)
+
+[sub_resource type="Resource" id="Resource_m2"]
+script = ExtResource("2_place")
+def_id = "marine"
+owner_player_id = 0
+origin = Vector2i(5, 12)
+
+[sub_resource type="Resource" id="Resource_t0"]
+script = ExtResource("2_place")
+def_id = "siege_tank"
+owner_player_id = 1
+origin = Vector2i(13, 10)
+
+[resource]
+script = ExtResource("1_scendef")
+map_width = 30
+map_height = 30
+starting_resources_per_player = { 0: { "minerals": 0, "gas": 0, "pop_cap": 10 }, 1: { "minerals": 0, "gas": 0, "pop_cap": 10 } }
+placements = Array[ExtResource("2_place")]([SubResource("Resource_m0"), SubResource("Resource_m1"), SubResource("Resource_m2"), SubResource("Resource_t0")])

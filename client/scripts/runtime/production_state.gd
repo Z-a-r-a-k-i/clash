@@ -1,5 +1,5 @@
 class_name ProductionState
-extends RefCounted
+extends Resource
 
 # Per-entity runtime state for entities with a ProductionDef capability.
 # Two-part shape introduced in plan node 05:
@@ -38,8 +38,8 @@ const KEY_PAID_POP := "paid_pop"
 const KIND_UNIT := "unit"
 const KIND_RESEARCH := "research"
 
-var active: Dictionary = {}
-var queue: Array[Dictionary] = []
+@export var active: Dictionary = {}
+@export var queue: Array[Dictionary] = []
 
 
 func clone() -> ProductionState:

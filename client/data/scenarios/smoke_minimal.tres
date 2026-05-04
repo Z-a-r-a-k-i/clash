@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="ScenarioDef" format=3 uid="uid://c3ebks36sf1fo"]
+
+[ext_resource type="Script" uid="uid://52bndl3xhdrr" path="res://scripts/data/scenario_def.gd" id="1_scendef"]
+[ext_resource type="Script" uid="uid://dlxuhy3agr5d2" path="res://scripts/data/scenario_placement.gd" id="2_place"]
+
+[sub_resource type="Resource" id="Resource_p0"]
+script = ExtResource("2_place")
+def_id = "base"
+owner_player_id = 0
+origin = Vector2i(2, 2)
+
+[sub_resource type="Resource" id="Resource_p1"]
+script = ExtResource("2_place")
+def_id = "base"
+owner_player_id = 1
+origin = Vector2i(20, 20)
+
+[resource]
+script = ExtResource("1_scendef")
+map_width = 30
+map_height = 30
+starting_resources_per_player = { 0: { "minerals": 50, "gas": 0, "pop_cap": 10 }, 1: { "minerals": 50, "gas": 0, "pop_cap": 10 } }
+placements = Array[ExtResource("2_place")]([SubResource("Resource_p0"), SubResource("Resource_p1")])

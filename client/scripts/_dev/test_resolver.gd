@@ -163,6 +163,22 @@ func _all_tests() -> Array:
 			_test_helicopter_anti_light_damage_at_data_values
 		],
 		["registry_loads_from_data", _test_registry_loads_from_data],
+		# Plan node 07a — scenario loader + save/load.
+		["scenario_loader_minimal", _test_scenario_loader_minimal],
+		[
+			"scenario_loader_applies_starting_resources",
+			_test_scenario_loader_applies_starting_resources
+		],
+		[
+			"scenario_loader_applies_initial_hp_override",
+			_test_scenario_loader_applies_initial_hp_override
+		],
+		["scenario_loader_applies_stat_overrides", _test_scenario_loader_applies_stat_overrides],
+		["match_state_save_load_roundtrip", _test_match_state_save_load_roundtrip],
+		[
+			"match_state_save_load_preserves_overrides",
+			_test_match_state_save_load_preserves_overrides
+		],
 	]
 
 
@@ -978,6 +994,11 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 		return false
 	if (a.tile_grid == null) != (b.tile_grid == null):
 		return false
+	if a.tile_grid != null:
+		if a.tile_grid.width != b.tile_grid.width:
+			return false
+		if a.tile_grid.height != b.tile_grid.height:
+			return false
 	if a.players.size() != b.players.size():
 		return false
 	for i in a.players.size():
@@ -1009,6 +1030,12 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 		var ea: Entity = ents_a[i]
 		var eb: Entity = ents_b[i]
 		if ea.id != eb.id:
+			return false
+		if ea.def_id != eb.def_id:
+			return false
+		if ea.current_def_id != eb.current_def_id:
+			return false
+		if ea.owner_player_id != eb.owner_player_id:
 			return false
 		if ea.current_hp != eb.current_hp:
 			return false
@@ -1042,6 +1069,20 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 			for j in ea.production_state.queue.size():
 				if ea.production_state.queue[j] != eb.production_state.queue[j]:
 					return false
+		if (ea.gather_state == null) != (eb.gather_state == null):
+			return false
+		if ea.gather_state != null:
+			if (
+				ea.gather_state.assigned_source_entity_id
+				!= eb.gather_state.assigned_source_entity_id
+			):
+				return false
+			if ea.gather_state.carrying_resource_type != eb.gather_state.carrying_resource_type:
+				return false
+			if ea.gather_state.carrying_amount != eb.gather_state.carrying_amount:
+				return false
+			if ea.gather_state.phase != eb.gather_state.phase:
+				return false
 		if ea.ability_cooldowns != eb.ability_cooldowns:
 			return false
 		if ea.active_buffs.size() != eb.active_buffs.size():
@@ -1056,11 +1097,12 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 				or ba.speed_mult != bb.speed_mult
 			):
 				return false
-		var po_a := ea.persistent_order
-		var po_b := eb.persistent_order
-		if (po_a == null) != (po_b == null):
+		if ea.order_queue.size() != eb.order_queue.size():
 			return false
-		if po_a != null and po_a.target_tile != po_b.target_tile:
+		for j in ea.order_queue.size():
+			if not _orders_equal(ea.order_queue[j], eb.order_queue[j]):
+				return false
+		if not _orders_equal(ea.persistent_order, eb.persistent_order):
 			return false
 	# Tile grid parity at each live entity's origin — catches drift in
 	# placement / removal that wouldn't show up in entity fields alone.
@@ -1072,6 +1114,32 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 				continue
 			if a.tile_grid.entity_rect(ea.id) != b.tile_grid.entity_rect(eb.id):
 				return false
+	return true
+
+
+# Structural compare for two EntityOrder instances. Both null is true.
+# One null + one non-null is false.
+func _orders_equal(a: EntityOrder, b: EntityOrder) -> bool:
+	if (a == null) != (b == null):
+		return false
+	if a == null:
+		return true
+	if a.type != b.type:
+		return false
+	if a.entity_id != b.entity_id:
+		return false
+	if a.target_tile != b.target_tile:
+		return false
+	if a.target_priority_chain != b.target_priority_chain:
+		return false
+	if a.hold_fire != b.hold_fire:
+		return false
+	if a.def_id != b.def_id:
+		return false
+	if a.cancel_index != b.cancel_index:
+		return false
+	if a.target_entity_id != b.target_entity_id:
+		return false
 	return true
 
 
@@ -3170,7 +3238,343 @@ func _test_registry_loads_from_data() -> bool:
 	return true
 
 
+# ---------- Plan node 07a — scenario loader ----------
+
+
+func _test_scenario_loader_minimal() -> bool:
+	# Load the canonical smoke scenario (1 base per player on a 30x30
+	# grid). Confirms the loader produces a usable MatchState shape:
+	# 2 entities, both bases, on the tile grid, with players initialized.
+	var registry := _load_data_registry()
+	if registry == null:
+		return false
+	var scenario := _load_smoke_scenario()
+	if scenario == null:
+		return false
+	var loaded := ScenarioLoader.load(scenario, registry, null)
+	if loaded == null:
+		return false
+	var state: MatchState = loaded.state
+	# 2 placements -> 2 entities.
+	if state.entities.size() != 2:
+		return false
+	# Tile grid sized correctly.
+	if state.tile_grid == null:
+		return false
+	if state.tile_grid.width != 30 or state.tile_grid.height != 30:
+		return false
+	# Both placements registered on the grid.
+	for e in state.entities:
+		var rect: Rect2i = state.tile_grid.entity_rect(e.id)
+		if rect.size == Vector2i.ZERO:
+			return false
+	# Players initialized.
+	if state.players.size() != 2:
+		return false
+	if state.players[0].player_id != 0 or state.players[1].player_id != 1:
+		return false
+	# turn_index, match_over fresh.
+	return state.turn_index == 0 and not state.match_over
+
+
+func _test_scenario_loader_applies_starting_resources() -> bool:
+	# Loader applies starting_resources_per_player and auto-credits
+	# pop_provides from placed buildings. Values derived from the
+	# scenario + def so balance changes don't break the test.
+	var registry := _load_data_registry()
+	if registry == null:
+		return false
+	var scenario := _load_smoke_scenario()
+	if scenario == null:
+		return false
+	var loaded := ScenarioLoader.load(scenario, registry, null)
+	if loaded == null:
+		return false
+	var state: MatchState = loaded.state
+	var base_def: EntityDef = registry.get_by_id("base")
+	if base_def == null or base_def.population == null:
+		return false
+	for p in state.players:
+		var src: Dictionary = scenario.starting_resources_per_player.get(p.player_id, {})
+		var expected_minerals: int = src.get("minerals", 0)
+		var expected_gas: int = src.get("gas", 0)
+		var starting_pop_cap: int = src.get("pop_cap", 0)
+		# Each player owns exactly one base in smoke_minimal; it credits
+		# pop_provides into pop_cap on top of the starting value.
+		var expected_pop_cap: int = starting_pop_cap + base_def.population.pop_provides
+		if p.minerals != expected_minerals:
+			return false
+		if p.gas != expected_gas:
+			return false
+		if p.pop_cap != expected_pop_cap:
+			return false
+		if p.pop_used != 0:
+			return false
+	return true
+
+
+func _test_scenario_loader_applies_initial_hp_override() -> bool:
+	# Build an in-code scenario with one base placement at hp 7 and
+	# verify the loader applies the override.
+	var registry := _load_data_registry()
+	if registry == null:
+		return false
+	var scenario := ScenarioDef.new()
+	scenario.map_width = 20
+	scenario.map_height = 20
+	var p := ScenarioPlacement.new()
+	p.def_id = "base"
+	p.owner_player_id = 0
+	p.origin = Vector2i(2, 2)
+	p.initial_hp_override = 7
+	scenario.placements = [p]
+	var loaded := ScenarioLoader.load(scenario, registry, null)
+	if loaded == null:
+		return false
+	var state: MatchState = loaded.state
+	if state.entities.size() != 1:
+		return false
+	return state.entities[0].current_hp == 7
+
+
+func _test_scenario_loader_applies_stat_overrides() -> bool:
+	# A scenario that patches `marine.combat.damage = (canonical + 14)`
+	# produces an effective registry where the patched value is live,
+	# while the canonical registry stays untouched. The baseline is
+	# captured from the canonical def itself so a balance change to
+	# marine damage doesn't break this test.
+	var canonical := _load_data_registry()
+	if canonical == null:
+		return false
+	var canonical_marine: EntityDef = canonical.get_by_id("marine")
+	if canonical_marine == null or canonical_marine.combat == null:
+		return false
+	var baseline_damage: int = canonical_marine.combat.damage
+	var override_damage: int = baseline_damage + 14
+	var scenario := ScenarioDef.new()
+	scenario.map_width = 20
+	scenario.map_height = 20
+	var ov := ScenarioStatOverride.new()
+	ov.entity_def_id = "marine"
+	ov.capability = "combat"
+	ov.field = "damage"
+	ov.value_kind = "int"
+	ov.value_int = override_damage
+	scenario.stat_overrides = [ov]
+
+	var loaded := ScenarioLoader.load(scenario, canonical, null)
+	if loaded == null or loaded.registry == null:
+		return false
+	# Effective registry's marine has the patched value.
+	var patched_marine: EntityDef = loaded.registry.get_by_id("marine")
+	if patched_marine == null or patched_marine.combat == null:
+		return false
+	if patched_marine.combat.damage != override_damage:
+		return false
+	# Canonical registry untouched (deep clone via Resource.duplicate).
+	if canonical_marine.combat.damage != baseline_damage:
+		return false
+	# Untargeted defs in the effective registry have the same observable
+	# state as canonical (id, footprint, combat values). Deliberately
+	# observable-field equality, not reference equality — the loader is
+	# free to share the original Resource instance OR clone it
+	# unchanged; both are correct as long as the values match.
+	var loaded_tank: EntityDef = loaded.registry.get_by_id("siege_tank")
+	var canonical_tank: EntityDef = canonical.get_by_id("siege_tank")
+	if loaded_tank == null or canonical_tank == null:
+		return false
+	if loaded_tank.id != canonical_tank.id:
+		return false
+	if loaded_tank.footprint != canonical_tank.footprint:
+		return false
+	if (loaded_tank.combat == null) != (canonical_tank.combat == null):
+		return false
+	if loaded_tank.combat != null:
+		if loaded_tank.combat.damage != canonical_tank.combat.damage:
+			return false
+		if loaded_tank.combat.attack_range != canonical_tank.combat.attack_range:
+			return false
+	return true
+
+
+func _test_match_state_save_load_roundtrip() -> bool:
+	# Build a complex MatchState (two players with non-default
+	# resources, multiple entities with assorted runtime state:
+	# production active+queue, gather phase, ability_cooldowns,
+	# active_buffs, persistent_order, construction state) — save it,
+	# load it, assert _states_equal.
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 137
+	state.players[0].gas = 42
+	state.players[0].pop_used = 3
+	state.players[0].pop_cap = 25
+	state.players[0].unlocked_researches = ["stim_research"]
+	state.players[1].minerals = 999
+	state.turn_index = 14
+	state.next_entity_id = 50
+
+	# Entity 1: a barracks mid-production with active slot + queue.
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+	barracks.production_state = ProductionState.new()
+	barracks.production_state.active = {
+		ProductionState.KEY_DEF_ID: "marine",
+		ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
+		ProductionState.KEY_TURNS_REMAINING: 2,
+		ProductionState.KEY_PAID_MINERALS: 50,
+		ProductionState.KEY_PAID_GAS: 0,
+		ProductionState.KEY_PAID_POP: 1,
+	}
+	barracks.production_state.queue = [
+		{
+			ProductionState.KEY_DEF_ID: "marine",
+			ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
+		}
+	]
+
+	# Entity 2: a marine with a buff + cooldown + persistent move.
+	var marine := _make_entity(state, "marine", 0, Vector2i(8, 8), 32, "ground")
+	state.tile_grid.place(marine.id, Rect2i(8, 8, 1, 1))
+	marine.ability_cooldowns = {"stim": 4}
+	marine.hold_fire = true
+	marine.moves_used_this_turn = 1
+	var buff := ActiveBuff.new()
+	buff.source_ability_id = "stim"
+	buff.turns_remaining = 2
+	buff.damage_mult = 1.5
+	buff.speed_mult = 1.5
+	marine.active_buffs = [buff]
+	var po := EntityOrder.new()
+	po.type = EntityOrder.Type.MOVE
+	po.entity_id = marine.id
+	po.target_tile = Vector2i(15, 15)
+	marine.persistent_order = po
+	# Populate order_queue too so save/load actually exercises that
+	# field (otherwise _states_equal compares two empty arrays and the
+	# coverage is vacuous).
+	var queued := EntityOrder.new()
+	queued.type = EntityOrder.Type.ATTACK
+	queued.entity_id = marine.id
+	queued.target_priority_chain = [42, 99]
+	marine.order_queue = [queued]
+
+	# Entity 3: a worker mid-gather with a non-IDLE phase + cargo.
+	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	worker.gather_state = GatherState.new()
+	worker.gather_state.assigned_source_entity_id = 99
+	worker.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
+	worker.gather_state.carrying_amount = 4
+	worker.gather_state.carrying_resource_type = "minerals"
+
+	# Entity 4: a constructing building with a locked worker.
+	var ext := _make_entity(state, "barracks", 0, Vector2i(15, 2), 1000, "ground")
+	state.tile_grid.place(ext.id, Rect2i(15, 2, 3, 3))
+	ext.is_constructing = true
+	ext.construction_turns_remaining = 5
+	ext.construction_worker_id = worker.id
+	worker.locked_to_building_id = ext.id
+
+	# Save -> load with a registry alongside.
+	var registry := _load_data_registry()
+	if registry == null:
+		return false
+	var path := "user://test_match_state_roundtrip_%d.tres" % Time.get_ticks_msec()
+	if MatchSaver.save(state, registry, path) != OK:
+		return false
+	var loaded: SavedSession = MatchSaver.load_from(path)
+	# Cleanup the file regardless of test outcome.
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	if loaded == null or loaded.state == null:
+		return false
+	if not _states_equal(state, loaded.state):
+		return false
+	# Registry round-trip: every entity id present, in the same order,
+	# plus every research id (so a future PR that drops the researches
+	# array on save would fail this).
+	if loaded.registry == null:
+		return false
+	if loaded.registry.entities.size() != registry.entities.size():
+		return false
+	for i in registry.entities.size():
+		var orig_def: EntityDef = registry.entities[i]
+		var loaded_def: EntityDef = loaded.registry.entities[i]
+		if orig_def == null or loaded_def == null:
+			return false
+		if orig_def.id != loaded_def.id:
+			return false
+	if loaded.registry.researches.size() != registry.researches.size():
+		return false
+	for i in registry.researches.size():
+		var orig_r: ResearchDef = registry.researches[i]
+		var loaded_r: ResearchDef = loaded.registry.researches[i]
+		if orig_r == null or loaded_r == null:
+			return false
+		if orig_r.id != loaded_r.id:
+			return false
+	return true
+
+
+func _test_match_state_save_load_preserves_overrides() -> bool:
+	# Verifies the SavedSession round-trip preserves a stat-override-
+	# patched registry. Without this, a regression that saves the
+	# canonical registry alongside the state (instead of the patched
+	# one) would silently revert overrides on reload. Override value is
+	# derived from the canonical baseline so a balance change to marine
+	# damage doesn't break this test.
+	var canonical := _load_data_registry()
+	if canonical == null:
+		return false
+	var canonical_marine: EntityDef = canonical.get_by_id("marine")
+	if canonical_marine == null or canonical_marine.combat == null:
+		return false
+	var baseline_damage: int = canonical_marine.combat.damage
+	var override_damage: int = baseline_damage + 14
+	var scenario := ScenarioDef.new()
+	scenario.map_width = 20
+	scenario.map_height = 20
+	var ov := ScenarioStatOverride.new()
+	ov.entity_def_id = "marine"
+	ov.capability = "combat"
+	ov.field = "damage"
+	ov.value_kind = "int"
+	ov.value_int = override_damage
+	scenario.stat_overrides = [ov]
+	var loaded := ScenarioLoader.load(scenario, canonical, null)
+	if loaded == null or loaded.registry == null:
+		return false
+	# Patched registry has the override.
+	var loaded_marine: EntityDef = loaded.registry.get_by_id("marine")
+	if loaded_marine == null or loaded_marine.combat == null:
+		return false
+	if loaded_marine.combat.damage != override_damage:
+		return false
+
+	var path := "user://test_override_roundtrip_%d.tres" % Time.get_ticks_usec()
+	if MatchSaver.save(loaded.state, loaded.registry, path) != OK:
+		return false
+	var reloaded: SavedSession = MatchSaver.load_from(path)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	if reloaded == null or reloaded.registry == null:
+		return false
+	# Override survived the round-trip.
+	var reloaded_marine: EntityDef = reloaded.registry.get_by_id("marine")
+	if reloaded_marine == null or reloaded_marine.combat == null:
+		return false
+	if reloaded_marine.combat.damage != override_damage:
+		return false
+	# Canonical untouched (sanity check that the override didn't leak).
+	return canonical.get_by_id("marine").combat.damage == baseline_damage
+
+
 # ---------- Helpers ----------
+
+
+# Loads the smoke scenario .tres. Factored out to satisfy gdlint's
+# duplicated-load rule (multiple plan-07a tests share this scenario).
+func _load_smoke_scenario() -> ScenarioDef:
+	return load("res://data/scenarios/smoke_minimal.tres") as ScenarioDef
 
 
 # Loads `client/data/entity_registry.tres` and returns it. Returns null

@@ -1,5 +1,5 @@
 class_name SubmitTurn
-extends RefCounted
+extends Resource
 
 # What one player submits at the end of their turn.
 #
@@ -12,8 +12,8 @@ extends RefCounted
 #   per-unit queue"). Removes the special-case entity_id=-1 sentinel
 #   from EntityOrder.
 
-var orders: Array[EntityOrder] = []
-var surrender: bool = false
+@export var orders: Array[EntityOrder] = []
+@export var surrender: bool = false
 
 
 func clone() -> SubmitTurn:
