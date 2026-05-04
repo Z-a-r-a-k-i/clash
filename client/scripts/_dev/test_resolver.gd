@@ -179,6 +179,8 @@ func _all_tests() -> Array:
 			"match_state_save_load_preserves_overrides",
 			_test_match_state_save_load_preserves_overrides
 		],
+		# Plan node 08 — mvp map (chunk 3: bake validation).
+		["map_baker_validation", _test_map_baker_validation],
 	]
 
 
@@ -3872,3 +3874,154 @@ func _tank_registry(speed: int) -> EntityRegistry:
 	var registry := EntityRegistry.new()
 	registry.entities = [d]
 	return registry
+
+
+# ---------- Plan node 08 — bake validation ----------
+
+
+# Tiny registry used for MapBaker negative tests. Includes a worker (1x1),
+# a 2x2 "block2" for on-axis tests, and a 3x3 "block3" for axis-crossing
+# tests. None need full capability shapes — the baker only reads
+# def.footprint.
+func _baker_registry() -> EntityRegistry:
+	var registry := EntityRegistry.new()
+	var worker := EntityDef.new()
+	worker.id = "worker"
+	worker.footprint = Vector2i(1, 1)
+	worker.tags = ["worker"]
+	var block2 := EntityDef.new()
+	block2.id = "block2"
+	block2.footprint = Vector2i(2, 2)
+	block2.tags = ["neutral"]
+	var block3 := EntityDef.new()
+	block3.id = "block3"
+	block3.footprint = Vector2i(3, 3)
+	block3.tags = ["neutral"]
+	registry.entities = [worker, block2, block3]
+	return registry
+
+
+# Build a synthetic map scene with the given placements (no .tscn on disk).
+# Each placement spec is a dict {def_id, owner, tile, on_axis}. Returns
+# the scene root — caller is responsible for free()ing it.
+func _make_test_map_scene(specs: Array) -> Node:
+	var scene_root := Node2D.new()
+	var placements_node := Node2D.new()
+	placements_node.name = "Placements"
+	scene_root.add_child(placements_node)
+	var ep_script: GDScript = load("res://scripts/data/entity_placement.gd")
+	for spec in specs:
+		var ep := Node2D.new()
+		ep.set_script(ep_script)
+		ep.def_id = spec.get("def_id", "")
+		ep.owner_player_id = spec.get("owner", -1)
+		ep.tile_position = spec.get("tile", Vector2i.ZERO)
+		ep.on_axis = spec.get("on_axis", false)
+		placements_node.add_child(ep)
+	return scene_root
+
+
+func _test_map_baker_validation() -> bool:
+	var registry := _baker_registry()
+	var w := 50
+	var h := 50
+
+	# Negative 1: right-half placement rejected (worker at x=40).
+	var scene1 := _make_test_map_scene(
+		[{"def_id": "worker", "owner": 0, "tile": Vector2i(40, 25), "on_axis": false}]
+	)
+	var sd1 := MapBaker.bake_to_resource_from_scene(scene1, w, h, {}, registry)
+	scene1.free()
+	if sd1 != null:
+		push_error("[map_baker_validation] right-half placement should fail")
+		return false
+
+	# Negative 2: unknown def_id rejected.
+	var scene2 := _make_test_map_scene(
+		[{"def_id": "no_such_def", "owner": 0, "tile": Vector2i(5, 5), "on_axis": false}]
+	)
+	var sd2 := MapBaker.bake_to_resource_from_scene(scene2, w, h, {}, registry)
+	scene2.free()
+	if sd2 != null:
+		push_error("[map_baker_validation] unknown def_id should fail")
+		return false
+
+	# Negative 3: 3x3 axis-crossing placement without on_axis rejected.
+	# block3 at x=23 occupies x=23,24,25 — right edge crosses the axis (24/25).
+	var scene3 := _make_test_map_scene(
+		[{"def_id": "block3", "owner": -1, "tile": Vector2i(23, 23), "on_axis": false}]
+	)
+	var sd3 := MapBaker.bake_to_resource_from_scene(scene3, w, h, {}, registry)
+	scene3.free()
+	if sd3 != null:
+		push_error("[map_baker_validation] axis-crossing without on_axis should fail")
+		return false
+
+	# Negative 4: on-axis even-footprint with player owner rejected.
+	# block2 (2x2) at x=24 is centered (occupies x=24,25), but owner=0
+	# is invalid for axis-straddling placements.
+	var scene4 := _make_test_map_scene(
+		[{"def_id": "block2", "owner": 0, "tile": Vector2i(24, 23), "on_axis": true}]
+	)
+	var sd4 := MapBaker.bake_to_resource_from_scene(scene4, w, h, {}, registry)
+	scene4.free()
+	if sd4 != null:
+		push_error("[map_baker_validation] on-axis with player owner should fail")
+		return false
+
+	# Negative 5: on-axis odd-footprint rejected (3x3 can't be centered
+	# on an even-width axis).
+	var scene5 := _make_test_map_scene(
+		[{"def_id": "block3", "owner": -1, "tile": Vector2i(23, 23), "on_axis": true}]
+	)
+	var sd5 := MapBaker.bake_to_resource_from_scene(scene5, w, h, {}, registry)
+	scene5.free()
+	if sd5 != null:
+		push_error("[map_baker_validation] odd-footprint on_axis should fail")
+		return false
+
+	# Positive: left-half placement → source + mirror = 2 placements.
+	var scene_ok := _make_test_map_scene(
+		[{"def_id": "worker", "owner": 0, "tile": Vector2i(5, 25), "on_axis": false}]
+	)
+	var sd_ok := MapBaker.bake_to_resource_from_scene(scene_ok, w, h, {}, registry)
+	scene_ok.free()
+	if sd_ok == null:
+		push_error("[map_baker_validation] left-half worker should succeed")
+		return false
+	if sd_ok.placements.size() != 2:
+		push_error(
+			(
+				"[map_baker_validation] expected 2 placements (source + mirror), got %d"
+				% sd_ok.placements.size()
+			)
+		)
+		return false
+	# Verify the mirror is at x = 50 - 5 - 1 = 44, owner = 1.
+	var owners := [sd_ok.placements[0].owner_player_id, sd_ok.placements[1].owner_player_id]
+	owners.sort()
+	if owners != [0, 1]:
+		push_error("[map_baker_validation] mirror should flip owner: got %s" % str(owners))
+		return false
+	var xs := [sd_ok.placements[0].origin.x, sd_ok.placements[1].origin.x]
+	xs.sort()
+	if xs != [5, 44]:
+		push_error("[map_baker_validation] mirror should be at x=44 (got xs=%s)" % str(xs))
+		return false
+
+	# Positive: on-axis even-footprint neutral → emitted ONCE.
+	var scene_axis_ok := _make_test_map_scene(
+		[{"def_id": "block2", "owner": -1, "tile": Vector2i(24, 23), "on_axis": true}]
+	)
+	var sd_axis := MapBaker.bake_to_resource_from_scene(scene_axis_ok, w, h, {}, registry)
+	scene_axis_ok.free()
+	if sd_axis == null or sd_axis.placements.size() != 1:
+		push_error(
+			(
+				"[map_baker_validation] on-axis block2 should emit exactly 1 placement, got %s"
+				% str(sd_axis.placements.size() if sd_axis != null else "null")
+			)
+		)
+		return false
+
+	return true

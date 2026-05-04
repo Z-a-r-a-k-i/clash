@@ -64,23 +64,35 @@ func _draw_mirror_ghosts(tile_size: int, map_width: int) -> void:
 	if placements_node == null:
 		return
 	var registry: EntityRegistry = load(DEFAULT_REGISTRY_PATH)
+	# Duck-typed: accept any node carrying the EntityPlacement fields, so
+	# this script doesn't depend on the EntityPlacement class being
+	# resolvable at parse time (matters during hot-reloads).
 	for child in placements_node.get_children():
-		if not (child is EntityPlacement):
+		if not _is_placement(child):
 			continue
-		var ep: EntityPlacement = child
-		if ep.on_axis:
+		var on_axis_flag: bool = child.on_axis
+		if on_axis_flag:
 			continue
-		var footprint := _footprint_for(registry, ep.def_id)
-		var mx := map_width - 1 - ep.tile_position.x - footprint.x + 1
-		var my := ep.tile_position.y
+		var def_id: String = child.def_id
+		var owner_id: int = child.owner_player_id
+		var tile_pos: Vector2i = child.tile_position
+		var footprint := _footprint_for(registry, def_id)
+		var mx: int = map_width - tile_pos.x - footprint.x
+		var my: int = tile_pos.y
 		var rect := Rect2(
 			mx * tile_size, my * tile_size, footprint.x * tile_size, footprint.y * tile_size
 		)
-		var color := _ghost_color(ep.owner_player_id)
+		var color := _ghost_color(owner_id)
 		color.a = 0.18
 		draw_rect(rect, color, true)
 		color.a = 0.5
 		draw_rect(rect, color, false, 1.0)
+
+
+static func _is_placement(n: Node) -> bool:
+	if n == null:
+		return false
+	return "def_id" in n and "owner_player_id" in n and "tile_position" in n and "on_axis" in n
 
 
 static func _footprint_for(registry: EntityRegistry, def_id: String) -> Vector2i:
