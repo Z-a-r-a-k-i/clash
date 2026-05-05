@@ -35,7 +35,7 @@ Two players, vertical mirror across the **left↔right axis** (axis line between
 
 Plus one **golden cluster** in the contested middle — `mineral_patch_gold` patches (4 left of axis, 4 mirrored to right) and 2 geysers (one left of axis, mirrored to right). Total: ~60 entities in the baked output, ~30 authored on the left half.
 
-```
+```text
                               x=24│x=25
    ┌──────────────────────────────┼──────────────────────────────┐
    │ EXP                                                  EXP    │
@@ -57,7 +57,7 @@ Plus one **golden cluster** in the contested middle — `mineral_patch_gold` pat
 
 Authored in Godot's 2D scene editor. Structure:
 
-```
+```text
 MvpMap (Node2D, @tool, script: mvp_map_root.gd)
 └── Placements (Node2D)
     ├── P1Main (EntityPlacement, def_id=base, owner=0, tile_position=(2,23))
@@ -150,7 +150,7 @@ The axis is a **line between tiles 24 and 25**, not a tile itself.
 
 Near-clone of `mineral_patch.tres`. Only `resource_source.capacity` differs:
 
-```
+```text
 [sub_resource type="Resource" id="Resource_gold"]
 script = ExtResource("resource_source_def.gd")
 capacity = 2400          # was 1500 — +60% (matches SC2 gold:standard ratio)

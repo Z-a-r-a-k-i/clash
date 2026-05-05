@@ -67,8 +67,8 @@ func _init() -> void:
 	quit(0)
 
 
-func _all_placements() -> Array:
-	var out: Array = []
+func _all_placements() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
 
 	# ---------- P1 Main (base, workers, minerals, geyser) ----------
 	# Base 4x4 at (2, 22) → occupies x=2..5, y=22..25.
