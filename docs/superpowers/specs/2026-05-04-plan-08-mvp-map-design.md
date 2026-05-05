@@ -60,13 +60,13 @@ Authored in Godot's 2D scene editor. Structure:
 ```text
 MvpMap (Node2D, @tool, script: mvp_map_root.gd)
 └── Placements (Node2D)
-    ├── P1Main (EntityPlacement, def_id=base, owner=0, tile_position=(2,22))
-    ├── P1MainMinerals_1..8 (EntityPlacement, def_id=mineral_patch, owner=-1, ...)
-    ├── P1MainGeyser (EntityPlacement, def_id=gas_geyser, owner=-1, ...)
-    ├── P1Worker_1, P1Worker_2 (EntityPlacement, def_id=worker, owner=0)
+    ├── P1Main (EntityPlacement, def_id=base, owner_player_id=0, tile_position=(2,22))
+    ├── P1MainMinerals_1..8 (EntityPlacement, def_id=mineral_patch, owner_player_id=-1, ...)
+    ├── P1MainGeyser (EntityPlacement, def_id=gas_geyser, owner_player_id=-1, ...)
+    ├── P1Worker_1, P1Worker_2 (EntityPlacement, def_id=worker, owner_player_id=0)
     ├── P1Natural_*  ...
     ├── P1Expansion_*  ...
-    └── Golden_*  (EntityPlacement, owner=-1, mirrored across axis)
+    └── Golden_*  (EntityPlacement, owner_player_id=-1, mirrored across axis)
 ```
 
 Only the **left half + axis-paired neutrals** are authored. The right half is generated.
@@ -122,7 +122,7 @@ static func bake_to_resource(...) -> ScenarioDef  # for tests, no disk write
    - **Left half** (`tile_position.x + footprint.x ≤ map_width / 2`): emit source + mirror.
    - **On-axis** (`on_axis=true` AND `footprint.x` even AND properly centered): emit once.
    - **Invalid** (anything else): return `ERR_INVALID_DATA` with the node path.
-3. Mirror math: `mirror_x = map_width - 1 - source.tile_position.x - footprint.x + 1`. `mirror_owner = (1 - owner)` for owner ∈ {0, 1}, else -1.
+3. Mirror math: `mirror_x = map_width - source.tile_position.x - footprint.x`. `mirror_owner = 1 - owner` for owner ∈ {0, 1}, else `owner` unchanged (e.g. neutrals at -1 stay -1).
 4. Sort by `(owner, def_id, x, y)` for stable diffs.
 5. Wrap in `ScenarioDef` and `ResourceSaver.save()`.
 
