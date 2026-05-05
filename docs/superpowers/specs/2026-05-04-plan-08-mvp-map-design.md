@@ -33,7 +33,7 @@ Two players, vertical mirror across the **left↔right axis** (axis line between
 - **Natural** — Mineral cluster (6 patches) + geyser. Forward of main, toward the map center.
 - **Expansion** — Mineral cluster (6 patches) + geyser. Top-left corner (top-right for P2).
 
-Plus one **golden cluster** in the contested middle — `mineral_patch_gold` patches (4 left of axis, 4 mirrored to right) and 2 geysers (one left of axis, mirrored to right). Total: ~60 entities in the baked output, ~30 authored on the left half.
+Plus one **golden cluster** in the contested middle — `mineral_patch_gold` patches (4 left of axis, 4 mirrored to right) and 2 geysers (one left of axis, mirrored to right). Total: 62 entities in the baked output, 31 authored on the left half.
 
 ```text
                               x=24│x=25
