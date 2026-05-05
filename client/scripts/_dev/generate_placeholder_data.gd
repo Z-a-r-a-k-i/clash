@@ -1,29 +1,29 @@
-@tool
-extends Node
+extends SceneTree
 
-# One-shot generator for the M0 placeholder data set.
+# One-shot generator for the M0 placeholder data set. CLI-only:
 #
-# Trigger: attach this script to a node in a scene; opening the scene runs
-# `_enter_tree()` which generates all 17 resources. The companion scene at
-# `res://scripts/_dev/generator_scene.tscn` is the canonical trigger.
+#   godot --headless --path client --script scripts/_dev/generate_placeholder_data.gd
 #
-# Re-run: open the generator scene again (or switch away and back). Safe —
-# overwrites existing files. `_enter_tree()` only fires when a node enters
-# the scene tree, so re-saving the host scene without re-opening does NOT
-# re-run generation.
+# This script INTENTIONALLY does NOT auto-fire from the editor. A
+# previous version was `@tool extends Node` and ran via _enter_tree on
+# scene open, which destroyed manually-enriched .tres files (plan-06
+# attack modifiers, real HP values, construction defs) every time the
+# editor reopened a saved tab containing the generator scene. That class
+# of bug should never recur — entity .tres are now hand-authored canon,
+# this generator is a recovery tool only, and the only way to invoke it
+# is via the CLI command above (no scene trigger).
 #
-# Why @tool extends Node and not EditorScript: an EditorScript only runs
-# from File > Run in the script editor (manual UI step). @tool on a node
-# runs at editor-time when the node enters the tree, which the agent can
-# trigger via godot_new_scene + godot_add_script + godot_save_scene +
-# godot_open_scene.
+# WARNING: running this WILL OVERWRITE every entity .tres in
+# `client/data/entities/` and `client/data/abilities/` with the values
+# encoded below. Only run it intentionally to bootstrap from scratch.
+# The hand-authored entities have richer data than what this generator
+# encodes (see plan-06 + plan-07a additions); use git to restore them
+# afterwards if you only wanted to regenerate a subset.
 
 const DATA_ROOT := "res://data"
 
 
-func _enter_tree() -> void:
-	if not Engine.is_editor_hint():
-		return
+func _init() -> void:
 	var count := 0
 	count += _gen_abilities()
 	count += _gen_units()
@@ -32,12 +32,7 @@ func _enter_tree() -> void:
 	count += _gen_tunables()
 	count += _gen_registry()
 	print("[generate_placeholder_data] Generated %d resources, done." % count)
-	# No queue_free here — `_enter_tree()` only fires when the node enters
-	# the scene tree (re-opening the scene), so there's no risk of a
-	# repeated run while the same node is still mounted. We previously
-	# tried `call_deferred("queue_free")` here on CodeRabbit's suggestion;
-	# Godot rejects freeing a scene's root Node in editor mode and emits a
-	# noisy error every run. Removed.
+	quit(0)
 
 
 # ---------- Abilities ----------
@@ -356,12 +351,24 @@ func _gen_registry() -> int:
 		"%s/entities/neutrals/mineral_patch_gold.tres" % DATA_ROOT,
 		"%s/entities/neutrals/gas_geyser.tres" % DATA_ROOT,
 	]
+	var research_paths := [
+		"%s/researches/stim_research.tres" % DATA_ROOT,
+		"%s/researches/siege_mode_research.tres" % DATA_ROOT,
+	]
 	var entities: Array[EntityDef] = []
+	var researches: Array[ResearchDef] = []
 	var missing_any := false
 	for path in entity_paths:
 		var def: EntityDef = load(path)
 		if def != null:
 			entities.append(def)
+		else:
+			push_error("Could not load %s for registry" % path)
+			missing_any = true
+	for path in research_paths:
+		var research: ResearchDef = load(path)
+		if research != null:
+			researches.append(research)
 		else:
 			push_error("Could not load %s for registry" % path)
 			missing_any = true
@@ -371,6 +378,7 @@ func _gen_registry() -> int:
 		push_error("EntityRegistry generation aborted due to missing entity definitions.")
 		return 0
 	registry.entities = entities
+	registry.researches = researches
 	return int(_save(registry, "%s/entity_registry.tres" % DATA_ROOT))
 
 
