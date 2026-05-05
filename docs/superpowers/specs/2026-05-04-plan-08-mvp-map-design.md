@@ -129,9 +129,10 @@ static func bake_to_resource(...) -> ScenarioDef  # for tests, no disk write
 ### Bake triggers
 
 - **(a) Editor button:** `EditorPlugin` in `client/addons/clash_dev/` adds a "Bake MVP Map" item to the Project → Tools menu. Calls `MapBaker.bake(...)` with hardcoded paths for `mvp_map`. Toast on success/failure.
+- **(b) File watcher / `_save` hook (rejected):** auto-fire bake when the `.tscn` saves. Rejected because failures are silent in editor consoles — the author wouldn't notice a bake failure until tests fail later.
 - **(c) CI parity test:** `_test_mvp_map_bake_parity` re-bakes in-memory and asserts equality with the checked-in `.tres`. Catches "edited the scene, forgot to bake" before merge.
 
-The two combine: explicit bake trigger for normal flow + safety net in CI. No file watcher (silent failures rejected).
+(a) and (c) combine: explicit bake trigger for normal flow + safety net in CI.
 
 ## Mirror logic edge cases
 
