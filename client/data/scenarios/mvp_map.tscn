@@ -1,0 +1,167 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/data/mvp_map_root.gd" id="1_dl33l"]
+[ext_resource type="Script" path="res://scripts/data/entity_placement.gd" id="2_jxci3"]
+
+[node name="MvpMap" type="Node2D" unique_id=1011020493]
+script = ExtResource("1_dl33l")
+
+[node name="Placements" type="Node2D" parent="." unique_id=2130385933]
+
+[node name="P1Main" type="Node2D" parent="Placements" unique_id=1749728804]
+script = ExtResource("2_jxci3")
+def_id = "base"
+owner_player_id = 0
+tile_position = Vector2i(2, 22)
+
+[node name="P1Worker_1" type="Node2D" parent="Placements" unique_id=1363908507]
+script = ExtResource("2_jxci3")
+def_id = "worker"
+owner_player_id = 0
+tile_position = Vector2i(6, 22)
+
+[node name="P1Worker_2" type="Node2D" parent="Placements" unique_id=533358001]
+script = ExtResource("2_jxci3")
+def_id = "worker"
+owner_player_id = 0
+tile_position = Vector2i(6, 25)
+
+[node name="P1MainMineral_top_0" type="Node2D" parent="Placements" unique_id=409771935]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(7, 18)
+
+[node name="P1MainMineral_top_1" type="Node2D" parent="Placements" unique_id=43590526]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(8, 18)
+
+[node name="P1MainMineral_top_2" type="Node2D" parent="Placements" unique_id=738067914]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(9, 18)
+
+[node name="P1MainMineral_top_3" type="Node2D" parent="Placements" unique_id=1806922904]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(10, 18)
+
+[node name="P1MainMineral_bot_0" type="Node2D" parent="Placements" unique_id=1893239144]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(7, 24)
+
+[node name="P1MainMineral_bot_1" type="Node2D" parent="Placements" unique_id=1021996638]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(8, 24)
+
+[node name="P1MainMineral_bot_2" type="Node2D" parent="Placements" unique_id=1503349950]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(9, 24)
+
+[node name="P1MainMineral_bot_3" type="Node2D" parent="Placements" unique_id=439681782]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(10, 24)
+
+[node name="P1MainGeyser" type="Node2D" parent="Placements" unique_id=945998669]
+script = ExtResource("2_jxci3")
+def_id = "gas_geyser"
+tile_position = Vector2i(12, 22)
+
+[node name="P1NaturalMineral_top_0" type="Node2D" parent="Placements" unique_id=1713700343]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(15, 21)
+
+[node name="P1NaturalMineral_top_1" type="Node2D" parent="Placements" unique_id=417408729]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(16, 21)
+
+[node name="P1NaturalMineral_top_2" type="Node2D" parent="Placements" unique_id=2101993811]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(17, 21)
+
+[node name="P1NaturalMineral_bot_0" type="Node2D" parent="Placements" unique_id=1715925868]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(15, 27)
+
+[node name="P1NaturalMineral_bot_1" type="Node2D" parent="Placements" unique_id=2059488871]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(16, 27)
+
+[node name="P1NaturalMineral_bot_2" type="Node2D" parent="Placements" unique_id=1103857571]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(17, 27)
+
+[node name="P1NaturalGeyser" type="Node2D" parent="Placements" unique_id=1899944618]
+script = ExtResource("2_jxci3")
+def_id = "gas_geyser"
+tile_position = Vector2i(15, 30)
+
+[node name="P1ExpMineral_top_0" type="Node2D" parent="Placements" unique_id=135625545]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(3, 4)
+
+[node name="P1ExpMineral_top_1" type="Node2D" parent="Placements" unique_id=1279830042]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(4, 4)
+
+[node name="P1ExpMineral_top_2" type="Node2D" parent="Placements" unique_id=662004095]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(5, 4)
+
+[node name="P1ExpMineral_bot_0" type="Node2D" parent="Placements" unique_id=1835835819]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(3, 9)
+
+[node name="P1ExpMineral_bot_1" type="Node2D" parent="Placements" unique_id=56964747]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(4, 9)
+
+[node name="P1ExpMineral_bot_2" type="Node2D" parent="Placements" unique_id=15694441]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch"
+tile_position = Vector2i(5, 9)
+
+[node name="P1ExpGeyser" type="Node2D" parent="Placements" unique_id=1538986004]
+script = ExtResource("2_jxci3")
+def_id = "gas_geyser"
+tile_position = Vector2i(7, 5)
+
+[node name="Golden_Min_TL" type="Node2D" parent="Placements" unique_id=2128010269]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch_gold"
+tile_position = Vector2i(21, 22)
+
+[node name="Golden_Min_TR" type="Node2D" parent="Placements" unique_id=474711795]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch_gold"
+tile_position = Vector2i(22, 22)
+
+[node name="Golden_Min_BL" type="Node2D" parent="Placements" unique_id=831823937]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch_gold"
+tile_position = Vector2i(21, 26)
+
+[node name="Golden_Min_BR" type="Node2D" parent="Placements" unique_id=4626993]
+script = ExtResource("2_jxci3")
+def_id = "mineral_patch_gold"
+tile_position = Vector2i(22, 26)
+
+[node name="Golden_Geyser_L" type="Node2D" parent="Placements" unique_id=1729907701]
+script = ExtResource("2_jxci3")
+def_id = "gas_geyser"
+tile_position = Vector2i(20, 30)

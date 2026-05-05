@@ -54,6 +54,7 @@ desktop.ini
 
 # Claude Code: keep settings.json shared, ignore local overrides
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # godot-ai-plugin (used externally per ADR 0008; junction installed locally)
 client/addons/godot_ai/

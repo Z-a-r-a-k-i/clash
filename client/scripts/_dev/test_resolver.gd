@@ -11,6 +11,12 @@ extends Node
 # matching tests start passing. See plan/m0/02 + the plan file for the
 # chunk breakdown.
 
+const _REGISTRY_PATH := "res://data/entity_registry.tres"
+const _TUNABLES_PATH := "res://data/tunables.tres"
+const _SMOKE_SCENARIO_PATH := "res://data/scenarios/smoke_minimal.tres"
+const _MVP_MAP_TSCN_PATH := "res://data/scenarios/mvp_map.tscn"
+const _MVP_MAP_TRES_PATH := "res://data/scenarios/mvp_map.tres"
+
 
 func _enter_tree() -> void:
 	if not Engine.is_editor_hint():
@@ -179,6 +185,12 @@ func _all_tests() -> Array:
 			"match_state_save_load_preserves_overrides",
 			_test_match_state_save_load_preserves_overrides
 		],
+		# Plan node 08 — mvp map.
+		["map_baker_validation", _test_map_baker_validation],
+		["mvp_map_loads", _test_mvp_map_loads],
+		["mvp_map_is_mirror", _test_mvp_map_is_mirror],
+		["mvp_map_bake_parity", _test_mvp_map_bake_parity],
+		["golden_minerals_higher_yield", _test_golden_minerals_higher_yield],
 	]
 
 
@@ -3574,7 +3586,7 @@ func _test_match_state_save_load_preserves_overrides() -> bool:
 # Loads the smoke scenario .tres. Factored out to satisfy gdlint's
 # duplicated-load rule (multiple plan-07a tests share this scenario).
 func _load_smoke_scenario() -> ScenarioDef:
-	return load("res://data/scenarios/smoke_minimal.tres") as ScenarioDef
+	return load(_SMOKE_SCENARIO_PATH) as ScenarioDef
 
 
 # Loads `client/data/entity_registry.tres` and returns it. Returns null
@@ -3582,7 +3594,7 @@ func _load_smoke_scenario() -> ScenarioDef:
 # inside the editor, so res:// loads work). Used by plan-06 data-wiring
 # tests.
 func _load_data_registry() -> EntityRegistry:
-	var registry: EntityRegistry = load("res://data/entity_registry.tres") as EntityRegistry
+	var registry: EntityRegistry = load(_REGISTRY_PATH) as EntityRegistry
 	return registry
 
 
@@ -3871,4 +3883,397 @@ func _tank_registry(speed: int) -> EntityRegistry:
 	var d := _def_with_movement("tank", Vector2i(2, 2), ["heavy", "ground"], 150, speed)
 	var registry := EntityRegistry.new()
 	registry.entities = [d]
+	return registry
+
+
+# ---------- Plan node 08 — bake validation ----------
+
+
+# Tiny registry used for MapBaker negative tests. Includes a worker (1x1),
+# a 2x2 "block2" for on-axis tests, and a 3x3 "block3" for axis-crossing
+# tests. None need full capability shapes — the baker only reads
+# def.footprint.
+func _baker_registry() -> EntityRegistry:
+	var registry := EntityRegistry.new()
+	var worker := EntityDef.new()
+	worker.id = "worker"
+	worker.footprint = Vector2i(1, 1)
+	worker.tags = ["worker"]
+	var block2 := EntityDef.new()
+	block2.id = "block2"
+	block2.footprint = Vector2i(2, 2)
+	block2.tags = ["neutral"]
+	var block3 := EntityDef.new()
+	block3.id = "block3"
+	block3.footprint = Vector2i(3, 3)
+	block3.tags = ["neutral"]
+	registry.entities = [worker, block2, block3]
+	return registry
+
+
+# Build a synthetic map scene with the given placements (no .tscn on disk).
+# Each placement spec is a dict {def_id, owner, tile, on_axis}. Returns
+# the scene root — caller is responsible for free()ing it.
+func _make_test_map_scene(specs: Array) -> Node:
+	var scene_root := Node2D.new()
+	var placements_node := Node2D.new()
+	placements_node.name = "Placements"
+	scene_root.add_child(placements_node)
+	var ep_script: GDScript = load("res://scripts/data/entity_placement.gd")
+	for spec in specs:
+		var ep := Node2D.new()
+		ep.set_script(ep_script)
+		ep.def_id = spec.get("def_id", "")
+		ep.owner_player_id = spec.get("owner", -1)
+		ep.tile_position = spec.get("tile", Vector2i.ZERO)
+		ep.on_axis = spec.get("on_axis", false)
+		placements_node.add_child(ep)
+	return scene_root
+
+
+func _test_map_baker_validation() -> bool:
+	var registry := _baker_registry()
+	var w := 50
+	var h := 50
+
+	# Negative 1: right-half placement rejected (worker at x=40).
+	var scene1 := _make_test_map_scene(
+		[{"def_id": "worker", "owner": 0, "tile": Vector2i(40, 25), "on_axis": false}]
+	)
+	var sd1 := MapBaker.bake_to_resource_from_scene(scene1, w, h, {}, registry)
+	scene1.free()
+	if sd1 != null:
+		push_error("[map_baker_validation] right-half placement should fail")
+		return false
+
+	# Negative 2: unknown def_id rejected.
+	var scene2 := _make_test_map_scene(
+		[{"def_id": "no_such_def", "owner": 0, "tile": Vector2i(5, 5), "on_axis": false}]
+	)
+	var sd2 := MapBaker.bake_to_resource_from_scene(scene2, w, h, {}, registry)
+	scene2.free()
+	if sd2 != null:
+		push_error("[map_baker_validation] unknown def_id should fail")
+		return false
+
+	# Negative 3: 3x3 axis-crossing placement without on_axis rejected.
+	# block3 at x=23 occupies x=23,24,25 — right edge crosses the axis (24/25).
+	var scene3 := _make_test_map_scene(
+		[{"def_id": "block3", "owner": -1, "tile": Vector2i(23, 23), "on_axis": false}]
+	)
+	var sd3 := MapBaker.bake_to_resource_from_scene(scene3, w, h, {}, registry)
+	scene3.free()
+	if sd3 != null:
+		push_error("[map_baker_validation] axis-crossing without on_axis should fail")
+		return false
+
+	# Negative 4: on-axis even-footprint with player owner rejected.
+	# block2 (2x2) at x=24 is centered (occupies x=24,25), but owner=0
+	# is invalid for axis-straddling placements.
+	var scene4 := _make_test_map_scene(
+		[{"def_id": "block2", "owner": 0, "tile": Vector2i(24, 23), "on_axis": true}]
+	)
+	var sd4 := MapBaker.bake_to_resource_from_scene(scene4, w, h, {}, registry)
+	scene4.free()
+	if sd4 != null:
+		push_error("[map_baker_validation] on-axis with player owner should fail")
+		return false
+
+	# Negative 5: on-axis odd-footprint rejected (3x3 can't be centered
+	# on an even-width axis).
+	var scene5 := _make_test_map_scene(
+		[{"def_id": "block3", "owner": -1, "tile": Vector2i(23, 23), "on_axis": true}]
+	)
+	var sd5 := MapBaker.bake_to_resource_from_scene(scene5, w, h, {}, registry)
+	scene5.free()
+	if sd5 != null:
+		push_error("[map_baker_validation] odd-footprint on_axis should fail")
+		return false
+
+	# Positive: left-half placement → source + mirror = 2 placements.
+	var scene_ok := _make_test_map_scene(
+		[{"def_id": "worker", "owner": 0, "tile": Vector2i(5, 25), "on_axis": false}]
+	)
+	var sd_ok := MapBaker.bake_to_resource_from_scene(scene_ok, w, h, {}, registry)
+	scene_ok.free()
+	if sd_ok == null:
+		push_error("[map_baker_validation] left-half worker should succeed")
+		return false
+	if sd_ok.placements.size() != 2:
+		push_error(
+			(
+				"[map_baker_validation] expected 2 placements (source + mirror), got %d"
+				% sd_ok.placements.size()
+			)
+		)
+		return false
+	# Verify the mirror is at x = 50 - 5 - 1 = 44, owner = 1.
+	var owners := [sd_ok.placements[0].owner_player_id, sd_ok.placements[1].owner_player_id]
+	owners.sort()
+	if owners != [0, 1]:
+		push_error("[map_baker_validation] mirror should flip owner: got %s" % str(owners))
+		return false
+	var xs := [sd_ok.placements[0].origin.x, sd_ok.placements[1].origin.x]
+	xs.sort()
+	if xs != [5, 44]:
+		push_error("[map_baker_validation] mirror should be at x=44 (got xs=%s)" % str(xs))
+		return false
+
+	# Positive: on-axis even-footprint neutral → emitted ONCE.
+	var scene_axis_ok := _make_test_map_scene(
+		[{"def_id": "block2", "owner": -1, "tile": Vector2i(24, 23), "on_axis": true}]
+	)
+	var sd_axis := MapBaker.bake_to_resource_from_scene(scene_axis_ok, w, h, {}, registry)
+	scene_axis_ok.free()
+	if sd_axis == null or sd_axis.placements.size() != 1:
+		push_error(
+			(
+				"[map_baker_validation] on-axis block2 should emit exactly 1 placement, got %s"
+				% str(sd_axis.placements.size() if sd_axis != null else "null")
+			)
+		)
+		return false
+
+	return true
+
+
+# ---------- Plan node 08 — full mvp_map suite ----------
+
+
+func _entity_counts_by_def_id(state: MatchState) -> Dictionary:
+	var counts := {}
+	for entity in state.entities:
+		counts[entity.def_id] = counts.get(entity.def_id, 0) + 1
+	return counts
+
+
+func _load_mvp_map() -> LoadedScenario:
+	var scenario: ScenarioDef = load(_MVP_MAP_TRES_PATH)
+	if scenario == null:
+		return null
+	var registry: EntityRegistry = load(_REGISTRY_PATH)
+	var tunables: Tunables = load(_TUNABLES_PATH)
+	if registry == null or tunables == null:
+		return null
+	return ScenarioLoader.load(scenario, registry, tunables)
+
+
+func _scenario_defs_equal(a: ScenarioDef, b: ScenarioDef) -> bool:
+	if a.map_width != b.map_width or a.map_height != b.map_height:
+		return false
+	if a.placements.size() != b.placements.size():
+		return false
+	for i in range(a.placements.size()):
+		var pa: ScenarioPlacement = a.placements[i]
+		var pb: ScenarioPlacement = b.placements[i]
+		if pa.def_id != pb.def_id:
+			return false
+		if pa.owner_player_id != pb.owner_player_id:
+			return false
+		if pa.origin != pb.origin:
+			return false
+		if pa.initial_hp_override != pb.initial_hp_override:
+			return false
+	return true
+
+
+func _test_mvp_map_loads() -> bool:
+	var loaded := _load_mvp_map()
+	if loaded == null or loaded.state == null:
+		push_error("[mvp_map_loads] ScenarioLoader returned null")
+		return false
+	if loaded.state.tile_grid.width != 50 or loaded.state.tile_grid.height != 50:
+		push_error(
+			(
+				"[mvp_map_loads] expected 50x50 grid, got %dx%d"
+				% [loaded.state.tile_grid.width, loaded.state.tile_grid.height]
+			)
+		)
+		return false
+	if loaded.state.players.size() != 2:
+		push_error("[mvp_map_loads] expected 2 players")
+		return false
+	# Expected entity counts after the baker mirrors the left half.
+	# 1 base + 2 workers + 8 main minerals + 1 main geyser
+	# + 6 natural minerals + 1 natural geyser
+	# + 6 expansion minerals + 1 expansion geyser
+	# + 4 golden minerals + 1 golden geyser
+	# = 31 per side; mirrored = 62 entities total.
+	var counts := _entity_counts_by_def_id(loaded.state)
+	var expected := {
+		"base": 2,
+		"worker": 4,
+		"mineral_patch": 40,
+		"mineral_patch_gold": 8,
+		"gas_geyser": 8,
+	}
+	for def_id in expected:
+		if counts.get(def_id, 0) != expected[def_id]:
+			push_error(
+				(
+					"[mvp_map_loads] expected %d %s, got %d"
+					% [expected[def_id], def_id, counts.get(def_id, 0)]
+				)
+			)
+			return false
+	return true
+
+
+func _test_mvp_map_is_mirror() -> bool:
+	var loaded := _load_mvp_map()
+	if loaded == null:
+		push_error("[mvp_map_is_mirror] failed to load mvp_map")
+		return false
+	var w: int = loaded.state.tile_grid.width
+	var paired: Dictionary = {}
+	for entity in loaded.state.entities:
+		if paired.has(entity.id):
+			continue
+		var rect: Rect2i = loaded.state.tile_grid.entity_rect(entity.id)
+		var mirror_x: int = w - rect.position.x - rect.size.x
+		# Self-mirror (axis placement): no pair needed.
+		if mirror_x == rect.position.x:
+			paired[entity.id] = true
+			continue
+		var mirror_owner: int = entity.owner_player_id
+		if entity.owner_player_id == 0:
+			mirror_owner = 1
+		elif entity.owner_player_id == 1:
+			mirror_owner = 0
+		var found: int = -1
+		for other in loaded.state.entities:
+			if other.id == entity.id or paired.has(other.id):
+				continue
+			if other.def_id != entity.def_id:
+				continue
+			if other.owner_player_id != mirror_owner:
+				continue
+			var other_rect: Rect2i = loaded.state.tile_grid.entity_rect(other.id)
+			if (
+				other_rect.position.x == mirror_x
+				and other_rect.position.y == rect.position.y
+				and other_rect.size == rect.size
+			):
+				found = other.id
+				break
+		if found == -1:
+			push_error(
+				(
+					"[mvp_map_is_mirror] no mirror for entity %d (def=%s, owner=%d) at %s"
+					% [entity.id, entity.def_id, entity.owner_player_id, str(rect.position)]
+				)
+			)
+			return false
+		paired[entity.id] = true
+		paired[found] = true
+	return true
+
+
+func _test_mvp_map_bake_parity() -> bool:
+	var registry: EntityRegistry = load(_REGISTRY_PATH)
+	var tunables: Tunables = load(_TUNABLES_PATH)
+	if registry == null or tunables == null:
+		push_error("[mvp_map_bake_parity] missing registry or tunables")
+		return false
+	var starting_resources: Dictionary = {
+		0: {"minerals": tunables.starting_minerals, "gas": tunables.starting_gas},
+		1: {"minerals": tunables.starting_minerals, "gas": tunables.starting_gas},
+	}
+	var fresh: ScenarioDef = (
+		MapBaker
+		. bake_to_resource(
+			_MVP_MAP_TSCN_PATH,
+			tunables.map_width,
+			tunables.map_height,
+			starting_resources,
+			registry,
+		)
+	)
+	if fresh == null:
+		push_error("[mvp_map_bake_parity] re-bake failed")
+		return false
+	var on_disk: ScenarioDef = load(_MVP_MAP_TRES_PATH)
+	if on_disk == null:
+		push_error("[mvp_map_bake_parity] failed to load mvp_map.tres")
+		return false
+	if not _scenario_defs_equal(fresh, on_disk):
+		push_error(
+			(
+				"[mvp_map_bake_parity] mvp_map.tres is stale "
+				+ "(re-run Bake MVP Map from Project > Tools after editing the .tscn)"
+			)
+		)
+		return false
+	return true
+
+
+func _test_golden_minerals_higher_yield() -> bool:
+	# Synthetic head-to-head: identical scenario with one worker on a
+	# standard mineral_patch vs one worker on a mineral_patch_gold.
+	# Run for N=30 turns, compare totals. Asserts strict greater-than,
+	# not a specific multiplier — lets us retune yields without breaking
+	# the test on balance changes.
+	var standard_total := _gather_total_after_turns("mineral_patch", 1, 30)
+	var golden_total := _gather_total_after_turns("mineral_patch_gold", 2, 30)
+	if golden_total <= standard_total:
+		push_error(
+			(
+				(
+					"[golden_minerals_higher_yield] expected golden > standard, "
+					+ "got golden=%d standard=%d"
+				)
+				% [golden_total, standard_total]
+			)
+		)
+		return false
+	return true
+
+
+# Build a 1-base + 1-worker + 1-patch scenario, run N turns, return the
+# total minerals harvested. The patch is a synthetic def with the given
+# yield; capacity is high enough to avoid depleting in N turns.
+func _gather_total_after_turns(patch_def_id: String, patch_yield: int, turns: int) -> int:
+	var registry := _golden_yield_registry(patch_def_id, patch_yield)
+	var state := _state_with_grid(20, 20)
+	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	worker.gather_state = GatherState.new()
+	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	var base := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	state.tile_grid.place(base.id, Rect2i(0, 0, 4, 4))
+	var patch := _make_entity(state, patch_def_id, -1, Vector2i(8, 5), 1500, "ground")
+	patch.current_resource_amount = 5000
+	state.tile_grid.place(patch.id, Rect2i(8, 5, 1, 1))
+
+	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
+	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	for _i in turns:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+	var p := result.new_state.get_player(0)
+	return 0 if p == null else p.minerals
+
+
+func _golden_yield_registry(patch_def_id: String, patch_yield: int) -> EntityRegistry:
+	var registry := EntityRegistry.new()
+	var worker := _def_with_movement("worker", Vector2i(1, 1), ["worker", "ground"], 50, 4)
+	worker.gather = GatherDef.new()
+	worker.gather.gather_per_turn = patch_yield
+	worker.gather.carry_amount = 5
+	worker.gather.accepts_resource_types = ["minerals", "gas"]
+	var base := EntityDef.new()
+	base.id = "base"
+	base.footprint = Vector2i(4, 4)
+	base.tags = ["building", "structure", "ground", "deposit_sink"]
+	var base_hp := HealthDef.new()
+	base_hp.max_hp = 1500
+	base.health = base_hp
+	var patch := EntityDef.new()
+	patch.id = patch_def_id
+	patch.footprint = Vector2i(1, 1)
+	patch.tags = ["resource_source", "minerals", "ground"]
+	var patch_rs := ResourceSourceDef.new()
+	patch_rs.resource_type = "minerals"
+	patch_rs.yield_per_worker_per_turn = patch_yield
+	patch_rs.requires_extractor = false
+	patch.resource_source = patch_rs
+	registry.entities = [worker, base, patch]
 	return registry
