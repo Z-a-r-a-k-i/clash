@@ -60,7 +60,7 @@ Authored in Godot's 2D scene editor. Structure:
 ```text
 MvpMap (Node2D, @tool, script: mvp_map_root.gd)
 └── Placements (Node2D)
-    ├── P1Main (EntityPlacement, def_id=base, owner=0, tile_position=(2,23))
+    ├── P1Main (EntityPlacement, def_id=base, owner=0, tile_position=(2,22))
     ├── P1MainMinerals_1..8 (EntityPlacement, def_id=mineral_patch, owner=-1, ...)
     ├── P1MainGeyser (EntityPlacement, def_id=gas_geyser, owner=-1, ...)
     ├── P1Worker_1, P1Worker_2 (EntityPlacement, def_id=worker, owner=0)
@@ -128,7 +128,7 @@ static func bake_to_resource(...) -> ScenarioDef  # for tests, no disk write
 
 ### Bake triggers
 
-- **(a) Editor button:** `EditorPlugin` in `client/addons/clash_dev/` adds a "Bake Map" item to the Project → Tools menu. Calls `MapBaker.bake(...)` with hardcoded paths for `mvp_map`. Toast on success/failure.
+- **(a) Editor button:** `EditorPlugin` in `client/addons/clash_dev/` adds a "Bake MVP Map" item to the Project → Tools menu. Calls `MapBaker.bake(...)` with hardcoded paths for `mvp_map`. Toast on success/failure.
 - **(c) CI parity test:** `_test_mvp_map_bake_parity` re-bakes in-memory and asserts equality with the checked-in `.tres`. Catches "edited the scene, forgot to bake" before merge.
 
 The two combine: explicit bake trigger for normal flow + safety net in CI. No file watcher (silent failures rejected).
@@ -223,7 +223,7 @@ Helpers (`_entity_counts_by_def_id`, `_find_entity_at`, `_scenario_defs_equal`, 
 1. **Footprint + gold def + Tunables.** Smallest blast radius. All existing tests green.
 2. **`EntityPlacement` + map root + bake skeleton.** Authoring primitives, no map yet.
 3. **Bake logic + validation + negative test.** Mirror math, zone classifier, validator. `_test_map_baker_validation` green.
-4. **Author `mvp_map.tscn`, bake to `mvp_map.tres`, 4 remaining tests.** Drag placements in editor, click "Bake Map," wire the four loader/mirror/parity/yield tests.
+4. **Author `mvp_map.tscn`, bake to `mvp_map.tres`, 4 remaining tests.** Drag placements in editor, click "Bake MVP Map," wire the four loader/mirror/parity/yield tests.
 
 Each chunk independently committable with all tests green at the end.
 
