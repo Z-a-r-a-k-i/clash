@@ -1,0 +1,25 @@
+[gd_scene format=3 uid="uid://bsxuq4i0e0yv"]
+
+[ext_resource type="Script" uid="uid://pirb2he1bkje" path="res://scripts/game/match_renderer.gd" id="1_80q71"]
+
+[node name="Node2D" type="Node2D" unique_id=974151809]
+script = ExtResource("1_80q71")
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=1309143087]
+
+[node name="Terrain" type="TileMapLayer" parent="." unique_id=1838149043]
+
+[node name="Entities" type="Node2D" parent="." unique_id=713485675]
+
+[node name="Overlays" type="Node2D" parent="." unique_id=1450912809]
+
+[node name="AttackLines" type="Node2D" parent="Overlays" unique_id=200298027]
+
+[node name="DamageLabels" type="Node2D" parent="Overlays" unique_id=1530149937]
+
+[node name="HUD" type="CanvasLayer" parent="." unique_id=1015100489]
+
+[node name="CombatLog" type="RichTextLabel" parent="HUD" unique_id=1971391966]
+offset_right = 400.0
+offset_bottom = 200.0
+scroll_following = true
