@@ -46,6 +46,10 @@ func _all_tests() -> Array:
 		],
 		["match_renderer_owner_modulate", _test_match_renderer_owner_modulate],
 		["match_renderer_uses_visuals_registry", _test_match_renderer_uses_visuals_registry],
+		# Chunk 4 — render_step events + reconciliation.
+		["match_renderer_step_reconciles_destroyed_entity", _test_step_reconciles_destroyed_entity],
+		["match_renderer_step_renders_attack_event", _test_step_renders_attack_event],
+		["match_renderer_step_appends_combat_log", _test_step_appends_combat_log],
 	]
 
 
@@ -241,8 +245,14 @@ func _make_renderer_state(entity_specs: Array, w: int, h: int) -> MatchState:
 		state.players.append(p)
 	for spec in entity_specs:
 		var e := Entity.new()
-		e.id = state.next_entity_id
-		state.next_entity_id += 1
+		# Honor an explicit "id" in the spec so reconciliation tests can
+		# build matching states across calls; otherwise auto-assign.
+		if spec.has("id"):
+			e.id = spec.get("id")
+			state.next_entity_id = max(state.next_entity_id, e.id + 1)
+		else:
+			e.id = state.next_entity_id
+			state.next_entity_id += 1
 		e.def_id = spec.get("def_id", "")
 		e.current_def_id = e.def_id
 		e.owner_player_id = spec.get("owner", -1)
@@ -285,3 +295,123 @@ static func _modulate_of(view: EntityView) -> Color:
 	if sprite == null:
 		return Color(1, 1, 1, 1)
 	return sprite.modulate
+
+
+# ---------- Chunk 4 — render_step events + reconciliation ----------
+
+
+func _test_step_reconciles_destroyed_entity() -> bool:
+	# Bind a state with 3 entities, then call render_step with a state
+	# missing one of them → that view fades and is removed from the
+	# views_by_id map. Catches "I forgot to free dead entities" leaks.
+	var registry := _renderer_registry()
+	var state_a := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(2, 1), "id": 2},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 3},
+		],
+		10,
+		10
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state_a, registry)
+	if renderer.entity_view_count() != 3:
+		push_error("setup: expected 3 views, got %d" % renderer.entity_view_count())
+		_free_renderer(renderer)
+		return false
+	# State B drops entity 2 (marine #2 destroyed).
+	var state_b := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 3},
+		],
+		10,
+		10
+	)
+	renderer.render_step(state_b, [])
+	if renderer.entity_view_count() != 2:
+		push_error("expected 2 views after destruction, got %d" % renderer.entity_view_count())
+		_free_renderer(renderer)
+		return false
+	if renderer.get_entity_view(2) != null:
+		push_error("destroyed entity #2 still has a registered view")
+		_free_renderer(renderer)
+		return false
+	_free_renderer(renderer)
+	return true
+
+
+func _test_step_renders_attack_event() -> bool:
+	# render_step with a single ENTITY_DAMAGED event spawns one Line2D
+	# under Overlays/AttackLines and one DamageLabel under
+	# Overlays/DamageLabels.
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+		],
+		10,
+		10
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	var event := ResolverEvent.new()
+	event.type = ResolverEvent.Type.ENTITY_DAMAGED
+	event.actor_id = 1
+	event.target_id = 2
+	event.damage = 7
+	event.hp_after = 18
+	renderer.render_step(state, [event])
+	var ok := true
+	if renderer.attack_line_count() != 1:
+		push_error("expected 1 attack line, got %d" % renderer.attack_line_count())
+		ok = false
+	if renderer.damage_label_count() != 1:
+		push_error("expected 1 damage label, got %d" % renderer.damage_label_count())
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_step_appends_combat_log() -> bool:
+	# Damage event + destruction event each append a line to the combat
+	# log. Verify both substrings show up so we don't regress to silently
+	# eating events.
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+		],
+		10,
+		10
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	var damage_event := ResolverEvent.new()
+	damage_event.type = ResolverEvent.Type.ENTITY_DAMAGED
+	damage_event.actor_id = 1
+	damage_event.target_id = 2
+	damage_event.damage = 7
+	damage_event.hp_after = 0
+	var destroy_event := ResolverEvent.new()
+	destroy_event.type = ResolverEvent.Type.ENTITY_DESTROYED
+	destroy_event.actor_id = 1
+	destroy_event.target_id = 2
+	# State B drops the destroyed entity so reconciliation removes its view.
+	var state_b := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+		],
+		10,
+		10
+	)
+	renderer.render_step(state_b, [damage_event, destroy_event])
+	var log_text := renderer.combat_log_text()
+	var ok := log_text.find("hit #2 for 7") != -1 and log_text.find("#2 destroyed") != -1
+	if not ok:
+		push_error("combat log missing expected text. got: %s" % log_text)
+	_free_renderer(renderer)
+	return ok
