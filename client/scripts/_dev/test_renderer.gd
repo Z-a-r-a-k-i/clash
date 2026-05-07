@@ -50,6 +50,12 @@ func _all_tests() -> Array:
 		["match_renderer_step_reconciles_destroyed_entity", _test_step_reconciles_destroyed_entity],
 		["match_renderer_step_renders_attack_event", _test_step_renders_attack_event],
 		["match_renderer_step_appends_combat_log", _test_step_appends_combat_log],
+		# Fresh-review fixes: cover the gaps identified pre-merge.
+		["match_renderer_step_spawns_added_entity", _test_step_spawns_added_entity],
+		["match_renderer_step_skips_dead_entities", _test_step_skips_dead_entities],
+		["match_renderer_combat_log_caps_at_max", _test_combat_log_caps_at_max],
+		["match_renderer_match_ended_event_logged", _test_match_ended_event_logged],
+		["match_renderer_bind_state_clears_overlays", _test_bind_state_clears_overlays],
 	]
 
 
@@ -413,5 +419,190 @@ func _test_step_appends_combat_log() -> bool:
 	var ok := log_text.find("hit #2 for 7") != -1 and log_text.find("#2 destroyed") != -1
 	if not ok:
 		push_error("combat log missing expected text. got: %s" % log_text)
+	_free_renderer(renderer)
+	return ok
+
+
+# ---------- Fresh-review coverage gaps ----------
+
+
+func _test_step_spawns_added_entity() -> bool:
+	# Entity appears in new_state but had no view → reconciliation
+	# spawns one.
+	var registry := _renderer_registry()
+	var state_a := _make_renderer_state(
+		[{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1}], 10, 10
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state_a, registry)
+	var state_b := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(2, 1), "id": 2},
+		],
+		10,
+		10
+	)
+	renderer.render_step(state_b, [])
+	var ok := (
+		renderer.entity_view_count() == 2
+		and renderer.get_entity_view(1) != null
+		and renderer.get_entity_view(2) != null
+	)
+	if not ok:
+		push_error("expected views {1,2} after add, got count %d" % renderer.entity_view_count())
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_step_skips_dead_entities() -> bool:
+	# Resolver keeps Entity records with current_hp=0 around until
+	# end-of-turn cleanup. The renderer must not respawn views for
+	# corpses on subsequent render_steps.
+	var registry := _renderer_registry()
+	var state_a := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+		],
+		10,
+		10
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state_a, registry)
+	if renderer.entity_view_count() != 2:
+		push_error("setup: expected 2 views, got %d" % renderer.entity_view_count())
+		_free_renderer(renderer)
+		return false
+	# State B keeps the killed entity's record but with hp=0.
+	var state_b := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2, "hp": 0},
+		],
+		10,
+		10
+	)
+	renderer.render_step(state_b, [])
+	if renderer.entity_view_count() != 1:
+		push_error(
+			"hp=0 entity should not have a view, got count %d" % renderer.entity_view_count()
+		)
+		_free_renderer(renderer)
+		return false
+	# Re-run render_step with the same dead-entity state — must not
+	# respawn the corpse's view.
+	renderer.render_step(state_b, [])
+	var ok := renderer.entity_view_count() == 1
+	if not ok:
+		push_error("corpse respawned on second render_step")
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_combat_log_caps_at_max() -> bool:
+	# Append more than the cap and verify the buffer trims oldest
+	# entries while keeping the newest. Catches the "split() didn't
+	# actually trim" regression.
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+		],
+		10,
+		10
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	for i in range(120):
+		var event := ResolverEvent.new()
+		event.type = ResolverEvent.Type.ENTITY_DAMAGED
+		event.actor_id = 1
+		event.target_id = 2
+		event.damage = i
+		event.hp_after = 100
+		renderer.render_step(state, [event])
+	var ok := true
+	if renderer.combat_log_line_count() > 50:
+		push_error("combat log exceeded cap: %d lines" % renderer.combat_log_line_count())
+		ok = false
+	# Newest line should still be present (last loop's damage = 119).
+	if renderer.combat_log_text().find("for 119") == -1:
+		push_error("combat log dropped newest line")
+		ok = false
+	# Oldest line should have been trimmed.
+	if renderer.combat_log_text().find("for 0 ") != -1:
+		push_error("combat log retained oldest line past cap")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_match_ended_event_logged() -> bool:
+	# MATCH_ENDED → "Match ended — winner: P{n}" appended to log.
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1}], 10, 10
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	var event := ResolverEvent.new()
+	event.type = ResolverEvent.Type.MATCH_ENDED
+	event.winner_player_id = 0
+	renderer.render_step(state, [event])
+	var ok := renderer.combat_log_text().find("winner: P0") != -1
+	if not ok:
+		push_error("match-ended log entry missing: %s" % renderer.combat_log_text())
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_bind_state_clears_overlays() -> bool:
+	# Re-binding to a different scenario must wipe stale overlays + log,
+	# otherwise yellow lines and old "#X hit #Y" entries leak across
+	# matches.
+	var registry := _renderer_registry()
+	var state_a := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+		],
+		10,
+		10
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state_a, registry)
+	var event := ResolverEvent.new()
+	event.type = ResolverEvent.Type.ENTITY_DAMAGED
+	event.actor_id = 1
+	event.target_id = 2
+	event.damage = 5
+	event.hp_after = 95
+	renderer.render_step(state_a, [event])
+	if renderer.attack_line_count() == 0 or renderer.combat_log_line_count() == 0:
+		push_error("setup: expected at least one overlay + log line after attack")
+		_free_renderer(renderer)
+		return false
+	var state_b := _make_renderer_state(
+		[{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1}], 10, 10
+	)
+	renderer.bind_state(state_b, registry)
+	var ok := (
+		renderer.attack_line_count() == 0
+		and renderer.damage_label_count() == 0
+		and renderer.combat_log_line_count() == 0
+	)
+	if not ok:
+		push_error(
+			(
+				"bind_state did not clear overlays/log: lines=%d labels=%d log=%d"
+				% [
+					renderer.attack_line_count(),
+					renderer.damage_label_count(),
+					renderer.combat_log_line_count()
+				]
+			)
+		)
 	_free_renderer(renderer)
 	return ok

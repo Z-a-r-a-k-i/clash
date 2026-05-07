@@ -50,6 +50,11 @@ var _tile_size: int = 32
 # entity id -> EntityView node.
 var _views_by_id: Dictionary = {}
 
+# Authoritative log line buffer. RichTextLabel can't trim oldest lines on
+# its own, so we own the cap here and re-render from the buffer when it
+# changes.
+var _combat_log_lines: Array[String] = []
+
 # Cached PackedScene for spawning entity views without reloading per call.
 var _entity_view_scene: PackedScene = null
 
@@ -80,7 +85,12 @@ func bind_state(state: MatchState, registry: EntityRegistry) -> void:
 
 	_paint_terrain_fallback(state)
 
-	for entity in state.entities:
+	# entities_sorted_by_id filters null slots that MatchState.clone()
+	# preserves to keep positional indices stable. Iterating raw
+	# state.entities would crash on those nulls.
+	for entity in state.entities_sorted_by_id():
+		if entity.current_hp <= 0:
+			continue
 		_spawn_entity_view(entity)
 
 	_fit_camera_to_state(state)
@@ -123,9 +133,14 @@ func damage_label_count() -> int:
 
 
 func combat_log_text() -> String:
-	if _combat_log == null:
-		return ""
-	return _combat_log.get_parsed_text()
+	# Read from our own buffer rather than RichTextLabel.get_parsed_text()
+	# so tests don't depend on BBCode-stripped output and so the answer
+	# matches what _append_combat_log thinks it stored.
+	return "\n".join(_combat_log_lines)
+
+
+func combat_log_line_count() -> int:
+	return _combat_log_lines.size()
 
 
 # ---------- Internals ----------
@@ -149,12 +164,27 @@ func _resolve_internal_nodes() -> void:
 
 
 func _clear_existing_views() -> void:
-	if _entities_root == null:
-		return
-	for child in _entities_root.get_children():
-		_entities_root.remove_child(child)
-		child.queue_free()
+	if _entities_root != null:
+		for child in _entities_root.get_children():
+			_entities_root.remove_child(child)
+			child.queue_free()
 	_views_by_id.clear()
+	# Also drop overlays + log so a re-bind to a different scenario
+	# doesn't carry over lingering attack lines, damage labels, or log
+	# entries from the previous match.
+	_clear_overlay_roots()
+	_combat_log_lines.clear()
+	if _combat_log != null:
+		_combat_log.clear()
+
+
+func _clear_overlay_roots() -> void:
+	for root in [_attack_lines_root, _damage_labels_root]:
+		if root == null:
+			continue
+		for child in root.get_children():
+			root.remove_child(child)
+			child.queue_free()
 
 
 func _spawn_entity_view(entity: Entity) -> void:
@@ -251,15 +281,19 @@ func _read_tile_size() -> int:
 
 
 # Walk the new state and reconcile EntityView nodes:
-# - Entities present in new_state but no view → spawn one (covers SPAWN
-#   without us having to read the SPAWN event explicitly).
-# - Views whose entity is gone from new_state → fade and despawn.
-# - Views still present → push the new state into the existing view (covers
-#   ENTITY_MOVED and HP changes that any subsequent damage-label render
-#   should sit on top of).
+# - Entities present in new_state and alive → ensure view exists, push
+#   updated state into it.
+# - Entities in new_state but with hp<=0 (resolver keeps the record until
+#   end-of-turn cleanup) → treat as gone; the view fades and despawns.
+# - Views whose entity is missing entirely from new_state → fade and
+#   despawn.
+# Iterating entities_sorted_by_id filters null slots that MatchState
+# clone preserves for stable positional indices.
 func _reconcile_views(new_state: MatchState) -> void:
 	var live_ids: Dictionary = {}
-	for entity in new_state.entities:
+	for entity in new_state.entities_sorted_by_id():
+		if entity.current_hp <= 0:
+			continue
 		live_ids[entity.id] = true
 		if not _views_by_id.has(entity.id):
 			_spawn_entity_view(entity)
@@ -269,7 +303,7 @@ func _reconcile_views(new_state: MatchState) -> void:
 				var def: EntityDef = _registry.get_by_id(entity.def_id)
 				if def != null:
 					view.update_from_state(entity, def, _texture_for_def(entity.def_id))
-	# Drop views whose entity disappeared this step. Use a copy of the keys
+	# Drop views whose entity is gone (or now hp<=0). Snapshot keys first
 	# so we can mutate _views_by_id during iteration.
 	for entity_id in _views_by_id.keys():
 		if not live_ids.has(entity_id):
@@ -381,15 +415,15 @@ func _flash_target_sprite(view: EntityView) -> void:
 
 
 func _append_combat_log(line: String) -> void:
+	# Maintain our own bounded buffer so the cap is exact and testable.
+	# RichTextLabel.get_parsed_text() strips BBCode and may not preserve
+	# trailing newlines, which made the previous "split-and-trim"
+	# approach a no-op past the cap.
+	_combat_log_lines.append(line)
+	if _combat_log_lines.size() > _COMBAT_LOG_MAX_LINES:
+		var overflow: int = _combat_log_lines.size() - _COMBAT_LOG_MAX_LINES
+		_combat_log_lines = _combat_log_lines.slice(overflow)
 	if _combat_log == null:
 		return
-	_combat_log.append_text(line + "\n")
-	# Cap line count so the log doesn't grow without bound across long
-	# matches. RichTextLabel doesn't expose a "drop oldest line" API, so
-	# we recompute from the parsed text when the cap is hit.
-	var parsed := _combat_log.get_parsed_text()
-	var lines := parsed.split("\n", false)
-	if lines.size() > _COMBAT_LOG_MAX_LINES:
-		var trimmed := lines.slice(lines.size() - _COMBAT_LOG_MAX_LINES)
-		_combat_log.clear()
-		_combat_log.append_text("\n".join(trimmed) + "\n")
+	_combat_log.clear()
+	_combat_log.append_text("\n".join(_combat_log_lines))
