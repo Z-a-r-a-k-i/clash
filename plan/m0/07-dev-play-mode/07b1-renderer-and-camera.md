@@ -1,8 +1,5 @@
 ---
-status: doing
-depends_on:
-  - ../08-mvp-map.md
-  - ./07a-scenario-loader-and-save-load.md
+status: done
 ---
 
 # Renderer + camera (the visual foundation)
@@ -206,3 +203,7 @@ Each chunk independently committable, all tests green at the end of each.
 - **ADR-0016** (fog of war from M0): the M0 mandate is honored by 07b3; 07b1 excludes fog from its sub-scope.
 - **ADR-0019** (capability composition): `EntityVisuals` is a separate Resource alongside `EntityDef`; doesn't extend the capability shape.
 - **ADR-0020** (GDScript-only): all new code is GDScript.
+
+## Artifacts
+
+- PR [#9](https://github.com/Z-a-r-a-k-i/clash/pull/9)

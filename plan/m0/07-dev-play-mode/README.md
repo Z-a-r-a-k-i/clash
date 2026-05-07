@@ -15,7 +15,7 @@ A debug-and-validation tool, not a play mode. Simultaneous-turn resolution requi
 This area splits into a headless half (07a) and a visual half decomposed into four sub-PRs (07b1 → 07b4):
 
 - [`07a-scenario-loader-and-save-load.md`](./07a-scenario-loader-and-save-load.md) — `done`. Scenario data shape, loader, save/load round-trip.
-- [`07b1-renderer-and-camera.md`](./07b1-renderer-and-camera.md) — `doing`. Renderer + camera + attack visualization. *See the map.*
+- [`07b1-renderer-and-camera.md`](./07b1-renderer-and-camera.md) — `done`. Renderer + camera + attack visualization. *See the map.*
 - [`07b2-input-and-turn-advance.md`](./07b2-input-and-turn-advance.md) — `stub`. Mouse selection + order issuing + manual turn advance. *Play a turn.*
 - [`07b3-perspective-and-fog.md`](./07b3-perspective-and-fog.md) — `stub`. Per-player perspective + fog of war (ADR-0016). *Swap perspectives.*
 - [`07b4-tick-step-debugger.md`](./07b4-tick-step-debugger.md) — `stub`. Single-tick advance + state inspector. *Step ticks.*
@@ -47,4 +47,4 @@ This area splits into a headless half (07a) and a visual half decomposed into fo
 - [ ] Dev can switch between Player A and Player B perspectives at any time, with each view's fog of war computed correctly. *(07b3)*
 - [ ] Dev can issue orders for either player in any order and advance the turn manually. *(07b2)*
 - [ ] Tick-step mode advances the resolver one tick at a time and exposes intermediate state. *(07b4)*
-- [ ] All five sub-PRs land. *(07a `done`; 07b1 `doing`; 07b2/3/4 `stub`)*
+- [ ] All five sub-PRs land. *(07a `done`; 07b1 `done`; 07b2/3/4 `stub`)*
