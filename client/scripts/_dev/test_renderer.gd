@@ -56,6 +56,17 @@ func _all_tests() -> Array:
 		["match_renderer_combat_log_caps_at_max", _test_combat_log_caps_at_max],
 		["match_renderer_match_ended_event_logged", _test_match_ended_event_logged],
 		["match_renderer_bind_state_clears_overlays", _test_bind_state_clears_overlays],
+		# Codex-pass coverage for the fresh-review-fix renderer changes.
+		["match_renderer_lethal_attack_renders_overlay", _test_lethal_attack_renders_overlay],
+		[
+			"match_renderer_uses_current_def_id_after_transform",
+			_test_uses_current_def_id_after_transform
+		],
+		[
+			"match_renderer_fit_camera_handles_null_entity_slots",
+			_test_fit_camera_handles_null_entity_slots
+		],
+		["match_renderer_match_ended_draw_event_logged", _test_match_ended_draw_event_logged],
 	]
 
 
@@ -279,6 +290,7 @@ func _renderer_registry() -> EntityRegistry:
 		["worker", Vector2i(1, 1)],
 		["marine", Vector2i(1, 1)],
 		["tank", Vector2i(2, 2)],
+		["siege_tank", Vector2i(2, 2)],
 		["mineral_patch", Vector2i(1, 3)],
 		["gas_geyser", Vector2i(3, 3)],
 	]:
@@ -527,12 +539,16 @@ func _test_combat_log_caps_at_max() -> bool:
 	if renderer.combat_log_line_count() > 50:
 		push_error("combat log exceeded cap: %d lines" % renderer.combat_log_line_count())
 		ok = false
+	# Anchor against the full per-line prefix the renderer emits — looking
+	# for "for N" alone or with a single trailing space risks matching
+	# substrings of larger N (e.g. "for 100" matches a "for 10" search)
+	# or going vacuous if the format changes.
 	# Newest line should still be present (last loop's damage = 119).
-	if renderer.combat_log_text().find("for 119") == -1:
+	if renderer.combat_log_text().find("hit #2 for 119 ") == -1:
 		push_error("combat log dropped newest line")
 		ok = false
 	# Oldest line should have been trimmed.
-	if renderer.combat_log_text().find("for 0 ") != -1:
+	if renderer.combat_log_text().find("hit #2 for 0 ") != -1:
 		push_error("combat log retained oldest line past cap")
 		ok = false
 	_free_renderer(renderer)
@@ -604,5 +620,151 @@ func _test_bind_state_clears_overlays() -> bool:
 				]
 			)
 		)
+	_free_renderer(renderer)
+	return ok
+
+
+# ---------- Codex-pass coverage for fresh-review-fix changes ----------
+
+
+func _test_lethal_attack_renders_overlay() -> bool:
+	# Regression test for the "reconcile-before-events drops lethal-hit
+	# visuals" bug. Send ENTITY_DAMAGED + ENTITY_DESTROYED in the same
+	# step where the target's hp is 0 in new_state. Even though the target
+	# disappears at end of step, the attack line + damage label MUST have
+	# rendered before the destruction took effect.
+	var registry := _renderer_registry()
+	var state_a := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+		],
+		10,
+		10
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state_a, registry)
+	# State B: target now hp=0 (resolver kept the record per ADR-0010).
+	var state_b := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2, "hp": 0},
+		],
+		10,
+		10
+	)
+	var damage := ResolverEvent.new()
+	damage.type = ResolverEvent.Type.ENTITY_DAMAGED
+	damage.actor_id = 1
+	damage.target_id = 2
+	damage.damage = 50
+	damage.hp_after = 0
+	var destroy := ResolverEvent.new()
+	destroy.type = ResolverEvent.Type.ENTITY_DESTROYED
+	destroy.actor_id = 1
+	destroy.target_id = 2
+	renderer.render_step(state_b, [damage, destroy])
+	var ok := true
+	if renderer.attack_line_count() != 1:
+		push_error("lethal hit lost attack line; expected 1 got %d" % renderer.attack_line_count())
+		ok = false
+	if renderer.damage_label_count() != 1:
+		push_error(
+			"lethal hit lost damage label; expected 1 got %d" % renderer.damage_label_count()
+		)
+		ok = false
+	# ENTITY_DESTROYED still kicked off fade + de-registration.
+	if renderer.get_entity_view(2) != null:
+		push_error("destroyed view still registered in views_by_id")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_uses_current_def_id_after_transform() -> bool:
+	# Renderer must look up sprite + def via current_def_id (post-transform
+	# form), not def_id (canonical form). With def_id="tank" and
+	# current_def_id="siege_tank", the view should carry the siege_tank
+	# texture, not the tank one.
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[{"def_id": "tank", "owner": 0, "origin": Vector2i(2, 2), "id": 1}], 10, 10
+	)
+	# Simulate a transform: keep def_id (canonical) but flip current_def_id.
+	state.entities[0].current_def_id = "siege_tank"
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	var view := renderer.get_entity_view(1)
+	if view == null:
+		push_error("expected view for transformed entity")
+		_free_renderer(renderer)
+		return false
+	var sprite: Sprite2D = view.get_node_or_null("Sprite2D") as Sprite2D
+	if sprite == null or sprite.texture == null:
+		push_error("transformed view has no sprite/texture")
+		_free_renderer(renderer)
+		return false
+	var expected := load("res://data/art/sprites/siege_tank.png") as Texture2D
+	var ok := sprite.texture == expected
+	if not ok:
+		push_error(
+			(
+				"transformed view used wrong texture; expected siege_tank, got %s"
+				% str(sprite.texture.resource_path if sprite.texture != null else "null")
+			)
+		)
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_fit_camera_handles_null_entity_slots() -> bool:
+	# MatchState.clone() preserves null entries in state.entities to keep
+	# positional indices stable. Iterating raw state.entities crashes the
+	# camera-fit loop on null. Construct a state with a null slot and
+	# assert bind_state completes without erroring.
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+		],
+		10,
+		10
+	)
+	# Inject a null after construction.
+	state.entities.append(null)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	# Both real entities still rendered.
+	var ok := (
+		renderer.entity_view_count() == 2
+		and renderer.get_entity_view(1) != null
+		and renderer.get_entity_view(2) != null
+	)
+	if not ok:
+		push_error(
+			"null slot crashed bind_state; expected 2 views, got %d" % renderer.entity_view_count()
+		)
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_match_ended_draw_event_logged() -> bool:
+	# winner_player_id == -1 is the resolver's draw/unknown sentinel.
+	# Render that explicitly rather than as "P-1".
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1}], 10, 10
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	var event := ResolverEvent.new()
+	event.type = ResolverEvent.Type.MATCH_ENDED
+	event.winner_player_id = -1
+	renderer.render_step(state, [event])
+	var log_text := renderer.combat_log_text()
+	var ok := log_text.find("draw") != -1 and log_text.find("P-1") == -1
+	if not ok:
+		push_error("draw event not rendered as 'draw'; log: %s" % log_text)
 	_free_renderer(renderer)
 	return ok

@@ -235,7 +235,7 @@ Each chunk independently committable, all tests green at the end of each.
 
 - [ ] `gdformat --check client/scripts` clean.
 - [ ] `gdlint client/scripts` clean.
-- [ ] `res://scripts/_dev/test_renderer_scene.tscn` opens → log: `[test_renderer] 7 passed, 0 failed`.
+- [ ] `res://scripts/_dev/test_renderer_scene.tscn` opens → log: `[test_renderer] 12 passed, 0 failed`.
 - [ ] `res://scripts/_dev/test_resolver_scene.tscn` still green (no new failures vs. main).
 - [ ] `res://scenes/match.tscn` opens → mvp_map renders with sprites at correct tile coordinates, camera fitted to the 50×50 map, no shader/script errors in console.
 - [ ] Visual-reviewer verdict on chunk 3's match-initial screenshot: `ACCEPTABLE` or `NEEDS WORK` (not `BLOCKER`).

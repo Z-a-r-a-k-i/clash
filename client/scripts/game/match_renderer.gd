@@ -48,7 +48,7 @@ var _visuals: EntityVisuals = null
 var _tile_size: int = 32
 
 # entity id -> EntityView node.
-var _views_by_id: Dictionary = {}
+var _views_by_id: Dictionary[int, EntityView] = {}
 
 # Authoritative log line buffer. RichTextLabel can't trim oldest lines on
 # its own, so we own the cap here and re-render from the buffer when it
@@ -91,7 +91,7 @@ func bind_state(state: MatchState, registry: EntityRegistry) -> void:
 	for entity in state.entities_sorted_by_id():
 		if entity.current_hp <= 0:
 			continue
-		_spawn_entity_view(entity)
+		_spawn_entity_view(entity, state)
 
 	_fit_camera_to_state(state)
 
@@ -104,19 +104,23 @@ func entity_view_count() -> int:
 	return _views_by_id.size()
 
 
-# Apply a turn's resolution: reconcile entity views vs new_state, render
-# the events list (attack lines, damage labels, destruction fades).
-# Events are processed in emission order (canonical replay order from
-# ResolveResult.events). Reconciliation runs first so spawn-then-damage
-# in the same step shows the spawn before the hit, not the other way.
-func render_step(new_state: MatchState, events: Array) -> void:
+# Apply a turn's resolution. The order matters: events run between the
+# spawn-new-views pass and the prune-dead-views pass so that a fatal
+# attack (ENTITY_DAMAGED followed by ENTITY_DESTROYED) still has a live
+# target view to draw the line + damage label against. Pruning before
+# events would erase the target before the attack overlay could find it.
+# Position updates run last so attack-line endpoints reflect the
+# pre-event positions captured at the previous render_step / bind_state.
+func render_step(new_state: MatchState, events: Array[ResolverEvent]) -> void:
 	_resolve_internal_nodes()
 	_state = new_state
 	if new_state == null:
 		return
-	_reconcile_views(new_state)
+	_spawn_added_views(new_state)
 	for event in events:
 		_render_event(event)
+	_prune_dead_views(new_state)
+	_update_surviving_views(new_state)
 
 
 # Lookup helper for tests — fastest way to assert on overlay state.
@@ -187,10 +191,14 @@ func _clear_overlay_roots() -> void:
 			child.queue_free()
 
 
-func _spawn_entity_view(entity: Entity) -> void:
+func _spawn_entity_view(entity: Entity, state: MatchState = null) -> void:
 	if _entities_root == null or _registry == null:
 		return
-	var def: EntityDef = _registry.get_by_id(entity.def_id)
+	# current_def_id tracks transforms (e.g. tank → siege_tank). Falls back
+	# to def_id only at spawn time when current_def_id may not have been
+	# initialized; the resolver clones it from def_id on entity creation.
+	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
+	var def: EntityDef = _registry.get_by_id(def_id)
 	if def == null:
 		return
 	if _entity_view_scene == null:
@@ -200,8 +208,23 @@ func _spawn_entity_view(entity: Entity) -> void:
 		return
 	_entities_root.add_child(view)
 	view.bind_entity_id(entity.id)
-	view.update_from_state(entity, def, _texture_for_def(entity.def_id))
+	view.update_from_state(
+		entity, def, _texture_for_def(def_id), _entity_rect_or_default(entity, state, def)
+	)
 	_views_by_id[entity.id] = view
+
+
+# ADR-0010 says state.tile_grid.entity_rect(id) is the canonical placement
+# source. Falls back to entity.origin + def.footprint only when no state
+# is supplied (e.g., bind_state for an entity not yet placed) so callers
+# don't have to pass state on the spawn path. Returns Rect2i.
+func _entity_rect_or_default(entity: Entity, state: MatchState, def: EntityDef) -> Rect2i:
+	if state != null and state.tile_grid != null:
+		var rect: Rect2i = state.tile_grid.entity_rect(entity.id)
+		if rect.size.x > 0 and rect.size.y > 0:
+			return rect
+	var fp: Vector2i = def.footprint if def != null else Vector2i.ONE
+	return Rect2i(entity.origin, Vector2i(max(fp.x, 1), max(fp.y, 1)))
 
 
 func _texture_for_def(def_id: String) -> Texture2D:
@@ -225,8 +248,11 @@ func _fit_camera_to_state(state: MatchState) -> void:
 	# whole-map scenarios still fill the frame edge-to-edge.
 	var min_tile := Vector2i.ZERO
 	var max_tile := Vector2i(state.tile_grid.width, state.tile_grid.height)
-	for entity in state.entities:
-		var def: EntityDef = _registry.get_by_id(entity.def_id) if _registry != null else null
+	# entities_sorted_by_id filters null slots that MatchState.clone()
+	# preserves; iterating raw state.entities would crash here.
+	for entity in state.entities_sorted_by_id():
+		var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
+		var def: EntityDef = _registry.get_by_id(def_id) if _registry != null else null
 		var fp: Vector2i = def.footprint if def != null else Vector2i.ONE
 		min_tile.x = min(min_tile.x, entity.origin.x)
 		min_tile.y = min(min_tile.y, entity.origin.y)
@@ -280,34 +306,59 @@ func _read_tile_size() -> int:
 	return tunables.tile_pixel_size
 
 
-# Walk the new state and reconcile EntityView nodes:
-# - Entities present in new_state and alive → ensure view exists, push
-#   updated state into it.
-# - Entities in new_state but with hp<=0 (resolver keeps the record until
-#   end-of-turn cleanup) → treat as gone; the view fades and despawns.
-# - Views whose entity is missing entirely from new_state → fade and
-#   despawn.
-# Iterating entities_sorted_by_id filters null slots that MatchState
-# clone preserves for stable positional indices.
-func _reconcile_views(new_state: MatchState) -> void:
-	var live_ids: Dictionary = {}
+# Phase 1 of render_step. Spawn views for entities that appeared in
+# new_state without a prior view. Doesn't update positions on existing
+# views (that runs after events so attack lines are drawn at pre-event
+# positions, not post-move ones) and doesn't prune anything (so
+# fatal-target views survive long enough for ENTITY_DAMAGED /
+# ENTITY_DESTROYED events to render against them).
+func _spawn_added_views(new_state: MatchState) -> void:
 	for entity in new_state.entities_sorted_by_id():
 		if entity.current_hp <= 0:
 			continue
-		live_ids[entity.id] = true
 		if not _views_by_id.has(entity.id):
-			_spawn_entity_view(entity)
-		else:
-			var view: EntityView = _views_by_id[entity.id]
-			if view != null and _registry != null:
-				var def: EntityDef = _registry.get_by_id(entity.def_id)
-				if def != null:
-					view.update_from_state(entity, def, _texture_for_def(entity.def_id))
-	# Drop views whose entity is gone (or now hp<=0). Snapshot keys first
-	# so we can mutate _views_by_id during iteration.
+			_spawn_entity_view(entity, new_state)
+
+
+# Phase 3 of render_step. Drop views whose entity is missing from
+# new_state or whose hp dropped to 0 this turn (resolver keeps the
+# record around until end-of-turn cleanup). ENTITY_DESTROYED events
+# already kicked off a fade for the killed entities; this call is the
+# net for entities removed without an explicit destruction event.
+func _prune_dead_views(new_state: MatchState) -> void:
+	var live_ids: Dictionary[int, bool] = {}
+	for entity in new_state.entities_sorted_by_id():
+		if entity.current_hp > 0:
+			live_ids[entity.id] = true
 	for entity_id in _views_by_id.keys():
 		if not live_ids.has(entity_id):
 			_destroy_entity_view(entity_id)
+
+
+# Phase 4 of render_step. Push the post-turn state into every surviving
+# view (position, sprite swap on transform, modulate). Runs after
+# events so attack-line endpoints reflect pre-event positions.
+func _update_surviving_views(new_state: MatchState) -> void:
+	if _registry == null:
+		return
+	for entity in new_state.entities_sorted_by_id():
+		if entity.current_hp <= 0:
+			continue
+		var view: EntityView = _views_by_id.get(entity.id)
+		if view == null:
+			continue
+		var def: EntityDef = _registry.get_by_id(entity.current_def_id)
+		if def == null:
+			continue
+		(
+			view
+			. update_from_state(
+				entity,
+				def,
+				_texture_for_def(entity.current_def_id),
+				_entity_rect_or_default(entity, new_state, def),
+			)
+		)
 
 
 func _destroy_entity_view(entity_id: int) -> void:
@@ -332,14 +383,21 @@ func _render_event(event: ResolverEvent) -> void:
 				)
 			)
 		ResolverEvent.Type.ENTITY_DESTROYED:
-			# Reconciliation already removed the view; this path covers the
-			# rare case where the entity is destroyed but somehow still
-			# appears in new_state.entities (shouldn't happen, but handle).
+			# Render-order is: spawn → events → prune. The view is still
+			# alive at this point (the prune phase below would have removed
+			# it post-event). Kick off the fade now so the destruction
+			# animation is tied to the event, not to the cleanup pass.
 			if _views_by_id.has(event.target_id):
 				_destroy_entity_view(event.target_id)
 			_append_combat_log("#%d destroyed" % event.target_id)
 		ResolverEvent.Type.MATCH_ENDED:
-			_append_combat_log("Match ended — winner: P%d" % event.winner_player_id)
+			# winner_player_id == -1 is the resolver's draw/unknown sentinel.
+			# Render that explicitly rather than printing "P-1" as if it
+			# were a real player.
+			if event.winner_player_id < 0:
+				_append_combat_log("Match ended — draw")
+			else:
+				_append_combat_log("Match ended — winner: P%d" % event.winner_player_id)
 		_:
 			# Other event types are silent at chunk 4 — production /
 			# build / move events get HUD treatment in 07b3+.

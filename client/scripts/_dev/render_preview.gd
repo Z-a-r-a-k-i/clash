@@ -36,7 +36,14 @@ func _ready() -> void:
 	if _loaded == null:
 		push_error("render_preview: ScenarioLoader returned null")
 		return
-	_renderer = (load(MATCH_SCENE_PATH) as PackedScene).instantiate()
+	var match_packed: PackedScene = load(MATCH_SCENE_PATH) as PackedScene
+	if match_packed == null:
+		push_error("render_preview: failed to load %s" % MATCH_SCENE_PATH)
+		return
+	_renderer = match_packed.instantiate() as MatchRenderer
+	if _renderer == null:
+		push_error("render_preview: match scene root is not a MatchRenderer")
+		return
 	add_child(_renderer)
 	_renderer.bind_state(_loaded.state, _loaded.registry)
 

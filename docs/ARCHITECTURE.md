@@ -25,7 +25,7 @@ M2: network play, server-authoritative (server tech / protocol picked then)
 +---------------+                           +---------------+
 ```
 
-Server technology and wire protocol are deferred to M2 per ADR 0006. Candidate paths (Go + protobuf, headless Godot/C#, Nakama, etc.) are evaluated in `docs/superpowers/specs/2026-04-29-entity-data-model-design.md`.
+Server technology and wire protocol are deferred to M2 per ADR 0006. Candidate paths (Go + protobuf, headless Godot/C#, Nakama, etc.) are evaluated in `plan/m0/00-config-and-tunables.md`.
 
 ## Components
 

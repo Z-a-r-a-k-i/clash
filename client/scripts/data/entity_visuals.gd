@@ -9,5 +9,5 @@ extends Resource
 # sprite for each entity. Missing entries fall back to a placeholder
 # texture (chunk 3 wires this up); chunk 2 just defines the shape.
 
-@export var sprite_paths: Dictionary = {}
+@export var sprite_paths: Dictionary[String, String] = {}
 # Example: { "marine": "res://data/art/sprites/marine.png", ... }

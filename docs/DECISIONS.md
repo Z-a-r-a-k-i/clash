@@ -59,7 +59,7 @@ Clients submit action queues; the server is the only authority for game state. C
 - Nakama or similar BaaS — fast to ship; covers M3+ matchmaking for free; vendor lock-in.
 - Godot built-in MultiplayerAPI — zero setup but P2P, can't be server-authoritative without a host peer.
 
-Full evaluation in `docs/superpowers/specs/2026-04-29-entity-data-model-design.md`. ADR 0007 (generated proto code committed) only applies if proto is chosen at M2.
+Full evaluation in `plan/m0/00-config-and-tunables.md`. ADR 0007 (generated proto code committed) only applies if proto is chosen at M2.
 
 **Why:** Build the rules first; build the network when there's something worth networking. The resolver is a pure function on plain-data structures, so it's portable to any wire protocol — the M2 choice can be made on operational grounds (cost, scaling needs, team familiarity) without touching game logic.
 
@@ -176,7 +176,7 @@ There is no separate `UnitDef` / `BuildingDef` / `NeutralDef` hierarchy. A "unit
 
 Polymorphic concepts (e.g. ability effects: `StatBuffEffect`, `TransformEffect`) use GDScript Resource inheritance (`class_name X extends Effect`) for editor ergonomics. If a future wire format requires a discriminated-union encoding (e.g. proto `oneof`), a thin mapping layer is added at that point.
 
-Full design: `docs/superpowers/specs/2026-04-29-entity-data-model-design.md`.
+Full design: `plan/m0/00-config-and-tunables.md`.
 
 **Why:** Future entities (transforming units, lift-off buildings, neutral creatures, asymmetric race units, deck-based card units) compose by combining different capabilities — no schema rewrites needed. Matches how SC2 internally models entities (a sieged tank is a different unit type sharing the same data shape) and keeps the resolver pure-function over plain-data structures.
 

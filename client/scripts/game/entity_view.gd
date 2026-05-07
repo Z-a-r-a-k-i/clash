@@ -37,25 +37,33 @@ func get_entity_id() -> int:
 
 # Push entity state into the visual. Called once at spawn and whenever the
 # entity's visible state changes (position, hp, etc.).
-func update_from_state(entity: Entity, def: EntityDef, sprite_texture: Texture2D) -> void:
+#
+# `placement_rect` is the canonical tile-space placement from
+# state.tile_grid.entity_rect(entity.id) per ADR-0010. Position +
+# footprint scaling derive from this rect so overlapping placements,
+# rect-altering effects, etc. drive the visual correctly. The renderer
+# falls back to entity.origin + def.footprint when no state is available
+# at construction time.
+func update_from_state(
+	entity: Entity, _def: EntityDef, sprite_texture: Texture2D, placement_rect: Rect2i
+) -> void:
 	if _sprite == null:
 		# In editor mode, _ready may not have fired yet; resolve children directly.
 		_sprite = get_node_or_null("Sprite2D") as Sprite2D
 		_label = get_node_or_null("Label") as Label
 
-	# Position is the center of the entity's footprint, in world pixels.
-	var footprint := def.footprint if def != null else Vector2i(1, 1)
-	var fp_x: int = max(footprint.x, 1)
-	var fp_y: int = max(footprint.y, 1)
+	var fp_x: int = max(placement_rect.size.x, 1)
+	var fp_y: int = max(placement_rect.size.y, 1)
 	var tile_size := _tile_pixel_size()
-	var center_x: float = (entity.origin.x + fp_x / 2.0) * tile_size
-	var center_y: float = (entity.origin.y + fp_y / 2.0) * tile_size
+	# Position is the center of the placement rect in world pixels.
+	var center_x: float = (placement_rect.position.x + fp_x / 2.0) * tile_size
+	var center_y: float = (placement_rect.position.y + fp_y / 2.0) * tile_size
 	position = Vector2(center_x, center_y)
 
 	if _sprite != null:
 		_sprite.texture = sprite_texture
 		_sprite.modulate = _color_for_owner(entity.owner_player_id)
-		# Scale the sprite so it covers the entity's footprint in tile space.
+		# Scale the sprite so it covers the placement rect in world pixels.
 		# Without this, a 4x4 base renders at the same on-screen size as a
 		# 1x1 worker (both at native PNG pixel dimensions), so the RTS scale
 		# hierarchy collapses and the base reads as small as a mineral patch.
@@ -70,7 +78,10 @@ func update_from_state(entity: Entity, def: EntityDef, sprite_texture: Texture2D
 		# composition at default zoom. Plan-07b3 (perspective + fog) reworks
 		# the HUD; debug labels light up on hover or via a dev toggle there.
 		_label.visible = false
-		_label.text = "%s #%d" % [entity.def_id, entity.id]
+		# current_def_id reflects in-flight transforms (e.g. tank → siege_tank);
+		# falls back to def_id if the resolver hasn't initialized current yet.
+		var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
+		_label.text = "%s #%d" % [def_id, entity.id]
 
 
 # Trigger the destruction fade. The view stays alive for the fade duration,
