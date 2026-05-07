@@ -6,7 +6,7 @@ Quick reference for Godot specific gotchas and conventions on clash.
 
 clash uses GDScript for all game code per ADR 0020. C# was dropped because of platform support gaps (no web export in 4.6/4.7-beta, mobile experimental). All entity defs, resolver code, runtime state, and presentation are GDScript.
 
-Use strict typing where reasonable: explicit type hints on `var` declarations, function parameter types, and return types. Define Resource subclasses with `class_name X extends Resource` (see the design spec at `docs/superpowers/specs/2026-04-29-entity-data-model-design.md`).
+Use strict typing where reasonable: explicit type hints on `var` declarations, function parameter types, and return types. Define Resource subclasses with `class_name X extends Resource` (see the design spec at `plan/m0/00-config-and-tunables.md`).
 
 ## `@tool` script pitfalls
 

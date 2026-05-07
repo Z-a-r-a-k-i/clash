@@ -1,0 +1,45 @@
+[gd_scene format=3 uid="uid://bsxuq4i0e0yv"]
+
+[ext_resource type="Script" uid="uid://pirb2he1bkje" path="res://scripts/game/match_renderer.gd" id="1_80q71"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_combatlog"]
+bg_color = Color(0.05, 0.07, 0.1, 0.78)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.7, 0.75, 0.85, 0.5)
+content_margin_left = 8.0
+content_margin_top = 6.0
+content_margin_right = 8.0
+content_margin_bottom = 6.0
+
+[node name="Node2D" type="Node2D" unique_id=974151809]
+script = ExtResource("1_80q71")
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=1309143087]
+
+[node name="Terrain" type="TileMapLayer" parent="." unique_id=1838149043]
+
+[node name="Entities" type="Node2D" parent="." unique_id=713485675]
+
+[node name="Overlays" type="Node2D" parent="." unique_id=1450912809]
+
+[node name="AttackLines" type="Node2D" parent="Overlays" unique_id=200298027]
+
+[node name="DamageLabels" type="Node2D" parent="Overlays" unique_id=1530149937]
+
+[node name="HUD" type="CanvasLayer" parent="." unique_id=1015100489]
+
+[node name="CombatLog" type="RichTextLabel" parent="HUD" unique_id=1971391966]
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -380.0
+offset_top = -188.0
+offset_right = -12.0
+offset_bottom = -12.0
+theme_override_styles/normal = SubResource("StyleBoxFlat_combatlog")
+theme_override_colors/default_color = Color(0.92, 0.94, 1.0, 1.0)
+scroll_following = true

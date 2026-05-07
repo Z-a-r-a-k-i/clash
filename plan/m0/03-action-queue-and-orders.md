@@ -1,5 +1,5 @@
 ---
-status: sketch
+status: done
 depends_on:
   - ./01-tile-grid-and-occupancy.md
 ---
@@ -49,3 +49,7 @@ Players will mostly issue orders to *groups* of selected units, not individuals.
 - [ ] Cancel works on persistent moves and on queued production.
 - [ ] Group orders fan out correctly at submit time.
 - [ ] Surrender flag is deliverable and resolves to a win event.
+
+## Artifacts
+
+- PR [#3](https://github.com/Z-a-r-a-k-i/clash/pull/3) — SubmitTurn shape + OrderBuilder fan-out.

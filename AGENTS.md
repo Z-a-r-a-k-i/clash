@@ -4,7 +4,7 @@ Turn based PvP strategy game. Two players queue actions during a shared timer; t
 
 ## Key Principles
 
-1. **Type schemas live in code, not markdown.** At M0 the data layer is hand-written GDScript Resources per the design spec at `docs/superpowers/specs/2026-04-29-entity-data-model-design.md`. Proto for cross-language wire types is one candidate for M2 alongside others (see ADR 0006); decision deferred until then. Either way, never duplicate type definitions in markdown.
+1. **Type schemas live in code, not markdown.** At M0 the data layer is hand-written GDScript Resources per the design spec at `plan/m0/00-config-and-tunables.md`. Proto for cross-language wire types is one candidate for M2 alongside others (see ADR 0006); decision deferred until then. Either way, never duplicate type definitions in markdown.
 2. **Resolver is server-authoritative once a server exists.** At M0/M1 the resolver lives in the Godot client (driven by dev tooling, then by an AI opponent at M1). At M2 the resolver moves to a server; clients render the resolved outcome and never speculate.
 3. **GDScript only.** Game code is GDScript per ADR 0020. C# is not used; web/mobile platform support gaps in the .NET build of Godot 4.6 disqualify it.
 4. **One repo, layered stacks.** Godot in `client/`, server stack (TBD at M2) in `server/`, protobuf in `proto/`. The root `Makefile` orchestrates checks across stacks.
@@ -14,7 +14,7 @@ Turn based PvP strategy game. Two players queue actions during a shared timer; t
 
 ## Architecture
 
-At M0 the resolver lives in the Godot client and is driven by dev tooling — no network, no server, no AI. M1 adds an AI opponent (still all client-side). M2 adds network play; the server technology and wire protocol are picked at that point. Candidate paths (Go + protobuf, headless Godot/C#, Nakama, etc.) are listed in the design spec. See @docs/ARCHITECTURE.md and @docs/superpowers/specs/2026-04-29-entity-data-model-design.md.
+At M0 the resolver lives in the Godot client and is driven by dev tooling — no network, no server, no AI. M1 adds an AI opponent (still all client-side). M2 adds network play; the server technology and wire protocol are picked at that point. Candidate paths (Go + protobuf, headless Godot/C#, Nakama, etc.) are listed in the design spec. See @docs/ARCHITECTURE.md and @plan/m0/00-config-and-tunables.md.
 
 ## Stack Specific
 
@@ -68,5 +68,5 @@ Code is the source of truth. Define types and schemas in code (proto); never dup
 - @docs/PARALLEL-AGENTS.md: parallel agent work model
 - @docs/GODOT-NOTES.md: Godot `@tool` pitfalls, language conventions, mobile/web export notes
 - @docs/PLAN-FORMAT.md: plan tree format specification
-- @docs/superpowers/specs/2026-04-29-entity-data-model-design.md: entity data model and code organization
+- @plan/m0/00-config-and-tunables.md: entity data model and code organization
 - plan/: project plan tree (see plan/AGENTS.md for agent facing rules)

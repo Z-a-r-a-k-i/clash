@@ -1,7 +1,7 @@
 # Protocol
 
 > **Status: tentative — pending M2 network-layer choice.**
-> This doc describes a Go-server + WebSocket + protobuf path. At M0 the resolver lives in the Godot client and there is no network layer at all. The server technology and wire format are picked at M2 (candidate paths in `docs/superpowers/specs/2026-04-29-entity-data-model-design.md`). If proto is chosen, the shape below is the starting point. If not, this doc gets rewritten or replaced.
+> This doc describes a Go-server + WebSocket + protobuf path. At M0 the resolver lives in the Godot client and there is no network layer at all. The server technology and wire format are picked at M2 (candidate paths in `plan/m0/00-config-and-tunables.md`). If proto is chosen, the shape below is the starting point. If not, this doc gets rewritten or replaced.
 
 Wire protocol between clash client and server. Authoritative type definitions live in `proto/clash/v1/`. This document describes how the wire is used at a high level; do not duplicate field lists here.
 

@@ -1,5 +1,5 @@
 ---
-status: sketch
+status: done
 depends_on:
   - ./00-config-and-tunables.md
   - ./01-tile-grid-and-occupancy.md
@@ -45,3 +45,7 @@ Units, buildings, and research items each have a cost of `{ minerals, gas }` (ei
 - [ ] Player can build a new base on a different cluster and assign new workers there.
 - [ ] Pop counter reflects worker count plus military units.
 - [ ] Both resource counters (minerals, gas) are visible per player.
+
+## Artifacts
+
+- PR [#4](https://github.com/Z-a-r-a-k-i/clash/pull/4) — gather pipeline (workers, mineral patches, refinery on geyser, deposit sinks).

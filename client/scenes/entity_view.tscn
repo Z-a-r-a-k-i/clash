@@ -1,0 +1,15 @@
+[gd_scene format=3 uid="uid://do3hl6wrktamc"]
+
+[ext_resource type="Script" uid="uid://b5spvl2ej37ja" path="res://scripts/game/entity_view.gd" id="1_86uqn"]
+
+[node name="Node2D" type="Node2D" unique_id=1935964633]
+script = ExtResource("1_86uqn")
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=1546454026]
+
+[node name="Label" type="Label" parent="." unique_id=1809795496]
+offset_left = -32.0
+offset_top = 16.0
+offset_right = 32.0
+offset_bottom = 39.0
+horizontal_alignment = 1
