@@ -1,20 +1,23 @@
-# Plan-07b1 — Renderer + Camera (the visual foundation) — Design
+---
+status: ready
+depends_on:
+  - ../08-mvp-map.md
+  - ./07a-scenario-loader-and-save-load.md
+---
 
-**Date:** 2026-05-06
-**Status:** Draft, pending user review
-**Scope:** clash M0 plan node 07 (`plan/m0/07-dev-play-mode.md`), sub-PR 1 of 4
+# Renderer + camera (the visual foundation)
+
+First of four sub-PRs splitting the visual half of plan node 07. After this lands, opening `Match.tscn` shows the mvp_map with all entities rendered as sprites at their correct tile positions. No input, no fog, no manual turn advance, no debugger — pure "render the current MatchState given any incoming events."
 
 ## Context
 
 Plan-08 shipped the MVP map — `mvp_map.tscn` authored, `mvp_map.tres` baked, `ScenarioLoader` consumes it without ceremony. The simulation layer is fully done (resolver, scenario load/save, deterministic golden, ~92 passing tests). What's missing for the M0 "Done when" checklist is the **visual half** of plan node 07: a renderer that draws what the resolver computed.
 
 Plan node 07's "Done when" splits naturally into four user-visible verbs:
-- **see the map** (07b1, this PR)
-- **play a turn** (07b2)
-- **swap perspectives** (07b3)
-- **step ticks** (07b4)
-
-This PR ships the first one. After it lands, opening `Match.tscn` shows the mvp_map with all entities rendered as sprites at their correct tile positions. No input, no fog, no manual turn advance, no debugger. Pure "render the current MatchState given any incoming events."
+- **see the map** (07b1, this node)
+- **play a turn** ([07b2-input-and-turn-advance.md](./07b2-input-and-turn-advance.md))
+- **swap perspectives** ([07b3-perspective-and-fog.md](./07b3-perspective-and-fog.md))
+- **step ticks** ([07b4-tick-step-debugger.md](./07b4-tick-step-debugger.md))
 
 ## Goals
 
@@ -27,11 +30,11 @@ This PR ships the first one. After it lands, opening `Match.tscn` shows the mvp_
 
 ## Non-goals
 
-- **Manual turn advance UI** — plan-07b2.
-- **Mouse input / unit selection / order issuing** — plan-07b2.
-- **Per-player perspective + fog of war** — plan-07b3.
-- **Tick-step debugger** — plan-07b4.
-- **Final art direction.** M0 is for validating mechanics, not visuals (per `plan/m0/README.md`).
+- **Manual turn advance UI** — 07b2.
+- **Mouse input / unit selection / order issuing** — 07b2.
+- **Per-player perspective + fog of war** — 07b3.
+- **Tick-step debugger** — 07b4.
+- **Final art direction.** M0 is for validating mechanics, not visuals (per [`../README.md`](../README.md)).
 - **Animation polish.** Modulate-fade attack lines and float-up damage labels are the only animations.
 - **Sound.**
 - **Object pooling** — community consensus: not needed at our scale (~100 entities). Revisit if profiler flags it.
@@ -228,26 +231,21 @@ Plan-08 surfaced that the existing `test_resolver_scene.tscn` has 21 pre-existin
 
 Each chunk independently committable, all tests green at the end of each.
 
-## Verification
+## Done when
 
-1. `gdformat --check client/scripts` clean.
-2. `gdlint client/scripts` clean.
-3. `res://scripts/_dev/test_renderer_scene.tscn` opens → log: `[test_renderer] 7 passed, 0 failed`.
-4. `res://scripts/_dev/test_resolver_scene.tscn` still green (no new failures vs. main).
-5. `res://scenes/match.tscn` opens → mvp_map renders with sprites at correct tile coordinates, camera fitted to the 50×50 map, no shader/script errors in console.
-6. Visual-reviewer verdict on chunk 3's match-initial screenshot: `ACCEPTABLE` or `NEEDS WORK` (not `BLOCKER`).
-7. Visual-reviewer verdict on chunk 4's attack-mid-frame screenshot: same standard.
-8. CI proto + gdscript jobs green.
+- [ ] `gdformat --check client/scripts` clean.
+- [ ] `gdlint client/scripts` clean.
+- [ ] `res://scripts/_dev/test_renderer_scene.tscn` opens → log: `[test_renderer] 7 passed, 0 failed`.
+- [ ] `res://scripts/_dev/test_resolver_scene.tscn` still green (no new failures vs. main).
+- [ ] `res://scenes/match.tscn` opens → mvp_map renders with sprites at correct tile coordinates, camera fitted to the 50×50 map, no shader/script errors in console.
+- [ ] Visual-reviewer verdict on chunk 3's match-initial screenshot: `ACCEPTABLE` or `NEEDS WORK` (not `BLOCKER`).
+- [ ] Visual-reviewer verdict on chunk 4's attack-mid-frame screenshot: same standard.
+- [ ] CI proto + gdscript jobs green.
 
 ## ADRs invoked
 
 - **ADR-0010** (multi-tile occupancy): renderer uses `state.tile_grid.entity_rect(id)` to position EntityViews; supports any footprint.
 - **ADR-0013** (deterministic resolution): resolver stays a pure function; renderer reads `ResolveResult` data, never injects callbacks into the simulation.
-- **ADR-0016** (fog of war from M0): the M0 mandate is honored by plan-07b3; 07b1 excludes fog from its sub-scope.
+- **ADR-0016** (fog of war from M0): the M0 mandate is honored by 07b3; 07b1 excludes fog from its sub-scope.
 - **ADR-0019** (capability composition): `EntityVisuals` is a separate Resource alongside `EntityDef`; doesn't extend the capability shape.
 - **ADR-0020** (GDScript-only): all new code is GDScript.
-
-## Plan invocations
-
-- `plan/m0/07-dev-play-mode.md` — 07b1 is the first of four sub-PRs splitting the visual half of plan node 07.
-- `plan/m0/08-mvp-map.md` — 07b1 consumes `mvp_map.tres` produced by plan-08's MapBaker, closing the loop.

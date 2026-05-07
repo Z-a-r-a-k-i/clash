@@ -1,5 +1,5 @@
 ---
-status: sketch
+status: done
 depends_on:
   - ./00-config-and-tunables.md
 ---
@@ -28,3 +28,7 @@ The foundation everything else depends on. Get this wrong and pathfinding, visio
 - [ ] Tile size and entity footprint are data driven (config files or scriptable resources, not constants in code).
 - [ ] Unit tests cover: place, move, remove, overlap rejection, distance/adjacency between two multi-tile rects.
 - [ ] One playable test scene shows two multi-tile entities placed on the grid with no rendering glitches.
+
+## Artifacts
+
+- PR [#1](https://github.com/Z-a-r-a-k-i/clash/pull/1) — initial M0 data layer, runtime classes, tile grid (covers nodes 00 + 01).

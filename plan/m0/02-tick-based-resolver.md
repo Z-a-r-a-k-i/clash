@@ -1,5 +1,5 @@
 ---
-status: sketch
+status: done
 depends_on:
   - ./01-tile-grid-and-occupancy.md
 ---
@@ -60,3 +60,7 @@ Per attack action: `attack { target_id_priority: [t1, t2, t3, ...] }`.
 - [ ] Handles all order types from node 03 (move, attack, attack-move, hold-fire toggle, group orders).
 - [ ] Unit tests for: target-chain fallback, hold-fire blocking auto-acquire, persistent-move continuation, multi-tile collision during move, attacks-before-moves ordering within a tick.
 - [ ] No RNG in the call graph (verified by grep + review).
+
+## Artifacts
+
+- PR [#2](https://github.com/Z-a-r-a-k-i/clash/pull/2) — tick-based turn resolver.

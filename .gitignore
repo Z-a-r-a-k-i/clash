@@ -58,3 +58,4 @@ desktop.ini
 
 # godot-ai-plugin (used externally per ADR 0008; junction installed locally)
 client/addons/godot_ai/
+.superpowers/

@@ -1,5 +1,5 @@
 ---
-status: sketch
+status: done
 depends_on:
   - ./00-config-and-tunables.md
   - ./04-economy.md
@@ -53,3 +53,7 @@ Tank and helicopter likely cost gas in addition to minerals; marine is mineral-o
 - [ ] Research item completes and applies its effect (test with a placeholder research that bumps marine HP).
 - [ ] All build/train/research times are data-driven.
 - [ ] Cancel returns the full mineral and gas cost to the player.
+
+## Artifacts
+
+- PR [#5](https://github.com/Z-a-r-a-k-i/clash/pull/5) — production pipeline (TRAIN / RESEARCH / BUILD with lazy-deduct cost model).

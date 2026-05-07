@@ -1,5 +1,5 @@
 ---
-status: sketch
+status: done
 depends_on:
   - ./00-config-and-tunables.md
   - ./02-tick-based-resolver.md
@@ -46,3 +46,7 @@ Buildings have HP and can be destroyed. A destroyed building leaves a wreck (vis
 - [ ] Building destruction emits an event and removes occupancy after one turn.
 - [ ] Win check runs after every turn's end-of-turn pass and ends the match cleanly.
 - [ ] Surrender flag delivered in `SubmitTurn` ends the match immediately.
+
+## Artifacts
+
+- PR [#6](https://github.com/Z-a-r-a-k-i/clash/pull/6) — combat data, counter modifiers (light/heavy), research data.
