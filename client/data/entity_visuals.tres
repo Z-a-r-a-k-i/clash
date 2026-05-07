@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="EntityVisuals" format=3]
+
+[ext_resource type="Script" uid="uid://bo1a0giwfi3n8" path="res://scripts/data/entity_visuals.gd" id="1_evs"]
+
+[resource]
+script = ExtResource("1_evs")
+sprite_paths = {
+"base": "res://data/art/sprites/base.png",
+"barracks": "res://data/art/sprites/barracks.png",
+"factory": "res://data/art/sprites/factory.png",
+"starport": "res://data/art/sprites/starport.png",
+"refinery": "res://data/art/sprites/refinery.png",
+"worker": "res://data/art/sprites/worker.png",
+"marine": "res://data/art/sprites/marine.png",
+"tank": "res://data/art/sprites/tank.png",
+"siege_tank": "res://data/art/sprites/siege_tank.png",
+"helicopter": "res://data/art/sprites/helicopter.png",
+"mineral_patch": "res://data/art/sprites/mineral_patch.png",
+"mineral_patch_gold": "res://data/art/sprites/mineral_patch_gold.png",
+"gas_geyser": "res://data/art/sprites/gas_geyser.png",
+}

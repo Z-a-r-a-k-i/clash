@@ -1,3 +1,4 @@
+@tool
 class_name EntityView
 extends Node2D
 
@@ -10,15 +11,18 @@ extends Node2D
 
 # Reference colors — kept here rather than in Tunables since they describe
 # the renderer's visual language, not gameplay tunables. Owner 0 = blue,
-# owner 1 = red, neutral (-1) = untinted.
-const COLOR_PLAYER_0 := Color(0.55, 0.7, 1.0)
-const COLOR_PLAYER_1 := Color(1.0, 0.55, 0.55)
+# owner 1 = red, neutral (-1) = untinted. Saturated channels (one channel
+# at 1.0, others pulled down) make the team tint read at the small per-
+# entity pixel sizes the auto-fit camera produces (~8-16 px). The earlier
+# desaturated values washed out against grey placeholder sprites.
+const COLOR_PLAYER_0 := Color(0.3, 0.55, 1.0)
+const COLOR_PLAYER_1 := Color(1.0, 0.3, 0.3)
 const COLOR_NEUTRAL := Color(1.0, 1.0, 1.0)
+
+var _entity_id: int = -1
 
 @onready var _sprite: Sprite2D = $Sprite2D
 @onready var _label: Label = $Label
-
-var _entity_id: int = -1
 
 
 func bind_entity_id(id: int) -> void:
@@ -39,13 +43,6 @@ func update_from_state(entity: Entity, def: EntityDef, sprite_texture: Texture2D
 		_sprite = get_node_or_null("Sprite2D") as Sprite2D
 		_label = get_node_or_null("Label") as Label
 
-	if _sprite != null:
-		_sprite.texture = sprite_texture
-		_sprite.modulate = _color_for_owner(entity.owner_player_id)
-
-	if _label != null:
-		_label.text = "%s #%d" % [entity.def_id, entity.id]
-
 	# Position is the center of the entity's footprint, in world pixels.
 	var footprint := def.footprint if def != null else Vector2i(1, 1)
 	var fp_x: int = max(footprint.x, 1)
@@ -54,6 +51,26 @@ func update_from_state(entity: Entity, def: EntityDef, sprite_texture: Texture2D
 	var center_x: float = (entity.origin.x + fp_x / 2.0) * tile_size
 	var center_y: float = (entity.origin.y + fp_y / 2.0) * tile_size
 	position = Vector2(center_x, center_y)
+
+	if _sprite != null:
+		_sprite.texture = sprite_texture
+		_sprite.modulate = _color_for_owner(entity.owner_player_id)
+		# Scale the sprite so it covers the entity's footprint in tile space.
+		# Without this, a 4x4 base renders at the same on-screen size as a
+		# 1x1 worker (both at native PNG pixel dimensions), so the RTS scale
+		# hierarchy collapses and the base reads as small as a mineral patch.
+		if sprite_texture != null:
+			var tex_size: Vector2 = sprite_texture.get_size()
+			if tex_size.x > 0 and tex_size.y > 0:
+				var target := Vector2(fp_x * tile_size, fp_y * tile_size)
+				_sprite.scale = Vector2(target.x / tex_size.x, target.y / tex_size.y)
+
+	if _label != null:
+		# Hidden in the auto-fit view because labels overlap and dominate the
+		# composition at default zoom. Plan-07b3 (perspective + fog) reworks
+		# the HUD; debug labels light up on hover or via a dev toggle there.
+		_label.visible = false
+		_label.text = "%s #%d" % [entity.def_id, entity.id]
 
 
 # Trigger the destruction fade. The view stays alive for the fade duration,

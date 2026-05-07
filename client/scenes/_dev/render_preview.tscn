@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://drnd0rendpreview"]
+
+[ext_resource type="Script" path="res://scripts/_dev/render_preview.gd" id="1_preview"]
+
+[node name="RenderPreview" type="Node"]
+script = ExtResource("1_preview")
