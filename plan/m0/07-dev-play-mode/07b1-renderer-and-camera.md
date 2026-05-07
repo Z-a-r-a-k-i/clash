@@ -136,27 +136,6 @@ For each `ATTACK` event in `events`:
 
 Pure rendering; no game logic. The resolver already computed who hit whom.
 
-## Methodology guardrails
-
-### `docs/visual-spec.md`
-
-Written before any visual work. Sections:
-1. Reference frame — pinned screenshot from a recent commercial top-down RTS at low zoom.
-2. Acceptance criteria (1-5 ratings): silhouette readability, owner clarity, action visibility, style coherence, scale plausibility.
-3. Anti-criteria (immediate rejection): untextured 3D primitives on flat planes, sprites with default backgrounds visible, sub-pixel grid drift, owner color invisible at 1× zoom.
-
-### `.claude/agents/visual-reviewer.md` subagent
-
-Read-only (`tools: Read, Glob`), `model: opus`. Receives screenshot path + visual-spec path + reference image path. Outputs structured 1-5 ratings per criterion + specific findings + verdict (`ACCEPTABLE` / `NEEDS WORK` / `BLOCKER`). Cannot say "looks good" without a numeric rating.
-
-### `PostToolUse` hook
-
-In `.claude/settings.json`, matching `Write|Edit` on `client/scenes/**/*.tscn` writes. Emits a reminder to capture viewport via `godot_capture_game_viewport` before declaring visual work done. Reminder, not a forced action — Godot may not be running, change may be a refactor.
-
-### `CLAUDE.md` updates
-
-Append a *Visual work* section. Prune any "double-check before returning" / "verify before completing" scaffolding per Opus 4.7 guidance — that scaffolding now degrades output.
-
 ## Tests (7 new)
 
 Live in `client/scripts/_dev/test_renderer.gd` + `test_renderer_scene.tscn` — separate from `test_resolver.gd` because they have different setup helpers and don't share resolver-test fixtures.
@@ -174,7 +153,7 @@ Live in `client/scripts/_dev/test_renderer.gd` + `test_renderer_scene.tscn` — 
 Helpers (`_make_renderer_state`, `_renderer_registry`, `_make_attack_event`) keep tests self-contained and free of disk fixtures.
 
 What renderer tests do NOT cover:
-- Pixel-level visual correctness (visual-reviewer subagent's job)
+- Pixel-level visual correctness (visual eyeballing, not automated)
 - Animation timing (assert *start*, not exact ms)
 - Performance (no benchmarks at M0 scale)
 
@@ -185,11 +164,6 @@ Plan-08 surfaced that the existing `test_resolver_scene.tscn` has 21 pre-existin
 ## Files
 
 ### Create
-
-**Methodology / process (chunk 1):**
-- `docs/visual-spec.md`
-- `docs/visual-references/match-initial.png` (placeholder until chunk 3 captures the real one)
-- `.claude/agents/visual-reviewer.md`
 
 **Renderer code (chunks 2-4):**
 - `client/scripts/game/match_renderer.gd`
@@ -211,11 +185,6 @@ Plan-08 surfaced that the existing `test_resolver_scene.tscn` has 21 pre-existin
 - ~13 sprite PNGs under `client/data/art/sprites/` (one per entity type)
 - `client/data/art/sprites/CREDITS.md`
 
-### Modify
-
-- `CLAUDE.md` — add *Visual work* section, prune Opus 4.7-degrading scaffolding
-- `.claude/settings.json` — add `PostToolUse` hook on `client/scenes/**/*.tscn`
-
 ### Delete (chunk 1)
 
 - `client/scripts/_spike/render_3d_spike.gd` + `.uid`
@@ -224,10 +193,10 @@ Plan-08 surfaced that the existing `test_resolver_scene.tscn` has 21 pre-existin
 
 ## Build order (committable chunks)
 
-1. **Methodology + spike cleanup.** No code; pure docs/process. `gdformat`/`gdlint` trivially clean.
+1. **Spike cleanup.** Remove the 3D primitive spike. No code; pure cleanup.
 2. **Renderer scaffolding.** API stubs; scene tree; smoke test (`match_renderer_classes_load`). Opening `match.tscn` shows an empty scene with no errors.
-3. **Sprites + initial-state rendering.** Web-sourced placeholder PNGs, `entity_visuals.tres` populated, `bind_state` actually spawns EntityViews + paints terrain + fits camera. Tests `match_renderer_initial_state_spawns_views`, `match_renderer_owner_modulate`, `match_renderer_uses_visuals_registry`. **Visual reviewer invocation: yes** — first time we look at clash on screen.
-4. **Attack overlays + reconciliation.** AttackLine, DamageLabel, CombatLog implementations; `render_step` consumes events; entity-view reconciliation across state diffs. Tests `match_renderer_renders_attack_event`, `match_renderer_renders_destruction`, `match_renderer_reconciles_state_diff`. **Visual reviewer invocation: yes** — attack mid-frame screenshot.
+3. **Sprites + initial-state rendering.** Placeholder PNGs (deferred quality-pass to a dedicated sprite PR), `entity_visuals.tres` populated, `bind_state` actually spawns EntityViews + paints terrain + fits camera. Tests `match_renderer_initial_state_spawns_views`, `match_renderer_owner_modulate`, `match_renderer_uses_visuals_registry`.
+4. **Attack overlays + reconciliation.** AttackLine, DamageLabel, CombatLog implementations; `render_step` consumes events; entity-view reconciliation across state diffs. Tests `match_renderer_renders_attack_event`, `match_renderer_renders_destruction`, `match_renderer_reconciles_state_diff`.
 
 Each chunk independently committable, all tests green at the end of each.
 

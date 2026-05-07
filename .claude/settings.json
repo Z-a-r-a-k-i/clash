@@ -7,10 +7,6 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/format-on-save.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/scripts/visual-reminder.sh"
           }
         ]
       }
