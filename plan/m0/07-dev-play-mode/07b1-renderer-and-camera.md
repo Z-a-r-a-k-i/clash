@@ -26,7 +26,6 @@ Plan node 07's "Done when" splits naturally into four user-visible verbs:
 3. **Web-sourced placeholder sprites for now.** One sprite per entity type, picked at impl time from CC0 sources (Kenney, OpenGameArt, itch.io). Defer the 2D-vs-3D-final-look question to post-M0 playtest.
 4. **Make attack actions visible.** Red line attacker→target, hit flash on target, floating `-N` damage label, dev-mode combat log. Missing combat info breaks the playtest loop.
 5. **Architecture survives a future art swap.** EntityView is a dumb sprite holder; later replacing it with a mesh-based view (or a different sprite pack) doesn't touch the sync code.
-6. **Lock in methodology guardrails so the BoxMesh failure doesn't recur.** Visual spec written before generation, fresh-context reviewer subagent, screenshot hook.
 
 ## Non-goals
 
@@ -115,17 +114,7 @@ Why direct calls instead of Godot signals from the resolver: the resolver is a p
 
 ### Sprite-mapping registry
 
-New `EntityVisuals` Resource (`client/data/entity_visuals.tres`):
-
-```gdscript
-class_name EntityVisuals
-extends Resource
-
-@export var sprite_paths: Dictionary = {}
-# { "marine": "res://data/art/sprites/marine.png", ... }
-```
-
-Decoupled from `EntityRegistry` so we can swap art without touching gameplay defs.
+New `EntityVisuals` Resource at `client/data/entity_visuals.tres`. The class definition lives in `client/scripts/data/entity_visuals.gd` (a single typed `sprite_paths` map from `def_id` to `res://` texture path). Decoupled from `EntityRegistry` so we can swap art without touching gameplay defs. Per the project rule, type schemas live in code, not in markdown — see the source file for the authoritative shape.
 
 ### Attack visualization
 
@@ -204,11 +193,10 @@ Each chunk independently committable, all tests green at the end of each.
 
 - [ ] `gdformat --check client/scripts` clean.
 - [ ] `gdlint client/scripts` clean.
-- [ ] `res://scripts/_dev/test_renderer_scene.tscn` opens → log: `[test_renderer] 12 passed, 0 failed`.
+- [ ] `res://scripts/_dev/test_renderer_scene.tscn` opens → log: `[test_renderer] 16 passed, 0 failed`.
 - [ ] `res://scripts/_dev/test_resolver_scene.tscn` still green (no new failures vs. main).
-- [ ] `res://scenes/match.tscn` opens → mvp_map renders with sprites at correct tile coordinates, camera fitted to the 50×50 map, no shader/script errors in console.
-- [ ] Visual-reviewer verdict on chunk 3's match-initial screenshot: `ACCEPTABLE` or `NEEDS WORK` (not `BLOCKER`).
-- [ ] Visual-reviewer verdict on chunk 4's attack-mid-frame screenshot: same standard.
+- [ ] `res://scenes/match.tscn` opens → mvp_map renders with sprites at correct tile coordinates, camera fitted to the map, no shader/script errors in console.
+- [ ] Manual eyeball check on a chunk-3 initial-state capture and a chunk-4 attack-mid-frame capture: bases distinct in owner color, attack line clearly traces attacker→target, damage label readable above the target, combat log panel doesn't overlap the play area.
 - [ ] CI proto + gdscript jobs green.
 
 ## ADRs invoked

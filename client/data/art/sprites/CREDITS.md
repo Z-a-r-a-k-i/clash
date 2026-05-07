@@ -27,7 +27,7 @@ clash entity → Kenney source file:
 
 ## Status: M0 placeholders
 
-These are dev-tool placeholders, not final art. Per [`docs/visual-spec.md`](../../../../docs/visual-spec.md), M0 visuals should land at 3-4/5 across the spec criteria — not 5/5. Final art direction is deferred to post-M0 once playtest reveals which entities matter visually.
+These are dev-tool placeholders, not final art. Final art direction is deferred to post-M0 once playtest reveals which entities matter visually.
 
 The Kenney pack is alien/Mars-themed, while clash's entity vocabulary is StarCraft-Terran-ish (marine/tank/helicopter/barracks/factory/starport). The aesthetic mismatch is acceptable for placeholder use; readability per entity type is what M0 needs.
 

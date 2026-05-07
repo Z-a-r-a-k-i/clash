@@ -56,8 +56,11 @@ func _ready() -> void:
 			):
 				_target_id = entity.id
 				break
+		if _target_id < 0:
+			push_warning("render_preview: no opposing target found; demo attack disabled")
+			return
 		_fire_demo_attack()
-		var timer := Timer.new()
+		var timer: Timer = Timer.new()
 		timer.wait_time = demo_attack_interval_seconds
 		timer.autostart = true
 		timer.timeout.connect(_fire_demo_attack)
@@ -67,7 +70,7 @@ func _ready() -> void:
 func _fire_demo_attack() -> void:
 	if _renderer == null or _attacker_id < 0 or _target_id < 0:
 		return
-	var event := ResolverEvent.new()
+	var event: ResolverEvent = ResolverEvent.new()
 	event.type = ResolverEvent.Type.ENTITY_DAMAGED
 	event.actor_id = _attacker_id
 	event.target_id = _target_id

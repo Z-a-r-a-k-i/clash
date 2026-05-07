@@ -237,7 +237,13 @@ func _test_match_renderer_uses_visuals_registry() -> bool:
 
 func _make_renderer() -> MatchRenderer:
 	var scene: PackedScene = load(MATCH_SCENE_PATH)
-	var instance := scene.instantiate() as MatchRenderer
+	if scene == null:
+		push_error("_make_renderer: could not load %s" % MATCH_SCENE_PATH)
+		return null
+	var instance: MatchRenderer = scene.instantiate() as MatchRenderer
+	if instance == null:
+		push_error("_make_renderer: scene did not instantiate as MatchRenderer")
+		return null
 	# Add to scene tree so @onready / get_viewport_rect work.
 	add_child(instance)
 	return instance
