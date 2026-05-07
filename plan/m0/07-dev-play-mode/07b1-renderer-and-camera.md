@@ -1,5 +1,5 @@
 ---
-status: ready
+status: doing
 depends_on:
   - ../08-mvp-map.md
   - ./07a-scenario-loader-and-save-load.md
