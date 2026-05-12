@@ -143,9 +143,13 @@ What renderer tests do NOT cover:
 - Animation timing (assert *start*, not exact ms)
 - Performance (no benchmarks at M0 scale)
 
-### Cold-start brittleness — known issue, not blocking
+### Cold-start brittleness — fixed after 07b1
 
-Plan-08 surfaced that the existing `test_resolver_scene.tscn` has 21 pre-existing tests that fail on a fresh Godot editor cold-start (gather/build/train/research cycles), even though they pass in a warm editor. CI doesn't run @tool tests, so this never blocks PRs. New renderer tests inherit the same risk; we accept it for 07b1 and don't invest in a "fix the cold-start" workstream as part of this PR.
+Plan-08 surfaced that the existing `test_resolver_scene.tscn` had 21 pre-existing tests that failed on a fresh Godot editor cold-start (gather/build/train/research cycles), even though they passed in a warm editor. The follow-up resolver-test stabilization PR fixed this by:
+
+- keeping multi-turn synthetic tests alive with an explicit opponent building fixture, so the raze-to-win check does not end artificial one-sided matches after turn 0;
+- marking data/runtime Resource scripts as `@tool`, so editor-loaded `.tres` resources expose their methods instead of becoming placeholder instances;
+- adding `run_test_resolver_headless.gd`, which makes the resolver suite runnable through `godot --headless --script` and wires into `make test`.
 
 ## Files
 
