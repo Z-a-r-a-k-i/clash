@@ -3861,7 +3861,9 @@ func _add_opponent_keepalive_building(state: MatchState, registry: EntityRegistr
 			if state.tile_grid.place(entity.id, rect):
 				return entity
 			state.entities.erase(entity)
-	push_error("_add_opponent_keepalive_building: no clear tile for keepalive fixture")
+	var message: String = "_add_opponent_keepalive_building: no clear tile for keepalive fixture"
+	push_error(message)
+	assert(false, message)
 	return null
 
 
