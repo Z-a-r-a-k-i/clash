@@ -16,6 +16,7 @@ const _TUNABLES_PATH := "res://data/tunables.tres"
 const _SMOKE_SCENARIO_PATH := "res://data/scenarios/smoke_minimal.tres"
 const _MVP_MAP_TSCN_PATH := "res://data/scenarios/mvp_map.tscn"
 const _MVP_MAP_TRES_PATH := "res://data/scenarios/mvp_map.tres"
+const _TEST_KEEPALIVE_DEF_ID := "__test_keepalive_building"
 
 
 func _enter_tree() -> void:
@@ -1769,6 +1770,7 @@ func _test_gather_full_cycle_minerals() -> bool:
 	var patch := _make_entity(state, "minpatch", -1, Vector2i(8, 5), 1500, "ground")
 	patch.current_resource_amount = 1500
 	state.tile_grid.place(patch.id, Rect2i(8, 5, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	# Send the GATHER order on turn 0.
 	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
@@ -1810,6 +1812,7 @@ func _test_gather_full_cycle_gas_via_refinery() -> bool:
 	# test-shim that poked _entity_rects directly.
 	var refinery := _make_entity(state, "refinery", 0, Vector2i(10, 5), 750, "ground")
 	state.tile_grid.place_overlapping(refinery.id, Rect2i(10, 5, 1, 1), geyser.id)
+	_add_opponent_keepalive_building(state, registry)
 
 	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], refinery.id)
 	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
@@ -1890,6 +1893,7 @@ func _test_patch_depletes_at_capacity_zero() -> bool:
 	var patch := _make_entity(state, "minpatch", -1, Vector2i(8, 5), 100, "ground")
 	patch.current_resource_amount = 3
 	state.tile_grid.place(patch.id, Rect2i(8, 5, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
 	var saw_depleted := false
@@ -1927,6 +1931,7 @@ func _test_worker_idles_on_source_destroyed_mid_trip() -> bool:
 	var patch := _make_entity(state, "minpatch", -1, Vector2i(15, 5), 100, "ground")
 	patch.current_resource_amount = 100
 	state.tile_grid.place(patch.id, Rect2i(15, 5, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
 	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
@@ -1986,6 +1991,7 @@ func _test_nearest_deposit_sink_chosen() -> bool:
 	worker.gather_state.carrying_amount = 5
 	worker.gather_state.carrying_resource_type = "minerals"
 	state.tile_grid.place(worker.id, Rect2i(7, 7, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
 	for _i in 15:
@@ -2019,6 +2025,7 @@ func _test_gather_clears_prior_persistent_move() -> bool:
 	var patch := _make_entity(state, "minpatch", -1, Vector2i(8, 5), 100, "ground")
 	patch.current_resource_amount = 20
 	state.tile_grid.place(patch.id, Rect2i(8, 5, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 	# Stash a stale persistent MOVE pointing far away. If it resumes after
 	# gather, the worker drifts toward (25, 25) instead of staying put.
 	var stale := EntityOrder.new()
@@ -2104,6 +2111,7 @@ func _test_train_idle_producer_immediate_install() -> bool:
 	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
 	barracks.production_state = ProductionState.new()
 	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+	_add_opponent_keepalive_building(state, registry)
 
 	var order := EntityOrder.new()
 	order.type = EntityOrder.Type.TRAIN
@@ -2142,6 +2150,7 @@ func _test_train_insufficient_minerals_stalls_at_install() -> bool:
 	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
 	barracks.production_state = ProductionState.new()
 	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+	_add_opponent_keepalive_building(state, registry)
 
 	var order := EntityOrder.new()
 	order.type = EntityOrder.Type.TRAIN
@@ -2173,6 +2182,7 @@ func _test_train_resumes_after_funds_arrive() -> bool:
 	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
 	barracks.production_state = ProductionState.new()
 	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+	_add_opponent_keepalive_building(state, registry)
 
 	var order := EntityOrder.new()
 	order.type = EntityOrder.Type.TRAIN
@@ -2206,6 +2216,7 @@ func _test_train_spawn_adjacent_with_persistent_move_to_rally() -> bool:
 	var barracks := _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
 	barracks.production_state = ProductionState.new()
 	state.tile_grid.place(barracks.id, Rect2i(5, 5, 3, 3))
+	_add_opponent_keepalive_building(state, registry)
 
 	var order := EntityOrder.new()
 	order.type = EntityOrder.Type.TRAIN
@@ -2261,6 +2272,7 @@ func _test_train_spawn_deferred_no_free_tile() -> bool:
 				continue  # skip the barracks footprint itself
 			var blk := _make_entity(state, "blocker", 1, Vector2i(x, y), 50, "ground")
 			state.tile_grid.place(blk.id, Rect2i(x, y, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	var order := EntityOrder.new()
 	order.type = EntityOrder.Type.TRAIN
@@ -2320,6 +2332,7 @@ func _test_cancel_active_full_refund() -> bool:
 	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
 	barracks.production_state = ProductionState.new()
 	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+	_add_opponent_keepalive_building(state, registry)
 
 	# Submit a TRAIN to reach a paid active state, then cancel it next turn.
 	var train := EntityOrder.new()
@@ -2361,6 +2374,7 @@ func _test_cancel_queued_no_cost_movement() -> bool:
 	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
 	barracks.production_state = ProductionState.new()
 	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+	_add_opponent_keepalive_building(state, registry)
 
 	# Three TRAIN orders this turn. The first becomes active (cost paid);
 	# the next two queue without payment.
@@ -2425,6 +2439,7 @@ func _test_cancel_active_triggers_try_fill() -> bool:
 	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
 	barracks.production_state = ProductionState.new()
 	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+	_add_opponent_keepalive_building(state, registry)
 
 	# Submit TRAIN(marine), TRAIN(tank). Marine becomes active (50 paid),
 	# tank queues unpaid.
@@ -2470,6 +2485,7 @@ func _test_research_full_cycle() -> bool:
 	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
 	barracks.production_state = ProductionState.new()
 	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+	_add_opponent_keepalive_building(state, registry)
 
 	var order := EntityOrder.new()
 	order.type = EntityOrder.Type.RESEARCH
@@ -2711,6 +2727,7 @@ func _test_build_worker_walks_to_site() -> bool:
 	state.players[0].minerals = 500
 	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	var build_order := EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
@@ -2745,6 +2762,7 @@ func _test_build_progress_only_while_worker_adjacent() -> bool:
 	state.players[0].minerals = 500
 	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	var build_order := EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
@@ -2816,6 +2834,7 @@ func _test_build_completes_applies_pop_provides() -> bool:
 	state.players[0].pop_cap = 0
 	var worker := _make_entity(state, "worker", 0, Vector2i(4, 4), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(4, 4, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	var build_order := EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
@@ -2846,6 +2865,7 @@ func _test_build_locked_worker_rejects_new_orders() -> bool:
 	state.players[0].minerals = 500
 	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	var build_order := EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
@@ -3105,6 +3125,7 @@ func _test_build_worker_death_pauses() -> bool:
 	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
 	var enemy := _make_entity(state, "blocker", 1, Vector2i(0, 5), 50, "ground")
 	state.tile_grid.place(enemy.id, Rect2i(0, 5, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	var build_order := EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
@@ -3144,6 +3165,7 @@ func _test_build_resume_via_new_worker() -> bool:
 	state.players[0].minerals = 500
 	var worker := _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	var build_order := EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
@@ -3215,6 +3237,7 @@ func _test_build_constructing_building_dies_no_refund() -> bool:
 	state.players[0].pop_cap = 0
 	var worker := _make_entity(state, "worker", 0, Vector2i(8, 5), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(8, 5, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	var build_order := EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
@@ -3272,6 +3295,7 @@ func _test_build_cancel_via_worker_full_refund() -> bool:
 	state.players[0].minerals = 500
 	var worker := _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	var build_order := EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
@@ -3806,6 +3830,38 @@ func _make_entity(
 	e.current_layer = layer
 	state.entities.append(e)
 	return e
+
+
+func _add_opponent_keepalive_building(state: MatchState, registry: EntityRegistry) -> Entity:
+	if state == null or state.tile_grid == null or registry == null:
+		return null
+	var has_def := false
+	for existing in registry.entities:
+		if existing != null and existing.id == _TEST_KEEPALIVE_DEF_ID:
+			has_def = true
+			break
+	if not has_def:
+		var def := EntityDef.new()
+		def.id = _TEST_KEEPALIVE_DEF_ID
+		def.footprint = Vector2i.ONE
+		def.tags = ["building", "structure", "ground"]
+		var hp := HealthDef.new()
+		hp.max_hp = 1
+		def.health = hp
+		registry.entities.append(def)
+		registry._indexes_built = false
+
+	for y in range(state.tile_grid.height - 1, -1, -1):
+		for x in range(state.tile_grid.width - 1, -1, -1):
+			var origin := Vector2i(x, y)
+			var rect := Rect2i(origin, Vector2i.ONE)
+			if not state.tile_grid.is_rect_clear(rect):
+				continue
+			var entity := _make_entity(state, _TEST_KEEPALIVE_DEF_ID, 1, origin, 1, "ground")
+			if state.tile_grid.place(entity.id, rect):
+				return entity
+			state.entities.erase(entity)
+	return null
 
 
 func _combat_def(damage: int, range_tiles: int, target_layers: Array[String]) -> CombatDef:
@@ -4412,6 +4468,7 @@ func _gather_total_after_turns(patch_def_id: String, patch_yield: int, turns: in
 	var patch := _make_entity(state, patch_def_id, -1, Vector2i(8, 5), 1500, "ground")
 	patch.current_resource_amount = 5000
 	state.tile_grid.place(patch.id, Rect2i(8, 5, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
 
 	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
 	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
