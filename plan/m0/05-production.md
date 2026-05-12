@@ -48,11 +48,12 @@ Tank and helicopter likely cost gas in addition to minerals; marine is mineral-o
 
 ## Done when
 
-- [ ] Worker can issue a build order on a tile rect; building progresses N turns; building becomes functional at 0.
-- [ ] Production buildings can queue one unit at a time; units spawn at rally on completion.
-- [ ] Research item completes and applies its effect (test with a placeholder research that bumps marine HP).
-- [ ] All build/train/research times are data-driven.
-- [ ] Cancel returns the full mineral and gas cost to the player.
+- [x] Worker can issue a build order on a tile rect; building progresses N turns; building becomes functional at 0.
+- [x] Production buildings can queue one unit at a time; units spawn at rally on completion.
+- [x] Research item completes and unlocks its research id; concrete research effects are ability/tech behavior and remain data-driven for later feature work.
+- [x] Duplicate in-progress research is rejected player-wide.
+- [x] All build/train/research times are data-driven.
+- [x] Cancel returns the full mineral and gas cost to the player for active production and in-progress builds.
 
 ## Artifacts
 

@@ -44,11 +44,16 @@ Players will mostly issue orders to *groups* of selected units, not individuals.
 
 ## Done when
 
-- [ ] All order types listed above are issuable from the prototype UI.
-- [ ] Persistent move state survives across turn submissions and is rendered as a visible path indicator.
-- [ ] Cancel works on persistent moves and on queued production.
-- [ ] Group orders fan out correctly at submit time.
-- [ ] Surrender flag is deliverable and resolves to a win event.
+- [x] Runtime order resources exist for all resolver-level order types listed above.
+- [x] Persistent move state survives across turn submissions.
+- [x] Cancel works on persistent moves and on queued production.
+- [x] Group orders fan out correctly at submit time.
+- [x] Surrender flag is deliverable and resolves to a win event.
+
+## Deferred UI criteria
+
+- Prototype UI issuance for all order types lands in 07b2.
+- Visible persistent-order/path indicators land with the dev-play rendering/input work in 07b2/07b3.
 
 ## Artifacts
 

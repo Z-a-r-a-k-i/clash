@@ -62,6 +62,14 @@ func _all_tests() -> Array:
 		["multi_tile_move_collision", _test_multi_tile_move_collision],
 		["persistent_move_continuation", _test_persistent_move_continuation],
 		["attacks_before_moves", _test_attacks_before_moves],
+		[
+			"move_uses_full_speed_budget_single_order",
+			_test_move_uses_full_speed_budget_single_order
+		],
+		[
+			"persistent_move_uses_full_speed_budget_without_orders",
+			_test_persistent_move_uses_full_speed_budget_without_orders
+		],
 		["move_budget_respected", _test_move_budget_respected],
 		["attack_move_halts_when_enemy_in_range", _test_attack_move_halts_when_enemy_in_range],
 		# Chunk 5 — end-of-turn system.
@@ -97,6 +105,7 @@ func _all_tests() -> Array:
 		["gather_full_cycle_minerals", _test_gather_full_cycle_minerals],
 		["gather_full_cycle_gas_via_refinery", _test_gather_full_cycle_gas_via_refinery],
 		["gather_fails_geyser_without_refinery", _test_gather_fails_geyser_without_refinery],
+		["gather_travel_uses_full_speed_budget", _test_gather_travel_uses_full_speed_budget],
 		["patch_depletes_at_capacity_zero", _test_patch_depletes_at_capacity_zero],
 		[
 			"worker_idles_on_source_destroyed_mid_trip",
@@ -128,6 +137,11 @@ func _all_tests() -> Array:
 		["train_pop_overflow_stalls_at_install", _test_train_pop_overflow_stalls_at_install],
 		["research_full_cycle", _test_research_full_cycle],
 		["research_already_unlocked_rejected", _test_research_already_unlocked_rejected],
+		["duplicate_research_rejected_when_active", _test_duplicate_research_rejected_when_active],
+		[
+			"duplicate_research_rejected_when_queued_elsewhere",
+			_test_duplicate_research_rejected_when_queued_elsewhere
+		],
 		["research_stalls_on_funds", _test_research_stalls_on_funds],
 		[
 			"build_distributes_creates_constructing_entity",
@@ -137,6 +151,10 @@ func _all_tests() -> Array:
 		[
 			"build_progress_only_while_worker_adjacent",
 			_test_build_progress_only_while_worker_adjacent
+		],
+		[
+			"construction_worker_travel_uses_full_speed_budget",
+			_test_construction_worker_travel_uses_full_speed_budget
 		],
 		["build_completes_applies_pop_provides", _test_build_completes_applies_pop_provides],
 		["build_locked_worker_rejects_new_orders", _test_build_locked_worker_rejects_new_orders],
@@ -587,7 +605,7 @@ func _test_multi_tile_move_collision() -> bool:
 
 func _test_persistent_move_continuation() -> bool:
 	# Entity has persistent_order set; no fresh order this tick. Expect
-	# Phase 3 to advance one step toward the persistent target.
+	# Phase 3 to advance toward the persistent target.
 	var registry := _movable_registry(4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
@@ -599,31 +617,10 @@ func _test_persistent_move_continuation() -> bool:
 	po.target_tile = Vector2i(15, 5)
 	actor.persistent_order = po
 
-	# No orders submitted this turn, but we need at least one tick. The
-	# resolver currently sets N = max queue length; with no orders, N = 0
-	# and Phase 3 doesn't run. Submit a no-op for a different entity to
-	# force at least one tick.
-	#
-	# Workaround for M0: queue a HOLD_FIRE_TOGGLE on the same entity (it
-	# applies at distribution time, not in the tick loop, so it doesn't
-	# count toward queue length). Simpler: add a second entity owned by
-	# the same player and queue an empty action... actually no, queue
-	# length is per-entity.
-	#
-	# For this test, add a placeholder entity with one queued MOVE so
-	# N=1, then check the actor's persistent move advanced.
-	var dummy := _make_entity(state, "marine", 0, Vector2i(0, 0), 50, "ground")
-	state.tile_grid.place(dummy.id, Rect2i(0, 0, 1, 1))
-	var dummy_move := EntityOrder.new()
-	dummy_move.type = EntityOrder.Type.MOVE
-	dummy_move.entity_id = dummy.id
-	dummy_move.target_tile = Vector2i(0, 0)  # already there, so step_toward returns false
-	var queue_a: Array[EntityOrder] = [dummy_move]
-
-	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
+	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
-			# Persistent move should have advanced one tile toward (15, 5).
+			# First step still starts one tile toward (15, 5).
 			return ev.from_origin == Vector2i(5, 5) and ev.to_origin == Vector2i(6, 5)
 	return false
 
@@ -666,6 +663,53 @@ func _test_attacks_before_moves() -> bool:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and moved_idx == -1:
 			moved_idx = i
 	return damaged_idx != -1 and moved_idx != -1 and damaged_idx < moved_idx
+
+
+func _test_move_uses_full_speed_budget_single_order() -> bool:
+	# One MOVE order should spend the entity's whole speed budget this turn,
+	# not just one tile because the action queue has one slot.
+	var registry := _movable_registry(4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(15, 5)
+	var result := Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit(), registry, null
+	)
+
+	var move_count := 0
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			move_count += 1
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return move_count == 4 and new_actor.origin == Vector2i(9, 5)
+
+
+func _test_persistent_move_uses_full_speed_budget_without_orders() -> bool:
+	# Standing movement with no submitted orders should still spend the
+	# full speed budget, otherwise persistent movement crawls at 1 tile/turn.
+	var registry := _movable_registry(4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+
+	var po := EntityOrder.new()
+	po.type = EntityOrder.Type.MOVE
+	po.entity_id = actor.id
+	po.target_tile = Vector2i(15, 5)
+	actor.persistent_order = po
+
+	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
+	var move_count := 0
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			move_count += 1
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return move_count == 4 and new_actor.origin == Vector2i(9, 5)
 
 
 func _test_move_budget_respected() -> bool:
@@ -1810,6 +1854,29 @@ func _test_gather_fails_geyser_without_refinery() -> bool:
 	return w.gather_state.phase == GatherState.Phase.IDLE
 
 
+func _test_gather_travel_uses_full_speed_budget() -> bool:
+	# A gather worker in MOVING_TO_SOURCE should spend its full movement
+	# speed in one turn, sharing the same movement budget as normal MOVE.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(30, 30)
+	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	worker.gather_state = GatherState.new()
+	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	var patch := _make_entity(state, "minpatch", -1, Vector2i(20, 5), 1500, "ground")
+	patch.current_resource_amount = 1500
+	state.tile_grid.place(patch.id, Rect2i(20, 5, 1, 1))
+
+	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
+	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+
+	var move_count := 0
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == worker.id:
+			move_count += 1
+	var new_worker := result.new_state.get_entity_by_id(worker.id)
+	return move_count == 4 and new_worker.origin == Vector2i(9, 5)
+
+
 func _test_patch_depletes_at_capacity_zero() -> bool:
 	# Patch with capacity = 3, carry = 5: worker can only collect 3
 	# before the patch depletes; should walk back, deposit 3, then idle.
@@ -2458,6 +2525,81 @@ func _test_research_already_unlocked_rejected() -> bool:
 	return false
 
 
+func _test_duplicate_research_rejected_when_active() -> bool:
+	# Research is player-wide: if an owned producer is already actively
+	# researching an id, another RESEARCH order for that id must reject.
+	var registry := _production_registry()
+	registry.researches = [_make_research_def("stim_research", 100, 0, 3)]
+	registry.entities[0].production.researches = ["stim_research"]
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	barracks.production_state.active = {
+		ProductionState.KEY_DEF_ID: "stim_research",
+		ProductionState.KEY_KIND: ProductionState.KIND_RESEARCH,
+		ProductionState.KEY_TURNS_REMAINING: 2,
+		ProductionState.KEY_PAID_MINERALS: 100,
+		ProductionState.KEY_PAID_GAS: 0,
+		ProductionState.KEY_PAID_POP: 0,
+	}
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.RESEARCH
+	order.entity_id = barracks.id
+	order.def_id = "stim_research"
+	var result := Resolver.resolve(
+		state, _submit([order] as Array[EntityOrder]), _submit(), registry, null
+	)
+	var b := result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.queue.is_empty():
+		return false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ORDER_REJECTED and ev.def_id == "duplicate_research":
+			return true
+	return false
+
+
+func _test_duplicate_research_rejected_when_queued_elsewhere() -> bool:
+	# Queued-but-not-started research is also player-wide. A second owned
+	# producer should not be able to queue or start the same research id.
+	var registry := _production_registry()
+	registry.researches = [_make_research_def("stim_research", 100, 0, 3)]
+	registry.entities[0].production.researches = ["stim_research"]
+	var state := _state_with_grid(30, 30)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var barracks_a := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks_a.production_state = ProductionState.new()
+	barracks_a.production_state.queue = [
+		{
+			ProductionState.KEY_DEF_ID: "stim_research",
+			ProductionState.KEY_KIND: ProductionState.KIND_RESEARCH,
+		}
+	]
+	state.tile_grid.place(barracks_a.id, Rect2i(2, 2, 3, 3))
+	var barracks_b := _make_entity(state, "barracks", 0, Vector2i(12, 2), 1000, "ground")
+	barracks_b.production_state = ProductionState.new()
+	state.tile_grid.place(barracks_b.id, Rect2i(12, 2, 3, 3))
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.RESEARCH
+	order.entity_id = barracks_b.id
+	order.def_id = "stim_research"
+	var result := Resolver.resolve(
+		state, _submit([order] as Array[EntityOrder]), _submit(), registry, null
+	)
+	var b := result.new_state.get_entity_by_id(barracks_b.id)
+	if not b.production_state.queue.is_empty() or not b.production_state.active.is_empty():
+		return false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ORDER_REJECTED and ev.def_id == "duplicate_research":
+			return true
+	return false
+
+
 func _test_research_stalls_on_funds() -> bool:
 	# RESEARCH stalls on insufficient minerals, mirrors TRAIN.
 	var registry := _production_registry()
@@ -2633,6 +2775,33 @@ func _test_build_progress_only_while_worker_adjacent() -> bool:
 			saw_progress = true
 			break
 	return saw_progress
+
+
+func _test_construction_worker_travel_uses_full_speed_budget() -> bool:
+	# A locked construction worker should spend its full speed budget while
+	# walking to the building site during the BUILD submission turn.
+	var registry := _build_registry()
+	var state := _state_with_grid(30, 30)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(10, 10)
+	var result := Resolver.resolve(
+		state, _submit([build_order] as Array[EntityOrder]), _submit(), registry, null
+	)
+
+	var move_count := 0
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == worker.id:
+			move_count += 1
+	var w := result.new_state.get_entity_by_id(worker.id)
+	return move_count == 4 and w.origin == Vector2i(4, 4)
 
 
 func _test_build_completes_applies_pop_provides() -> bool:

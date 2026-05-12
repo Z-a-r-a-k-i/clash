@@ -133,26 +133,36 @@ static func resolve(
 			if order.type == EntityOrder.Type.ATTACK or order.type == EntityOrder.Type.ATTACK_MOVE:
 				CombatSystem.resolve_attack(working, entity, order, registry, tunables, events)
 
-		# Phase 2: moves. Same stable iteration.
-		for entity in sorted_entities:
-			var order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
-			if order == null:
-				continue
-			if order.type == EntityOrder.Type.MOVE or order.type == EntityOrder.Type.ATTACK_MOVE:
-				MovementSystem.resolve_move(working, entity, order, registry, tunables, events)
+		# Phase 2: movement substeps. A MOVE / ATTACK_MOVE action slot is
+		# one intent, but speed_tiles_per_turn is a per-turn distance
+		# budget. Iterate movement systems until every live mover has had
+		# a chance to spend that budget. `moves_used_this_turn` still caps
+		# each entity, so this upper bound is safe for mixed-speed rosters.
+		for _substep in _max_live_movement_speed(working, registry):
+			for entity in sorted_entities:
+				var order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
+				if order == null:
+					continue
+				if (
+					order.type == EntityOrder.Type.MOVE
+					or order.type == EntityOrder.Type.ATTACK_MOVE
+				):
+					MovementSystem.resolve_move(working, entity, order, registry, tunables, events)
 
-		# Phase 2 extension: gather workers that are walking to a source or
-		# a deposit sink step here too — same lockstep as MOVE.
-		GatherSystem.advance_move_phase(working, per_entity, tick, registry, tunables, events)
+			# Gather workers that are walking to a source or a deposit sink
+			# consume the same movement budget as explicit MOVE orders.
+			GatherSystem.advance_move_phase(working, per_entity, tick, registry, tunables, events)
 
-		# Phase 2 extension: workers locked to an in-progress build walk
-		# toward the building's rect. Plan node 05.
-		ConstructionSystem.advance_move_phase(working, per_entity, tick, registry, tunables, events)
+			# Workers locked to an in-progress build also consume the same
+			# movement budget while walking toward the building's rect.
+			ConstructionSystem.advance_move_phase(
+				working, per_entity, tick, registry, tunables, events
+			)
 
-		# Phase 3: persistent move advance for entities with no fresh order.
-		MovementSystem.advance_persistent_moves(
-			working, per_entity, tick, registry, tunables, events
-		)
+			# Persistent move advance for entities with no fresh order.
+			MovementSystem.advance_persistent_moves(
+				working, per_entity, tick, registry, tunables, events
+			)
 
 		# Phase 3 extension: gather workers at a source / sink tick yields
 		# and deposits.
@@ -184,3 +194,17 @@ static func _has_standing_work(state: MatchState) -> bool:
 		if e.is_constructing:
 			return true
 	return false
+
+
+static func _max_live_movement_speed(state: MatchState, registry: EntityRegistry) -> int:
+	if registry == null:
+		return 0
+	var max_speed := 0
+	for e in state.entities_sorted_by_id():
+		if e == null or e.current_hp <= 0:
+			continue
+		var def: EntityDef = registry.get_by_id(e.current_def_id)
+		if def == null or def.movement == null:
+			continue
+		max_speed = max(max_speed, def.movement.speed_tiles_per_turn)
+	return max_speed

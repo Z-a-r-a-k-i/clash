@@ -14,7 +14,7 @@ Turn based PvP strategy game. Two players queue actions during a shared timer; t
 
 ## Architecture
 
-At M0 the resolver lives in the Godot client and is driven by dev tooling — no network, no server, no AI. M1 adds an AI opponent (still all client-side). M2 adds network play; the server technology and wire protocol are picked at that point. Candidate paths (Go + protobuf, headless Godot/C#, Nakama, etc.) are listed in the design spec. See @docs/ARCHITECTURE.md and @plan/m0/00-config-and-tunables.md.
+At M0 the resolver lives in the Godot client and is driven by dev tooling — no network, no server, no AI. M1 adds an AI opponent (still all client-side). M2 adds network play; the server technology and wire protocol are picked at that point. Candidate paths (Go + protobuf, headless Godot/GDScript, Nakama, etc.) are listed in the design spec. See @docs/ARCHITECTURE.md and @plan/m0/00-config-and-tunables.md.
 
 ## Stack Specific
 

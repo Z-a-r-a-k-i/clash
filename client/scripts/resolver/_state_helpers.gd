@@ -374,6 +374,9 @@ static func _handle_research_order(
 	if player != null and player.unlocked_researches.has(order.def_id):
 		_emit_order_rejected(order.entity_id, "duplicate_research", events)
 		return
+	if _player_has_research_in_progress(state, entity.owner_player_id, order.def_id):
+		_emit_order_rejected(order.entity_id, "duplicate_research", events)
+		return
 	(
 		entity
 		. production_state
@@ -390,6 +393,35 @@ static func _handle_research_order(
 	ev.actor_id = order.entity_id
 	ev.def_id = order.def_id
 	events.append(ev)
+
+
+static func _player_has_research_in_progress(
+	state: MatchState, owner_player_id: int, research_id: String
+) -> bool:
+	if research_id == "":
+		return false
+	for e in state.entities_sorted_by_id():
+		if e == null or e.current_hp <= 0:
+			continue
+		if e.owner_player_id != owner_player_id:
+			continue
+		if e.production_state == null:
+			continue
+		var active: Dictionary = e.production_state.active
+		if (
+			not active.is_empty()
+			and active.get(ProductionState.KEY_KIND, "") == ProductionState.KIND_RESEARCH
+			and active.get(ProductionState.KEY_DEF_ID, "") == research_id
+		):
+			return true
+		for item in e.production_state.queue:
+			var queued: Dictionary = item
+			if (
+				queued.get(ProductionState.KEY_KIND, "") == ProductionState.KIND_RESEARCH
+				and queued.get(ProductionState.KEY_DEF_ID, "") == research_id
+			):
+				return true
+	return false
 
 
 # TRAIN handler — appends a queue declaration on the producer's

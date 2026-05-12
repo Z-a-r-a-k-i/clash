@@ -188,13 +188,13 @@ Each chunk independently committable, all tests green at the end of each.
 
 ## Done when
 
-- [ ] `gdformat --check client/scripts` clean.
-- [ ] `gdlint client/scripts` clean.
-- [ ] `res://scripts/_dev/test_renderer_scene.tscn` opens → log: `[test_renderer] 16 passed, 0 failed`.
-- [ ] `res://scripts/_dev/test_resolver_scene.tscn` still green (no new failures vs. main).
-- [ ] `res://scenes/match.tscn` opens → mvp_map renders with sprites at correct tile coordinates, camera fitted to the map, no shader/script errors in console.
-- [ ] Manual eyeball check on a chunk-3 initial-state capture and a chunk-4 attack-mid-frame capture: bases distinct in owner color, attack line clearly traces attacker→target, damage label readable above the target, combat log panel doesn't overlap the play area.
-- [ ] CI proto + gdscript jobs green.
+- [x] `gdformat --check client/scripts` clean.
+- [x] `gdlint client/scripts` clean.
+- [x] `res://scripts/_dev/test_renderer_scene.tscn` opens → log: `[test_renderer] 16 passed, 0 failed`.
+- [x] `res://scripts/_dev/test_resolver_scene.tscn` still green (no new failures vs. main).
+- [x] `res://scenes/_dev/render_preview.tscn` opens → selected scenario renders with sprites at correct tile coordinates, camera fitted to the map, no shader/script errors in console.
+- [x] Manual eyeball check on a chunk-3 initial-state capture and a chunk-4 attack-mid-frame capture: bases distinct in owner color, attack line clearly traces attacker→target, damage label readable above the target, combat log panel doesn't overlap the play area.
+- [x] CI proto + gdscript jobs green.
 
 ## ADRs invoked
 

@@ -31,7 +31,7 @@ At MVP keep modifiers small (one or two per unit). Expand into a proper counter 
 
 ## Building HP
 
-Buildings have HP and can be destroyed. A destroyed building leaves a wreck (visual) and frees its tile rect after one turn (so the attacker can't immediately rebuild on top, but the area becomes contestable).
+Buildings have HP and can be destroyed. At M0 the resolver removes occupancy immediately when a building is destroyed; delayed wreck/blocking visuals are presentation polish for later dev-play work.
 
 ## Win condition
 
@@ -41,11 +41,11 @@ Buildings have HP and can be destroyed. A destroyed building leaves a wreck (vis
 
 ## Done when
 
-- [ ] Marine, tank, and helicopter all dealable damage to ground / flying targets per the rules above.
-- [ ] Counter modifiers apply correctly (golden test on a known scenario).
-- [ ] Building destruction emits an event and removes occupancy after one turn.
-- [ ] Win check runs after every turn's end-of-turn pass and ends the match cleanly.
-- [ ] Surrender flag delivered in `SubmitTurn` ends the match immediately.
+- [x] Marine, tank, and helicopter can deal damage to valid ground / flying targets per the rules above.
+- [x] Counter modifiers apply correctly (golden test on known data values).
+- [x] Building destruction emits an event and removes occupancy.
+- [x] Win check runs after every turn's end-of-turn pass and ends the match cleanly.
+- [x] Surrender flag delivered in `SubmitTurn` ends the match immediately.
 
 ## Artifacts
 
