@@ -3833,7 +3833,19 @@ func _make_entity(
 
 
 func _add_opponent_keepalive_building(state: MatchState, registry: EntityRegistry) -> Entity:
-	if state == null or state.tile_grid == null or registry == null:
+	var invalid_inputs: Array[String] = []
+	if state == null:
+		invalid_inputs.append("state")
+	elif state.tile_grid == null:
+		invalid_inputs.append("state.tile_grid")
+	if registry == null:
+		invalid_inputs.append("registry")
+	if not invalid_inputs.is_empty():
+		var invalid_args_message: String = (
+			"_add_opponent_keepalive_building: invalid inputs (%s)" % ", ".join(invalid_inputs)
+		)
+		push_error(invalid_args_message)
+		assert(false, invalid_args_message)
 		return null
 	var has_def: bool = false
 	for existing in registry.entities:
