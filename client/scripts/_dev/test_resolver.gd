@@ -3835,17 +3835,17 @@ func _make_entity(
 func _add_opponent_keepalive_building(state: MatchState, registry: EntityRegistry) -> Entity:
 	if state == null or state.tile_grid == null or registry == null:
 		return null
-	var has_def := false
+	var has_def: bool = false
 	for existing in registry.entities:
 		if existing != null and existing.id == _TEST_KEEPALIVE_DEF_ID:
 			has_def = true
 			break
 	if not has_def:
-		var def := EntityDef.new()
+		var def: EntityDef = EntityDef.new()
 		def.id = _TEST_KEEPALIVE_DEF_ID
 		def.footprint = Vector2i.ONE
 		def.tags = ["building", "structure", "ground"]
-		var hp := HealthDef.new()
+		var hp: HealthDef = HealthDef.new()
 		hp.max_hp = 1
 		def.health = hp
 		registry.entities.append(def)
@@ -3853,14 +3853,15 @@ func _add_opponent_keepalive_building(state: MatchState, registry: EntityRegistr
 
 	for y in range(state.tile_grid.height - 1, -1, -1):
 		for x in range(state.tile_grid.width - 1, -1, -1):
-			var origin := Vector2i(x, y)
-			var rect := Rect2i(origin, Vector2i.ONE)
+			var origin: Vector2i = Vector2i(x, y)
+			var rect: Rect2i = Rect2i(origin, Vector2i.ONE)
 			if not state.tile_grid.is_rect_clear(rect):
 				continue
-			var entity := _make_entity(state, _TEST_KEEPALIVE_DEF_ID, 1, origin, 1, "ground")
+			var entity: Entity = _make_entity(state, _TEST_KEEPALIVE_DEF_ID, 1, origin, 1, "ground")
 			if state.tile_grid.place(entity.id, rect):
 				return entity
 			state.entities.erase(entity)
+	push_error("_add_opponent_keepalive_building: no clear tile for keepalive fixture")
 	return null
 
 

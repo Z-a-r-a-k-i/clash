@@ -4,19 +4,19 @@ const TEST_SCRIPT := "res://scripts/_dev/test_resolver.gd"
 
 
 func _init() -> void:
-	var script := load(TEST_SCRIPT)
+	var script: Script = load(TEST_SCRIPT) as Script
 	if script == null:
 		push_error("[test_resolver_headless] could not load %s" % TEST_SCRIPT)
 		quit(1)
 		return
 
-	var selected := _selected_tests()
-	var runner := Node.new()
+	var selected: Array[String] = _selected_tests()
+	var runner: Node = Node.new()
 	runner.set_script(script)
 
-	var passed := 0
-	var failed := 0
-	var skipped := 0
+	var passed: int = 0
+	var failed: int = 0
+	var skipped: int = 0
 	var fail_names: Array[String] = []
 
 	for test_pair in runner._all_tests():
