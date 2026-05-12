@@ -29,9 +29,10 @@ jobs:
           python-version: '3.x'
       - run: pip install gdtoolkit
       - run: |
-          if find client -name '*.gd' 2>/dev/null | grep -q .; then
-            gdlint client
-            gdformat --check client
+          gd_files="$(git ls-files '*.gd')"
+          if [ -n "$gd_files" ]; then
+            printf '%s\n' "$gd_files" | xargs gdlint
+            printf '%s\n' "$gd_files" | xargs gdformat --check
           else
             echo "no GDScript files yet; skipping"
           fi

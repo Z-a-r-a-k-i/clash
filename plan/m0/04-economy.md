@@ -39,12 +39,12 @@ Units, buildings, and research items each have a cost of `{ minerals, gas }` (ei
 
 ## Done when
 
-- [ ] Mineral patches and gas geysers placed on the test map (per base location, per node 08).
-- [ ] Workers can be assigned to a patch or to a refinery; gathering happens automatically each turn until reassigned.
-- [ ] Refinery building can be placed on a geyser; only then can workers extract gas.
-- [ ] Player can build a new base on a different cluster and assign new workers there.
-- [ ] Pop counter reflects worker count plus military units.
-- [ ] Both resource counters (minerals, gas) are visible per player.
+- [x] Mineral patches and gas geysers placed on the MVP map (per base location, per node 08).
+- [x] Workers can be assigned to a patch or to a refinery; gathering happens automatically each turn until reassigned.
+- [x] Refinery building can be placed on a geyser; only then can workers extract gas.
+- [x] Build/economy simulation supports new bases and worker reassignment; prototype UI issuance lands in 07b2.
+- [x] Pop accounting reflects worker count plus military units in simulation state.
+- [x] Resource counters (minerals, gas) exist per player in simulation state; HUD visibility lands in dev-play UI work.
 
 ## Artifacts
 

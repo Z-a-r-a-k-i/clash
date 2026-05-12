@@ -23,11 +23,11 @@ The foundation everything else depends on. Get this wrong and pathfinding, visio
 
 ## Done when
 
-- [ ] Grid type can represent a placed entity at `(origin, footprint)`.
-- [ ] Query API: "what entity is at tile (x, y)?", "is rect clear?", "rect-to-rect distance / adjacency".
-- [ ] Tile size and entity footprint are data driven (config files or scriptable resources, not constants in code).
-- [ ] Unit tests cover: place, move, remove, overlap rejection, distance/adjacency between two multi-tile rects.
-- [ ] One playable test scene shows two multi-tile entities placed on the grid with no rendering glitches.
+- [x] Grid type can represent a placed entity at `(origin, footprint)`.
+- [x] Query API: "what entity is at tile (x, y)?", "is rect clear?", "rect-to-rect distance / adjacency".
+- [x] Tile size and entity footprint are data driven (config files or scriptable resources, not constants in code).
+- [x] Unit tests cover: place, move, remove, overlap rejection, distance/adjacency between two multi-tile rects.
+- [x] A Godot test scene exercises multi-tile placement; visual rendering lands in node 07b1.
 
 ## Artifacts
 

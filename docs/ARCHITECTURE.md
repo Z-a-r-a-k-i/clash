@@ -9,7 +9,7 @@ The architecture changes by milestone:
 ```text
 M0 (current): no network, dev-only
 +---------------------------+
-|  Godot client (C#)        |
+|  Godot client (GDScript)  |
 |  - Renders board          |
 |  - Resolver runs locally  |
 |  - Dev tooling drives     |
@@ -21,11 +21,11 @@ M1: AI opponent added (still all client-side)
 M2: network play, server-authoritative (server tech / protocol picked then)
 +---------------+    wire protocol (TBD)    +---------------+
 |  Godot client | <-----------------------> |  Server (TBD) |
-|  (C#)         |  action queue / events    |               |
+|  (GDScript)   |  action queue / events    |               |
 +---------------+                           +---------------+
 ```
 
-Server technology and wire protocol are deferred to M2 per ADR 0006. Candidate paths (Go + protobuf, headless Godot/C#, Nakama, etc.) are evaluated in `plan/m0/00-config-and-tunables.md`.
+Server technology and wire protocol are deferred to M2 per ADR 0006. Candidate paths (Go + protobuf, headless Godot/GDScript, Nakama, etc.) are evaluated in `plan/m0/00-config-and-tunables.md`.
 
 ## Components
 
@@ -45,7 +45,7 @@ The resolver itself is a pure GDScript function over plain-data structures (see 
 Empty at M0. Populated at M2 once the server stack is chosen. Likely responsibilities:
 
 - **Matchmaker**: lobby, queue, pairing.
-- **Resolver**: deterministic application of action queues against the current state (the same code as the client's M0 resolver, modulo any porting if the server is non-C#).
+- **Resolver**: deterministic application of action queues against the current state (the same code as the client's M0 resolver if the server is headless Godot/GDScript, or a port if the server stack differs).
 - **Connection hub**: lifecycle, encryption, message routing.
 
 Stateless across matches except for in-memory match state. No DB at M0/M1 (defer until persistence is needed for ranking, accounts, replay storage).

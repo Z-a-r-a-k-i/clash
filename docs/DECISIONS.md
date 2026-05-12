@@ -12,7 +12,9 @@ Project codename. Folder: `C:\Users\alk\Documents\Developpement\games\clash`. Ch
 
 **Date:** 2026-04-28
 
-Single repo with three top level stacks: `client/` (Godot, C#), `server/` (Go, deferred), `proto/` (protobuf, single source of truth). Generated code is committed alongside its consumer (`client/generated/`, `server/internal/proto/`).
+Single repo with three top level stacks: `client/` (Godot), `server/` (deferred), `proto/` (conditional on protobuf being chosen at M2). Generated code is committed alongside its consumer if proto is adopted.
+
+**Updated 2026-04-29:** ADR 0020 supersedes the original C# client assumption. Game code is GDScript, server technology remains deferred to M2, and proto remains conditional on the M2 wire-format decision.
 
 **Why:** The shape matches the [godot-go-protobuf-ws](https://github.com/ignoxx/godot-go-protobuf-ws) reference template and the termwatch project. Keeping Godot in `client/` rather than at the repo root prevents non Godot folders from polluting Godot's FileSystem dock.
 
@@ -55,7 +57,7 @@ Clients submit action queues; the server is the only authority for game state. C
 **Server technology and wire protocol are deferred to M2.** Candidate paths and tradeoffs:
 
 - Go server + WebSocket + protobuf — most control; standard production pattern; biggest setup; two languages.
-- Headless Godot/C# server + WebSocket (any encoding) — same engine on both sides; resolver code reused 1:1; less standard.
+- Headless Godot/GDScript server + WebSocket (any encoding) — same engine and language on both sides; resolver code reused 1:1; less standard.
 - Nakama or similar BaaS — fast to ship; covers M3+ matchmaking for free; vendor lock-in.
 - Godot built-in MultiplayerAPI — zero setup but P2P, can't be server-authoritative without a host peer.
 
