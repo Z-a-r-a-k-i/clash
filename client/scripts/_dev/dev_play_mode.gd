@@ -105,7 +105,6 @@ func issue_context_at_tile(tile: Vector2i) -> bool:
 		if target != null and target.owner_player_id >= 0:
 			if target.owner_player_id != _input.active_player_id():
 				return issue_attack_selected(target_id)
-			_input.status_message()
 			return false
 		if _is_gather_target(target):
 			return issue_gather_selected(target_id)
