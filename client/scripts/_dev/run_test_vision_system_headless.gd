@@ -12,7 +12,15 @@ func _init() -> void:
 	var runner: Node = Node.new()
 	runner.set_script(script)
 	root.add_child(runner)
-	var failed: int = int(runner.call("_run_all"))
+	var failed := 1
+	if runner.has_method("_run_all"):
+		var result: Variant = runner.call("_run_all")
+		if typeof(result) == TYPE_INT:
+			failed = int(result)
+		else:
+			push_error("[test_vision_system_headless] _run_all returned non-int result")
+	else:
+		push_error("[test_vision_system_headless] test script is missing _run_all")
 	root.remove_child(runner)
 	runner.queue_free()
 	quit(0 if failed == 0 else 1)

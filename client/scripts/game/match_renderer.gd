@@ -610,7 +610,7 @@ func _remember_visible_enemy_buildings(player_id: int, visibility: VisionSystem.
 
 func _is_entity_hit_testable(entity_id: int) -> bool:
 	var entity := _state.get_entity_by_id(entity_id)
-	if entity == null:
+	if entity == null or entity.current_hp <= 0:
 		return false
 	if entity.owner_player_id == _perspective_player_id:
 		return true

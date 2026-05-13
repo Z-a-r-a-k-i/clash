@@ -22,7 +22,7 @@ const COLOR_FOG_SILHOUETTE := Color(0.16, 0.18, 0.20, 0.72)
 
 var _entity_id: int = -1
 var _owner_player_id: int = -1
-var _fog_silhouette := false
+var _fog_silhouette: bool = false
 
 @onready var _sprite: Sprite2D = $Sprite2D
 @onready var _label: Label = $Label
