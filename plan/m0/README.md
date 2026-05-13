@@ -30,7 +30,7 @@ A match ends when one player has zero buildings, or surrenders. M0's purpose is 
 | Resources and workers | [04-economy.md](04-economy.md) | `done` |
 | Production and build times | [05-production.md](05-production.md) | `done` |
 | Combat resolution and win | [06-combat-and-win.md](06-combat-and-win.md) | `done` |
-| Dev play mode + scenario tooling | [07-dev-play-mode/](07-dev-play-mode/) | compound — 07a `done`; 07b1 `done`; 07b2 `doing`; 07b3/4 `stub` |
+| Dev play mode + scenario tooling | [07-dev-play-mode/](07-dev-play-mode/) | compound — 07a `done`; 07b1 `done`; 07b2 `done`; 07b3/4 `stub` |
 | MVP map layout | [08-mvp-map.md](08-mvp-map.md) | `done` |
 
 ## What's deferred to M1 or later
@@ -45,7 +45,7 @@ A match ends when one player has zero buildings, or surrenders. M0's purpose is 
 
 - [ ] A developer can drive a complete match (both sides) through the dev play mode, ending in a raze or surrender.
 - [x] Scenario loader covers at least three regression scenarios (combat, economy, edge case). *(plan-07a + plan-08)*
-- [ ] All nine child nodes are `done`. *(07-dev-play-mode/ in progress: 07a and 07b1 done; 07b2 in review; 07b3-07b4 remaining)*
+- [ ] All nine child nodes are `done`. *(07-dev-play-mode/ in progress: 07a, 07b1, and 07b2 done; 07b3-07b4 remaining)*
 - [ ] Mechanic-correctness notes captured in `../../docs/ROADMAP.md` or in follow-up plan nodes for M1.
 
 ## Plan-tree convention
