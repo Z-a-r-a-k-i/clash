@@ -379,10 +379,10 @@ static func _is_adjacent_to(state: MatchState, a: Entity, b: Entity) -> bool:
 static func _approach_tile_for(state: MatchState, target: Entity) -> Vector2i:
 	if state.tile_grid == null:
 		return target.origin
-	var tr := state.tile_grid.entity_rect(target.id)
-	if tr.size == Vector2i.ZERO:
+	var target_rect := state.tile_grid.entity_rect(target.id)
+	if target_rect.size == Vector2i.ZERO:
 		return target.origin
-	return tr.position
+	return target_rect.position
 
 
 static func _can_step(actor: Entity, registry: EntityRegistry) -> bool:

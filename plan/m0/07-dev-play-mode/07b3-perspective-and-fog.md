@@ -1,5 +1,5 @@
 ---
-status: doing
+status: done
 depends_on:
   - ./07b2-input-and-turn-advance.md
 ---
@@ -39,3 +39,7 @@ ADR-0016 (fog of war from M0) lands here.
   rendered perspective.
 - [x] Headless tests cover visibility, renderer fog behavior, and dev
   perspective switching.
+
+## Artifacts
+
+- PR [#16](https://github.com/Z-a-r-a-k-i/clash/pull/16)

@@ -17,7 +17,7 @@ This area splits into a headless half (07a) and a visual half decomposed into fo
 - [`07a-scenario-loader-and-save-load.md`](./07a-scenario-loader-and-save-load.md) — `done`. Scenario data shape, loader, save/load round-trip.
 - [`07b1-renderer-and-camera.md`](./07b1-renderer-and-camera.md) — `done`. Renderer + camera + attack visualization. *See the map.*
 - [`07b2-input-and-turn-advance.md`](./07b2-input-and-turn-advance.md) — `done`. Mouse selection + order issuing + manual turn advance. *Play a turn.*
-- [`07b3-perspective-and-fog.md`](./07b3-perspective-and-fog.md) — `doing`. Per-player perspective + fog of war (ADR-0016). *Swap perspectives.*
+- [`07b3-perspective-and-fog.md`](./07b3-perspective-and-fog.md) — `done`. Per-player perspective + fog of war (ADR-0016). *Swap perspectives.*
 - [`07b4-tick-step-debugger.md`](./07b4-tick-step-debugger.md) — `stub`. Single-tick advance + state inspector. *Step ticks.*
 
 ## What it does (full area, all sub-PRs combined)
@@ -45,6 +45,6 @@ This area splits into a headless half (07a) and a visual half decomposed into fo
 - [x] Save current state to file; loading the file reproduces it exactly (including production progress and persistent move orders). *(07a)*
 - [x] At least three scenario files exist for regression testing key combat / economy situations. *(07a + 08)*
 - [x] Dev can issue orders for either player in any order and advance the turn manually. *(07b2)*
-- [ ] Dev can switch between Player A and Player B perspectives at any time, with each view's fog of war computed correctly. *(07b3)*
+- [x] Dev can switch between Player A and Player B perspectives at any time, with each view's fog of war computed correctly. *(07b3)*
 - [ ] Tick-step mode advances the resolver one tick at a time and exposes intermediate state. *(07b4)*
-- [ ] All five sub-PRs land. *(07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `doing`; 07b4 `stub`)*
+- [ ] All five sub-PRs land. *(07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `stub`)*
