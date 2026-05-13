@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://devplaymode07b2"]
+
+[ext_resource type="Script" path="res://scripts/_dev/dev_play_mode.gd" id="1_devplay"]
+
+[node name="DevPlayMode" type="Node"]
+script = ExtResource("1_devplay")

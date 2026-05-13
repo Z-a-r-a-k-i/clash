@@ -67,6 +67,8 @@ func _all_tests() -> Array:
 			_test_fit_camera_handles_null_entity_slots
 		],
 		["match_renderer_match_ended_draw_event_logged", _test_match_ended_draw_event_logged],
+		["match_renderer_world_tile_hit_testing", _test_world_tile_hit_testing],
+		["match_renderer_input_highlights", _test_input_highlights],
 	]
 
 
@@ -774,3 +776,85 @@ func _test_match_ended_draw_event_logged() -> bool:
 		push_error("draw event not rendered as 'draw'; log: %s" % log_text)
 	_free_renderer(renderer)
 	return ok
+
+
+# ---------- Plan 07b2 — input hit testing + highlights ----------
+
+
+func _test_world_tile_hit_testing() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{
+				"def_id": "base",
+				"owner": 0,
+				"origin": Vector2i(2, 2),
+				"footprint": Vector2i(4, 4),
+				"id": 1
+			},
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(7, 2), "id": 2},
+		],
+		12,
+		12
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	var tile: Vector2i = renderer.call("world_to_tile", Vector2(80.0, 80.0))
+	var base_id: int = renderer.call("entity_id_at_tile", Vector2i(3, 3))
+	var empty_id: int = renderer.call("entity_id_at_tile", Vector2i(0, 0))
+	var by_world: int = renderer.call("entity_id_at_world", Vector2(112.0, 112.0))
+	var ok := true
+	if tile != Vector2i(2, 2):
+		push_error("world_to_tile returned %s, expected (2, 2)" % str(tile))
+		ok = false
+	if base_id != 1:
+		push_error("entity_id_at_tile inside base returned %d, expected 1" % base_id)
+		ok = false
+	if empty_id != -1:
+		push_error("entity_id_at_tile on empty tile returned %d, expected -1" % empty_id)
+		ok = false
+	if by_world != 1:
+		push_error("entity_id_at_world inside base returned %d, expected 1" % by_world)
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_input_highlights() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{
+				"def_id": "base",
+				"owner": 0,
+				"origin": Vector2i(2, 2),
+				"footprint": Vector2i(4, 4),
+				"id": 1
+			},
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(7, 2), "id": 2},
+		],
+		12,
+		12
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	renderer.call("set_selected_entity_id", 1)
+	renderer.call("set_hover_tile", Vector2i(8, 8))
+	var highlighted: int = renderer.call("input_highlight_count")
+	if highlighted != 2:
+		push_error("expected selected + hover highlights, got %d" % highlighted)
+		_free_renderer(renderer)
+		return false
+	renderer.call("clear_input_highlights")
+	if renderer.call("input_highlight_count") != 0:
+		push_error("clear_input_highlights should remove all input highlights")
+		_free_renderer(renderer)
+		return false
+	renderer.call("set_selected_entity_id", 1)
+	renderer.bind_state(state, registry)
+	if renderer.call("input_highlight_count") != 0:
+		push_error("bind_state should clear stale input highlights")
+		_free_renderer(renderer)
+		return false
+	_free_renderer(renderer)
+	return true

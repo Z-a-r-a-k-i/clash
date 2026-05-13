@@ -35,6 +35,8 @@ const _DAMAGE_LABEL_RISE_PIXELS := 32.0
 const _DAMAGE_LABEL_OFFSET_Y := -28.0
 const _DESTRUCTION_FADE_SECONDS := 0.5
 const _COMBAT_LOG_MAX_LINES := 50
+const _SELECTED_HIGHLIGHT_COLOR := Color(0.1, 0.85, 1.0, 0.32)
+const _HOVER_HIGHLIGHT_COLOR := Color(1.0, 1.0, 1.0, 0.22)
 
 # Hit flash applied to the target sprite for ~150 ms when ENTITY_DAMAGED
 # fires. Quick pulse to white-ish gives a readable "got hit" cue without
@@ -58,10 +60,15 @@ var _combat_log_lines: Array[String] = []
 # Cached PackedScene for spawning entity views without reloading per call.
 var _entity_view_scene: PackedScene = null
 
+var _selected_entity_id: int = -1
+var _hover_tile: Vector2i = Vector2i.ZERO
+var _has_hover_tile: bool = false
+
 @onready var _entities_root: Node2D = $Entities
 @onready var _terrain: TileMapLayer = $Terrain
 @onready var _camera: Camera2D = $Camera2D
 @onready var _attack_lines_root: Node2D = $Overlays/AttackLines
+@onready var _input_highlights_root: Node2D = $Overlays/Highlights
 @onready var _damage_labels_root: Node2D = $Overlays/DamageLabels
 @onready var _combat_log: RichTextLabel = $HUD/CombatLog
 
@@ -147,6 +154,46 @@ func combat_log_line_count() -> int:
 	return _combat_log_lines.size()
 
 
+func world_to_tile(world_position: Vector2) -> Vector2i:
+	var safe_tile_size: int = max(_tile_size, 1)
+	return Vector2i(
+		floori(world_position.x / safe_tile_size), floori(world_position.y / safe_tile_size)
+	)
+
+
+func entity_id_at_tile(tile: Vector2i) -> int:
+	if _state == null or _state.tile_grid == null:
+		return -1
+	return _state.tile_grid.entity_at(tile)
+
+
+func entity_id_at_world(world_position: Vector2) -> int:
+	return entity_id_at_tile(world_to_tile(world_position))
+
+
+func set_selected_entity_id(entity_id: int) -> void:
+	_selected_entity_id = entity_id
+	_rebuild_input_highlights()
+
+
+func set_hover_tile(tile: Vector2i) -> void:
+	_hover_tile = tile
+	_has_hover_tile = true
+	_rebuild_input_highlights()
+
+
+func clear_input_highlights() -> void:
+	_selected_entity_id = -1
+	_has_hover_tile = false
+	_clear_input_highlight_nodes()
+
+
+func input_highlight_count() -> int:
+	if _input_highlights_root == null:
+		return 0
+	return _input_highlights_root.get_child_count()
+
+
 # ---------- Internals ----------
 
 
@@ -161,6 +208,14 @@ func _resolve_internal_nodes() -> void:
 		_camera = get_node_or_null("Camera2D") as Camera2D
 	if _attack_lines_root == null:
 		_attack_lines_root = get_node_or_null("Overlays/AttackLines") as Node2D
+	if _input_highlights_root == null:
+		_input_highlights_root = get_node_or_null("Overlays/Highlights") as Node2D
+	if _input_highlights_root == null:
+		var overlays := get_node_or_null("Overlays") as Node2D
+		if overlays != null:
+			_input_highlights_root = Node2D.new()
+			_input_highlights_root.name = "Highlights"
+			overlays.add_child(_input_highlights_root)
 	if _damage_labels_root == null:
 		_damage_labels_root = get_node_or_null("Overlays/DamageLabels") as Node2D
 	if _combat_log == null:
@@ -180,6 +235,7 @@ func _clear_existing_views() -> void:
 	_combat_log_lines.clear()
 	if _combat_log != null:
 		_combat_log.clear()
+	clear_input_highlights()
 
 
 func _clear_overlay_roots() -> void:
@@ -189,6 +245,49 @@ func _clear_overlay_roots() -> void:
 		for child in root.get_children():
 			root.remove_child(child)
 			child.queue_free()
+
+
+func _clear_input_highlight_nodes() -> void:
+	if _input_highlights_root == null:
+		return
+	for child in _input_highlights_root.get_children():
+		_input_highlights_root.remove_child(child)
+		child.queue_free()
+
+
+func _rebuild_input_highlights() -> void:
+	_resolve_internal_nodes()
+	_clear_input_highlight_nodes()
+	if _input_highlights_root == null:
+		return
+	if _state != null and _state.tile_grid != null and _selected_entity_id >= 0:
+		var selected_rect: Rect2i = _state.tile_grid.entity_rect(_selected_entity_id)
+		if selected_rect.size.x > 0 and selected_rect.size.y > 0:
+			_input_highlights_root.add_child(
+				_highlight_polygon(selected_rect, _SELECTED_HIGHLIGHT_COLOR)
+			)
+	if _has_hover_tile:
+		_input_highlights_root.add_child(
+			_highlight_polygon(Rect2i(_hover_tile, Vector2i.ONE), _HOVER_HIGHLIGHT_COLOR)
+		)
+
+
+func _highlight_polygon(rect: Rect2i, color: Color) -> Polygon2D:
+	var x0: float = rect.position.x * _tile_size
+	var y0: float = rect.position.y * _tile_size
+	var x1: float = (rect.position.x + rect.size.x) * _tile_size
+	var y1: float = (rect.position.y + rect.size.y) * _tile_size
+	var poly := Polygon2D.new()
+	poly.color = color
+	poly.polygon = PackedVector2Array(
+		[
+			Vector2(x0, y0),
+			Vector2(x1, y0),
+			Vector2(x1, y1),
+			Vector2(x0, y1),
+		]
+	)
+	return poly
 
 
 func _spawn_entity_view(entity: Entity, state: MatchState = null) -> void:
@@ -260,7 +359,9 @@ func _fit_camera_to_state(state: MatchState) -> void:
 		max_tile.y = max(max_tile.y, entity.origin.y + fp.y)
 	var center_tile := Vector2((min_tile.x + max_tile.x) / 2.0, (min_tile.y + max_tile.y) / 2.0)
 	_camera.position = center_tile * _tile_size
-	var viewport_size := get_viewport_rect().size
+	var viewport_size := Vector2(1280, 720)
+	if is_inside_tree():
+		viewport_size = get_viewport_rect().size
 	if viewport_size.x <= 0 or viewport_size.y <= 0:
 		viewport_size = Vector2(1280, 720)
 	var span_tiles_x: int = max_tile.x - min_tile.x + _CAMERA_MARGIN_TILES * 2

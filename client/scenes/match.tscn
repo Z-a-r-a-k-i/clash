@@ -27,6 +27,8 @@ script = ExtResource("1_80q71")
 
 [node name="AttackLines" type="Node2D" parent="Overlays" unique_id=200298027]
 
+[node name="Highlights" type="Node2D" parent="Overlays"]
+
 [node name="DamageLabels" type="Node2D" parent="Overlays" unique_id=1530149937]
 
 [node name="HUD" type="CanvasLayer" parent="." unique_id=1015100489]
