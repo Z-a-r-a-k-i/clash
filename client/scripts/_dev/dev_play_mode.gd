@@ -12,7 +12,7 @@ const DEV_TURN_INPUT_SCRIPT := preload("res://scripts/game/dev_turn_input.gd")
 var _renderer: MatchRenderer = null
 var _loaded: LoadedScenario = null
 var _tunables: Tunables = null
-var _input: Object = DEV_TURN_INPUT_SCRIPT.new()
+var _input: DevTurnInput = DEV_TURN_INPUT_SCRIPT.new() as DevTurnInput
 var _hud_layer: CanvasLayer = null
 var _active_label: Label = null
 var _selected_label: Label = null
@@ -56,7 +56,7 @@ func renderer() -> MatchRenderer:
 	return _renderer
 
 
-func input_model() -> Object:
+func input_model() -> DevTurnInput:
 	return _input
 
 
@@ -118,7 +118,7 @@ func pending_order_count(player_id: int) -> int:
 func resolve_turn() -> bool:
 	if _loaded == null or _loaded.state == null or _loaded.registry == null or _tunables == null:
 		return false
-	var result := Resolver.resolve(
+	var result: ResolveResult = Resolver.resolve(
 		_loaded.state,
 		_input.submit_for_player(0),
 		_input.submit_for_player(1),
@@ -141,14 +141,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _renderer == null or _loaded == null:
 		return
 	if event is InputEventMouseMotion:
-		var hover_tile := _renderer.world_to_tile(_renderer.get_global_mouse_position())
+		var hover_tile: Vector2i = _renderer.world_to_tile(_renderer.get_global_mouse_position())
 		_renderer.set_hover_tile(hover_tile)
 	elif event is InputEventMouseButton:
-		var button := event as InputEventMouseButton
+		var button: InputEventMouseButton = event as InputEventMouseButton
 		if not button.pressed:
 			return
-		var tile := _renderer.world_to_tile(_renderer.get_global_mouse_position())
-		var entity_id := _renderer.entity_id_at_tile(tile)
+		var tile: Vector2i = _renderer.world_to_tile(_renderer.get_global_mouse_position())
+		var entity_id: int = _renderer.entity_id_at_tile(tile)
 		if button.button_index == MOUSE_BUTTON_LEFT:
 			if entity_id >= 0:
 				select_entity_id(entity_id)
@@ -181,7 +181,7 @@ func _build_hud() -> void:
 	_hud_layer.name = "DevHUD"
 	add_child(_hud_layer)
 
-	var panel := PanelContainer.new()
+	var panel: PanelContainer = PanelContainer.new()
 	panel.name = "Panel"
 	panel.offset_left = 12.0
 	panel.offset_top = 12.0
@@ -189,31 +189,31 @@ func _build_hud() -> void:
 	panel.offset_bottom = 188.0
 	_hud_layer.add_child(panel)
 
-	var root := VBoxContainer.new()
+	var root: VBoxContainer = VBoxContainer.new()
 	root.name = "Root"
 	panel.add_child(root)
 
-	var buttons := HBoxContainer.new()
+	var buttons: HBoxContainer = HBoxContainer.new()
 	buttons.name = "Buttons"
 	root.add_child(buttons)
 
-	var p0_button := _button("P0")
+	var p0_button: Button = _button("P0")
 	p0_button.pressed.connect(func() -> void: set_active_player_id(0))
 	buttons.add_child(p0_button)
 
-	var p1_button := _button("P1")
+	var p1_button: Button = _button("P1")
 	p1_button.pressed.connect(func() -> void: set_active_player_id(1))
 	buttons.add_child(p1_button)
 
-	var resolve_button := _button("Resolve")
+	var resolve_button: Button = _button("Resolve")
 	resolve_button.pressed.connect(resolve_turn)
 	buttons.add_child(resolve_button)
 
-	var clear_button := _button("Clear")
+	var clear_button: Button = _button("Clear")
 	clear_button.pressed.connect(_clear_queues_from_hud)
 	buttons.add_child(clear_button)
 
-	var surrender_button := _button("Surrender")
+	var surrender_button: Button = _button("Surrender")
 	surrender_button.pressed.connect(_surrender_from_hud)
 	buttons.add_child(surrender_button)
 
@@ -230,7 +230,7 @@ func _build_hud() -> void:
 
 
 func _button(text: String) -> Button:
-	var button := Button.new()
+	var button: Button = Button.new()
 	button.text = text
 	return button
 
