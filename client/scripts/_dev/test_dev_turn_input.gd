@@ -1,0 +1,286 @@
+@tool
+extends Node
+
+const DEV_TURN_INPUT_PATH := "res://scripts/game/dev_turn_input.gd"
+
+
+func _enter_tree() -> void:
+	if not Engine.is_editor_hint():
+		return
+	_run_all()
+
+
+func _run_all() -> int:
+	var passed := 0
+	var failed := 0
+	var fail_names: Array[String] = []
+	for test_pair in _all_tests():
+		var test_name: String = test_pair[0]
+		var fn: Callable = test_pair[1]
+		var ok: bool = fn.call()
+		if ok:
+			passed += 1
+		else:
+			failed += 1
+			fail_names.append(test_name)
+	print("[test_dev_turn_input] %d passed, %d failed" % [passed, failed])
+	for test_name in fail_names:
+		push_error("  failed: %s" % test_name)
+	return failed
+
+
+func _all_tests() -> Array:
+	return [
+		["dev_input_selects_only_active_live_owned_entities", _test_selects_owned_live_entity],
+		["dev_input_queues_move_for_active_player", _test_queues_move_for_active_player],
+		["dev_input_queues_attack_against_enemy", _test_queues_attack_against_enemy],
+		["dev_input_queues_gather_for_worker_resource_target", _test_queues_gather],
+		["dev_input_clears_submissions_after_resolve", _test_clears_submissions],
+		["dev_input_surrender_only_marks_active_player", _test_surrender_active_player],
+	]
+
+
+func _test_selects_owned_live_entity() -> bool:
+	var input = _make_input()
+	if input == null:
+		return false
+	var setup := _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	if not input.select_entity(1):
+		push_error("expected owner-0 worker #1 to be selectable")
+		return false
+	if input.selected_entity_id() != 1:
+		push_error("selected entity id should be 1, got %d" % input.selected_entity_id())
+		return false
+	if input.select_entity(2):
+		push_error("enemy entity #2 should not be selectable while active player is 0")
+		return false
+	if input.selected_entity_id() != -1:
+		push_error("invalid selection should clear selected entity")
+		return false
+	if input.select_entity(3):
+		push_error("neutral resource #3 should not be selectable")
+		return false
+	if input.select_entity(4):
+		push_error("dead owned entity #4 should not be selectable")
+		return false
+	return true
+
+
+func _test_queues_move_for_active_player() -> bool:
+	var input = _make_input()
+	if input == null:
+		return false
+	var setup := _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	if not input.issue_move(Vector2i(8, 8)):
+		push_error("expected MOVE to queue for selected worker")
+		return false
+	var submit_0: SubmitTurn = input.submit_for_player(0)
+	var submit_1: SubmitTurn = input.submit_for_player(1)
+	if submit_0.orders.size() != 1 or submit_1.orders.size() != 0:
+		push_error("expected exactly one order for P0 and none for P1")
+		return false
+	var order := submit_0.orders[0]
+	return _expect_order(order, EntityOrder.Type.MOVE, 1, Vector2i(8, 8), -1, [])
+
+
+func _test_queues_attack_against_enemy() -> bool:
+	var input = _make_input()
+	if input == null:
+		return false
+	var setup := _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.issue_attack(2):
+		push_error("expected ATTACK to queue against enemy marine")
+		return false
+	var order: EntityOrder = input.submit_for_player(0).orders[0]
+	if not _expect_order(order, EntityOrder.Type.ATTACK, 5, Vector2i.ZERO, -1, [2]):
+		return false
+	if input.issue_attack(3):
+		push_error("neutral mineral patch should not be a valid attack target")
+		return false
+	return true
+
+
+func _test_queues_gather() -> bool:
+	var input = _make_input()
+	if input == null:
+		return false
+	var setup := _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	if not input.issue_gather(3):
+		push_error("expected worker to queue GATHER against mineral patch")
+		return false
+	var order: EntityOrder = input.submit_for_player(0).orders[0]
+	if not _expect_order(order, EntityOrder.Type.GATHER, 1, Vector2i.ZERO, 3, []):
+		return false
+	input.select_entity(5)
+	if input.issue_gather(3):
+		push_error("marine should not be allowed to gather")
+		return false
+	return true
+
+
+func _test_clears_submissions() -> bool:
+	var input = _make_input()
+	if input == null:
+		return false
+	var setup := _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	input.issue_move(Vector2i(6, 6))
+	input.set_active_player_id(1)
+	input.select_entity(2)
+	input.issue_move(Vector2i(7, 7))
+	input.clear_submissions()
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("clear_submissions should empty P0 orders")
+		return false
+	if input.submit_for_player(1).orders.size() != 0:
+		push_error("clear_submissions should empty P1 orders")
+		return false
+	return true
+
+
+func _test_surrender_active_player() -> bool:
+	var input = _make_input()
+	if input == null:
+		return false
+	var setup := _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(1)
+	input.surrender_active_player()
+	if input.submit_for_player(0).surrender:
+		push_error("P0 surrender should remain false")
+		return false
+	if not input.submit_for_player(1).surrender:
+		push_error("P1 surrender should be true")
+		return false
+	return true
+
+
+func _make_input():
+	var script: Script = load(DEV_TURN_INPUT_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % DEV_TURN_INPUT_PATH)
+		return null
+	return script.new()
+
+
+func _make_input_setup() -> Dictionary:
+	var state := MatchState.new()
+	state.tile_grid = TileGrid.new(12, 12)
+	state.next_entity_id = 1
+	for player_id in [0, 1]:
+		var p := PlayerState.new()
+		p.player_id = player_id
+		state.players.append(p)
+	var registry := EntityRegistry.new()
+	registry.entities = [
+		_make_def("worker", Vector2i(1, 1), true, true, false),
+		_make_def("marine", Vector2i(1, 1), true, false, false),
+		_make_def("mineral_patch", Vector2i(1, 3), false, false, true),
+	]
+	_add_entity(state, 1, "worker", 0, Vector2i(1, 1), Vector2i(1, 1), 40)
+	_add_entity(state, 2, "marine", 1, Vector2i(7, 1), Vector2i(1, 1), 45)
+	_add_entity(state, 3, "mineral_patch", -1, Vector2i(4, 4), Vector2i(1, 3), 1)
+	_add_entity(state, 4, "worker", 0, Vector2i(2, 1), Vector2i(1, 1), 0)
+	_add_entity(state, 5, "marine", 0, Vector2i(3, 1), Vector2i(1, 1), 45)
+	return {"state": state, "registry": registry}
+
+
+func _make_def(
+	id: String, footprint: Vector2i, can_move: bool, can_gather: bool, resource_source: bool
+) -> EntityDef:
+	var def := EntityDef.new()
+	def.id = id
+	def.footprint = footprint
+	if can_move:
+		var movement := MovementDef.new()
+		movement.speed_tiles_per_turn = 3
+		def.movement = movement
+	var combat := CombatDef.new()
+	combat.damage = 5
+	combat.attack_range = 3
+	combat.target_layers = ["ground"]
+	def.combat = combat
+	if can_gather:
+		var gather := GatherDef.new()
+		gather.accepts_resource_types = ["minerals", "gas"]
+		def.gather = gather
+	if resource_source:
+		var source := ResourceSourceDef.new()
+		source.resource_type = "minerals"
+		def.resource_source = source
+	return def
+
+
+func _add_entity(
+	state: MatchState,
+	id: int,
+	def_id: String,
+	owner: int,
+	origin: Vector2i,
+	footprint: Vector2i,
+	hp: int
+) -> void:
+	var e := Entity.new()
+	e.id = id
+	e.def_id = def_id
+	e.current_def_id = def_id
+	e.owner_player_id = owner
+	e.origin = origin
+	e.current_hp = hp
+	if def_id == "worker":
+		e.gather_state = GatherState.new()
+	state.entities.append(e)
+	state.next_entity_id = max(state.next_entity_id, id + 1)
+	state.tile_grid.place(id, Rect2i(origin, footprint))
+
+
+func _expect_order(
+	order: EntityOrder,
+	expected_type: EntityOrder.Type,
+	expected_entity_id: int,
+	expected_tile: Vector2i,
+	expected_target_entity_id: int,
+	expected_chain: Array[int]
+) -> bool:
+	if order == null:
+		push_error("order is null")
+		return false
+	if order.type != expected_type:
+		push_error("expected order type %d, got %d" % [expected_type, order.type])
+		return false
+	if order.entity_id != expected_entity_id:
+		push_error("expected entity_id %d, got %d" % [expected_entity_id, order.entity_id])
+		return false
+	if order.target_tile != expected_tile:
+		push_error("expected target tile %s, got %s" % [str(expected_tile), str(order.target_tile)])
+		return false
+	if order.target_entity_id != expected_target_entity_id:
+		push_error(
+			(
+				"expected target_entity_id %d, got %d"
+				% [expected_target_entity_id, order.target_entity_id]
+			)
+		)
+		return false
+	if order.target_priority_chain != expected_chain:
+		push_error(
+			(
+				"expected target chain %s, got %s"
+				% [str(expected_chain), str(order.target_priority_chain)]
+			)
+		)
+		return false
+	return true
