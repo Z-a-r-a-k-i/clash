@@ -537,7 +537,7 @@ func _refresh_all_visibility() -> void:
 		return
 	_visibility_by_player.clear()
 	for player_id in _player_ids():
-		var visibility = VISION_SYSTEM_SCRIPT.compute_player_visibility(
+		var visibility: VisionSystem.Visibility = VISION_SYSTEM_SCRIPT.compute_player_visibility(
 			_state, _registry, player_id
 		)
 		_visibility_by_player[player_id] = visibility
@@ -571,7 +571,7 @@ func _rebuild_fog_overlay() -> void:
 		child.queue_free()
 	if _state == null or _state.tile_grid == null:
 		return
-	var visibility = _visibility_by_player.get(_perspective_player_id)
+	var visibility: VisionSystem.Visibility = _visibility_by_player.get(_perspective_player_id)
 	if visibility == null:
 		return
 	for x in range(_state.tile_grid.width):
@@ -587,14 +587,14 @@ func _rebuild_fog_overlay() -> void:
 			_fog_root.add_child(_highlight_polygon(Rect2i(tile, Vector2i.ONE), color))
 
 
-func _remember_visible_tiles(player_id: int, visibility) -> void:
+func _remember_visible_tiles(player_id: int, visibility: VisionSystem.Visibility) -> void:
 	var seen: Dictionary = _seen_tiles_by_player.get(player_id, {})
 	for tile in visibility.visible_tiles():
 		seen[tile] = true
 	_seen_tiles_by_player[player_id] = seen
 
 
-func _remember_visible_enemy_buildings(player_id: int, visibility) -> void:
+func _remember_visible_enemy_buildings(player_id: int, visibility: VisionSystem.Visibility) -> void:
 	var seen: Dictionary = _seen_enemy_buildings_by_player.get(player_id, {})
 	for entity in _state.entities_sorted_by_id():
 		if entity.owner_player_id == player_id or entity.owner_player_id < 0:
