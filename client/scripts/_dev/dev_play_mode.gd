@@ -41,6 +41,7 @@ func load_scenario_path(path: String) -> bool:
 	if _renderer == null:
 		return false
 	_renderer.bind_state(_loaded.state, _loaded.registry)
+	_renderer.set_perspective_player_id(_input.active_player_id())
 	_input.bind_context(_loaded.state, _loaded.registry)
 	_update_hud()
 	return true
@@ -63,6 +64,7 @@ func input_model() -> DevTurnInput:
 func set_active_player_id(player_id: int) -> void:
 	_input.set_active_player_id(player_id)
 	if _renderer != null:
+		_renderer.set_perspective_player_id(player_id)
 		_renderer.clear_input_highlights()
 	_update_hud()
 
@@ -99,7 +101,11 @@ func issue_gather_selected(target_entity_id: int) -> bool:
 func issue_context_at_tile(tile: Vector2i) -> bool:
 	if _loaded == null or _loaded.state == null or _loaded.state.tile_grid == null:
 		return false
-	var target_id: int = _loaded.state.tile_grid.entity_at(tile)
+	var target_id: int = (
+		_renderer.entity_id_at_tile(tile)
+		if _renderer != null
+		else _loaded.state.tile_grid.entity_at(tile)
+	)
 	if target_id >= 0:
 		var target: Entity = _loaded.state.get_entity_by_id(target_id)
 		if target != null and target.owner_player_id >= 0:

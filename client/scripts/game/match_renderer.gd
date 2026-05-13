@@ -11,6 +11,7 @@ extends Node2D
 const ENTITY_VIEW_SCENE_PATH := "res://scenes/entity_view.tscn"
 const DEFAULT_VISUALS_PATH := "res://data/entity_visuals.tres"
 const DEFAULT_TUNABLES_PATH := "res://data/tunables.tres"
+const VISION_SYSTEM_SCRIPT := preload("res://scripts/runtime/vision_system.gd")
 
 # Camera margin in tiles around the map bounds when auto-fitting.
 const _CAMERA_MARGIN_TILES := 3
@@ -37,6 +38,8 @@ const _DESTRUCTION_FADE_SECONDS := 0.5
 const _COMBAT_LOG_MAX_LINES := 50
 const _SELECTED_HIGHLIGHT_COLOR := Color(0.1, 0.85, 1.0, 0.32)
 const _HOVER_HIGHLIGHT_COLOR := Color(1.0, 1.0, 1.0, 0.22)
+const _FOG_UNSEEN_COLOR := Color(0.0, 0.0, 0.0, 0.62)
+const _FOG_SEEN_COLOR := Color(0.0, 0.0, 0.0, 0.34)
 
 # Hit flash applied to the target sprite for ~150 ms when ENTITY_DAMAGED
 # fires. Quick pulse to white-ish gives a readable "got hit" cue without
@@ -63,10 +66,15 @@ var _entity_view_scene: PackedScene = null
 var _selected_entity_id: int = -1
 var _hover_tile: Vector2i = Vector2i.ZERO
 var _has_hover_tile: bool = false
+var _perspective_player_id: int = 0
+var _visibility_by_player: Dictionary = {}
+var _seen_tiles_by_player: Dictionary = {}
+var _seen_enemy_buildings_by_player: Dictionary = {}
 
 @onready var _entities_root: Node2D = $Entities
 @onready var _terrain: TileMapLayer = $Terrain
 @onready var _camera: Camera2D = $Camera2D
+@onready var _fog_root: Node2D = $Overlays/Fog
 @onready var _attack_lines_root: Node2D = $Overlays/AttackLines
 @onready var _input_highlights_root: Node2D = $Overlays/Highlights
 @onready var _damage_labels_root: Node2D = $Overlays/DamageLabels
@@ -100,6 +108,8 @@ func bind_state(state: MatchState, registry: EntityRegistry) -> void:
 			continue
 		_spawn_entity_view(entity, state)
 
+	_reset_visibility_memory()
+	_refresh_all_visibility()
 	_fit_camera_to_state(state)
 
 
@@ -128,6 +138,7 @@ func render_step(new_state: MatchState, events: Array[ResolverEvent]) -> void:
 		_render_event(event)
 	_prune_dead_views(new_state)
 	_update_surviving_views(new_state)
+	_refresh_all_visibility()
 
 
 # Lookup helper for tests — fastest way to assert on overlay state.
@@ -164,7 +175,10 @@ func world_to_tile(world_position: Vector2) -> Vector2i:
 func entity_id_at_tile(tile: Vector2i) -> int:
 	if _state == null or _state.tile_grid == null:
 		return -1
-	return _state.tile_grid.entity_at(tile)
+	var entity_id: int = _state.tile_grid.entity_at(tile)
+	if entity_id < 0:
+		return -1
+	return entity_id if _is_entity_hit_testable(entity_id) else -1
 
 
 func entity_id_at_world(world_position: Vector2) -> int:
@@ -194,6 +208,44 @@ func input_highlight_count() -> int:
 	return _input_highlights_root.get_child_count()
 
 
+func set_perspective_player_id(player_id: int) -> void:
+	_perspective_player_id = player_id
+	_refresh_entity_visibility()
+	_rebuild_fog_overlay()
+
+
+func perspective_player_id() -> int:
+	return _perspective_player_id
+
+
+func is_entity_view_visible(entity_id: int) -> bool:
+	var view: EntityView = _views_by_id.get(entity_id)
+	return view != null and view.visible
+
+
+func is_entity_view_silhouette(entity_id: int) -> bool:
+	var view: EntityView = _views_by_id.get(entity_id)
+	return view != null and view.visible and view.is_fog_silhouette()
+
+
+func fog_overlay_count() -> int:
+	if _fog_root == null:
+		return 0
+	return _fog_root.get_child_count()
+
+
+func is_tile_currently_visible(player_id: int, tile: Vector2i) -> bool:
+	var visibility = _visibility_by_player.get(player_id)
+	if visibility == null:
+		return false
+	return visibility.is_tile_visible(tile)
+
+
+func is_tile_previously_seen(player_id: int, tile: Vector2i) -> bool:
+	var seen: Dictionary = _seen_tiles_by_player.get(player_id, {})
+	return seen.has(tile)
+
+
 # ---------- Internals ----------
 
 
@@ -206,6 +258,15 @@ func _resolve_internal_nodes() -> void:
 		_terrain = get_node_or_null("Terrain") as TileMapLayer
 	if _camera == null:
 		_camera = get_node_or_null("Camera2D") as Camera2D
+	if _fog_root == null:
+		_fog_root = get_node_or_null("Overlays/Fog") as Node2D
+	if _fog_root == null:
+		var overlays_for_fog := get_node_or_null("Overlays") as Node2D
+		if overlays_for_fog != null:
+			_fog_root = Node2D.new()
+			_fog_root.name = "Fog"
+			overlays_for_fog.add_child(_fog_root)
+			overlays_for_fog.move_child(_fog_root, 0)
 	if _attack_lines_root == null:
 		_attack_lines_root = get_node_or_null("Overlays/AttackLines") as Node2D
 	if _input_highlights_root == null:
@@ -239,7 +300,7 @@ func _clear_existing_views() -> void:
 
 
 func _clear_overlay_roots() -> void:
-	for root in [_attack_lines_root, _damage_labels_root]:
+	for root in [_fog_root, _attack_lines_root, _damage_labels_root]:
 		if root == null:
 			continue
 		for child in root.get_children():
@@ -460,6 +521,137 @@ func _update_surviving_views(new_state: MatchState) -> void:
 				_entity_rect_or_default(entity, new_state, def),
 			)
 		)
+
+
+func _reset_visibility_memory() -> void:
+	_visibility_by_player.clear()
+	_seen_tiles_by_player.clear()
+	_seen_enemy_buildings_by_player.clear()
+	for player_id in _player_ids():
+		_seen_tiles_by_player[player_id] = {}
+		_seen_enemy_buildings_by_player[player_id] = {}
+
+
+func _refresh_all_visibility() -> void:
+	if _state == null or _registry == null or _state.tile_grid == null:
+		return
+	_visibility_by_player.clear()
+	for player_id in _player_ids():
+		var visibility = VISION_SYSTEM_SCRIPT.compute_player_visibility(
+			_state, _registry, player_id
+		)
+		_visibility_by_player[player_id] = visibility
+		_remember_visible_tiles(player_id, visibility)
+		_remember_visible_enemy_buildings(player_id, visibility)
+	_refresh_entity_visibility()
+	_rebuild_fog_overlay()
+
+
+func _refresh_entity_visibility() -> void:
+	if _state == null:
+		return
+	for entity in _state.entities_sorted_by_id():
+		var view: EntityView = _views_by_id.get(entity.id)
+		if view == null:
+			continue
+		var visible_now := _is_entity_currently_visible_for_player(entity, _perspective_player_id)
+		var silhouette := false
+		if not visible_now and _is_seen_enemy_building(_perspective_player_id, entity):
+			silhouette = true
+		view.visible = visible_now or silhouette
+		view.set_fog_silhouette(silhouette)
+
+
+func _rebuild_fog_overlay() -> void:
+	_resolve_internal_nodes()
+	if _fog_root == null:
+		return
+	for child in _fog_root.get_children():
+		_fog_root.remove_child(child)
+		child.queue_free()
+	if _state == null or _state.tile_grid == null:
+		return
+	var visibility = _visibility_by_player.get(_perspective_player_id)
+	if visibility == null:
+		return
+	for x in range(_state.tile_grid.width):
+		for y in range(_state.tile_grid.height):
+			var tile := Vector2i(x, y)
+			if visibility.is_tile_visible(tile):
+				continue
+			var color := (
+				_FOG_SEEN_COLOR
+				if is_tile_previously_seen(_perspective_player_id, tile)
+				else _FOG_UNSEEN_COLOR
+			)
+			_fog_root.add_child(_highlight_polygon(Rect2i(tile, Vector2i.ONE), color))
+
+
+func _remember_visible_tiles(player_id: int, visibility) -> void:
+	var seen: Dictionary = _seen_tiles_by_player.get(player_id, {})
+	for tile in visibility.visible_tiles():
+		seen[tile] = true
+	_seen_tiles_by_player[player_id] = seen
+
+
+func _remember_visible_enemy_buildings(player_id: int, visibility) -> void:
+	var seen: Dictionary = _seen_enemy_buildings_by_player.get(player_id, {})
+	for entity in _state.entities_sorted_by_id():
+		if entity.owner_player_id == player_id or entity.owner_player_id < 0:
+			continue
+		if not _is_building(entity):
+			continue
+		if VISION_SYSTEM_SCRIPT.is_entity_visible_to_player(
+			entity, _state, _registry, player_id, visibility
+		):
+			seen[entity.id] = true
+	_seen_enemy_buildings_by_player[player_id] = seen
+
+
+func _is_entity_hit_testable(entity_id: int) -> bool:
+	var entity := _state.get_entity_by_id(entity_id)
+	if entity == null:
+		return false
+	if entity.owner_player_id == _perspective_player_id:
+		return true
+	return _is_entity_currently_visible_for_player(entity, _perspective_player_id)
+
+
+func _is_entity_currently_visible_for_player(entity: Entity, player_id: int) -> bool:
+	var visibility = _visibility_by_player.get(player_id)
+	if visibility == null:
+		return entity != null and entity.owner_player_id == player_id
+	return VISION_SYSTEM_SCRIPT.is_entity_visible_to_player(
+		entity, _state, _registry, player_id, visibility
+	)
+
+
+func _is_seen_enemy_building(player_id: int, entity: Entity) -> bool:
+	if entity == null or entity.owner_player_id == player_id or entity.owner_player_id < 0:
+		return false
+	if not _is_building(entity):
+		return false
+	var seen: Dictionary = _seen_enemy_buildings_by_player.get(player_id, {})
+	return seen.has(entity.id)
+
+
+func _is_building(entity: Entity) -> bool:
+	if entity == null or _registry == null:
+		return false
+	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
+	var def: EntityDef = _registry.get_by_id(def_id)
+	return def != null and def.tags.has("building")
+
+
+func _player_ids() -> Array[int]:
+	var ids: Array[int] = []
+	if _state != null:
+		for player in _state.players:
+			if player != null:
+				ids.append(player.player_id)
+	if ids.is_empty():
+		ids = [0, 1]
+	return ids
 
 
 func _destroy_entity_view(entity_id: int) -> void:

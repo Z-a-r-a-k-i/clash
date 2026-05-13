@@ -18,8 +18,11 @@ extends Node2D
 const COLOR_PLAYER_0 := Color(0.3, 0.55, 1.0)
 const COLOR_PLAYER_1 := Color(1.0, 0.3, 0.3)
 const COLOR_NEUTRAL := Color(1.0, 1.0, 1.0)
+const COLOR_FOG_SILHOUETTE := Color(0.16, 0.18, 0.20, 0.72)
 
 var _entity_id: int = -1
+var _owner_player_id: int = -1
+var _fog_silhouette := false
 
 @onready var _sprite: Sprite2D = $Sprite2D
 @onready var _label: Label = $Label
@@ -55,6 +58,8 @@ func update_from_state(
 	var fp_x: int = max(placement_rect.size.x, 1)
 	var fp_y: int = max(placement_rect.size.y, 1)
 	var tile_size := _tile_pixel_size()
+	_owner_player_id = entity.owner_player_id
+	_fog_silhouette = false
 	# Position is the center of the placement rect in world pixels.
 	var center_x: float = (placement_rect.position.x + fp_x / 2.0) * tile_size
 	var center_y: float = (placement_rect.position.y + fp_y / 2.0) * tile_size
@@ -82,6 +87,19 @@ func update_from_state(
 		# falls back to def_id if the resolver hasn't initialized current yet.
 		var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
 		_label.text = "%s #%d" % [def_id, entity.id]
+
+
+func set_fog_silhouette(enabled: bool) -> void:
+	if _sprite == null:
+		_sprite = get_node_or_null("Sprite2D") as Sprite2D
+	_fog_silhouette = enabled
+	if _sprite == null:
+		return
+	_sprite.modulate = COLOR_FOG_SILHOUETTE if enabled else _color_for_owner(_owner_player_id)
+
+
+func is_fog_silhouette() -> bool:
+	return _fog_silhouette
 
 
 # Trigger the destruction fade. The view stays alive for the fade duration,

@@ -35,6 +35,10 @@ func _all_tests() -> Array:
 		["dev_play_mode_loads_scenario_and_binds_renderer", _test_loads_scenario],
 		["dev_play_mode_queues_and_resolves_turn", _test_queues_and_resolves_turn],
 		["dev_play_mode_routes_context_actions", _test_routes_context_actions],
+		[
+			"dev_play_mode_switches_input_and_render_perspective",
+			_test_switches_input_and_render_perspective
+		],
 	]
 
 
@@ -105,18 +109,20 @@ func _test_routes_context_actions() -> bool:
 	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
 		_free_mode(mode)
 		return false
-	mode.set_active_player_id(0)
-	mode.select_entity_id(1)
-	if not mode.issue_context_at_tile(Vector2i(13, 10)):
-		push_error("right-clicking enemy-occupied tile should queue ATTACK")
+	mode.set_active_player_id(1)
+	mode.select_entity_id(4)
+	if not mode.issue_context_at_tile(Vector2i(5, 10)):
+		push_error("right-clicking visible enemy-occupied tile should queue ATTACK")
 		_free_mode(mode)
 		return false
-	var attack_order: EntityOrder = mode.input_model().submit_for_player(0).orders[0]
-	if attack_order.type != EntityOrder.Type.ATTACK or attack_order.target_priority_chain != [4]:
-		push_error("context enemy action should be ATTACK on #4")
+	var attack_order: EntityOrder = mode.input_model().submit_for_player(1).orders[0]
+	if attack_order.type != EntityOrder.Type.ATTACK or attack_order.target_priority_chain != [1]:
+		push_error("context enemy action should be ATTACK on #1")
 		_free_mode(mode)
 		return false
 	mode.input_model().clear_submissions()
+	mode.set_active_player_id(0)
+	mode.select_entity_id(1)
 	if not mode.issue_context_at_tile(Vector2i(9, 10)):
 		push_error("right-clicking empty tile should queue MOVE")
 		_free_mode(mode)
@@ -128,6 +134,34 @@ func _test_routes_context_actions() -> bool:
 		return false
 	_free_mode(mode)
 	return true
+
+
+func _test_switches_input_and_render_perspective() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	if not mode.select_entity_id(1):
+		push_error("expected P0 marine #1 to be selectable")
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(1)
+	var ok := true
+	if mode.input_model().active_player_id() != 1:
+		push_error("input model did not switch to P1")
+		ok = false
+	if mode.input_model().selected_entity_id() != -1:
+		push_error("selection should clear when switching away from owner")
+		ok = false
+	if mode.renderer().call("perspective_player_id") != 1:
+		push_error("renderer perspective should follow active player")
+		ok = false
+	_free_mode(mode)
+	return ok
 
 
 func _make_mode() -> Node:

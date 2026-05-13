@@ -69,6 +69,16 @@ func _all_tests() -> Array:
 		["match_renderer_match_ended_draw_event_logged", _test_match_ended_draw_event_logged],
 		["match_renderer_world_tile_hit_testing", _test_world_tile_hit_testing],
 		["match_renderer_input_highlights", _test_input_highlights],
+		["match_renderer_perspective_hides_unseen_enemy", _test_perspective_hides_unseen_enemy],
+		[
+			"match_renderer_perspective_switch_changes_visible_entities",
+			_test_perspective_switch_changes_visible_entities
+		],
+		[
+			"match_renderer_previously_seen_building_silhouette",
+			_test_previously_seen_building_silhouette
+		],
+		["match_renderer_fog_overlay_marks_unseen_tiles", _test_fog_overlay_marks_unseen_tiles],
 	]
 
 
@@ -299,12 +309,18 @@ func _renderer_registry() -> EntityRegistry:
 		["marine", Vector2i(1, 1)],
 		["tank", Vector2i(2, 2)],
 		["siege_tank", Vector2i(2, 2)],
+		["barracks", Vector2i(3, 3)],
+		["watch_tower", Vector2i(1, 1)],
 		["mineral_patch", Vector2i(1, 3)],
 		["gas_geyser", Vector2i(3, 3)],
 	]:
 		var d := EntityDef.new()
 		d.id = entry[0]
 		d.footprint = entry[1]
+		d.vision = VisionDef.new()
+		d.vision.sight_radius = 3 if d.id != "watch_tower" else 0
+		if ["base", "barracks"].has(d.id):
+			d.tags.append("building")
 		defs.append(d)
 	registry.entities = defs
 	return registry
@@ -858,3 +874,125 @@ func _test_input_highlights() -> bool:
 		return false
 	_free_renderer(renderer)
 	return true
+
+
+# ---------- Plan 07b3 — perspective + fog ----------
+
+
+func _test_perspective_hides_unseen_enemy() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+		],
+		12,
+		12
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var ok := true
+	if not renderer.call("is_entity_view_visible", 1):
+		push_error("active player's own worker should render")
+		ok = false
+	if renderer.call("is_entity_view_visible", 2):
+		push_error("enemy outside P0 vision should be hidden")
+		ok = false
+	if renderer.call("entity_id_at_tile", Vector2i(8, 1)) != -1:
+		push_error("hidden enemy tile should not be hit-testable")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_perspective_switch_changes_visible_entities() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+		],
+		12,
+		12
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	renderer.call("set_perspective_player_id", 0)
+	if not renderer.call("is_entity_view_visible", 1) or renderer.call("is_entity_view_visible", 2):
+		push_error("setup: expected only P0 worker visible from P0 perspective")
+		_free_renderer(renderer)
+		return false
+	renderer.call("set_perspective_player_id", 1)
+	var ok := true
+	if renderer.call("is_entity_view_visible", 1):
+		push_error("P0 worker should hide from P1 perspective")
+		ok = false
+	if not renderer.call("is_entity_view_visible", 2):
+		push_error("P1 marine should render from P1 perspective")
+		ok = false
+	if renderer.call("perspective_player_id") != 1:
+		push_error("renderer did not retain P1 perspective")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_previously_seen_building_silhouette() -> bool:
+	var registry := _renderer_registry()
+	var state_a := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "barracks", "owner": 1, "origin": Vector2i(4, 1), "id": 2},
+		],
+		14,
+		14
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state_a, registry)
+	renderer.call("set_perspective_player_id", 0)
+	if not renderer.call("is_entity_view_visible", 2):
+		push_error("setup: enemy building should initially be visible")
+		_free_renderer(renderer)
+		return false
+	var state_b := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 10), "id": 1},
+			{"def_id": "barracks", "owner": 1, "origin": Vector2i(4, 1), "id": 2},
+		],
+		14,
+		14
+	)
+	renderer.render_step(state_b, [])
+	var ok := true
+	if not renderer.call("is_entity_view_visible", 2):
+		push_error("previously seen enemy building should stay visible as silhouette")
+		ok = false
+	if not renderer.call("is_entity_view_silhouette", 2):
+		push_error("previously seen enemy building should be marked silhouette")
+		ok = false
+	if renderer.call("entity_id_at_tile", Vector2i(4, 1)) != -1:
+		push_error("previously seen but not current building should not be targetable")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_fog_overlay_marks_unseen_tiles() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "watch_tower", "owner": 0, "origin": Vector2i(2, 2), "id": 1},
+		],
+		5,
+		5
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var overlay_count: int = renderer.call("fog_overlay_count")
+	var ok := overlay_count == 24
+	if not ok:
+		push_error("expected 24 unseen fog tiles, got %d" % overlay_count)
+	_free_renderer(renderer)
+	return ok
