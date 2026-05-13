@@ -1,5 +1,5 @@
 ---
-status: done
+status: doing
 depends_on:
   - ./07b1-renderer-and-camera.md
 ---
@@ -57,7 +57,3 @@ rectangles.
 - [x] Pending submissions clear after resolve.
 - [x] `make test` runs resolver, renderer, dev input, and dev play mode tests.
 - [x] `gdlint` and `gdformat --check` pass for touched GDScript files.
-
-## Artifacts
-
-- PR [#14](https://github.com/Z-a-r-a-k-i/clash/pull/14)
