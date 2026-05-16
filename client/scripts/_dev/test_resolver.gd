@@ -210,6 +210,23 @@ func _all_tests() -> Array:
 		["mvp_map_is_mirror", _test_mvp_map_is_mirror],
 		["mvp_map_bake_parity", _test_mvp_map_bake_parity],
 		["golden_minerals_higher_yield", _test_golden_minerals_higher_yield],
+		# Plan node 07b5 — self-target ability orders.
+		["ability_stim_rejects_without_research", _test_ability_stim_rejects_without_research],
+		[
+			"ability_stim_applies_cost_buff_cooldown_and_event",
+			_test_ability_stim_applies_cost_buff_cooldown_and_event
+		],
+		["ability_stim_rejects_on_cooldown", _test_ability_stim_rejects_on_cooldown],
+		["ability_stim_rejects_low_hp", _test_ability_stim_rejects_low_hp],
+		[
+			"ability_siege_delayed_transform_blocks_later_actions",
+			_test_ability_siege_delayed_transform_blocks_later_actions
+		],
+		["ability_unsiege_delayed_transform", _test_ability_unsiege_delayed_transform],
+		[
+			"siege_tank_data_is_immobile_and_siege_requires_research",
+			_test_siege_tank_data_is_immobile_and_siege_requires_research
+		],
 	]
 
 
@@ -1142,6 +1159,13 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 				return false
 		if ea.ability_cooldowns != eb.ability_cooldowns:
 			return false
+		if (ea.ability_cast == null) != (eb.ability_cast == null):
+			return false
+		if ea.ability_cast != null:
+			if ea.ability_cast.get("ability_id") != eb.ability_cast.get("ability_id"):
+				return false
+			if ea.ability_cast.get("turns_remaining") != eb.ability_cast.get("turns_remaining"):
+				return false
 		if ea.active_buffs.size() != eb.active_buffs.size():
 			return false
 		for j in ea.active_buffs.size():
@@ -1208,6 +1232,22 @@ func _has_event_of_type(events: Array, event_type: int) -> bool:
 		if (ev as ResolverEvent).type == event_type:
 			return true
 	return false
+
+
+func _has_event_with_def(events: Array, event_type: int, actor_id: int, def_id: String) -> bool:
+	for ev in events:
+		var event: ResolverEvent = ev
+		if (
+			event.type == event_type
+			and event.actor_id == actor_id
+			and (event.def_id == def_id or event.new_def_id == def_id)
+		):
+			return true
+	return false
+
+
+func _has_rejection(events: Array, actor_id: int, reason: String) -> bool:
+	return _has_event_with_def(events, ResolverEvent.Type.ORDER_REJECTED, actor_id, reason)
 
 
 # Structural compare for two event lists. Returns false if any field
@@ -3800,6 +3840,14 @@ func _submit(orders: Array[EntityOrder] = []) -> SubmitTurn:
 	return s
 
 
+func _ability_order(entity_id: int, ability_id: String) -> EntityOrder:
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.USE_ABILITY
+	order.entity_id = entity_id
+	order.def_id = ability_id
+	return order
+
+
 func _player(id: int) -> PlayerState:
 	var p := PlayerState.new()
 	p.player_id = id
@@ -3918,6 +3966,87 @@ func _movement_def(speed: int, default_layer: String = "ground") -> MovementDef:
 	m.speed_tiles_per_turn = speed
 	m.default_layer = default_layer
 	return m
+
+
+func _ability_state_with_bases() -> MatchState:
+	var state: MatchState = _state_with_grid(30, 30)
+	var p0_base: Entity = _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	var p1_base: Entity = _make_entity(state, "base", 1, Vector2i(24, 24), 1500, "ground")
+	state.tile_grid.place(p0_base.id, Rect2i(0, 0, 4, 4))
+	state.tile_grid.place(p1_base.id, Rect2i(24, 24, 4, 4))
+	return state
+
+
+func _ability_registry() -> EntityRegistry:
+	var registry := EntityRegistry.new()
+	var marine: EntityDef = _def_with_movement_combat(
+		"marine",
+		Vector2i(1, 1),
+		["light", "biological", "ground"],
+		_combat_def(6, 5, ["ground", "flying"]),
+		45,
+		4
+	)
+	marine.abilities = _abilities_def([_stim_ability()])
+	var tank: EntityDef = _def_with_movement_combat(
+		"tank",
+		Vector2i(2, 2),
+		["heavy", "mechanical", "ground"],
+		_combat_def(15, 7, ["ground"]),
+		150,
+		2
+	)
+	tank.abilities = _abilities_def([_transform_ability("siege_mode", "siege_tank", 1)])
+	tank.abilities.abilities[0].requires_research_id = "siege_mode_research"
+	var siege_tank: EntityDef = _def(
+		"siege_tank",
+		Vector2i(2, 2),
+		["heavy", "mechanical", "ground"],
+		_combat_def(15, 7, ["ground"]),
+		150
+	)
+	siege_tank.abilities = _abilities_def([_transform_ability("unsiege_mode", "tank", 1)])
+	siege_tank.abilities.abilities[0].requires_research_id = "siege_mode_research"
+	var base: EntityDef = _def("base", Vector2i(4, 4), ["building", "ground"], null, 1500)
+	registry.entities = [marine, tank, siege_tank, base]
+	return registry
+
+
+func _abilities_def(abilities: Array[AbilityDef]) -> AbilitiesDef:
+	var out := AbilitiesDef.new()
+	out.abilities = abilities
+	return out
+
+
+func _stim_ability() -> AbilityDef:
+	var ability := AbilityDef.new()
+	ability.id = "stim"
+	ability.display_name = "Stim"
+	ability.target_type = "self"
+	ability.cooldown_turns = 5
+	ability.requires_research_id = "stim_research"
+	var cost := AbilityCost.new()
+	cost.type = "hp"
+	cost.amount = 10
+	ability.costs = [cost]
+	var effect := StatBuffEffect.new()
+	effect.duration_turns = 3
+	effect.damage_mult = 1.5
+	effect.speed_mult = 1.5
+	ability.effect = effect
+	return ability
+
+
+func _transform_ability(id: String, to_def_id: String, cast_time_turns: int) -> AbilityDef:
+	var ability := AbilityDef.new()
+	ability.id = id
+	ability.display_name = id
+	ability.target_type = "self"
+	ability.cast_time_turns = cast_time_turns
+	var effect := TransformEffect.new()
+	effect.to_def_id = to_def_id
+	ability.effect = effect
+	return ability
 
 
 func _def_with_movement(
@@ -4465,6 +4594,181 @@ func _test_golden_minerals_higher_yield() -> bool:
 				% [golden_total, standard_total]
 			)
 		)
+		return false
+	return true
+
+
+# ---------- Plan node 07b5 — self-target ability orders ----------
+
+
+func _test_ability_stim_rejects_without_research() -> bool:
+	var registry: EntityRegistry = _ability_registry()
+	var state: MatchState = _ability_state_with_bases()
+	var marine: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 45, "ground")
+	state.tile_grid.place(marine.id, Rect2i(5, 5, 1, 1))
+
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([_ability_order(marine.id, "stim")]), _submit(), registry, null
+	)
+	var new_marine: Entity = result.new_state.get_entity_by_id(marine.id)
+	if new_marine.current_hp != 45:
+		push_error("rejected stim should not spend HP")
+		return false
+	if not new_marine.active_buffs.is_empty():
+		push_error("rejected stim should not apply a buff")
+		return false
+	return _has_rejection(result.events, marine.id, "research_required")
+
+
+func _test_ability_stim_applies_cost_buff_cooldown_and_event() -> bool:
+	var registry: EntityRegistry = _ability_registry()
+	var state: MatchState = _ability_state_with_bases()
+	state.get_player(0).unlocked_researches.append("stim_research")
+	var marine: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 45, "ground")
+	var enemy: Entity = _make_entity(state, "marine", 1, Vector2i(7, 5), 45, "ground")
+	state.tile_grid.place(marine.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(7, 5, 1, 1))
+
+	var attack: EntityOrder = EntityOrder.new()
+	attack.type = EntityOrder.Type.ATTACK
+	attack.entity_id = marine.id
+	attack.target_priority_chain = [enemy.id]
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([_ability_order(marine.id, "stim"), attack]), _submit(), registry, null
+	)
+	var new_marine: Entity = result.new_state.get_entity_by_id(marine.id)
+	var new_enemy: Entity = result.new_state.get_entity_by_id(enemy.id)
+	if not _has_event_with_def(result.events, ResolverEvent.Type.ABILITY_USED, marine.id, "stim"):
+		push_error("stim should emit ABILITY_USED")
+		return false
+	if new_marine.current_hp != 35:
+		push_error("stim should spend 10 HP, got %d" % new_marine.current_hp)
+		return false
+	if new_marine.ability_cooldowns.get("stim", 0) != 5:
+		push_error("stim cooldown should be 5 after the use turn")
+		return false
+	if new_marine.active_buffs.size() != 1:
+		push_error("stim should apply one active buff")
+		return false
+	var buff: ActiveBuff = new_marine.active_buffs[0]
+	if buff.source_ability_id != "stim" or buff.turns_remaining != 2:
+		push_error("stim buff should remain for 2 turns after end-of-turn tick")
+		return false
+	if new_enemy.current_hp != 36:
+		push_error(
+			"same-turn attack should use stim damage; enemy HP got %d" % new_enemy.current_hp
+		)
+		return false
+	return true
+
+
+func _test_ability_stim_rejects_on_cooldown() -> bool:
+	var registry: EntityRegistry = _ability_registry()
+	var state: MatchState = _ability_state_with_bases()
+	state.get_player(0).unlocked_researches.append("stim_research")
+	var marine: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 45, "ground")
+	marine.ability_cooldowns = {"stim": 2}
+	state.tile_grid.place(marine.id, Rect2i(5, 5, 1, 1))
+
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([_ability_order(marine.id, "stim")]), _submit(), registry, null
+	)
+	var new_marine: Entity = result.new_state.get_entity_by_id(marine.id)
+	if new_marine.current_hp != 45:
+		push_error("cooldown-rejected stim should not spend HP")
+		return false
+	return _has_rejection(result.events, marine.id, "cooldown")
+
+
+func _test_ability_stim_rejects_low_hp() -> bool:
+	var registry: EntityRegistry = _ability_registry()
+	var state: MatchState = _ability_state_with_bases()
+	state.get_player(0).unlocked_researches.append("stim_research")
+	var marine: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 10, "ground")
+	state.tile_grid.place(marine.id, Rect2i(5, 5, 1, 1))
+
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([_ability_order(marine.id, "stim")]), _submit(), registry, null
+	)
+	var new_marine: Entity = result.new_state.get_entity_by_id(marine.id)
+	if new_marine.current_hp != 10:
+		push_error("low-HP rejected stim should not spend HP")
+		return false
+	return _has_rejection(result.events, marine.id, "insufficient_hp")
+
+
+func _test_ability_siege_delayed_transform_blocks_later_actions() -> bool:
+	var registry: EntityRegistry = _ability_registry()
+	var state: MatchState = _ability_state_with_bases()
+	state.get_player(0).unlocked_researches.append("siege_mode_research")
+	var tank: Entity = _make_entity(state, "tank", 0, Vector2i(5, 5), 150, "ground")
+	state.tile_grid.place(tank.id, Rect2i(5, 5, 2, 2))
+	var move: EntityOrder = EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = tank.id
+	move.target_tile = Vector2i(9, 5)
+
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([_ability_order(tank.id, "siege_mode"), move]), _submit(), registry, null
+	)
+	var new_tank: Entity = result.new_state.get_entity_by_id(tank.id)
+	if new_tank.current_def_id != "siege_tank":
+		push_error("siege mode should transform tank to siege_tank")
+		return false
+	if new_tank.origin != Vector2i(5, 5):
+		push_error("later MOVE should be blocked while siege cast is active")
+		return false
+	if new_tank.ability_cast != null:
+		push_error("one-turn siege cast should be cleared after transform")
+		return false
+	if _has_event_of_type(result.events, ResolverEvent.Type.ENTITY_MOVED):
+		push_error("siege casting should not also move")
+		return false
+	if not _has_event_with_def(
+		result.events, ResolverEvent.Type.ENTITY_TRANSFORMED, tank.id, "siege_tank"
+	):
+		push_error("siege mode should emit ENTITY_TRANSFORMED")
+		return false
+	return _has_event_with_def(
+		result.events, ResolverEvent.Type.ABILITY_USED, tank.id, "siege_mode"
+	)
+
+
+func _test_ability_unsiege_delayed_transform() -> bool:
+	var registry: EntityRegistry = _ability_registry()
+	var state: MatchState = _ability_state_with_bases()
+	state.get_player(0).unlocked_researches.append("siege_mode_research")
+	var tank: Entity = _make_entity(state, "siege_tank", 0, Vector2i(5, 5), 150, "ground")
+	state.tile_grid.place(tank.id, Rect2i(5, 5, 2, 2))
+
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([_ability_order(tank.id, "unsiege_mode")]), _submit(), registry, null
+	)
+	var new_tank: Entity = result.new_state.get_entity_by_id(tank.id)
+	if new_tank.current_def_id != "tank":
+		push_error("unsiege mode should transform siege_tank back to tank")
+		return false
+	return _has_event_with_def(
+		result.events, ResolverEvent.Type.ENTITY_TRANSFORMED, tank.id, "tank"
+	)
+
+
+func _test_siege_tank_data_is_immobile_and_siege_requires_research() -> bool:
+	var registry: EntityRegistry = _load_data_registry()
+	var tank: EntityDef = registry.get_by_id("tank")
+	var siege_tank: EntityDef = registry.get_by_id("siege_tank")
+	if tank == null or tank.abilities == null or tank.abilities.abilities.is_empty():
+		push_error("tank should expose siege_mode ability data")
+		return false
+	var siege: AbilityDef = tank.abilities.abilities[0]
+	if siege.id != "siege_mode" or siege.requires_research_id != "siege_mode_research":
+		push_error("siege_mode should require siege_mode_research")
+		return false
+	if siege_tank == null:
+		push_error("siege_tank data missing")
+		return false
+	if siege_tank.movement != null:
+		push_error("siege_tank should be immobile")
 		return false
 	return true
 

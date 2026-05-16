@@ -275,6 +275,23 @@ func _test_routes_command_card_orders() -> bool:
 		push_error("research signal should queue RESEARCH stim_research")
 		_free_mode(mode)
 		return false
+	mode.input_model().clear_submissions()
+	mode.current_state().get_player(0).unlocked_researches.append("stim_research")
+	var marine_id: int = _add_runtime_entity(mode.current_state(), "marine", 0, Vector2i(21, 2))
+	if marine_id < 0 or not mode.select_entity_id(marine_id):
+		push_error("expected to select injected marine")
+		_free_mode(mode)
+		return false
+	if not _command_card_ids(card, "ability_option_ids").has("stim"):
+		push_error("marine command card should expose stim ability")
+		_free_mode(mode)
+		return false
+	card.emit_signal("ability_requested", "stim")
+	orders = mode.input_model().submit_for_player(0).orders
+	if orders[0].type != EntityOrder.Type.USE_ABILITY or orders[0].def_id != "stim":
+		push_error("ability signal should queue USE_ABILITY stim")
+		_free_mode(mode)
+		return false
 	_free_mode(mode)
 	return true
 
@@ -307,8 +324,16 @@ func _add_runtime_entity(state: MatchState, def_id: String, owner: int, origin: 
 	entity.origin = origin
 	entity.current_layer = "ground"
 	entity.current_hp = 1000
-	entity.production_state = ProductionState.new()
-	if not state.tile_grid.place(entity.id, Rect2i(origin, Vector2i(3, 3))):
+	var footprint: Vector2i = Vector2i(1, 1)
+	var registry: EntityRegistry = load("res://data/entity_registry.tres") as EntityRegistry
+	var def: EntityDef = registry.get_by_id(def_id) if registry != null else null
+	if def != null:
+		footprint = def.footprint
+		if def.health != null:
+			entity.current_hp = def.health.max_hp
+		if def.production != null:
+			entity.production_state = ProductionState.new()
+	if not state.tile_grid.place(entity.id, Rect2i(origin, footprint)):
 		return -1
 	state.entities.append(entity)
 	return entity.id

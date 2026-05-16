@@ -13,6 +13,7 @@ extends RefCounted
 #   Emit MATCH_ENDED with the surviving player as winner.
 
 const _BUILDING_TAG := "building"
+const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
 
 
 static func run(
@@ -28,6 +29,10 @@ static func run(
 		_tick_active_buffs(entity)
 		entity.moves_used_this_turn = 0
 		_recompute_is_hidden(entity, registry, tunables)
+
+	# Delayed self-target abilities complete after normal per-turn
+	# bookkeeping so their transformed form is ready for the next turn.
+	_ABILITY_SYSTEM.advance_casts(state, registry, events)
 
 	# Construction lifecycle (plan node 05). ConstructionSystem runs
 	# BEFORE ProductionSystem so a building completing this turn can

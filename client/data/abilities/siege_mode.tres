@@ -14,3 +14,4 @@ id = "siege_mode"
 display_name = "Siege Mode"
 cast_time_turns = 1
 effect = SubResource("Resource_vmqvk")
+requires_research_id = "siege_mode_research"

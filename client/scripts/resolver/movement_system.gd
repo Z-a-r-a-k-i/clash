@@ -46,10 +46,10 @@ static func resolve_move(
 		return
 
 	# Move budget check.
-	var def: EntityDef = registry.get_by_id(actor.current_def_id) if registry != null else null
-	if def == null or def.movement == null:
+	var movement_speed: int = movement_speed_for_entity(actor, registry)
+	if movement_speed <= 0:
 		return  # Not movement-capable.
-	if actor.moves_used_this_turn >= def.movement.speed_tiles_per_turn:
+	if actor.moves_used_this_turn >= movement_speed:
 		return
 
 	if step_toward(state, actor, order.target_tile, events):
@@ -89,10 +89,10 @@ static func advance_persistent_moves(
 		if po.type == EntityOrder.Type.ATTACK_MOVE and _enemy_in_range(state, actor, registry):
 			continue
 
-		var def: EntityDef = registry.get_by_id(actor.current_def_id) if registry != null else null
-		if def == null or def.movement == null:
+		var movement_speed: int = movement_speed_for_entity(actor, registry)
+		if movement_speed <= 0:
 			continue
-		if actor.moves_used_this_turn >= def.movement.speed_tiles_per_turn:
+		if actor.moves_used_this_turn >= movement_speed:
 			continue
 
 		if step_toward(state, actor, po.target_tile, events):
@@ -149,6 +149,19 @@ static func has_fresh_order_at(per_entity: Dictionary, entity_id: int, tick: int
 		return false
 	var o: EntityOrder = queue[tick]
 	return o != null
+
+
+static func movement_speed_for_entity(actor: Entity, registry: EntityRegistry) -> int:
+	if actor == null or registry == null:
+		return 0
+	var def: EntityDef = registry.get_by_id(actor.current_def_id)
+	if def == null or def.movement == null:
+		return 0
+	var speed := float(def.movement.speed_tiles_per_turn)
+	for buff in actor.active_buffs:
+		if buff != null:
+			speed *= buff.speed_mult
+	return max(0, int(round(speed)))
 
 
 # Returns true if any enemy of `actor` is currently within attack range.

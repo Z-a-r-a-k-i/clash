@@ -28,6 +28,7 @@ extends Resource
 
 @export var ability_cooldowns: Dictionary = {}  # { ability_id: turns_remaining }
 @export var active_buffs: Array[ActiveBuff] = []
+@export var ability_cast: Resource
 @export var is_hidden: bool = false  # recomputed each turn
 @export var hold_fire: bool = false  # toggled by HOLD_FIRE_TOGGLE order
 
@@ -91,6 +92,7 @@ func clone() -> Entity:
 	for b in active_buffs:
 		if b != null:
 			c.active_buffs.append(b.clone())
+	c.ability_cast = ability_cast.call("clone") if ability_cast != null else null
 	c.is_hidden = is_hidden
 	c.hold_fire = hold_fire
 	c.moves_used_this_turn = moves_used_this_turn
