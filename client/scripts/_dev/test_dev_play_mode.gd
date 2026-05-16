@@ -153,7 +153,7 @@ func _test_switches_input_and_render_perspective() -> bool:
 		_free_mode(mode)
 		return false
 	mode.set_active_player_id(1)
-	var ok := true
+	var ok: bool = true
 	if mode.input_model().active_player_id() != 1:
 		push_error("input model did not switch to P1")
 		ok = false
@@ -181,17 +181,17 @@ func _test_command_card_tracks_selection() -> bool:
 		push_error("expected to select a P0 worker on mvp_map")
 		_free_mode(mode)
 		return false
-	var card = mode.command_card()
+	var card: Control = mode.command_card()
 	if card == null:
 		push_error("expected command card to exist")
 		_free_mode(mode)
 		return false
-	if not card.build_option_ids().has("barracks"):
+	if not _command_card_ids(card, "build_option_ids").has("barracks"):
 		push_error("worker command card should expose barracks build option")
 		_free_mode(mode)
 		return false
 	mode.set_active_player_id(1)
-	if not card.build_option_ids().is_empty():
+	if not _command_card_ids(card, "build_option_ids").is_empty():
 		push_error("switching player should refresh command card after selection clears")
 		_free_mode(mode)
 		return false
@@ -213,8 +213,12 @@ func _test_routes_command_card_orders() -> bool:
 		push_error("expected to select a P0 worker on mvp_map")
 		_free_mode(mode)
 		return false
-	var card = mode.command_card()
-	card.attack_move_requested.emit()
+	var card: Control = mode.command_card()
+	if card == null:
+		push_error("expected command card to exist")
+		_free_mode(mode)
+		return false
+	card.emit_signal("attack_move_requested")
 	if mode.pending_command_kind() != "attack_move":
 		push_error("attack-move signal should enter pending attack_move mode")
 		_free_mode(mode)
@@ -228,8 +232,8 @@ func _test_routes_command_card_orders() -> bool:
 		push_error("expected ATTACK_MOVE after pending click")
 		_free_mode(mode)
 		return false
-	card.hold_fire_requested.emit(true)
-	card.cancel_requested.emit(-1)
+	card.emit_signal("hold_fire_requested", true)
+	card.emit_signal("cancel_requested", -1)
 	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
 	if orders[1].type != EntityOrder.Type.HOLD_FIRE_TOGGLE or not orders[1].hold_fire:
 		push_error("hold-fire signal should queue HOLD_FIRE_TOGGLE(true)")
@@ -240,7 +244,7 @@ func _test_routes_command_card_orders() -> bool:
 		_free_mode(mode)
 		return false
 	mode.input_model().clear_submissions()
-	card.build_requested.emit("barracks")
+	card.emit_signal("build_requested", "barracks")
 	if mode.pending_command_kind() != "build":
 		push_error("build signal should enter pending build mode")
 		_free_mode(mode)
@@ -260,8 +264,8 @@ func _test_routes_command_card_orders() -> bool:
 		push_error("expected to select injected barracks")
 		_free_mode(mode)
 		return false
-	card.train_requested.emit("marine")
-	card.research_requested.emit("stim_research")
+	card.emit_signal("train_requested", "marine")
+	card.emit_signal("research_requested", "stim_research")
 	orders = mode.input_model().submit_for_player(0).orders
 	if orders[0].type != EntityOrder.Type.TRAIN or orders[0].def_id != "marine":
 		push_error("train signal should queue TRAIN marine")
@@ -295,7 +299,7 @@ func _find_entity_id(state: MatchState, def_id: String, owner: int) -> int:
 func _add_runtime_entity(state: MatchState, def_id: String, owner: int, origin: Vector2i) -> int:
 	if state == null or state.tile_grid == null:
 		return -1
-	var entity := Entity.new()
+	var entity: Entity = Entity.new()
 	entity.id = state.allocate_entity_id()
 	entity.def_id = def_id
 	entity.current_def_id = def_id
@@ -304,10 +308,19 @@ func _add_runtime_entity(state: MatchState, def_id: String, owner: int, origin: 
 	entity.current_layer = "ground"
 	entity.current_hp = 1000
 	entity.production_state = ProductionState.new()
-	state.entities.append(entity)
 	if not state.tile_grid.place(entity.id, Rect2i(origin, Vector2i(3, 3))):
 		return -1
+	state.entities.append(entity)
 	return entity.id
+
+
+func _command_card_ids(card: Control, method_name: String) -> Array[String]:
+	var out: Array[String] = []
+	var raw: Array = card.call(method_name)
+	for item in raw:
+		var id: String = item
+		out.append(id)
+	return out
 
 
 func _free_mode(mode: Node) -> void:

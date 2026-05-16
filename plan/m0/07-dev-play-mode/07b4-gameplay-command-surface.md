@@ -1,5 +1,5 @@
 ---
-status: done
+status: doing
 depends_on:
   - ./07b3-perspective-and-fog.md
 ---
@@ -49,7 +49,3 @@ systems on `mvp_map.tres` and start finding obvious gameplay problems.
 - [x] Headless tests cover each new order constructor and a representative
   dev-play-mode command flow.
 - [x] `make test`, `gdlint`, and `gdformat --check` pass.
-
-## Artifacts
-
-- PR [#19](https://github.com/Z-a-r-a-k-i/clash/pull/19)

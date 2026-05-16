@@ -47,7 +47,7 @@ func _all_tests() -> Array:
 
 
 func _test_selects_owned_live_entity() -> bool:
-	var input = _make_input()
+	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
 	var setup := _make_input_setup()
@@ -75,7 +75,7 @@ func _test_selects_owned_live_entity() -> bool:
 
 
 func _test_queues_move_for_active_player() -> bool:
-	var input = _make_input()
+	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
 	var setup := _make_input_setup()
@@ -95,7 +95,7 @@ func _test_queues_move_for_active_player() -> bool:
 
 
 func _test_queues_attack_against_enemy() -> bool:
-	var input = _make_input()
+	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
 	var setup := _make_input_setup()
@@ -115,7 +115,7 @@ func _test_queues_attack_against_enemy() -> bool:
 
 
 func _test_queues_gather() -> bool:
-	var input = _make_input()
+	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
 	var setup := _make_input_setup()
@@ -136,7 +136,7 @@ func _test_queues_gather() -> bool:
 
 
 func _test_queues_attack_move_hold_fire_cancel() -> bool:
-	var input = _make_input()
+	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
 	var setup := _make_input_setup()
@@ -169,7 +169,7 @@ func _test_queues_attack_move_hold_fire_cancel() -> bool:
 
 
 func _test_queues_build_train_research() -> bool:
-	var input = _make_input()
+	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
 	var setup := _make_input_setup()
@@ -207,7 +207,7 @@ func _test_queues_build_train_research() -> bool:
 
 
 func _test_derives_command_options() -> bool:
-	var input = _make_input()
+	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
 	var setup := _make_input_setup()
@@ -244,7 +244,7 @@ func _test_derives_command_options() -> bool:
 
 
 func _test_clears_submissions() -> bool:
-	var input = _make_input()
+	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
 	var setup := _make_input_setup()
@@ -266,7 +266,7 @@ func _test_clears_submissions() -> bool:
 
 
 func _test_surrender_active_player() -> bool:
-	var input = _make_input()
+	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
 	var setup := _make_input_setup()
@@ -282,12 +282,12 @@ func _test_surrender_active_player() -> bool:
 	return true
 
 
-func _make_input():
+func _make_input() -> DevTurnInput:
 	var script: Script = load(DEV_TURN_INPUT_PATH) as Script
 	if script == null:
 		push_error("could not load %s" % DEV_TURN_INPUT_PATH)
 		return null
-	return script.new()
+	return script.new() as DevTurnInput
 
 
 func _make_input_setup() -> Dictionary:

@@ -30,7 +30,7 @@ A match ends when one player has zero buildings, or surrenders. M0's purpose is 
 | Resources and workers | [04-economy.md](04-economy.md) | `done` |
 | Production and build times | [05-production.md](05-production.md) | `done` |
 | Combat resolution and win | [06-combat-and-win.md](06-combat-and-win.md) | `done` |
-| Dev play mode + scenario tooling | [07-dev-play-mode/](07-dev-play-mode/) | compound — 07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `done`; 07b5 `ready`; 07b6 `ready`; 07b7 `stub` |
+| Dev play mode + scenario tooling | [07-dev-play-mode/](07-dev-play-mode/) | compound — 07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `doing`; 07b5 `ready`; 07b6 `ready`; 07b7 `stub` |
 | MVP map layout | [08-mvp-map.md](08-mvp-map.md) | `done` |
 
 ## What's deferred to M1 or later

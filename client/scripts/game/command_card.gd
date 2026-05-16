@@ -72,7 +72,7 @@ func _ensure_ui() -> void:
 	_selection_label.text = "Command card: none"
 	add_child(_selection_label)
 
-	var primary_row := HBoxContainer.new()
+	var primary_row: HBoxContainer = HBoxContainer.new()
 	primary_row.name = "Primary"
 	add_child(primary_row)
 
@@ -99,16 +99,16 @@ func _ensure_ui() -> void:
 
 
 func _section(title: String) -> VBoxContainer:
-	var box := VBoxContainer.new()
+	var box: VBoxContainer = VBoxContainer.new()
 	box.name = title
-	var label := Label.new()
+	var label: Label = Label.new()
 	label.text = title
 	box.add_child(label)
 	return box
 
 
 func _button(text: String) -> Button:
-	var button := Button.new()
+	var button: Button = Button.new()
 	button.text = text
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return button
@@ -120,11 +120,11 @@ func _rebuild_option_buttons(
 	if container == null:
 		return
 	while container.get_child_count() > 1:
-		var child := container.get_child(1)
+		var child: Node = container.get_child(1)
 		container.remove_child(child)
 		child.queue_free()
 	if options.is_empty():
-		var empty_label := Label.new()
+		var empty_label: Label = Label.new()
 		empty_label.text = "none"
 		container.add_child(empty_label)
 		return
@@ -139,7 +139,7 @@ func _add_option_button(
 	if def_id == "":
 		return
 	var label: String = option.get("label", def_id)
-	var button := _button(label)
+	var button: Button = _button(label)
 	button.pressed.connect(func() -> void: signal_to_emit.emit(def_id))
 	container.add_child(button)
 

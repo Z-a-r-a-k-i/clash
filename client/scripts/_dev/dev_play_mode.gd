@@ -190,13 +190,13 @@ func begin_build(def_id: String) -> void:
 
 func confirm_pending_at_tile(tile: Vector2i) -> bool:
 	if _pending_command == PENDING_ATTACK_MOVE:
-		var attack_ok := issue_attack_move_selected(tile)
+		var attack_ok: bool = issue_attack_move_selected(tile)
 		if attack_ok:
 			_clear_pending_command()
 			_update_hud()
 		return attack_ok
 	if _pending_command == PENDING_BUILD:
-		var build_ok := issue_build_selected(_pending_build_def_id, tile)
+		var build_ok: bool = issue_build_selected(_pending_build_def_id, tile)
 		if build_ok:
 			_clear_pending_command()
 			_update_hud()
@@ -377,14 +377,22 @@ func _update_hud(override_status: String = "") -> void:
 			]
 		)
 	if _status_label != null:
+		var status_message: String = _input.status_message()
 		if override_status != "":
 			_status_label.text = override_status
+		elif (
+			_pending_command != PENDING_NONE
+			and status_message != ""
+			and not status_message.begins_with("Queued")
+			and not status_message.begins_with("Selected")
+		):
+			_status_label.text = status_message
 		elif _pending_command == PENDING_ATTACK_MOVE:
 			_status_label.text = "Pending ATTACK_MOVE: click target tile."
 		elif _pending_command == PENDING_BUILD:
 			_status_label.text = "Pending BUILD %s: click placement tile." % _pending_build_def_id
 		else:
-			_status_label.text = _input.status_message()
+			_status_label.text = status_message
 	_refresh_command_card()
 
 
