@@ -1,5 +1,5 @@
 ---
-status: ready
+status: doing
 depends_on:
   - ./07b3-perspective-and-fog.md
 ---
@@ -40,12 +40,12 @@ systems on `mvp_map.tres` and start finding obvious gameplay problems.
 
 ## Done when
 
-- [ ] Dev input can queue `ATTACK_MOVE`, `HOLD_FIRE_TOGGLE`, `BUILD`, `TRAIN`,
+- [x] Dev input can queue `ATTACK_MOVE`, `HOLD_FIRE_TOGGLE`, `BUILD`, `TRAIN`,
   `RESEARCH`, and `CANCEL` orders with strict GDScript typing.
-- [ ] Dev play mode exposes rough controls for every non-ability M0 order.
-- [ ] Build placement and attack-move use an explicit pending-click mode.
-- [ ] Train and research controls only list valid items for the selected producer.
-- [ ] Command status messages explain why invalid selections or commands fail.
-- [ ] Headless tests cover each new order constructor and a representative
+- [x] Dev play mode exposes rough controls for every non-ability M0 order.
+- [x] Build placement and attack-move use an explicit pending-click mode.
+- [x] Train and research controls only list valid items for the selected producer.
+- [x] Command status messages explain why invalid selections or commands fail.
+- [x] Headless tests cover each new order constructor and a representative
   dev-play-mode command flow.
-- [ ] `make test`, `gdlint`, and `gdformat --check` pass.
+- [x] `make test`, `gdlint`, and `gdformat --check` pass.
