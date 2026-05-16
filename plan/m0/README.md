@@ -45,7 +45,7 @@ A match ends when one player has zero buildings, or surrenders. M0's purpose is 
 
 - [ ] A developer can drive a complete match (both sides) through the dev play mode, ending in a raze or surrender.
 - [x] Scenario loader covers at least three regression scenarios (combat, economy, edge case). *(plan-07a + plan-08)*
-- [ ] All nine child nodes are `done`. *(07-dev-play-mode/ in progress: gameplay command surface, abilities, and playtest loop remaining; tick-step debugger deferred unless playtests make it necessary)*
+- [ ] All eight child nodes are `done`. *(07-dev-play-mode/ in progress: gameplay command surface, abilities, and playtest loop remaining; tick-step debugger deferred unless playtests make it necessary)*
 - [ ] Mechanic-correctness notes captured in `../../docs/ROADMAP.md` or in follow-up plan nodes for M1.
 
 ## Plan-tree convention
