@@ -35,6 +35,12 @@ func _all_tests() -> Array:
 		["dev_input_queues_move_for_active_player", _test_queues_move_for_active_player],
 		["dev_input_queues_attack_against_enemy", _test_queues_attack_against_enemy],
 		["dev_input_queues_gather_for_worker_resource_target", _test_queues_gather],
+		[
+			"dev_input_queues_attack_move_hold_fire_and_cancel",
+			_test_queues_attack_move_hold_fire_cancel
+		],
+		["dev_input_queues_build_train_and_research", _test_queues_build_train_research],
+		["dev_input_derives_command_options_from_selection", _test_derives_command_options],
 		["dev_input_clears_submissions_after_resolve", _test_clears_submissions],
 		["dev_input_surrender_only_marks_active_player", _test_surrender_active_player],
 	]
@@ -129,6 +135,114 @@ func _test_queues_gather() -> bool:
 	return true
 
 
+func _test_queues_attack_move_hold_fire_cancel() -> bool:
+	var input = _make_input()
+	if input == null:
+		return false
+	var setup := _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.issue_attack_move(Vector2i(6, 6)):
+		push_error("expected ATTACK_MOVE to queue for selected marine")
+		return false
+	if not input.issue_hold_fire_toggle(true):
+		push_error("expected HOLD_FIRE_TOGGLE to queue for selected marine")
+		return false
+	if not input.issue_cancel():
+		push_error("expected CANCEL to queue for selected marine")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 3:
+		push_error("expected three queued orders, got %d" % orders.size())
+		return false
+	if orders[0].type != EntityOrder.Type.ATTACK_MOVE or orders[0].target_tile != Vector2i(6, 6):
+		push_error("first order should be ATTACK_MOVE to (6, 6)")
+		return false
+	if orders[1].type != EntityOrder.Type.HOLD_FIRE_TOGGLE or not orders[1].hold_fire:
+		push_error("second order should enable hold fire")
+		return false
+	if orders[2].type != EntityOrder.Type.CANCEL or orders[2].cancel_index != -1:
+		push_error("third order should cancel persistent action with index -1")
+		return false
+	return true
+
+
+func _test_queues_build_train_research() -> bool:
+	var input = _make_input()
+	if input == null:
+		return false
+	var setup := _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	if not input.issue_build("barracks", Vector2i(5, 5)):
+		push_error("expected worker to queue BUILD barracks")
+		return false
+	var build_order: EntityOrder = input.submit_for_player(0).orders[0]
+	if build_order.type != EntityOrder.Type.BUILD:
+		push_error("expected BUILD order")
+		return false
+	if build_order.entity_id != 1 or build_order.def_id != "barracks":
+		push_error("BUILD should target worker #1 and barracks")
+		return false
+	if build_order.target_tile != Vector2i(5, 5) or build_order.target_entity_id != -1:
+		push_error("BUILD should carry target tile and no resume target")
+		return false
+	input.select_entity(6)
+	if not input.issue_train("marine"):
+		push_error("expected barracks to queue TRAIN marine")
+		return false
+	if not input.issue_research("stim_research"):
+		push_error("expected barracks to queue RESEARCH stim_research")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders[1].type != EntityOrder.Type.TRAIN or orders[1].def_id != "marine":
+		push_error("second order should be TRAIN marine")
+		return false
+	if orders[2].type != EntityOrder.Type.RESEARCH or orders[2].def_id != "stim_research":
+		push_error("third order should be RESEARCH stim_research")
+		return false
+	return true
+
+
+func _test_derives_command_options() -> bool:
+	var input = _make_input()
+	if input == null:
+		return false
+	var setup := _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	var worker_builds: Array[String] = input.build_option_ids()
+	if not worker_builds.has("barracks"):
+		push_error("worker build options should include barracks")
+		return false
+	if worker_builds.has("worker"):
+		push_error("build options should not include trainable units")
+		return false
+	if not input.train_option_ids().is_empty():
+		push_error("worker should not expose train options")
+		return false
+	input.select_entity(6)
+	if input.build_option_ids().has("barracks"):
+		push_error("barracks should not expose worker-built buildings")
+		return false
+	var train_ids: Array[String] = input.train_option_ids()
+	var research_ids: Array[String] = input.research_option_ids()
+	if train_ids != ["marine"]:
+		push_error("expected barracks train ids [marine], got %s" % str(train_ids))
+		return false
+	if research_ids != ["stim_research"]:
+		push_error("expected barracks research ids [stim_research], got %s" % str(research_ids))
+		return false
+	setup.state.get_player(0).unlocked_researches.append("stim_research")
+	if not input.research_option_ids().is_empty():
+		push_error("unlocked research should disappear from command options")
+		return false
+	return true
+
+
 func _test_clears_submissions() -> bool:
 	var input = _make_input()
 	if input == null:
@@ -189,12 +303,16 @@ func _make_input_setup() -> Dictionary:
 		_make_def("worker", Vector2i(1, 1), true, true, false),
 		_make_def("marine", Vector2i(1, 1), true, false, false),
 		_make_def("mineral_patch", Vector2i(1, 3), false, false, true),
+		_make_barracks_def(),
 	]
+	registry.researches = [_make_research_def()]
 	_add_entity(state, 1, "worker", 0, Vector2i(1, 1), Vector2i(1, 1), 40)
 	_add_entity(state, 2, "marine", 1, Vector2i(7, 1), Vector2i(1, 1), 45)
 	_add_entity(state, 3, "mineral_patch", -1, Vector2i(4, 4), Vector2i(1, 3), 1)
 	_add_entity(state, 4, "worker", 0, Vector2i(2, 1), Vector2i(1, 1), 0)
 	_add_entity(state, 5, "marine", 0, Vector2i(3, 1), Vector2i(1, 1), 45)
+	_add_entity(state, 6, "barracks", 0, Vector2i(8, 4), Vector2i(3, 3), 1000)
+	state.get_entity_by_id(6).production_state = ProductionState.new()
 	return {"state": state, "registry": registry}
 
 
@@ -217,11 +335,45 @@ func _make_def(
 		var gather := GatherDef.new()
 		gather.accepts_resource_types = ["minerals", "gas"]
 		def.gather = gather
+		def.tags.append("worker")
 	if resource_source:
 		var source := ResourceSourceDef.new()
 		source.resource_type = "minerals"
 		def.resource_source = source
+		def.tags.append("resource_source")
+	if id == "marine":
+		def.tags.append("ground")
+		var construction := ConstructionDef.new()
+		construction.built_by_tag = "barracks"
+		def.construction = construction
 	return def
+
+
+func _make_barracks_def() -> EntityDef:
+	var def := EntityDef.new()
+	def.id = "barracks"
+	def.footprint = Vector2i(3, 3)
+	def.tags = ["building", "barracks", "structure", "ground"]
+	var health := HealthDef.new()
+	health.max_hp = 1000
+	def.health = health
+	var construction := ConstructionDef.new()
+	construction.built_by_tag = "worker"
+	construction.mineral_cost = 150
+	def.construction = construction
+	var production := ProductionDef.new()
+	production.produces = ["marine"]
+	production.researches = ["stim_research"]
+	def.production = production
+	return def
+
+
+func _make_research_def() -> ResearchDef:
+	var research := ResearchDef.new()
+	research.id = "stim_research"
+	research.display_name = "Stim Pack"
+	research.mineral_cost = 100
+	return research
 
 
 func _add_entity(

@@ -3,6 +3,7 @@ extends Node
 
 const DEV_PLAY_MODE_PATH := "res://scripts/_dev/dev_play_mode.gd"
 const COMBAT_SCENARIO_PATH := "res://data/scenarios/combat_marines_vs_tanks.tres"
+const MVP_SCENARIO_PATH := "res://data/scenarios/mvp_map.tres"
 
 
 func _enter_tree() -> void:
@@ -39,6 +40,8 @@ func _all_tests() -> Array:
 			"dev_play_mode_switches_input_and_render_perspective",
 			_test_switches_input_and_render_perspective
 		],
+		["dev_play_mode_command_card_tracks_selection", _test_command_card_tracks_selection],
+		["dev_play_mode_routes_command_card_orders", _test_routes_command_card_orders],
 	]
 
 
@@ -164,12 +167,147 @@ func _test_switches_input_and_render_perspective() -> bool:
 	return ok
 
 
+func _test_command_card_tracks_selection() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	if worker_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected to select a P0 worker on mvp_map")
+		_free_mode(mode)
+		return false
+	var card = mode.command_card()
+	if card == null:
+		push_error("expected command card to exist")
+		_free_mode(mode)
+		return false
+	if not card.build_option_ids().has("barracks"):
+		push_error("worker command card should expose barracks build option")
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(1)
+	if not card.build_option_ids().is_empty():
+		push_error("switching player should refresh command card after selection clears")
+		_free_mode(mode)
+		return false
+	_free_mode(mode)
+	return true
+
+
+func _test_routes_command_card_orders() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	if worker_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected to select a P0 worker on mvp_map")
+		_free_mode(mode)
+		return false
+	var card = mode.command_card()
+	card.attack_move_requested.emit()
+	if mode.pending_command_kind() != "attack_move":
+		push_error("attack-move signal should enter pending attack_move mode")
+		_free_mode(mode)
+		return false
+	if not mode.confirm_pending_at_tile(Vector2i(9, 22)):
+		push_error("pending attack-move click should queue ATTACK_MOVE")
+		_free_mode(mode)
+		return false
+	var attack_move: EntityOrder = mode.input_model().submit_for_player(0).orders[0]
+	if attack_move.type != EntityOrder.Type.ATTACK_MOVE:
+		push_error("expected ATTACK_MOVE after pending click")
+		_free_mode(mode)
+		return false
+	card.hold_fire_requested.emit(true)
+	card.cancel_requested.emit(-1)
+	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if orders[1].type != EntityOrder.Type.HOLD_FIRE_TOGGLE or not orders[1].hold_fire:
+		push_error("hold-fire signal should queue HOLD_FIRE_TOGGLE(true)")
+		_free_mode(mode)
+		return false
+	if orders[2].type != EntityOrder.Type.CANCEL or orders[2].cancel_index != -1:
+		push_error("cancel signal should queue CANCEL(-1)")
+		_free_mode(mode)
+		return false
+	mode.input_model().clear_submissions()
+	card.build_requested.emit("barracks")
+	if mode.pending_command_kind() != "build":
+		push_error("build signal should enter pending build mode")
+		_free_mode(mode)
+		return false
+	if not mode.confirm_pending_at_tile(Vector2i(12, 2)):
+		push_error("pending build click should queue BUILD")
+		_free_mode(mode)
+		return false
+	var build: EntityOrder = mode.input_model().submit_for_player(0).orders[0]
+	if build.type != EntityOrder.Type.BUILD or build.def_id != "barracks":
+		push_error("expected BUILD barracks after pending click")
+		_free_mode(mode)
+		return false
+	mode.input_model().clear_submissions()
+	var barracks_id: int = _add_runtime_entity(mode.current_state(), "barracks", 0, Vector2i(16, 2))
+	if barracks_id < 0 or not mode.select_entity_id(barracks_id):
+		push_error("expected to select injected barracks")
+		_free_mode(mode)
+		return false
+	card.train_requested.emit("marine")
+	card.research_requested.emit("stim_research")
+	orders = mode.input_model().submit_for_player(0).orders
+	if orders[0].type != EntityOrder.Type.TRAIN or orders[0].def_id != "marine":
+		push_error("train signal should queue TRAIN marine")
+		_free_mode(mode)
+		return false
+	if orders[1].type != EntityOrder.Type.RESEARCH or orders[1].def_id != "stim_research":
+		push_error("research signal should queue RESEARCH stim_research")
+		_free_mode(mode)
+		return false
+	_free_mode(mode)
+	return true
+
+
 func _make_mode() -> Node:
 	var script: Script = load(DEV_PLAY_MODE_PATH) as Script
 	if script == null:
 		push_error("could not load %s" % DEV_PLAY_MODE_PATH)
 		return null
 	return script.new()
+
+
+func _find_entity_id(state: MatchState, def_id: String, owner: int) -> int:
+	if state == null:
+		return -1
+	for entity in state.entities_sorted_by_id():
+		if entity.def_id == def_id and entity.owner_player_id == owner and entity.current_hp > 0:
+			return entity.id
+	return -1
+
+
+func _add_runtime_entity(state: MatchState, def_id: String, owner: int, origin: Vector2i) -> int:
+	if state == null or state.tile_grid == null:
+		return -1
+	var entity := Entity.new()
+	entity.id = state.allocate_entity_id()
+	entity.def_id = def_id
+	entity.current_def_id = def_id
+	entity.owner_player_id = owner
+	entity.origin = origin
+	entity.current_layer = "ground"
+	entity.current_hp = 1000
+	entity.production_state = ProductionState.new()
+	state.entities.append(entity)
+	if not state.tile_grid.place(entity.id, Rect2i(origin, Vector2i(3, 3))):
+		return -1
+	return entity.id
 
 
 func _free_mode(mode: Node) -> void:

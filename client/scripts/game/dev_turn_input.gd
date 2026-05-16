@@ -126,6 +126,119 @@ func issue_gather(target_entity_id: int) -> bool:
 	return true
 
 
+func issue_attack_move(target_tile: Vector2i) -> bool:
+	var actor := _selected_entity()
+	if actor == null:
+		_status_message = "Select a unit before issuing ATTACK_MOVE."
+		return false
+	if _state == null or _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
+		_status_message = "ATTACK_MOVE target is outside the map."
+		return false
+	if not can_issue_attack_move():
+		_status_message = "%s cannot attack-move." % _def_id_for_entity(actor)
+		return false
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.ATTACK_MOVE
+	order.entity_id = actor.id
+	order.target_tile = target_tile
+	_append_order(order)
+	_status_message = "Queued ATTACK_MOVE for #%d to %s." % [actor.id, str(target_tile)]
+	return true
+
+
+func issue_hold_fire_toggle(enabled: bool) -> bool:
+	var actor := _selected_entity()
+	if actor == null:
+		_status_message = "Select a combat entity before issuing HOLD_FIRE_TOGGLE."
+		return false
+	if not can_issue_hold_fire_toggle():
+		_status_message = "%s cannot use hold fire." % _def_id_for_entity(actor)
+		return false
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.HOLD_FIRE_TOGGLE
+	order.entity_id = actor.id
+	order.hold_fire = enabled
+	_append_order(order)
+	_status_message = "Queued HOLD_FIRE_TOGGLE for #%d." % actor.id
+	return true
+
+
+func issue_build(def_id: String, target_tile: Vector2i, target_entity_id: int = -1) -> bool:
+	var actor := _selected_entity()
+	if actor == null:
+		_status_message = "Select a builder before issuing BUILD."
+		return false
+	if _state == null or _state.tile_grid == null:
+		_status_message = "BUILD needs a loaded map."
+		return false
+	if not build_option_ids().has(def_id):
+		_status_message = "%s cannot build '%s'." % [_def_id_for_entity(actor), def_id]
+		return false
+	var build_def: EntityDef = _registry.get_by_id(def_id) if _registry != null else null
+	var footprint := build_def.footprint if build_def != null else Vector2i.ONE
+	var rect := Rect2i(target_tile, footprint if footprint != Vector2i.ZERO else Vector2i.ONE)
+	if not _state.tile_grid.is_rect_in_bounds(rect):
+		_status_message = "BUILD target is outside the map."
+		return false
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.BUILD
+	order.entity_id = actor.id
+	order.def_id = def_id
+	order.target_tile = target_tile
+	order.target_entity_id = target_entity_id
+	_append_order(order)
+	_status_message = "Queued BUILD %s for #%d at %s." % [def_id, actor.id, str(target_tile)]
+	return true
+
+
+func issue_train(def_id: String) -> bool:
+	var actor := _selected_entity()
+	if actor == null:
+		_status_message = "Select a producer before issuing TRAIN."
+		return false
+	if not train_option_ids().has(def_id):
+		_status_message = "%s cannot train '%s'." % [_def_id_for_entity(actor), def_id]
+		return false
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TRAIN
+	order.entity_id = actor.id
+	order.def_id = def_id
+	_append_order(order)
+	_status_message = "Queued TRAIN %s for #%d." % [def_id, actor.id]
+	return true
+
+
+func issue_research(def_id: String) -> bool:
+	var actor := _selected_entity()
+	if actor == null:
+		_status_message = "Select a producer before issuing RESEARCH."
+		return false
+	if not research_option_ids().has(def_id):
+		_status_message = "%s cannot research '%s'." % [_def_id_for_entity(actor), def_id]
+		return false
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.RESEARCH
+	order.entity_id = actor.id
+	order.def_id = def_id
+	_append_order(order)
+	_status_message = "Queued RESEARCH %s for #%d." % [def_id, actor.id]
+	return true
+
+
+func issue_cancel(cancel_index: int = -1) -> bool:
+	var actor := _selected_entity()
+	if actor == null:
+		_status_message = "Select an entity before issuing CANCEL."
+		return false
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.CANCEL
+	order.entity_id = actor.id
+	order.cancel_index = cancel_index
+	_append_order(order)
+	_status_message = "Queued CANCEL(%d) for #%d." % [cancel_index, actor.id]
+	return true
+
+
 func surrender_active_player() -> void:
 	_submission_for(_active_player_id).surrender = true
 	_status_message = "P%d will surrender on resolve." % _active_player_id
@@ -144,6 +257,113 @@ func submit_for_player(player_id: int) -> SubmitTurn:
 
 func queued_order_count(player_id: int) -> int:
 	return _submission_for(player_id).orders.size()
+
+
+func selected_entity_label() -> String:
+	var actor := _selected_entity()
+	if actor == null:
+		return "none"
+	var def_id := _def_id_for_entity(actor)
+	return "%s #%d" % [label_for_entity_def_id(def_id), actor.id]
+
+
+func selected_hold_fire() -> bool:
+	var actor := _selected_entity()
+	return actor != null and actor.hold_fire
+
+
+func can_issue_attack_move() -> bool:
+	var actor := _selected_entity()
+	var def := _def_for_entity(actor)
+	return (
+		def != null
+		and def.movement != null
+		and def.movement.speed_tiles_per_turn > 0
+		and def.combat != null
+		and def.combat.damage > 0
+	)
+
+
+func can_issue_hold_fire_toggle() -> bool:
+	var actor := _selected_entity()
+	var def := _def_for_entity(actor)
+	return def != null and def.combat != null and def.combat.damage > 0
+
+
+func can_issue_cancel() -> bool:
+	return _selected_entity() != null
+
+
+func build_option_ids() -> Array[String]:
+	var out: Array[String] = []
+	var actor := _selected_entity()
+	var actor_def := _def_for_entity(actor)
+	if actor == null or actor_def == null or _registry == null:
+		return out
+	for candidate in _registry.entities:
+		var def: EntityDef = candidate
+		if def == null or def.id == "" or def.construction == null:
+			continue
+		if not def.tags.has("building"):
+			continue
+		var built_by: String = def.construction.built_by_tag
+		if built_by == "" or actor_def.tags.has(built_by):
+			out.append(def.id)
+	return out
+
+
+func train_option_ids() -> Array[String]:
+	var out: Array[String] = []
+	var actor := _selected_entity()
+	var producer_def := _def_for_entity(actor)
+	if actor == null or producer_def == null or producer_def.production == null:
+		return out
+	if actor.production_state == null or actor.is_constructing:
+		return out
+	for id in producer_def.production.produces:
+		var def_id: String = id
+		if _registry == null or _registry.get_by_id(def_id) != null:
+			out.append(def_id)
+	return out
+
+
+func research_option_ids() -> Array[String]:
+	var out: Array[String] = []
+	var actor := _selected_entity()
+	var producer_def := _def_for_entity(actor)
+	if actor == null or producer_def == null or producer_def.production == null:
+		return out
+	if actor.production_state == null or actor.is_constructing:
+		return out
+	var player := _state.get_player(actor.owner_player_id) if _state != null else null
+	for id in producer_def.production.researches:
+		var research_id: String = id
+		if _registry != null and _registry.get_research_by_id(research_id) == null:
+			continue
+		if player != null and player.unlocked_researches.has(research_id):
+			continue
+		if _player_has_research_in_progress(actor.owner_player_id, research_id):
+			continue
+		out.append(research_id)
+	return out
+
+
+func label_for_entity_def_id(def_id: String) -> String:
+	if _registry == null:
+		return def_id
+	var def := _registry.get_by_id(def_id)
+	if def == null or def.display_name == "":
+		return def_id
+	return def.display_name
+
+
+func label_for_research_id(research_id: String) -> String:
+	if _registry == null:
+		return research_id
+	var research := _registry.get_research_by_id(research_id)
+	if research == null or research.display_name == "":
+		return research_id
+	return research.display_name
 
 
 func _append_order(order: EntityOrder) -> void:
@@ -198,3 +418,28 @@ func _is_gather_target(target: Entity, target_def: EntityDef) -> bool:
 	if target_def.resource_source != null:
 		return true
 	return target_def.tags.has("refinery")
+
+
+func _player_has_research_in_progress(owner_player_id: int, research_id: String) -> bool:
+	if _state == null or research_id == "":
+		return false
+	for e in _state.entities_sorted_by_id():
+		if e == null or e.current_hp <= 0 or e.owner_player_id != owner_player_id:
+			continue
+		if e.production_state == null:
+			continue
+		var active: Dictionary = e.production_state.active
+		if (
+			not active.is_empty()
+			and active.get(ProductionState.KEY_KIND, "") == ProductionState.KIND_RESEARCH
+			and active.get(ProductionState.KEY_DEF_ID, "") == research_id
+		):
+			return true
+		for item in e.production_state.queue:
+			var queued: Dictionary = item
+			if (
+				queued.get(ProductionState.KEY_KIND, "") == ProductionState.KIND_RESEARCH
+				and queued.get(ProductionState.KEY_DEF_ID, "") == research_id
+			):
+				return true
+	return false
