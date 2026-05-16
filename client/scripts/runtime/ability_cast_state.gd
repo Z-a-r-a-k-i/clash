@@ -10,8 +10,8 @@ extends Resource
 		turns_remaining = max(0, value)
 
 
-func clone() -> Resource:
-	var c: Resource = get_script().new()
-	c.set("ability_id", ability_id)
-	c.set("turns_remaining", turns_remaining)
+func clone() -> AbilityCastState:
+	var c: AbilityCastState = AbilityCastState.new()
+	c.ability_id = ability_id
+	c.turns_remaining = turns_remaining
 	return c

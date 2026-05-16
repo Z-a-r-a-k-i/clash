@@ -371,7 +371,10 @@ func research_option_ids() -> Array[String]:
 
 func ability_option_ids() -> Array[String]:
 	var out: Array[String] = []
-	for ability in _ABILITY_SYSTEM.available_self_abilities(_state, _selected_entity(), _registry):
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		return out
+	for ability in _ABILITY_SYSTEM.available_self_abilities(_state, actor, _registry):
 		out.append(ability.id)
 	return out
 

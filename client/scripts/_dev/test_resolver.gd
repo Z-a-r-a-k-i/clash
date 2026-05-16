@@ -1162,9 +1162,9 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 		if (ea.ability_cast == null) != (eb.ability_cast == null):
 			return false
 		if ea.ability_cast != null:
-			if ea.ability_cast.get("ability_id") != eb.ability_cast.get("ability_id"):
+			if ea.ability_cast.ability_id != eb.ability_cast.ability_id:
 				return false
-			if ea.ability_cast.get("turns_remaining") != eb.ability_cast.get("turns_remaining"):
+			if ea.ability_cast.turns_remaining != eb.ability_cast.turns_remaining:
 				return false
 		if ea.active_buffs.size() != eb.active_buffs.size():
 			return false
@@ -4755,13 +4755,27 @@ func _test_ability_unsiege_delayed_transform() -> bool:
 
 func _test_siege_tank_data_is_immobile_and_siege_requires_research() -> bool:
 	var registry: EntityRegistry = _load_data_registry()
+	if registry == null:
+		push_error("registry should load entity data")
+		return false
 	var tank: EntityDef = registry.get_by_id("tank")
 	var siege_tank: EntityDef = registry.get_by_id("siege_tank")
-	if tank == null or tank.abilities == null or tank.abilities.abilities.is_empty():
+	if tank == null:
+		push_error("tank data missing")
+		return false
+	if tank.abilities == null or tank.abilities.abilities.is_empty():
 		push_error("tank should expose siege_mode ability data")
 		return false
-	var siege: AbilityDef = tank.abilities.abilities[0]
-	if siege.id != "siege_mode" or siege.requires_research_id != "siege_mode_research":
+	var siege: AbilityDef = null
+	for item in tank.abilities.abilities:
+		var ability: AbilityDef = item
+		if ability != null and ability.id == "siege_mode":
+			siege = ability
+			break
+	if siege == null:
+		push_error("tank should expose siege_mode ability data")
+		return false
+	if siege.requires_research_id != "siege_mode_research":
 		push_error("siege_mode should require siege_mode_research")
 		return false
 	if siege_tank == null:

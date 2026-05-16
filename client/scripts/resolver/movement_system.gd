@@ -157,7 +157,7 @@ static func movement_speed_for_entity(actor: Entity, registry: EntityRegistry) -
 	var def: EntityDef = registry.get_by_id(actor.current_def_id)
 	if def == null or def.movement == null:
 		return 0
-	var speed := float(def.movement.speed_tiles_per_turn)
+	var speed: float = float(def.movement.speed_tiles_per_turn)
 	for buff in actor.active_buffs:
 		if buff != null:
 			speed *= buff.speed_mult

@@ -47,9 +47,9 @@ static func resolve_use_ability(
 	_emit_ability_used(actor.id, ability.id, events)
 
 	if ability.cast_time_turns > 0:
-		var cast: Resource = _ABILITY_CAST_STATE.new()
-		cast.set("ability_id", ability.id)
-		cast.set("turns_remaining", ability.cast_time_turns)
+		var cast: AbilityCastState = _ABILITY_CAST_STATE.new()
+		cast.ability_id = ability.id
+		cast.turns_remaining = ability.cast_time_turns
 		actor.ability_cast = cast
 		actor.persistent_order = null
 		return
@@ -63,11 +63,12 @@ static func advance_casts(
 	for actor in state.entities_sorted_by_id():
 		if actor == null or actor.current_hp <= 0 or actor.ability_cast == null:
 			continue
-		var turns_remaining: int = actor.ability_cast.get("turns_remaining") - 1
-		actor.ability_cast.set("turns_remaining", turns_remaining)
+		var cast: AbilityCastState = actor.ability_cast
+		var turns_remaining: int = cast.turns_remaining - 1
+		cast.turns_remaining = turns_remaining
 		if turns_remaining > 0:
 			continue
-		var ability_id: String = actor.ability_cast.get("ability_id")
+		var ability_id: String = cast.ability_id
 		actor.ability_cast = null
 		var ability: AbilityDef = _ability_for_entity(actor, ability_id, registry)
 		if ability == null:
