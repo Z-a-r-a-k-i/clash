@@ -8,7 +8,7 @@ Smallest playable thing that has the soul of the game on one machine. No network
 
 ## Scope
 
-M0 is a **dev-only** prototype. Simultaneous turns require blind concurrent input, so hot-seat is incompatible by construction; an AI opponent is M1. Until then, one developer drives both players from a debug tool with no timer and a scenario loader.
+M0 is a **dev-only playable** prototype. Simultaneous turns require blind concurrent input, so hot-seat is incompatible by construction; an AI opponent is M1. Until then, one developer drives both players from a rough debug tool with no timer and a scenario loader. The goal is not polished UX; it is reaching enough gameplay to expose obvious fun, pacing, and command-surface problems.
 
 Both sides start with an identical roster:
 
@@ -17,7 +17,7 @@ Both sides start with an identical roster:
 - Units: marine (T1), tank (T2), helicopter (T3).
 - Pop cap 50, variable slot cost per unit (tunable).
 
-A match ends when one player has zero buildings, or surrenders. M0's purpose is validating that the **systems are correct** — fun validation needs a real opponent and arrives once M1 (AI) or M2 (network play) lands.
+A match ends when one player has zero buildings, or surrenders. M0's purpose is validating that the **systems are operable together** and starting qualitative gameplay discovery. True solo fun validation needs AI (M1) and true PvP validation needs network play (M2), but M0 should still be playable enough to reveal obvious problems.
 
 ## What's in M0
 
@@ -30,7 +30,7 @@ A match ends when one player has zero buildings, or surrenders. M0's purpose is 
 | Resources and workers | [04-economy.md](04-economy.md) | `done` |
 | Production and build times | [05-production.md](05-production.md) | `done` |
 | Combat resolution and win | [06-combat-and-win.md](06-combat-and-win.md) | `done` |
-| Dev play mode + scenario tooling | [07-dev-play-mode/](07-dev-play-mode/) | compound — 07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `stub` |
+| Dev play mode + scenario tooling | [07-dev-play-mode/](07-dev-play-mode/) | compound — 07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `ready`; 07b5 `ready`; 07b6 `ready`; 07b7 `stub` |
 | MVP map layout | [08-mvp-map.md](08-mvp-map.md) | `done` |
 
 ## What's deferred to M1 or later
@@ -45,7 +45,7 @@ A match ends when one player has zero buildings, or surrenders. M0's purpose is 
 
 - [ ] A developer can drive a complete match (both sides) through the dev play mode, ending in a raze or surrender.
 - [x] Scenario loader covers at least three regression scenarios (combat, economy, edge case). *(plan-07a + plan-08)*
-- [ ] All nine child nodes are `done`. *(07-dev-play-mode/ in progress: 07a, 07b1, 07b2, and 07b3 done; 07b4 remaining)*
+- [ ] All eight child nodes are `done`. *(07-dev-play-mode/ in progress: gameplay command surface, abilities, and playtest loop remaining; tick-step debugger deferred unless playtests make it necessary)*
 - [ ] Mechanic-correctness notes captured in `../../docs/ROADMAP.md` or in follow-up plan nodes for M1.
 
 ## Plan-tree convention

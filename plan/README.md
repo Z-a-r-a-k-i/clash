@@ -8,7 +8,7 @@ Turn-based PvP strategy game with simultaneous-turn resolution. SC2-shaped econo
 
 ## Active milestone
 
-- **[m0/](m0/)** — Dev-only prototype. One developer drives both players through a debug tool to validate that the systems are correct. Hot-seat is incompatible with simultaneous-turn blind input; AI is M1; first real PvP arrives with network play in M2.
+- **[m0/](m0/)** — Dev-only playable prototype. One developer drives both players through a rough debug tool to validate the systems and start finding obvious gameplay/fun problems. Hot-seat is incompatible with simultaneous-turn blind input; AI is M1; first real PvP arrives with network play in M2.
 
 ## Future milestones
 

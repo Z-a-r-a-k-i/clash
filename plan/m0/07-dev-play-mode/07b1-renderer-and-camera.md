@@ -14,7 +14,7 @@ Plan node 07's "Done when" splits naturally into four user-visible verbs:
 - **see the map** (07b1, this node)
 - **play a turn** ([07b2-input-and-turn-advance.md](./07b2-input-and-turn-advance.md))
 - **swap perspectives** ([07b3-perspective-and-fog.md](./07b3-perspective-and-fog.md))
-- **step ticks** ([07b4-tick-step-debugger.md](./07b4-tick-step-debugger.md))
+- **drive a rough match** ([07b4-gameplay-command-surface.md](./07b4-gameplay-command-surface.md))
 
 ## Goals
 
@@ -29,7 +29,7 @@ Plan node 07's "Done when" splits naturally into four user-visible verbs:
 - **Manual turn advance UI** — 07b2.
 - **Mouse input / unit selection / order issuing** — 07b2.
 - **Per-player perspective + fog of war** — 07b3.
-- **Tick-step debugger** — 07b4.
+- **Gameplay command surface** — 07b4.
 - **Final art direction.** M0 is for validating mechanics, not visuals (per [`../README.md`](../README.md)).
 - **Animation polish.** Modulate-fade attack lines and float-up damage labels are the only animations.
 - **Sound.**
