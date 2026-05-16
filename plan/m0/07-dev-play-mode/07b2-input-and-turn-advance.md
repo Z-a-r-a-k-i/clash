@@ -27,9 +27,10 @@ Implemented order surface:
 
 Deferred to later plan nodes or follow-up work:
 
-- Build placement, train, research, cancel, hold-fire controls.
+- Build placement, train, research, cancel, hold-fire, and attack-move controls. That belongs to 07b4.
+- Ability controls and resolver effects. That belongs to 07b5.
 - Per-player fog and perspective correctness. That belongs to 07b3.
-- Tick stepping and intermediate-state inspection. That belongs to 07b4.
+- Tick stepping and intermediate-state inspection. That is deferred to 07b7 unless playtests make it urgent.
 - Control groups and production-focused UX.
 
 ## Architecture
