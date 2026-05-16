@@ -1,5 +1,5 @@
 ---
-status: ready
+status: doing
 depends_on:
   - ./07b3-perspective-and-fog.md
 ---
