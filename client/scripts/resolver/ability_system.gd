@@ -130,7 +130,7 @@ static func _research_unlocked(actor: Entity, ability: AbilityDef, state: MatchS
 
 
 static func _hp_cost(ability: AbilityDef) -> int:
-	var total := 0
+	var total: int = 0
 	for item in ability.costs:
 		var cost: AbilityCost = item
 		if cost == null or cost.amount <= 0:
@@ -156,7 +156,7 @@ static func _apply_effect(
 static func _apply_stat_buff(actor: Entity, ability: AbilityDef, effect: StatBuffEffect) -> void:
 	if effect.duration_turns <= 0:
 		return
-	var buff := ActiveBuff.new()
+	var buff: ActiveBuff = ActiveBuff.new()
 	buff.source_ability_id = ability.id
 	buff.turns_remaining = effect.duration_turns
 	buff.damage_mult = effect.damage_mult
@@ -174,7 +174,7 @@ static func _apply_transform(
 	actor.current_def_id = target_def.id
 	if target_def.movement == null:
 		actor.persistent_order = null
-	var ev := ResolverEvent.new()
+	var ev: ResolverEvent = ResolverEvent.new()
 	ev.type = ResolverEvent.Type.ENTITY_TRANSFORMED
 	ev.actor_id = actor.id
 	ev.new_def_id = target_def.id
@@ -184,7 +184,7 @@ static func _apply_transform(
 static func _emit_ability_used(
 	actor_id: int, ability_id: String, events: Array[ResolverEvent]
 ) -> void:
-	var ev := ResolverEvent.new()
+	var ev: ResolverEvent = ResolverEvent.new()
 	ev.type = ResolverEvent.Type.ABILITY_USED
 	ev.actor_id = actor_id
 	ev.def_id = ability_id
@@ -194,7 +194,7 @@ static func _emit_ability_used(
 static func _emit_order_rejected(
 	actor_id: int, reason: String, events: Array[ResolverEvent]
 ) -> void:
-	var ev := ResolverEvent.new()
+	var ev: ResolverEvent = ResolverEvent.new()
 	ev.type = ResolverEvent.Type.ORDER_REJECTED
 	ev.actor_id = actor_id
 	ev.def_id = reason
