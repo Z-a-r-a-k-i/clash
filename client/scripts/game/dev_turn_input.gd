@@ -460,7 +460,7 @@ func _gather_target_entity(entity_id: int) -> Entity:
 		return null
 	if _is_gather_target(entity, def):
 		return entity
-	return entity
+	return null
 
 
 func _def_for_entity(entity: Entity) -> EntityDef:

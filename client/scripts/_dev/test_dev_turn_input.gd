@@ -344,6 +344,7 @@ func _make_input_setup() -> Dictionary:
 	_add_entity(state, 1, "worker", 0, Vector2i(1, 1), Vector2i(1, 1), 40)
 	_add_entity(state, 2, "marine", 1, Vector2i(7, 1), Vector2i(1, 1), 45)
 	_add_entity(state, 3, "mineral_patch", -1, Vector2i(4, 4), Vector2i(1, 3), 0)
+	state.get_entity_by_id(3).current_resource_amount = 500
 	_add_entity(state, 4, "worker", 0, Vector2i(2, 1), Vector2i(1, 1), 0)
 	_add_entity(state, 5, "marine", 0, Vector2i(3, 1), Vector2i(1, 1), 45)
 	_add_entity(state, 6, "barracks", 0, Vector2i(8, 4), Vector2i(3, 3), 1000)

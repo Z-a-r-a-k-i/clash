@@ -53,4 +53,4 @@ This area splits into a headless half (07a), a gameplay-first visual/control pat
 - [x] Dev can drive all non-ability M0 orders from the UI: attack-move, hold-fire, build, train, research, and cancel. *(07b4)*
 - [x] Dev can use M0 self-target abilities, including stim and siege/unsiege. *(07b5)*
 - [x] A repeatable M0 playtest checklist exists and a smoke path proves `mvp_map.tres` can exercise economy, production, combat, fog, and match end. *(07b6)*
-- [ ] Gameplay-first sub-PRs land. *(07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `done`; 07b5 `done`; 07b6 `done`; 07b7 deferred `stub`)*
+- [x] Gameplay-first sub-PRs land. *(07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `done`; 07b5 `done`; 07b6 `done`; 07b7 is a deferred debugger `stub`, not part of the gameplay-first path.)*

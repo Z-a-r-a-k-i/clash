@@ -1,10 +1,10 @@
 @tool
 extends Node
 
-const _REGISTRY_PATH := "res://data/entity_registry.tres"
-const _TUNABLES_PATH := "res://data/tunables.tres"
-const _MVP_MAP_PATH := "res://data/scenarios/mvp_map.tres"
-const _MINERALS_FOR_FIRST_BARRACKS := 150
+const _REGISTRY_PATH: String = "res://data/entity_registry.tres"
+const _TUNABLES_PATH: String = "res://data/tunables.tres"
+const _MVP_MAP_PATH: String = "res://data/scenarios/mvp_map.tres"
+const _MINERALS_FOR_FIRST_BARRACKS: int = 150
 
 
 func _enter_tree() -> void:
@@ -14,8 +14,8 @@ func _enter_tree() -> void:
 
 
 func _run_all() -> int:
-	var passed := 0
-	var failed := 0
+	var passed: int = 0
+	var failed: int = 0
 	var fail_names: Array[String] = []
 	for test_pair in _all_tests():
 		var test_name: String = test_pair[0]
@@ -37,7 +37,7 @@ func _all_tests() -> Array:
 
 
 func _test_m0_playtest_smoke() -> bool:
-	var loaded := _load_mvp_map()
+	var loaded: LoadedScenario = _load_mvp_map()
 	if loaded == null or loaded.state == null or loaded.registry == null:
 		push_error("[m0_playtest_smoke] failed to load MVP map, registry, or tunables")
 		return false
@@ -56,13 +56,16 @@ func _test_m0_playtest_smoke() -> bool:
 		push_error("[m0_playtest_smoke] opening gather did not reach first barracks minerals")
 		return false
 	var builder: Entity = _first_entity_by_def_owner(state, "worker", 0)
+	if builder == null:
+		push_error("[m0_playtest_smoke] expected a P0 worker builder")
+		return false
 	var barracks_origin: Vector2i = _find_clear_build_origin(
 		state, registry, "barracks", builder.origin, 12
 	)
 	if barracks_origin == Vector2i(-1, -1):
 		push_error("[m0_playtest_smoke] could not find a clear barracks build tile")
 		return false
-	var build_result := _resolve(
+	var build_result: ResolveResult = _resolve(
 		state, registry, tunables, [_build_order(builder.id, "barracks", barracks_origin)], []
 	)
 	if not _has_event(build_result.events, ResolverEvent.Type.BUILD_STARTED):
@@ -84,7 +87,7 @@ func _test_m0_playtest_smoke() -> bool:
 	if state == null:
 		push_error("[m0_playtest_smoke] minerals did not recover enough to train a marine")
 		return false
-	var train_result := _resolve(
+	var train_result: ResolveResult = _resolve(
 		state, registry, tunables, [_train_order(barracks_id, "marine")], []
 	)
 	if not _has_event(train_result.events, ResolverEvent.Type.TRAIN_STARTED):
@@ -97,6 +100,9 @@ func _test_m0_playtest_smoke() -> bool:
 		push_error("[m0_playtest_smoke] marine did not complete within smoke budget")
 		return false
 	var marine: Entity = _first_entity_by_def_owner(state, "marine", 0)
+	if marine == null:
+		push_error("[m0_playtest_smoke] expected a trained P0 marine")
+		return false
 	var enemy_origin: Vector2i = _find_clear_build_origin(
 		state, registry, "marine", marine.origin + Vector2i(2, 0), 5
 	)
@@ -107,15 +113,15 @@ func _test_m0_playtest_smoke() -> bool:
 	if enemy_id < 0:
 		push_error("[m0_playtest_smoke] failed to spawn nearby enemy marine")
 		return false
-	var combat_result := _resolve(
+	var combat_result: ResolveResult = _resolve(
 		state, registry, tunables, [_attack_order(marine.id, enemy_id)], []
 	)
 	if not _has_event(combat_result.events, ResolverEvent.Type.ENTITY_DAMAGED):
 		push_error("[m0_playtest_smoke] expected nearby marine attack to deal damage")
 		return false
-	var surrender := SubmitTurn.new()
+	var surrender: SubmitTurn = SubmitTurn.new()
 	surrender.surrender = true
-	var end_result := Resolver.resolve(
+	var end_result: ResolveResult = Resolver.resolve(
 		combat_result.new_state, SubmitTurn.new(), surrender, registry, tunables
 	)
 	if end_result.new_state == null or not end_result.new_state.match_over:
@@ -158,8 +164,8 @@ func _assert_baseline_map(state: MatchState) -> bool:
 	if _entity_count_by_def_owner(state, "worker", 1) != 2:
 		push_error("[m0_playtest_smoke] expected two P1 workers")
 		return false
-	var player_0 := state.get_player(0)
-	var player_1 := state.get_player(1)
+	var player_0: PlayerState = state.get_player(0)
+	var player_1: PlayerState = state.get_player(1)
 	if player_0 == null or player_1 == null:
 		push_error("[m0_playtest_smoke] expected both player states")
 		return false
@@ -180,7 +186,9 @@ func _assert_opening_fog(state: MatchState, registry: EntityRegistry) -> bool:
 	if enemy_base == null or own_worker == null:
 		push_error("[m0_playtest_smoke] missing entities for fog assertion")
 		return false
-	var visibility := VisionSystem.compute_player_visibility(state, registry, 0)
+	var visibility: VisionSystem.Visibility = VisionSystem.compute_player_visibility(
+		state, registry, 0
+	)
 	if not VisionSystem.is_entity_visible_to_player(own_worker, state, registry, 0, visibility):
 		push_error("[m0_playtest_smoke] P0 worker should be visible to P0")
 		return false
@@ -201,7 +209,7 @@ func _drive_p0_gather_until(
 			push_error("[m0_playtest_smoke] worker %d had no mineral source" % worker.id)
 			return null
 		orders.append(_gather_order(worker.id, source.id))
-	var result := _resolve(state, registry, tunables, orders, [])
+	var result: ResolveResult = _resolve(state, registry, tunables, orders, [])
 	if _has_event(result.events, ResolverEvent.Type.ORDER_REJECTED):
 		push_error("[m0_playtest_smoke] opening gather orders were rejected")
 		return null
@@ -214,16 +222,16 @@ func _resolve_until_minerals_at_least(
 ) -> MatchState:
 	var current: MatchState = state
 	for _i in max_turns:
-		var player := current.get_player(0)
+		var player: PlayerState = current.get_player(0)
 		if player != null and player.minerals >= amount:
 			return current
 		current = _resolve(current, registry, tunables, [], []).new_state
-	var final_player := current.get_player(0)
+	var final_player: PlayerState = current.get_player(0)
 	var worker_statuses: Array[String] = []
 	for worker in _entities_by_def_owner(current, "worker", 0):
-		var phase := -1
-		var carrying := -1
-		var source_id := -1
+		var phase: int = -1
+		var carrying: int = -1
+		var source_id: int = -1
 		if worker.gather_state != null:
 			phase = worker.gather_state.phase
 			carrying = worker.gather_state.carrying_amount
@@ -257,7 +265,7 @@ func _resolve_until_event(
 ) -> MatchState:
 	var current: MatchState = state
 	for _i in max_turns:
-		var result := _resolve(current, registry, tunables, [], [])
+		var result: ResolveResult = _resolve(current, registry, tunables, [], [])
 		current = result.new_state
 		if _has_event(result.events, event_type):
 			return current
@@ -292,13 +300,13 @@ func _resolve(
 
 
 func _submit(orders: Array[EntityOrder] = []) -> SubmitTurn:
-	var submit := SubmitTurn.new()
+	var submit: SubmitTurn = SubmitTurn.new()
 	submit.orders = orders
 	return submit
 
 
 func _gather_order(entity_id: int, target_entity_id: int) -> EntityOrder:
-	var order := EntityOrder.new()
+	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.GATHER
 	order.entity_id = entity_id
 	order.target_entity_id = target_entity_id
@@ -306,7 +314,7 @@ func _gather_order(entity_id: int, target_entity_id: int) -> EntityOrder:
 
 
 func _build_order(entity_id: int, def_id: String, target_tile: Vector2i) -> EntityOrder:
-	var order := EntityOrder.new()
+	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.BUILD
 	order.entity_id = entity_id
 	order.def_id = def_id
@@ -315,7 +323,7 @@ func _build_order(entity_id: int, def_id: String, target_tile: Vector2i) -> Enti
 
 
 func _train_order(entity_id: int, def_id: String) -> EntityOrder:
-	var order := EntityOrder.new()
+	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.TRAIN
 	order.entity_id = entity_id
 	order.def_id = def_id
@@ -323,7 +331,7 @@ func _train_order(entity_id: int, def_id: String) -> EntityOrder:
 
 
 func _attack_order(entity_id: int, target_entity_id: int) -> EntityOrder:
-	var order := EntityOrder.new()
+	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.ATTACK
 	order.entity_id = entity_id
 	order.target_priority_chain = [target_entity_id]
@@ -346,7 +354,7 @@ func _first_entity_by_def_owner(state: MatchState, def_id: String, owner: int) -
 
 
 func _entity_count_by_def_owner(state: MatchState, def_id: String, owner: int) -> int:
-	var count := 0
+	var count: int = 0
 	for entity in state.entities:
 		if entity != null and entity.def_id == def_id and entity.owner_player_id == owner:
 			if owner < 0 or entity.current_hp > 0:
@@ -357,9 +365,9 @@ func _entity_count_by_def_owner(state: MatchState, def_id: String, owner: int) -
 func _nearest_resource_source(
 	state: MatchState, registry: EntityRegistry, worker: Entity, resource_type: String
 ) -> Entity:
-	var worker_rect := state.tile_grid.entity_rect(worker.id)
+	var worker_rect: Rect2i = state.tile_grid.entity_rect(worker.id)
 	var best: Entity = null
-	var best_distance := -1
+	var best_distance: int = -1
 	for entity in state.entities_sorted_by_id():
 		var def: EntityDef = registry.get_by_id(entity.current_def_id)
 		if def == null or def.resource_source == null:
@@ -368,7 +376,7 @@ func _nearest_resource_source(
 			continue
 		if entity.current_resource_amount == 0:
 			continue
-		var rect := state.tile_grid.entity_rect(entity.id)
+		var rect: Rect2i = state.tile_grid.entity_rect(entity.id)
 		var distance: int = TileGrid.distance_between_rects(worker_rect, rect)
 		if best == null or distance < best_distance:
 			best = entity
@@ -388,7 +396,7 @@ func _find_clear_build_origin(
 			for dy in range(-distance, distance + 1):
 				if max(abs(dx), abs(dy)) != distance:
 					continue
-				var origin := center + Vector2i(dx, dy)
+				var origin: Vector2i = center + Vector2i(dx, dy)
 				if state.tile_grid.is_rect_clear(Rect2i(origin, footprint)):
 					return origin
 	return Vector2i(-1, -1)
@@ -398,7 +406,7 @@ func _spawn_entity(
 	state: MatchState, registry: EntityRegistry, def_id: String, owner: int, origin: Vector2i
 ) -> int:
 	var def: EntityDef = registry.get_by_id(def_id)
-	var entity := Entity.new()
+	var entity: Entity = Entity.new()
 	entity.id = state.allocate_entity_id()
 	entity.def_id = def_id
 	entity.current_def_id = def_id
@@ -416,7 +424,7 @@ func _spawn_entity(
 			entity.gather_state = GatherState.new()
 		if def.resource_source != null:
 			entity.current_resource_amount = def.resource_source.capacity
-	var footprint := Vector2i.ONE
+	var footprint: Vector2i = Vector2i.ONE
 	if def != null and def.footprint != Vector2i.ZERO:
 		footprint = Vector2i(max(def.footprint.x, 1), max(def.footprint.y, 1))
 	state.entities.append(entity)
