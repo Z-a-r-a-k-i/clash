@@ -87,6 +87,7 @@ func _test_m0_playtest_smoke() -> bool:
 	if state == null:
 		push_error("[m0_playtest_smoke] minerals did not recover enough to train a marine")
 		return false
+	var initial_marine_count: int = _entity_count_by_def_owner(state, "marine", 0)
 	var train_result: ResolveResult = _resolve(
 		state, registry, tunables, [_train_order(barracks_id, "marine")], []
 	)
@@ -94,7 +95,7 @@ func _test_m0_playtest_smoke() -> bool:
 		push_error("[m0_playtest_smoke] expected TRAIN_STARTED for marine")
 		return false
 	state = _resolve_until_entity_count_at_least(
-		train_result.new_state, registry, tunables, "marine", 0, 1, 12
+		train_result.new_state, registry, tunables, "marine", 0, initial_marine_count + 1, 12
 	)
 	if state == null:
 		push_error("[m0_playtest_smoke] marine did not complete within smoke budget")

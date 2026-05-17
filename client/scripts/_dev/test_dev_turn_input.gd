@@ -132,6 +132,9 @@ func _test_queues_gather() -> bool:
 	if input.issue_gather(7):
 		push_error("depleted mineral patch should not be a valid gather target")
 		return false
+	if input.submit_for_player(0).orders.size() != 1:
+		push_error("rejected gather should not append an order")
+		return false
 	input.select_entity(5)
 	if input.issue_gather(3):
 		push_error("marine should not be allowed to gather")
