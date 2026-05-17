@@ -41,6 +41,7 @@ func _all_tests() -> Array:
 		],
 		["dev_input_queues_build_train_and_research", _test_queues_build_train_research],
 		["dev_input_derives_command_options_from_selection", _test_derives_command_options],
+		["dev_input_queues_use_ability", _test_queues_use_ability],
 		["dev_input_clears_submissions_after_resolve", _test_clears_submissions],
 		["dev_input_surrender_only_marks_active_player", _test_surrender_active_player],
 	]
@@ -243,6 +244,37 @@ func _test_derives_command_options() -> bool:
 	return true
 
 
+func _test_queues_use_ability() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup := _make_input_setup()
+	setup.state.get_player(0).unlocked_researches.append("stim_research")
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if input.ability_option_ids() != ["stim"]:
+		push_error(
+			(
+				"expected selected marine ability options [stim], got %s"
+				% str(input.ability_option_ids())
+			)
+		)
+		return false
+	if not input.issue_ability("stim"):
+		push_error("expected selected marine to queue USE_ABILITY stim")
+		return false
+	var order: EntityOrder = input.submit_for_player(0).orders[0]
+	if order.type != EntityOrder.Type.USE_ABILITY or order.def_id != "stim":
+		push_error("expected USE_ABILITY stim order")
+		return false
+	setup.state.get_entity_by_id(5).ability_cooldowns = {"stim": 2}
+	if not input.ability_option_ids().is_empty():
+		push_error("cooldown should hide stim ability option")
+		return false
+	return true
+
+
 func _test_clears_submissions() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
@@ -346,6 +378,7 @@ func _make_def(
 		var construction := ConstructionDef.new()
 		construction.built_by_tag = "barracks"
 		def.construction = construction
+		def.abilities = _abilities_def([_stim_ability()])
 	return def
 
 
@@ -374,6 +407,31 @@ func _make_research_def() -> ResearchDef:
 	research.display_name = "Stim Pack"
 	research.mineral_cost = 100
 	return research
+
+
+func _abilities_def(abilities: Array[AbilityDef]) -> AbilitiesDef:
+	var out := AbilitiesDef.new()
+	out.abilities = abilities
+	return out
+
+
+func _stim_ability() -> AbilityDef:
+	var ability := AbilityDef.new()
+	ability.id = "stim"
+	ability.display_name = "Stim"
+	ability.target_type = "self"
+	ability.cooldown_turns = 5
+	ability.requires_research_id = "stim_research"
+	var cost := AbilityCost.new()
+	cost.type = "hp"
+	cost.amount = 10
+	ability.costs = [cost]
+	var effect := StatBuffEffect.new()
+	effect.duration_turns = 3
+	effect.damage_mult = 1.5
+	effect.speed_mult = 1.5
+	ability.effect = effect
+	return ability
 
 
 func _add_entity(

@@ -35,6 +35,7 @@ enum Type {
 	BUILD_RESUMED,
 	BUILD_CANCELLED,
 	ORDER_REJECTED,
+	ABILITY_USED,
 }
 
 var type: Type = Type.INVALID

@@ -18,8 +18,8 @@ This area splits into a headless half (07a), a gameplay-first visual/control pat
 - [`07b1-renderer-and-camera.md`](./07b1-renderer-and-camera.md) — `done`. Renderer + camera + attack visualization. *See the map.*
 - [`07b2-input-and-turn-advance.md`](./07b2-input-and-turn-advance.md) — `done`. Mouse selection + order issuing + manual turn advance. *Play a turn.*
 - [`07b3-perspective-and-fog.md`](./07b3-perspective-and-fog.md) — `done`. Per-player perspective + fog of war (ADR-0016). *Swap perspectives.*
-- [`07b4-gameplay-command-surface.md`](./07b4-gameplay-command-surface.md) — `doing`. Rough controls for all non-ability M0 orders. *Drive the economy and army.*
-- [`07b5-use-abilities.md`](./07b5-use-abilities.md) — `ready`. Minimal self-target ability order path for stim and siege/unsiege. *Make unit kits real.*
+- [`07b4-gameplay-command-surface.md`](./07b4-gameplay-command-surface.md) — `done`. Rough controls for all non-ability M0 orders. *Drive the economy and army.*
+- [`07b5-use-abilities.md`](./07b5-use-abilities.md) — `doing`. Minimal self-target ability order path for stim and siege/unsiege. *Make unit kits real.*
 - [`07b6-playtest-loop.md`](./07b6-playtest-loop.md) — `ready`. Repeatable M0 playtest checklist and smoke path. *Start learning what is fun.*
 - [`07b7-tick-step-debugger.md`](./07b7-tick-step-debugger.md) — `stub`. Single-tick advance + state inspector. *Debug ticks if playtests demand it.*
 
@@ -51,6 +51,6 @@ This area splits into a headless half (07a), a gameplay-first visual/control pat
 - [x] Dev can issue orders for either player in any order and advance the turn manually. *(07b2)*
 - [x] Dev can switch between Player A and Player B perspectives at any time, with each view's fog of war computed correctly. *(07b3)*
 - [x] Dev can drive all non-ability M0 orders from the UI: attack-move, hold-fire, build, train, research, and cancel. *(07b4)*
-- [ ] Dev can use M0 self-target abilities, including stim and siege/unsiege. *(07b5)*
+- [x] Dev can use M0 self-target abilities, including stim and siege/unsiege. *(07b5)*
 - [ ] A repeatable M0 playtest checklist exists and a smoke path proves `mvp_map.tres` can exercise economy, production, combat, fog, and match end. *(07b6)*
-- [ ] Gameplay-first sub-PRs land. *(07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `doing`; 07b5 `ready`; 07b6 `ready`; 07b7 deferred `stub`)*
+- [ ] Gameplay-first sub-PRs land. *(07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `done`; 07b5 `doing`; 07b6 `ready`; 07b7 deferred `stub`)*

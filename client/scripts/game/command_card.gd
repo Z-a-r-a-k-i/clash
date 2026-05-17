@@ -6,6 +6,7 @@ signal hold_fire_requested(enabled: bool)
 signal build_requested(def_id: String)
 signal train_requested(def_id: String)
 signal research_requested(def_id: String)
+signal ability_requested(def_id: String)
 signal cancel_requested(cancel_index: int)
 
 var _selection_label: Label = null
@@ -15,10 +16,12 @@ var _cancel_button: Button = null
 var _build_list: VBoxContainer = null
 var _train_list: VBoxContainer = null
 var _research_list: VBoxContainer = null
+var _ability_list: VBoxContainer = null
 var _hold_fire_enabled: bool = false
 var _build_options: Array[Dictionary] = []
 var _train_options: Array[Dictionary] = []
 var _research_options: Array[Dictionary] = []
+var _ability_options: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -33,6 +36,7 @@ func set_command_state(
 	build_options: Array[Dictionary],
 	train_options: Array[Dictionary],
 	research_options: Array[Dictionary],
+	ability_options: Array[Dictionary],
 	can_cancel: bool
 ) -> void:
 	_ensure_ui()
@@ -40,6 +44,7 @@ func set_command_state(
 	_build_options = _copy_options(build_options)
 	_train_options = _copy_options(train_options)
 	_research_options = _copy_options(research_options)
+	_ability_options = _copy_options(ability_options)
 	_selection_label.text = "Command card: %s" % selection_text
 	_attack_move_button.disabled = not can_attack_move
 	_hold_fire_button.disabled = not can_hold_fire
@@ -48,6 +53,7 @@ func set_command_state(
 	_rebuild_option_buttons(_build_list, _build_options, build_requested)
 	_rebuild_option_buttons(_train_list, _train_options, train_requested)
 	_rebuild_option_buttons(_research_list, _research_options, research_requested)
+	_rebuild_option_buttons(_ability_list, _ability_options, ability_requested)
 
 
 func build_option_ids() -> Array[String]:
@@ -60,6 +66,10 @@ func train_option_ids() -> Array[String]:
 
 func research_option_ids() -> Array[String]:
 	return _option_ids(_research_options)
+
+
+func ability_option_ids() -> Array[String]:
+	return _option_ids(_ability_options)
 
 
 func _ensure_ui() -> void:
@@ -96,6 +106,8 @@ func _ensure_ui() -> void:
 	add_child(_train_list)
 	_research_list = _section("Research")
 	add_child(_research_list)
+	_ability_list = _section("Abilities")
+	add_child(_ability_list)
 
 
 func _section(title: String) -> VBoxContainer:

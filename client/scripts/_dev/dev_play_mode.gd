@@ -145,6 +145,12 @@ func issue_research_selected(def_id: String) -> bool:
 	return ok
 
 
+func issue_ability_selected(ability_id: String) -> bool:
+	var ok: bool = _input.issue_ability(ability_id)
+	_update_hud()
+	return ok
+
+
 func issue_cancel_selected(cancel_index: int = -1) -> bool:
 	var ok: bool = _input.issue_cancel(cancel_index)
 	_update_hud()
@@ -340,6 +346,7 @@ func _build_hud() -> void:
 	_command_card.connect("build_requested", Callable(self, "begin_build"))
 	_command_card.connect("train_requested", Callable(self, "issue_train_selected"))
 	_command_card.connect("research_requested", Callable(self, "issue_research_selected"))
+	_command_card.connect("ability_requested", Callable(self, "issue_ability_selected"))
 	_command_card.connect("cancel_requested", Callable(self, "issue_cancel_selected"))
 	root.add_child(_command_card)
 	_update_hud()
@@ -423,6 +430,7 @@ func _refresh_command_card() -> void:
 		_entity_options(_input.build_option_ids()),
 		_entity_options(_input.train_option_ids()),
 		_research_options(_input.research_option_ids()),
+		_ability_options(_input.ability_option_ids()),
 		_input.can_issue_cancel()
 	)
 
@@ -440,4 +448,12 @@ func _research_options(ids: Array[String]) -> Array[Dictionary]:
 	for id in ids:
 		var research_id: String = id
 		out.append({"id": research_id, "label": _input.label_for_research_id(research_id)})
+	return out
+
+
+func _ability_options(ids: Array[String]) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for id in ids:
+		var ability_id: String = id
+		out.append({"id": ability_id, "label": _input.label_for_ability_id(ability_id)})
 	return out

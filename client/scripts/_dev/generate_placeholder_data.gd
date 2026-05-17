@@ -68,6 +68,7 @@ func _gen_abilities() -> int:
 	siege.target_range = 0
 	siege.cooldown_turns = 0
 	siege.cast_time_turns = 1
+	siege.requires_research_id = "siege_mode_research"
 	var siege_effect := TransformEffect.new()
 	siege_effect.to_def_id = "siege_tank"
 	siege.effect = siege_effect
@@ -81,6 +82,7 @@ func _gen_abilities() -> int:
 	unsiege.target_range = 0
 	unsiege.cooldown_turns = 0
 	unsiege.cast_time_turns = 1
+	unsiege.requires_research_id = "siege_mode_research"
 	var unsiege_effect := TransformEffect.new()
 	unsiege_effect.to_def_id = "tank"
 	unsiege.effect = unsiege_effect

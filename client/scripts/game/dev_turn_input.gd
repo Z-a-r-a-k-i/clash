@@ -5,6 +5,8 @@ extends RefCounted
 # Dev-only turn input state for plan 07b2. Owns selection and pending
 # SubmitTurn resources; it does not mutate MatchState or call the resolver.
 
+const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
+
 var _state: MatchState = null
 var _registry: EntityRegistry = null
 var _active_player_id: int = 0
@@ -227,6 +229,23 @@ func issue_research(def_id: String) -> bool:
 	return true
 
 
+func issue_ability(ability_id: String) -> bool:
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		_status_message = "Select a unit before issuing USE_ABILITY."
+		return false
+	if not ability_option_ids().has(ability_id):
+		_status_message = "%s cannot use '%s'." % [_def_id_for_entity(actor), ability_id]
+		return false
+	var order: EntityOrder = EntityOrder.new()
+	order.type = EntityOrder.Type.USE_ABILITY
+	order.entity_id = actor.id
+	order.def_id = ability_id
+	_append_order(order)
+	_status_message = "Queued USE_ABILITY %s for #%d." % [ability_id, actor.id]
+	return true
+
+
 func issue_cancel(cancel_index: int = -1) -> bool:
 	var actor: Entity = _selected_entity()
 	if actor == null:
@@ -350,6 +369,16 @@ func research_option_ids() -> Array[String]:
 	return out
 
 
+func ability_option_ids() -> Array[String]:
+	var out: Array[String] = []
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		return out
+	for ability in _ABILITY_SYSTEM.available_self_abilities(_state, actor, _registry):
+		out.append(ability.id)
+	return out
+
+
 func label_for_entity_def_id(def_id: String) -> String:
 	if _registry == null:
 		return def_id
@@ -366,6 +395,18 @@ func label_for_research_id(research_id: String) -> String:
 	if research == null or research.display_name == "":
 		return research_id
 	return research.display_name
+
+
+func label_for_ability_id(ability_id: String) -> String:
+	var actor: Entity = _selected_entity()
+	var def: EntityDef = _def_for_entity(actor)
+	if def == null or def.abilities == null:
+		return ability_id
+	for item in def.abilities.abilities:
+		var ability: AbilityDef = item
+		if ability != null and ability.id == ability_id:
+			return ability.display_name if ability.display_name != "" else ability_id
+	return ability_id
 
 
 func _append_order(order: EntityOrder) -> void:

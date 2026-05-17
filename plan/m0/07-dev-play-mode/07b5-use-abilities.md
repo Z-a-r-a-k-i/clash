@@ -1,5 +1,5 @@
 ---
-status: ready
+status: doing
 depends_on:
   - ./07b4-gameplay-command-surface.md
 ---
@@ -19,6 +19,8 @@ cooldowns and buffs, but the resolver has no ability order path yet.
   - at tick `k`, apply `USE_ABILITY` before attacks and moves
   - an ability consumes that queued action slot
   - the same queued slot does not also attack or move
+  - `cast_time_turns > 0` starts a cast that completes at end-of-turn and
+    blocks later same-turn actions
 - Implement M0 effect support:
   - `StatBuffEffect` applies active buffs, HP costs, cooldowns, and research gates
   - `TransformEffect` changes `current_def_id` for siege/unsiege
@@ -36,10 +38,10 @@ cooldowns and buffs, but the resolver has no ability order path yet.
 
 ## Done when
 
-- [ ] Resolver can execute self-target `USE_ABILITY` orders deterministically.
-- [ ] Stim spends HP, applies damage/speed buffs, gates on research, and starts cooldown.
-- [ ] Siege and unsiege transform `current_def_id` using existing data.
-- [ ] Dev play mode can queue available self-target abilities for the selected entity.
-- [ ] Headless resolver and dev-play-mode tests cover valid use, invalid gates,
+- [x] Resolver can execute self-target `USE_ABILITY` orders deterministically.
+- [x] Stim spends HP, applies damage/speed buffs, gates on research, and starts cooldown.
+- [x] Siege and unsiege transform `current_def_id` using existing data.
+- [x] Dev play mode can queue available self-target abilities for the selected entity.
+- [x] Headless resolver and dev-play-mode tests cover valid use, invalid gates,
   cooldowns, and transforms.
-- [ ] `make test`, `gdlint`, and `gdformat --check` pass.
+- [x] `make test`, `gdlint`, and `gdformat --check` pass.

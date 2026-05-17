@@ -40,6 +40,7 @@ enum Type {
 	RESEARCH,
 	CANCEL,
 	GATHER,
+	USE_ABILITY,
 }
 
 @export var type: Type = Type.INVALID
@@ -60,7 +61,7 @@ enum Type {
 # HOLD_FIRE_TOGGLE — desired hold-fire state.
 @export var hold_fire: bool = false
 
-# BUILD / TRAIN / RESEARCH — what to produce, by string id.
+# BUILD / TRAIN / RESEARCH / USE_ABILITY — what to produce or use, by string id.
 @export var def_id: String = ""
 
 # CANCEL — index into the entity's order_queue, or -1 to cancel persistent_order.

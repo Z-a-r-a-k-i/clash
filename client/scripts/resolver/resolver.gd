@@ -18,9 +18,10 @@ extends RefCounted
 #   1. Apply player-level orders (surrender flag) — short-circuits if set.
 #   2. Distribute per-entity orders; HOLD_FIRE_TOGGLE / CANCEL apply now.
 #   3. For tick in 1..N:
-#        Phase 1: every unit's k-th action that is an attack.
-#        Phase 2: every unit's k-th action that is a move (+ gather travel).
-#        Phase 3: persistent move advance + gather state ticks (yield/deposit).
+#        Phase 1: self-target abilities.
+#        Phase 2: every unit's k-th action that is an attack.
+#        Phase 3: every unit's k-th action that is a move (+ gather travel).
+#        Phase 4: persistent move advance + gather state ticks (yield/deposit).
 #   4. End-of-turn pass: cooldowns, buffs, production progress, is_hidden,
 #      win check.
 #
@@ -33,6 +34,7 @@ extends RefCounted
 # - _state_helpers.gd    — deep-copy + queue distribution
 
 const _STATE_HELPERS := preload("res://scripts/resolver/_state_helpers.gd")
+const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
 
 
 static func resolve(
@@ -125,21 +127,34 @@ static func resolve(
 		# defensive against future mutations of `entities`.
 		var sorted_entities := working.entities_sorted_by_id()
 
-		# Phase 1: attacks. Stable iteration by id for determinism.
+		# Phase 1: self-target abilities. These consume the action slot
+		# before attacks and movement; delayed casts block later slots.
 		for entity in sorted_entities:
+			var order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
+			if order == null:
+				continue
+			if order.type == EntityOrder.Type.USE_ABILITY:
+				_ABILITY_SYSTEM.resolve_use_ability(working, entity, order, registry, events)
+
+		# Phase 2: attacks. Stable iteration by id for determinism.
+		for entity in sorted_entities:
+			if _ABILITY_SYSTEM.is_casting(entity):
+				continue
 			var order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
 			if order == null:
 				continue
 			if order.type == EntityOrder.Type.ATTACK or order.type == EntityOrder.Type.ATTACK_MOVE:
 				CombatSystem.resolve_attack(working, entity, order, registry, tunables, events)
 
-		# Phase 2: movement substeps. A MOVE / ATTACK_MOVE action slot is
+		# Phase 3: movement substeps. A MOVE / ATTACK_MOVE action slot is
 		# one intent, but speed_tiles_per_turn is a per-turn distance
 		# budget. Iterate movement systems until every live mover has had
 		# a chance to spend that budget. `moves_used_this_turn` still caps
 		# each entity, so this upper bound is safe for mixed-speed rosters.
 		for _substep in _max_live_movement_speed(working, registry):
 			for entity in sorted_entities:
+				if _ABILITY_SYSTEM.is_casting(entity):
+					continue
 				var order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
 				if order == null:
 					continue
@@ -164,7 +179,7 @@ static func resolve(
 				working, per_entity, tick, registry, tunables, events
 			)
 
-		# Phase 3 extension: gather workers at a source / sink tick yields
+		# Phase 4 extension: gather workers at a source / sink tick yields
 		# and deposits.
 		GatherSystem.advance_state_phase(working, registry, tunables, events)
 
@@ -187,6 +202,8 @@ static func _has_standing_work(state: MatchState) -> bool:
 			continue
 		if e.persistent_order != null:
 			return true
+		if e.ability_cast != null:
+			return true
 		if e.gather_state != null and e.gather_state.phase != GatherState.Phase.IDLE:
 			return true
 		if e.locked_to_building_id >= 0:
@@ -203,8 +220,5 @@ static func _max_live_movement_speed(state: MatchState, registry: EntityRegistry
 	for e in state.entities_sorted_by_id():
 		if e == null or e.current_hp <= 0:
 			continue
-		var def: EntityDef = registry.get_by_id(e.current_def_id)
-		if def == null or def.movement == null:
-			continue
-		max_speed = max(max_speed, def.movement.speed_tiles_per_turn)
+		max_speed = max(max_speed, MovementSystem.movement_speed_for_entity(e, registry))
 	return max_speed
