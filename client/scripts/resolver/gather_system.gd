@@ -254,13 +254,17 @@ static func _resolve_source(
 	if target_entity_id < 0 or registry == null:
 		return null
 	var target := state.get_entity_by_id(target_entity_id)
-	if target == null or target.current_hp <= 0:
+	if target == null:
 		return null
 	var def: EntityDef = registry.get_by_id(target.current_def_id)
 	if def == null:
 		return null
+	if state.tile_grid == null or state.tile_grid.entity_rect(target.id).size == Vector2i.ZERO:
+		return null
 	# Path 1: target IS a resource source.
 	if def.resource_source != null:
+		if target.current_resource_amount == 0:
+			return null
 		var rsd: ResourceSourceDef = def.resource_source
 		if not rsd.requires_extractor:
 			return target  # mineral patch, etc.
@@ -270,6 +274,8 @@ static func _resolve_source(
 		if extractor == null:
 			return null
 		return target
+	if target.current_hp <= 0:
+		return null
 	# Path 2: target is a refinery (extractor) — translate to its geyser.
 	# The refinery must belong to the worker.
 	if def.tags.has("extractor"):

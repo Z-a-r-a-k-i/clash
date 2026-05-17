@@ -1,5 +1,5 @@
 ---
-status: ready
+status: doing
 depends_on:
   - ./07b5-use-abilities.md
 ---
@@ -39,10 +39,10 @@ problems from missing debug tooling.
 
 ## Done when
 
-- [ ] `docs/playtest/m0-checklist.md` exists with a repeatable manual flow.
-- [ ] `docs/playtest/m0-notes-template.md` exists for qualitative feedback.
-- [ ] A headless smoke test exercises economy, production, combat, fog, and
+- [x] `docs/playtest/m0-checklist.md` exists with a repeatable manual flow.
+- [x] `docs/playtest/m0-notes-template.md` exists for qualitative feedback.
+- [x] A headless smoke test exercises economy, production, combat, fog, and
   match end on `mvp_map.tres`.
-- [ ] First mechanics notes are captured in the checklist or in follow-up plan
+- [x] First mechanics notes are captured in the checklist or in follow-up plan
   nodes for tuning/M1.
-- [ ] `make test`, `gdlint`, and `gdformat --check` pass.
+- [x] `make test`, `gdlint`, and `gdformat --check` pass.
