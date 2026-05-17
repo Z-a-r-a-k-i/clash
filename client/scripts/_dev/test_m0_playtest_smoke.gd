@@ -222,11 +222,14 @@ func _resolve_until_minerals_at_least(
 	state: MatchState, registry: EntityRegistry, tunables: Tunables, amount: int, max_turns: int
 ) -> MatchState:
 	var current: MatchState = state
+	var player: PlayerState = current.get_player(0)
+	if player != null and player.minerals >= amount:
+		return current
 	for _i in max_turns:
-		var player: PlayerState = current.get_player(0)
+		current = _resolve(current, registry, tunables, [], []).new_state
+		player = current.get_player(0)
 		if player != null and player.minerals >= amount:
 			return current
-		current = _resolve(current, registry, tunables, [], []).new_state
 	var final_player: PlayerState = current.get_player(0)
 	var worker_statuses: Array[String] = []
 	for worker in _entities_by_def_owner(current, "worker", 0):
@@ -283,10 +286,12 @@ func _resolve_until_entity_count_at_least(
 	max_turns: int
 ) -> MatchState:
 	var current: MatchState = state
+	if _entity_count_by_def_owner(current, def_id, owner) >= expected_count:
+		return current
 	for _i in max_turns:
+		current = _resolve(current, registry, tunables, [], []).new_state
 		if _entity_count_by_def_owner(current, def_id, owner) >= expected_count:
 			return current
-		current = _resolve(current, registry, tunables, [], []).new_state
 	return null
 
 
