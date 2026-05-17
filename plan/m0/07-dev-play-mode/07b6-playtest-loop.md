@@ -1,5 +1,5 @@
 ---
-status: doing
+status: done
 depends_on:
   - ./07b5-use-abilities.md
 ---
@@ -46,3 +46,7 @@ problems from missing debug tooling.
 - [x] First mechanics notes are captured in the checklist or in follow-up plan
   nodes for tuning/M1.
 - [x] `make test`, `gdlint`, and `gdformat --check` pass.
+
+## Artifacts
+
+- PR #21: Add M0 playtest smoke path.

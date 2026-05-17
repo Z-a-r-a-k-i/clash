@@ -20,7 +20,7 @@ This area splits into a headless half (07a), a gameplay-first visual/control pat
 - [`07b3-perspective-and-fog.md`](./07b3-perspective-and-fog.md) — `done`. Per-player perspective + fog of war (ADR-0016). *Swap perspectives.*
 - [`07b4-gameplay-command-surface.md`](./07b4-gameplay-command-surface.md) — `done`. Rough controls for all non-ability M0 orders. *Drive the economy and army.*
 - [`07b5-use-abilities.md`](./07b5-use-abilities.md) — `done`. Minimal self-target ability order path for stim and siege/unsiege. *Make unit kits real.*
-- [`07b6-playtest-loop.md`](./07b6-playtest-loop.md) — `doing`. Repeatable M0 playtest checklist and smoke path. *Start learning what is fun.*
+- [`07b6-playtest-loop.md`](./07b6-playtest-loop.md) — `done`. Repeatable M0 playtest checklist and smoke path. *Start learning what is fun.*
 - [`07b7-tick-step-debugger.md`](./07b7-tick-step-debugger.md) — `stub`. Single-tick advance + state inspector. *Debug ticks if playtests demand it.*
 
 ## What it does (full area, all sub-PRs combined)
@@ -53,4 +53,4 @@ This area splits into a headless half (07a), a gameplay-first visual/control pat
 - [x] Dev can drive all non-ability M0 orders from the UI: attack-move, hold-fire, build, train, research, and cancel. *(07b4)*
 - [x] Dev can use M0 self-target abilities, including stim and siege/unsiege. *(07b5)*
 - [x] A repeatable M0 playtest checklist exists and a smoke path proves `mvp_map.tres` can exercise economy, production, combat, fog, and match end. *(07b6)*
-- [ ] Gameplay-first sub-PRs land. *(07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `done`; 07b5 `done`; 07b6 `doing`; 07b7 deferred `stub`)*
+- [ ] Gameplay-first sub-PRs land. *(07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `done`; 07b5 `done`; 07b6 `done`; 07b7 deferred `stub`)*
