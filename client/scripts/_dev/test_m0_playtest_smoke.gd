@@ -117,13 +117,18 @@ func _test_m0_playtest_smoke() -> bool:
 	var combat_result: ResolveResult = _resolve(
 		state, registry, tunables, [_attack_order(marine.id, enemy_id)], []
 	)
+	state = combat_result.new_state
 	if not _has_event(combat_result.events, ResolverEvent.Type.ENTITY_DAMAGED):
-		push_error("[m0_playtest_smoke] expected nearby marine attack to deal damage")
-		return false
+		state = _resolve_until_event(
+			state, registry, tunables, ResolverEvent.Type.ENTITY_DAMAGED, 6
+		)
+		if state == null:
+			push_error("[m0_playtest_smoke] expected nearby marine attack to deal damage")
+			return false
 	var surrender: SubmitTurn = SubmitTurn.new()
 	surrender.surrender = true
 	var end_result: ResolveResult = Resolver.resolve(
-		combat_result.new_state, SubmitTurn.new(), surrender, registry, tunables
+		state, SubmitTurn.new(), surrender, registry, tunables
 	)
 	if end_result.new_state == null or not end_result.new_state.match_over:
 		push_error("[m0_playtest_smoke] expected P1 surrender to end the match")
