@@ -423,8 +423,11 @@ func _find_clear_build_origin(
 	state: MatchState, registry: EntityRegistry, def_id: String, center: Vector2i, radius: int
 ) -> Vector2i:
 	var def: EntityDef = registry.get_by_id(def_id)
+	if def == null:
+		push_error("[m0_playtest_smoke] registry missing entity def '%s'" % def_id)
+		return Vector2i(-1, -1)
 	var footprint: Vector2i = Vector2i.ONE
-	if def != null and def.footprint != Vector2i.ZERO:
+	if def.footprint != Vector2i.ZERO:
 		footprint = Vector2i(max(def.footprint.x, 1), max(def.footprint.y, 1))
 	for distance: int in range(0, radius + 1):
 		for dx: int in range(-distance, distance + 1):
@@ -441,6 +444,9 @@ func _spawn_entity(
 	state: MatchState, registry: EntityRegistry, def_id: String, owner: int, origin: Vector2i
 ) -> int:
 	var def: EntityDef = registry.get_by_id(def_id)
+	if def == null:
+		push_error("[m0_playtest_smoke] registry missing entity def '%s'" % def_id)
+		return -1
 	var entity: Entity = Entity.new()
 	entity.id = state.allocate_entity_id()
 	entity.def_id = def_id
