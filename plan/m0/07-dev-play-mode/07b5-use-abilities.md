@@ -1,5 +1,5 @@
 ---
-status: doing
+status: done
 depends_on:
   - ./07b4-gameplay-command-surface.md
 ---
@@ -45,3 +45,7 @@ cooldowns and buffs, but the resolver has no ability order path yet.
 - [x] Headless resolver and dev-play-mode tests cover valid use, invalid gates,
   cooldowns, and transforms.
 - [x] `make test`, `gdlint`, and `gdformat --check` pass.
+
+## Artifacts
+
+- PR #20: Add self-target ability orders.

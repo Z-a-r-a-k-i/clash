@@ -129,6 +129,12 @@ func _test_queues_gather() -> bool:
 	var order: EntityOrder = input.submit_for_player(0).orders[0]
 	if not _expect_order(order, EntityOrder.Type.GATHER, 1, Vector2i.ZERO, 3, []):
 		return false
+	if input.issue_gather(7):
+		push_error("depleted mineral patch should not be a valid gather target")
+		return false
+	if input.submit_for_player(0).orders.size() != 1:
+		push_error("rejected gather should not append an order")
+		return false
 	input.select_entity(5)
 	if input.issue_gather(3):
 		push_error("marine should not be allowed to gather")
@@ -340,10 +346,13 @@ func _make_input_setup() -> Dictionary:
 	registry.researches = [_make_research_def()]
 	_add_entity(state, 1, "worker", 0, Vector2i(1, 1), Vector2i(1, 1), 40)
 	_add_entity(state, 2, "marine", 1, Vector2i(7, 1), Vector2i(1, 1), 45)
-	_add_entity(state, 3, "mineral_patch", -1, Vector2i(4, 4), Vector2i(1, 3), 1)
+	_add_entity(state, 3, "mineral_patch", -1, Vector2i(4, 4), Vector2i(1, 3), 0)
+	state.get_entity_by_id(3).current_resource_amount = 500
 	_add_entity(state, 4, "worker", 0, Vector2i(2, 1), Vector2i(1, 1), 0)
 	_add_entity(state, 5, "marine", 0, Vector2i(3, 1), Vector2i(1, 1), 45)
 	_add_entity(state, 6, "barracks", 0, Vector2i(8, 4), Vector2i(3, 3), 1000)
+	_add_entity(state, 7, "mineral_patch", -1, Vector2i(10, 1), Vector2i(1, 3), 0)
+	state.get_entity_by_id(7).current_resource_amount = 0
 	state.get_entity_by_id(6).production_state = ProductionState.new()
 	return {"state": state, "registry": registry}
 

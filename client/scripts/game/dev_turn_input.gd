@@ -114,7 +114,7 @@ func issue_gather(target_entity_id: int) -> bool:
 	if actor_def == null or actor_def.gather == null or actor.gather_state == null:
 		_status_message = "%s cannot gather." % _def_id_for_entity(actor)
 		return false
-	var target: Entity = _live_entity(target_entity_id)
+	var target: Entity = _gather_target_entity(target_entity_id)
 	var target_def: EntityDef = _def_for_entity(target)
 	if target == null or not _is_gather_target(target, target_def):
 		_status_message = "GATHER needs a resource source or refinery target."
@@ -441,6 +441,26 @@ func _live_entity(entity_id: int) -> Entity:
 	if entity == null or entity.current_hp <= 0:
 		return null
 	return entity
+
+
+func _gather_target_entity(entity_id: int) -> Entity:
+	if _state == null:
+		return null
+	var entity: Entity = _state.get_entity_by_id(entity_id)
+	if entity == null:
+		return null
+	var def: EntityDef = _def_for_entity(entity)
+	if def == null:
+		return null
+	if def.resource_source != null:
+		if entity.current_resource_amount == 0:
+			return null
+		return entity
+	if entity.current_hp <= 0:
+		return null
+	if _is_gather_target(entity, def):
+		return entity
+	return null
 
 
 func _def_for_entity(entity: Entity) -> EntityDef:

@@ -51,6 +51,7 @@ ifeq ($(OS),Windows_NT)
 	@& '$(GODOT)' --headless --path client --script scripts/_dev/run_test_renderer_headless.gd
 	@& '$(GODOT)' --headless --path client --script scripts/_dev/run_test_dev_turn_input_headless.gd
 	@& '$(GODOT)' --headless --path client --script scripts/_dev/run_test_dev_play_mode_headless.gd
+	@& '$(GODOT)' --headless --path client --script scripts/_dev/run_test_m0_playtest_smoke_headless.gd
 else
 	@if ! command -v '$(GODOT)' >/dev/null 2>&1; then echo "Godot executable not found. Run: make test GODOT=/path/to/godot"; exit 1; fi
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_resolver_headless.gd
@@ -58,4 +59,5 @@ else
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_renderer_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_dev_turn_input_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_dev_play_mode_headless.gd
+	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_m0_playtest_smoke_headless.gd
 endif
