@@ -5,10 +5,23 @@ Purpose: get a complete, repeatable pass through the current playable loop so th
 ## Setup
 
 - Open `client/project.godot`.
-- Run the dev play scene.
-- Load `res://data/scenarios/mvp_map.tres`.
+- Run `res://scenes/_dev/dev_play_mode.tscn`.
+- Verify the scene uses `res://data/scenarios/mvp_map.tres`. This is the
+  default `scenario_path` on the scene root.
 - Start as player 0, then switch to player 1 when checking mirrored behavior.
 - Keep the resolver authoritative: queue actions, resolve the turn, and record what changed.
+
+## Dev Play Controls
+
+- Left click selects a visible entity.
+- Right click issues a context action: move to empty tile, gather from a
+  resource, or attack an enemy.
+- `P0` / `P1` switches the active player and fog perspective.
+- `Resolve` submits both players' queued actions and advances the turn.
+- `Clear` clears currently queued submissions.
+- `Surrender` queues surrender for the active player.
+- The command card exposes available attack-move, hold-fire, build, train,
+  research, ability, and cancel actions for the selected entity.
 
 ## Automated Smoke
 
@@ -70,4 +83,6 @@ The M0 smoke runner covers the mechanical path that should exist before a human 
 
 ## Notes
 
-Use `docs/playtest/m0-notes-template.md` for each pass. Prefer concrete observations over suggested fixes unless the fix is obvious and local.
+Use `docs/playtest/m0-pass-01.md` for the first pass. For later passes, copy
+`docs/playtest/m0-notes-template.md`. Prefer concrete observations over
+suggested fixes unless the fix is obvious and local.
