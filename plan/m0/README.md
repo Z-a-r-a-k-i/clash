@@ -32,6 +32,7 @@ A match ends when one player has zero buildings, or surrenders. M0's purpose is 
 | Combat resolution and win | [06-combat-and-win.md](06-combat-and-win.md) | `done` |
 | Dev play mode + scenario tooling | [07-dev-play-mode/](07-dev-play-mode/) | compound - 07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `done`; 07b5 `done`; 07b6 `done`; 07b7 `stub` |
 | MVP map layout | [08-mvp-map.md](08-mvp-map.md) | `done` |
+| Manual playtest readiness | [09-manual-playtest-readiness.md](09-manual-playtest-readiness.md) | `done` |
 
 ## What's deferred to M1 or later
 
@@ -45,7 +46,9 @@ A match ends when one player has zero buildings, or surrenders. M0's purpose is 
 
 - [ ] A developer can drive a complete match (both sides) through the dev play mode, ending in a raze or surrender.
 - [x] Scenario loader covers at least three regression scenarios (combat, economy, edge case). *(plan-07a + plan-08)*
-- [ ] All eight child nodes are `done` except 07b7, which remains an intentional `07-dev-play-mode` debugger stub pending playtest findings.
+- [ ] All M0 implementation and readiness nodes through 09 are `done` except
+  07b7, which remains an intentional `07-dev-play-mode` debugger stub pending
+  playtest findings.
 - [ ] Mechanic-correctness notes captured in `../../docs/ROADMAP.md` or in follow-up plan nodes for M1.
 
 ## Plan-tree convention
