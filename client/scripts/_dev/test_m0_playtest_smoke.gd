@@ -394,9 +394,11 @@ func _nearest_resource_source(
 			continue
 		if def.resource_source.resource_type != resource_type:
 			continue
-		if entity.current_resource_amount == 0:
+		if entity.current_resource_amount <= 0:
 			continue
 		var rect: Rect2i = state.tile_grid.entity_rect(entity.id)
+		if rect.size == Vector2i.ZERO:
+			continue
 		var distance: int = TileGrid.distance_between_rects(worker_rect, rect)
 		if best == null or distance < best_distance:
 			best = entity
