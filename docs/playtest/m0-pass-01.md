@@ -1,7 +1,7 @@
 # M0 Manual Playtest Pass 01
 
 Date: 2026-05-18
-Branch / PR: `m0-manual-playtest-readiness` / PR TBD
+Branch / PR: `m0-manual-playtest-readiness` / PR #22
 Tester:
 Scenario: `res://data/scenarios/mvp_map.tres`
 Dev scene: `res://scenes/_dev/dev_play_mode.tscn`

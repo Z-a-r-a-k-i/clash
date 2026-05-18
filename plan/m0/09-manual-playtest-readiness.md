@@ -35,4 +35,4 @@ land before the next gameplay PR.
 
 ## Artifacts
 
-- PR: TBD
+- PR #22: Prepare M0 manual playtest handoff.
