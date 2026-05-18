@@ -87,22 +87,33 @@ func _test_m0_playtest_smoke() -> bool:
 	if state == null:
 		push_error("[m0_playtest_smoke] minerals did not recover enough to train a marine")
 		return false
-	var initial_marine_count: int = _entity_count_by_def_owner(state, "marine", 0)
 	var train_result: ResolveResult = _resolve(
 		state, registry, tunables, [_train_order(barracks_id, "marine")], []
 	)
 	if not _has_event(train_result.events, ResolverEvent.Type.TRAIN_STARTED):
 		push_error("[m0_playtest_smoke] expected TRAIN_STARTED for marine")
 		return false
-	state = _resolve_until_entity_count_at_least(
-		train_result.new_state, registry, tunables, "marine", 0, initial_marine_count + 1, 12
+	var train_complete_result: ResolveResult = _resolve_until_event_with_def(
+		train_result.new_state, registry, tunables, ResolverEvent.Type.TRAIN_COMPLETED, "marine", 12
 	)
-	if state == null:
+	if train_complete_result == null:
 		push_error("[m0_playtest_smoke] marine did not complete within smoke budget")
 		return false
-	var marine: Entity = _first_entity_by_def_owner(state, "marine", 0)
-	if marine == null:
-		push_error("[m0_playtest_smoke] expected a trained P0 marine")
+	state = train_complete_result.new_state
+	var marine_id: int = _event_target_with_def(
+		train_complete_result.events, ResolverEvent.Type.TRAIN_COMPLETED, "marine"
+	)
+	if marine_id < 0:
+		push_error("[m0_playtest_smoke] TRAIN_COMPLETED did not identify the marine")
+		return false
+	var marine: Entity = state.get_entity_by_id(marine_id)
+	if (
+		marine == null
+		or marine.def_id != "marine"
+		or marine.owner_player_id != 0
+		or marine.current_hp <= 0
+	):
+		push_error("[m0_playtest_smoke] expected the newly trained P0 marine")
 		return false
 	var enemy_origin: Vector2i = _find_clear_build_origin(
 		state, registry, "marine", marine.origin + Vector2i(2, 0), 5
@@ -281,22 +292,20 @@ func _resolve_until_event(
 	return null
 
 
-func _resolve_until_entity_count_at_least(
+func _resolve_until_event_with_def(
 	state: MatchState,
 	registry: EntityRegistry,
 	tunables: Tunables,
+	event_type: ResolverEvent.Type,
 	def_id: String,
-	owner: int,
-	expected_count: int,
 	max_turns: int
-) -> MatchState:
+) -> ResolveResult:
 	var current: MatchState = state
-	if _entity_count_by_def_owner(current, def_id, owner) >= expected_count:
-		return current
 	for _i in max_turns:
-		current = _resolve(current, registry, tunables, [], []).new_state
-		if _entity_count_by_def_owner(current, def_id, owner) >= expected_count:
-			return current
+		var result: ResolveResult = _resolve(current, registry, tunables, [], [])
+		current = result.new_state
+		if _event_target_with_def(result.events, event_type, def_id) >= 0:
+			return result
 	return null
 
 
