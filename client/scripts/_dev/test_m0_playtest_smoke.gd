@@ -17,7 +17,7 @@ func _run_all() -> int:
 	var passed: int = 0
 	var failed: int = 0
 	var fail_names: Array[String] = []
-	for test_pair in _all_tests():
+	for test_pair: Array in _all_tests():
 		var test_name: String = test_pair[0]
 		var fn: Callable = test_pair[1]
 		var ok: bool = fn.call()
@@ -27,7 +27,7 @@ func _run_all() -> int:
 			failed += 1
 			fail_names.append(test_name)
 	print("[test_m0_playtest_smoke] %d passed, %d failed" % [passed, failed])
-	for test_name in fail_names:
+	for test_name: String in fail_names:
 		push_error("  failed: %s" % test_name)
 	return failed
 
@@ -77,9 +77,12 @@ func _test_m0_playtest_smoke() -> bool:
 	if barracks_id < 0:
 		push_error("[m0_playtest_smoke] BUILD_STARTED did not identify the barracks")
 		return false
-	state = _resolve_until_event(
-		build_result.new_state, registry, tunables, ResolverEvent.Type.BUILD_COMPLETED, 30
-	)
+	if _has_event(build_result.events, ResolverEvent.Type.BUILD_COMPLETED):
+		state = build_result.new_state
+	else:
+		state = _resolve_until_event(
+			build_result.new_state, registry, tunables, ResolverEvent.Type.BUILD_COMPLETED, 30
+		)
 	if state == null:
 		push_error("[m0_playtest_smoke] barracks did not complete within smoke budget")
 		return false
@@ -93,9 +96,19 @@ func _test_m0_playtest_smoke() -> bool:
 	if not _has_event(train_result.events, ResolverEvent.Type.TRAIN_STARTED):
 		push_error("[m0_playtest_smoke] expected TRAIN_STARTED for marine")
 		return false
-	var train_complete_result: ResolveResult = _resolve_until_event_with_def(
-		train_result.new_state, registry, tunables, ResolverEvent.Type.TRAIN_COMPLETED, "marine", 12
-	)
+	var train_complete_result: ResolveResult = train_result
+	if (
+		_event_target_with_def(train_result.events, ResolverEvent.Type.TRAIN_COMPLETED, "marine")
+		< 0
+	):
+		train_complete_result = _resolve_until_event_with_def(
+			train_result.new_state,
+			registry,
+			tunables,
+			ResolverEvent.Type.TRAIN_COMPLETED,
+			"marine",
+			12
+		)
 	if train_complete_result == null:
 		push_error("[m0_playtest_smoke] marine did not complete within smoke budget")
 		return false
@@ -220,7 +233,7 @@ func _drive_p0_gather_until(
 ) -> MatchState:
 	var workers: Array[Entity] = _entities_by_def_owner(state, "worker", 0)
 	var orders: Array[EntityOrder] = []
-	for worker in workers:
+	for worker: Entity in workers:
 		var source: Entity = _nearest_resource_source(state, registry, worker, "minerals")
 		if source == null:
 			push_error("[m0_playtest_smoke] worker %d had no mineral source" % worker.id)
@@ -241,14 +254,14 @@ func _resolve_until_minerals_at_least(
 	var player: PlayerState = current.get_player(0)
 	if player != null and player.minerals >= amount:
 		return current
-	for _i in max_turns:
+	for _i: int in max_turns:
 		current = _resolve(current, registry, tunables, [], []).new_state
 		player = current.get_player(0)
 		if player != null and player.minerals >= amount:
 			return current
 	var final_player: PlayerState = current.get_player(0)
 	var worker_statuses: Array[String] = []
-	for worker in _entities_by_def_owner(current, "worker", 0):
+	for worker: Entity in _entities_by_def_owner(current, "worker", 0):
 		var phase: int = -1
 		var carrying: int = -1
 		var source_id: int = -1
@@ -284,7 +297,7 @@ func _resolve_until_event(
 	max_turns: int
 ) -> MatchState:
 	var current: MatchState = state
-	for _i in max_turns:
+	for _i: int in max_turns:
 		var result: ResolveResult = _resolve(current, registry, tunables, [], [])
 		current = result.new_state
 		if _has_event(result.events, event_type):
@@ -301,7 +314,7 @@ func _resolve_until_event_with_def(
 	max_turns: int
 ) -> ResolveResult:
 	var current: MatchState = state
-	for _i in max_turns:
+	for _i: int in max_turns:
 		var result: ResolveResult = _resolve(current, registry, tunables, [], [])
 		current = result.new_state
 		if _event_target_with_def(result.events, event_type, def_id) >= 0:
@@ -360,14 +373,14 @@ func _attack_order(entity_id: int, target_entity_id: int) -> EntityOrder:
 
 func _entities_by_def_owner(state: MatchState, def_id: String, owner: int) -> Array[Entity]:
 	var out: Array[Entity] = []
-	for entity in state.entities_sorted_by_id():
+	for entity: Entity in state.entities_sorted_by_id():
 		if entity.def_id == def_id and entity.owner_player_id == owner and entity.current_hp > 0:
 			out.append(entity)
 	return out
 
 
 func _first_entity_by_def_owner(state: MatchState, def_id: String, owner: int) -> Entity:
-	for entity in state.entities_sorted_by_id():
+	for entity: Entity in state.entities_sorted_by_id():
 		if entity.def_id == def_id and entity.owner_player_id == owner and entity.current_hp > 0:
 			return entity
 	return null
@@ -375,7 +388,7 @@ func _first_entity_by_def_owner(state: MatchState, def_id: String, owner: int) -
 
 func _entity_count_by_def_owner(state: MatchState, def_id: String, owner: int) -> int:
 	var count: int = 0
-	for entity in state.entities:
+	for entity: Entity in state.entities:
 		if entity != null and entity.def_id == def_id and entity.owner_player_id == owner:
 			if owner < 0 or entity.current_hp > 0:
 				count += 1
@@ -388,7 +401,7 @@ func _nearest_resource_source(
 	var worker_rect: Rect2i = state.tile_grid.entity_rect(worker.id)
 	var best: Entity = null
 	var best_distance: int = -1
-	for entity in state.entities_sorted_by_id():
+	for entity: Entity in state.entities_sorted_by_id():
 		var def: EntityDef = registry.get_by_id(entity.current_def_id)
 		if def == null or def.resource_source == null:
 			continue
@@ -413,9 +426,9 @@ func _find_clear_build_origin(
 	var footprint: Vector2i = Vector2i.ONE
 	if def != null and def.footprint != Vector2i.ZERO:
 		footprint = Vector2i(max(def.footprint.x, 1), max(def.footprint.y, 1))
-	for distance in range(0, radius + 1):
-		for dx in range(-distance, distance + 1):
-			for dy in range(-distance, distance + 1):
+	for distance: int in range(0, radius + 1):
+		for dx: int in range(-distance, distance + 1):
+			for dy: int in range(-distance, distance + 1):
 				if max(abs(dx), abs(dy)) != distance:
 					continue
 				var origin: Vector2i = center + Vector2i(dx, dy)
@@ -457,7 +470,7 @@ func _spawn_entity(
 
 
 func _has_event(events: Array[ResolverEvent], event_type: ResolverEvent.Type) -> bool:
-	for event in events:
+	for event: ResolverEvent in events:
 		if event != null and event.type == event_type:
 			return true
 	return false
@@ -466,7 +479,7 @@ func _has_event(events: Array[ResolverEvent], event_type: ResolverEvent.Type) ->
 func _event_target_with_def(
 	events: Array[ResolverEvent], event_type: ResolverEvent.Type, def_id: String
 ) -> int:
-	for event in events:
+	for event: ResolverEvent in events:
 		if event != null and event.type == event_type and event.def_id == def_id:
 			return event.target_id
 	return -1
