@@ -651,6 +651,11 @@ func _test_routes_command_card_orders() -> bool:
 		push_error("expected mvp scenario reload for build commands")
 		_free_mode(mode)
 		return false
+	card = mode.command_card()
+	if card == null:
+		push_error("expected command card after mvp scenario reload")
+		_free_mode(mode)
+		return false
 	mode.set_active_player_id(0)
 	worker_id = _find_entity_id(mode.current_state(), "worker", 0)
 	if worker_id < 0 or not mode.select_entity_id(worker_id):
