@@ -26,7 +26,6 @@ var _tunables: Tunables = null
 var _input: DevTurnInput = DEV_TURN_INPUT_SCRIPT.new() as DevTurnInput
 var _hud_layer: CanvasLayer = null
 var _active_label: Label = null
-var _selected_label: Label = null
 var _resources_label: Label = null
 var _queue_label: Label = null
 var _status_label: Label = null
@@ -466,11 +465,6 @@ func _build_hud() -> void:
 	_active_label.name = "ActivePlayer"
 	_style_label(_active_label)
 	root.add_child(_active_label)
-	_selected_label = Label.new()
-	_selected_label.name = "Selected"
-	_selected_label.visible = false
-	_style_label(_selected_label)
-	root.add_child(_selected_label)
 	_resources_label = Label.new()
 	_resources_label.name = "Resources"
 	_style_label(_resources_label)
@@ -525,9 +519,6 @@ func _surrender_from_hud() -> void:
 func _update_hud(override_status: String = "") -> void:
 	if _active_label != null:
 		_active_label.text = "Active player: P%d" % _input.active_player_id()
-	if _selected_label != null:
-		_selected_label.visible = false
-		_selected_label.text = ""
 	if _resources_label != null:
 		var player := (
 			_loaded.state.get_player(_input.active_player_id()) if _loaded != null else null
@@ -618,6 +609,9 @@ func _refresh_action_previews() -> void:
 	var selected_id: int = _input.selected_entity_id()
 	previews.append_array(_previews_for_entity(selected_id))
 	if _show_all_friendly_action_previews:
+		if _loaded == null or _loaded.state == null:
+			_renderer.call("set_action_previews", previews)
+			return
 		var active_player_id: int = _input.active_player_id()
 		var seen: Dictionary[int, bool] = {}
 		if selected_id >= 0:

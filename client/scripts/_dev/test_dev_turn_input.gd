@@ -61,7 +61,7 @@ func _test_selects_owned_live_entity() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	if not input.select_entity(1):
@@ -89,7 +89,7 @@ func _test_queues_move_for_active_player() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(1)
@@ -109,7 +109,7 @@ func _test_queues_attack_against_enemy() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
@@ -129,7 +129,7 @@ func _test_queues_persistent_attack_target() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
@@ -152,7 +152,7 @@ func _test_replaces_duplicate_move_and_target() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	_add_entity(setup.state, 8, "marine", 1, Vector2i(9, 7), Vector2i(1, 1), 45)
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
@@ -183,7 +183,7 @@ func _test_queues_gather() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(1)
@@ -210,7 +210,7 @@ func _test_queues_move_target_hold_fire_cancel() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
@@ -249,7 +249,7 @@ func _test_queues_build_train_research() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	setup.state.get_player(0).minerals = 200
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
@@ -288,7 +288,7 @@ func _test_rejects_unaffordable_build_without_queue() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	setup.state.get_player(0).minerals = 50
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
@@ -309,7 +309,7 @@ func _test_rejects_occupied_build_without_queue() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	setup.state.get_player(0).minerals = 200
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
@@ -330,7 +330,7 @@ func _test_derives_command_options() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(1)
@@ -372,7 +372,7 @@ func _test_queues_use_ability() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	setup.state.get_player(0).unlocked_researches.append("stim_research")
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
@@ -403,7 +403,7 @@ func _test_clears_submissions() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(1)
@@ -425,7 +425,7 @@ func _test_surrender_active_player() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(1)
 	input.surrender_active_player()

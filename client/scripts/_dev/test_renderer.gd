@@ -297,8 +297,8 @@ func _test_match_renderer_uses_visuals_registry() -> bool:
 
 
 func _test_focuses_player_start_at_playable_zoom() -> bool:
-	var registry := _renderer_registry()
-	var state := _make_renderer_state(
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
 		[
 			{
 				"def_id": "base",
@@ -348,19 +348,19 @@ func _test_focuses_player_start_at_playable_zoom() -> bool:
 		30,
 		30
 	)
-	var renderer := _make_renderer()
+	var renderer: MatchRenderer = _make_renderer()
 	renderer.bind_state(state, registry)
 	if not renderer.has_method("focus_player_start"):
 		push_error("renderer should expose focus_player_start for dev play mode")
 		_free_renderer(renderer)
 		return false
 	renderer.call("focus_player_start", 0)
-	var camera := renderer.get_node_or_null("Camera2D") as Camera2D
+	var camera: Camera2D = renderer.get_node_or_null("Camera2D") as Camera2D
 	if camera == null:
 		push_error("renderer has no Camera2D")
 		_free_renderer(renderer)
 		return false
-	var ok := true
+	var ok: bool = true
 	if camera.position.distance_to(Vector2(8.5, 21.5) * 32.0) > 64.0:
 		push_error(
 			(
@@ -386,13 +386,13 @@ func _test_focuses_player_start_at_playable_zoom() -> bool:
 
 
 func _test_camera_pan_and_zoom_helpers() -> bool:
-	var registry := _renderer_registry()
-	var state := _make_renderer_state(
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
 		[{"def_id": "base", "owner": 0, "origin": Vector2i(2, 2), "footprint": Vector2i(4, 4)}],
 		30,
 		30
 	)
-	var renderer := _make_renderer()
+	var renderer: MatchRenderer = _make_renderer()
 	renderer.bind_state(state, registry)
 	for method in ["focus_player_start", "zoom_camera", "pan_camera_by_screen_delta"]:
 		if not renderer.has_method(method):
@@ -400,7 +400,7 @@ func _test_camera_pan_and_zoom_helpers() -> bool:
 			_free_renderer(renderer)
 			return false
 	renderer.call("focus_player_start", 0)
-	var camera := renderer.get_node_or_null("Camera2D") as Camera2D
+	var camera: Camera2D = renderer.get_node_or_null("Camera2D") as Camera2D
 	if camera == null:
 		push_error("renderer has no Camera2D")
 		_free_renderer(renderer)
@@ -408,7 +408,7 @@ func _test_camera_pan_and_zoom_helpers() -> bool:
 	var original_position: Vector2 = camera.position
 	var original_zoom: float = camera.zoom.x
 	renderer.call("zoom_camera", 2.0)
-	var ok := true
+	var ok: bool = true
 	if camera.zoom.x <= original_zoom:
 		push_error(
 			"zoom_camera(2.0) should zoom in from %f, got %s" % [original_zoom, str(camera.zoom)]

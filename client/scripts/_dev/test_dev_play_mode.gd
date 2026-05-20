@@ -239,7 +239,7 @@ func _test_command_card_hides_when_not_actionable() -> bool:
 		push_error("expected command card to exist")
 		_free_mode(mode)
 		return false
-	var ok := true
+	var ok: bool = true
 	if card.visible:
 		push_error("command card should be hidden while nothing actionable is selected")
 		ok = false
@@ -280,13 +280,13 @@ func _test_command_card_shows_costs() -> bool:
 		_free_mode(mode)
 		return false
 
-	var ok := true
+	var ok: bool = true
 	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
 	if worker_id < 0 or not mode.select_entity_id(worker_id):
 		push_error("expected to select a worker")
 		ok = false
 	else:
-		var barracks_button := _find_button_with_substring(card, "Barracks")
+		var barracks_button: Button = _find_button_with_substring(card, "Barracks")
 		if barracks_button == null:
 			push_error("worker command card should show Barracks")
 			ok = false
@@ -310,7 +310,7 @@ func _test_command_card_shows_costs() -> bool:
 		push_error("expected to select a base")
 		ok = false
 	else:
-		var worker_button := _find_button_with_substring(card, "Worker")
+		var worker_button: Button = _find_button_with_substring(card, "Worker")
 		if worker_button == null:
 			push_error("base command card should show Worker")
 			ok = false
@@ -325,7 +325,7 @@ func _test_command_card_shows_costs() -> bool:
 		push_error("expected to select injected barracks")
 		ok = false
 	else:
-		var marine_button := _find_button_with_substring(card, "Marine")
+		var marine_button: Button = _find_button_with_substring(card, "Marine")
 		if marine_button == null:
 			push_error("barracks command card should show Marine")
 			ok = false
@@ -334,7 +334,7 @@ func _test_command_card_shows_costs() -> bool:
 				"Marine button should show mineral, pop, and train time: %s" % marine_button.text
 			)
 			ok = false
-		var stim_button := _find_button_with_substring(card, "Stim Pack")
+		var stim_button: Button = _find_button_with_substring(card, "Stim Pack")
 		if stim_button == null:
 			push_error("barracks command card should show Stim Pack")
 			ok = false
@@ -605,6 +605,11 @@ func _test_routes_command_card_orders() -> bool:
 	mode.input_model().clear_submissions()
 	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
 		push_error("expected combat scenario reload for target command")
+		_free_mode(mode)
+		return false
+	card = mode.command_card()
+	if card == null:
+		push_error("expected command card after combat scenario reload")
 		_free_mode(mode)
 		return false
 	mode.set_active_player_id(0)

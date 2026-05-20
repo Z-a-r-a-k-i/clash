@@ -538,16 +538,6 @@ func _live_enemy_entity(entity_id: int) -> Entity:
 	return entity
 
 
-func _target_tile_for_entity(entity: Entity) -> Vector2i:
-	if entity == null:
-		return Vector2i.ZERO
-	if _state != null and _state.tile_grid != null:
-		var rect: Rect2i = _state.tile_grid.entity_rect(entity.id)
-		if rect.size != Vector2i.ZERO:
-			return rect.position
-	return entity.origin
-
-
 func _gather_target_entity(entity_id: int) -> Entity:
 	if _state == null:
 		return null
@@ -558,6 +548,7 @@ func _gather_target_entity(entity_id: int) -> Entity:
 	if def == null:
 		return null
 	if def.resource_source != null:
+		# -1 is infinite capacity; only exactly zero is depleted.
 		if entity.current_resource_amount == 0:
 			return null
 		return entity

@@ -185,11 +185,11 @@ static func resolve(
 				working, per_entity, tick, registry, tunables, events
 			)
 
-		_clear_attacked_persistent_moves(working, attacked_entity_ids, fresh_move_entity_ids)
-
 		# Phase 4 extension: gather workers at a source / sink tick yields
 		# and deposits.
 		GatherSystem.advance_state_phase(working, registry, tunables, events)
+
+	_clear_attacked_persistent_moves(working, attacked_entity_ids, fresh_move_entity_ids)
 
 	# 5. End-of-turn pass.
 	EndOfTurnSystem.run(working, registry, tunables, events)

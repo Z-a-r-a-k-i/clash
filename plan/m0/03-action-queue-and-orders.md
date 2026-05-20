@@ -13,7 +13,7 @@ The order-issuance UI and the in-flight queue that submits to the resolver.
 | Order | Target | Notes |
 |---|---|---|
 | Move | tile or rect | Ignores enemies along path. Persists across turns until arrived / dead / overridden. |
-| Attack-move | tile or rect | Stops to engage if an enemy enters attack range; resumes pathing when threat is cleared. |
+| Attack-move (deprecated/compat-only) | tile or rect | Stops to engage if an enemy enters attack range; deprecated in the human UX in favor of move + target focus. |
 | Attack | entity (with priority chain) | Up to N priority targets in chain; fall-back to closest enemy unless on hold-fire. |
 | Hold-fire toggle | self | Unit mode. Independent of move/target focus. |
 | Build | building type + tile rect | Issued from a worker (or HQ for the initial set). N-turn build time. |

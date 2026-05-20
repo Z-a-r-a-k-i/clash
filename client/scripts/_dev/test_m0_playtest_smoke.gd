@@ -50,7 +50,7 @@ func _test_m0_playtest_smoke() -> bool:
 		return false
 	if not _assert_opening_fog(state, registry):
 		return false
-	var barracks_mineral_cost := _mineral_cost_for_def(registry, "barracks")
+	var barracks_mineral_cost: int = _mineral_cost_for_def(registry, "barracks")
 	if barracks_mineral_cost < 0:
 		return false
 	state = _drive_p0_gather_until(state, registry, tunables, barracks_mineral_cost)
@@ -88,7 +88,7 @@ func _test_m0_playtest_smoke() -> bool:
 	if state == null:
 		push_error("[m0_playtest_smoke] barracks did not complete within smoke budget")
 		return false
-	var marine_mineral_cost := _mineral_cost_for_def(registry, "marine")
+	var marine_mineral_cost: int = _mineral_cost_for_def(registry, "marine")
 	if marine_mineral_cost < 0:
 		return false
 	state = _resolve_until_minerals_at_least(state, registry, tunables, marine_mineral_cost, 120)

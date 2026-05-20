@@ -251,6 +251,7 @@ static func _auto_start_player_workers_on_minerals(
 static func _mineral_sources(state: MatchState, registry: EntityRegistry) -> Array[Entity]:
 	var sources: Array[Entity] = []
 	for entity in state.entities_sorted_by_id():
+		# -1 is infinite capacity; only exactly zero is depleted.
 		if entity == null or entity.current_resource_amount == 0:
 			continue
 		var def: EntityDef = registry.get_by_id(entity.current_def_id)
