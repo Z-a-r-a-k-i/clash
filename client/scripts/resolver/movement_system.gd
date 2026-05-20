@@ -1,14 +1,11 @@
 class_name MovementSystem
 extends RefCounted
 
-# Movement system — resolves MOVE / ATTACK_MOVE orders and advances
-# persistent move orders.
+# Movement system — resolves MOVE orders and advances persistent moves.
 #
 # Per-tick semantics (called from Phase 2 of the resolver tick loop):
 # - MOVE: advance one tile toward order.target_tile if the entity has
 #   move budget remaining. Ignores enemies along the path.
-# - ATTACK_MOVE: if any enemy is in attack range right now, halt this
-#   tick (combat already fired in Phase 1). Otherwise advance one tile.
 #
 # Persistent moves (Phase 3): for each entity with `persistent_order` set
 # and no fresh order at this tick, advance one tile toward the persistent
@@ -34,15 +31,6 @@ static func resolve_move(
 	if actor == null or actor.current_hp <= 0:
 		return
 	if state.tile_grid == null:
-		return
-
-	# ATTACK_MOVE halts if there's a target in range — Phase 1 already
-	# fired (or had nothing to fire at), and ATTACK_MOVE semantics say
-	# "stops to engage if an enemy is in attack range." We still record the
-	# order as persistent so the unit resumes toward target_tile once the
-	# threat is gone next turn.
-	if order.type == EntityOrder.Type.ATTACK_MOVE and _enemy_in_range(state, actor, registry):
-		actor.persistent_order = order
 		return
 
 	# Move budget check.
@@ -84,11 +72,7 @@ static func advance_persistent_moves(
 		if actor.gather_state != null and actor.gather_state.phase != GatherState.Phase.IDLE:
 			continue
 
-		# ATTACK_MOVE persistent: halt if an enemy is in range.
 		var po: EntityOrder = actor.persistent_order
-		if po.type == EntityOrder.Type.ATTACK_MOVE and _enemy_in_range(state, actor, registry):
-			continue
-
 		var movement_speed: int = movement_speed_for_entity(actor, registry)
 		if movement_speed <= 0:
 			continue
@@ -162,19 +146,3 @@ static func movement_speed_for_entity(actor: Entity, registry: EntityRegistry) -
 		if buff != null:
 			speed *= buff.speed_mult
 	return max(0, int(round(speed)))
-
-
-# Returns true if any enemy of `actor` is currently within attack range.
-# Used by ATTACK_MOVE to decide whether to halt this tick. Reuses the
-# combat layer / range checks via CombatSystem._is_valid_target.
-static func _enemy_in_range(state: MatchState, actor: Entity, registry: EntityRegistry) -> bool:
-	if registry == null:
-		return false
-	var def: EntityDef = registry.get_by_id(actor.current_def_id)
-	if def == null or def.combat == null:
-		return false
-	var combat: CombatDef = def.combat
-	for candidate in state.entities_sorted_by_id():
-		if CombatSystem._is_valid_target(state, actor, combat, candidate, registry):
-			return true
-	return false

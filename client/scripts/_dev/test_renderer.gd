@@ -44,6 +44,7 @@ func _all_tests() -> Array:
 			"match_renderer_initial_state_spawns_views",
 			_test_match_renderer_initial_state_spawns_views
 		],
+		["match_renderer_renders_zero_hp_resource_sources", _test_renders_zero_hp_resource_sources],
 		["match_renderer_owner_modulate", _test_match_renderer_owner_modulate],
 		["match_renderer_uses_visuals_registry", _test_match_renderer_uses_visuals_registry],
 		# Chunk 4 — render_step events + reconciliation.
@@ -69,6 +70,8 @@ func _all_tests() -> Array:
 		["match_renderer_match_ended_draw_event_logged", _test_match_ended_draw_event_logged],
 		["match_renderer_world_tile_hit_testing", _test_world_tile_hit_testing],
 		["match_renderer_input_highlights", _test_input_highlights],
+		["match_renderer_action_previews", _test_action_previews],
+		["match_renderer_unit_training_progress", _test_unit_training_progress],
 		["match_renderer_perspective_hides_unseen_enemy", _test_perspective_hides_unseen_enemy],
 		[
 			"match_renderer_perspective_switch_changes_visible_entities",
@@ -79,6 +82,11 @@ func _all_tests() -> Array:
 			_test_previously_seen_building_silhouette
 		],
 		["match_renderer_fog_overlay_marks_unseen_tiles", _test_fog_overlay_marks_unseen_tiles],
+		[
+			"match_renderer_focuses_player_start_at_playable_zoom",
+			_test_focuses_player_start_at_playable_zoom
+		],
+		["match_renderer_camera_pan_and_zoom_helpers", _test_camera_pan_and_zoom_helpers],
 	]
 
 
@@ -168,6 +176,50 @@ func _test_match_renderer_initial_state_spawns_views() -> bool:
 	return true
 
 
+func _test_renders_zero_hp_resource_sources() -> bool:
+	# MVP resources are not combat objects: they have ResourceSourceDef,
+	# but no HealthDef, so ScenarioLoader seeds current_hp = 0. They still
+	# need views and normal visibility.
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{
+				"def_id": "base",
+				"owner": 0,
+				"origin": Vector2i(2, 2),
+				"footprint": Vector2i(4, 4),
+				"hp": 1500,
+				"id": 1
+			},
+			{
+				"def_id": "mineral_patch",
+				"owner": -1,
+				"origin": Vector2i(6, 3),
+				"footprint": Vector2i(1, 3),
+				"hp": 0,
+				"resources": 1500,
+				"id": 2
+			},
+		],
+		10,
+		10
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	var ok := true
+	if renderer.entity_view_count() != 2:
+		push_error("expected base + zero-hp mineral views, got %d" % renderer.entity_view_count())
+		ok = false
+	if renderer.get_entity_view(2) == null:
+		push_error("zero-hp mineral patch should have an EntityView")
+		ok = false
+	if not renderer.is_entity_view_visible(2):
+		push_error("zero-hp mineral patch should be visible inside player vision")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
 func _test_match_renderer_owner_modulate() -> bool:
 	# Owner 0 sprite reads blue-dominant; owner 1 reads red-dominant;
 	# neutral stays untinted. We compare channel relationships rather than
@@ -244,6 +296,137 @@ func _test_match_renderer_uses_visuals_registry() -> bool:
 	return ok
 
 
+func _test_focuses_player_start_at_playable_zoom() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{
+				"def_id": "base",
+				"owner": 0,
+				"origin": Vector2i(2, 20),
+				"footprint": Vector2i(4, 4),
+				"id": 1
+			},
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(7, 20), "id": 2},
+			{
+				"def_id": "mineral_patch",
+				"owner": -1,
+				"origin": Vector2i(10, 18),
+				"footprint": Vector2i(1, 3),
+				"id": 5
+			},
+			{
+				"def_id": "gas_geyser",
+				"owner": -1,
+				"origin": Vector2i(12, 22),
+				"footprint": Vector2i(3, 3),
+				"id": 6
+			},
+			{
+				"def_id": "base",
+				"owner": 1,
+				"origin": Vector2i(24, 2),
+				"footprint": Vector2i(4, 4),
+				"id": 3
+			},
+			{"def_id": "worker", "owner": 1, "origin": Vector2i(23, 7), "id": 4},
+			{
+				"def_id": "mineral_patch",
+				"owner": -1,
+				"origin": Vector2i(20, 4),
+				"footprint": Vector2i(1, 3),
+				"id": 7
+			},
+			{
+				"def_id": "gas_geyser",
+				"owner": -1,
+				"origin": Vector2i(18, 4),
+				"footprint": Vector2i(3, 3),
+				"id": 8
+			},
+		],
+		30,
+		30
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	if not renderer.has_method("focus_player_start"):
+		push_error("renderer should expose focus_player_start for dev play mode")
+		_free_renderer(renderer)
+		return false
+	renderer.call("focus_player_start", 0)
+	var camera := renderer.get_node_or_null("Camera2D") as Camera2D
+	if camera == null:
+		push_error("renderer has no Camera2D")
+		_free_renderer(renderer)
+		return false
+	var ok := true
+	if camera.position.distance_to(Vector2(8.5, 21.5) * 32.0) > 64.0:
+		push_error(
+			(
+				"P0 focus camera position is %s, expected base + resource cluster"
+				% str(camera.position)
+			)
+		)
+		ok = false
+	if camera.zoom.x < 1.5 or camera.zoom.x > 3.0:
+		push_error("P0 focus zoom is %s, expected readable dev zoom" % str(camera.zoom))
+		ok = false
+	renderer.call("focus_player_start", 1)
+	if camera.position.distance_to(Vector2(23.0, 5.0) * 32.0) > 48.0:
+		push_error(
+			(
+				"P1 focus camera position is %s, expected base + resource cluster"
+				% str(camera.position)
+			)
+		)
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_camera_pan_and_zoom_helpers() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[{"def_id": "base", "owner": 0, "origin": Vector2i(2, 2), "footprint": Vector2i(4, 4)}],
+		30,
+		30
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	for method in ["focus_player_start", "zoom_camera", "pan_camera_by_screen_delta"]:
+		if not renderer.has_method(method):
+			push_error("renderer should expose %s for dev camera control" % method)
+			_free_renderer(renderer)
+			return false
+	renderer.call("focus_player_start", 0)
+	var camera := renderer.get_node_or_null("Camera2D") as Camera2D
+	if camera == null:
+		push_error("renderer has no Camera2D")
+		_free_renderer(renderer)
+		return false
+	var original_position: Vector2 = camera.position
+	var original_zoom: float = camera.zoom.x
+	renderer.call("zoom_camera", 2.0)
+	var ok := true
+	if camera.zoom.x <= original_zoom:
+		push_error(
+			"zoom_camera(2.0) should zoom in from %f, got %s" % [original_zoom, str(camera.zoom)]
+		)
+		ok = false
+	for i in range(12):
+		renderer.call("zoom_camera", 2.0)
+	if camera.zoom.x > 4.0:
+		push_error("zoom should clamp at or below 4.0, got %s" % str(camera.zoom))
+		ok = false
+	renderer.call("pan_camera_by_screen_delta", Vector2(64.0, 32.0))
+	if camera.position == original_position:
+		push_error("pan_camera_by_screen_delta should change camera position")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
 # ---------- Helpers ----------
 
 
@@ -293,6 +476,7 @@ func _make_renderer_state(entity_specs: Array, w: int, h: int) -> MatchState:
 		e.owner_player_id = spec.get("owner", -1)
 		e.origin = spec.get("origin", Vector2i.ZERO)
 		e.current_hp = spec.get("hp", 50)
+		e.current_resource_amount = spec.get("resources", -1)
 		state.entities.append(e)
 		var fp: Vector2i = spec.get("footprint", Vector2i(1, 1))
 		state.tile_grid.place(e.id, Rect2i(e.origin, fp))
@@ -318,9 +502,15 @@ func _renderer_registry() -> EntityRegistry:
 		d.id = entry[0]
 		d.footprint = entry[1]
 		d.vision = VisionDef.new()
-		d.vision.sight_radius = 3 if d.id != "watch_tower" else 0
+		if d.id == "base":
+			d.vision.sight_radius = 10
+		else:
+			d.vision.sight_radius = 3 if d.id != "watch_tower" else 0
 		if ["base", "barracks"].has(d.id):
 			d.tags.append("building")
+		if ["mineral_patch", "gas_geyser"].has(d.id):
+			d.tags.append("resource_source")
+			d.resource_source = ResourceSourceDef.new()
 		defs.append(d)
 	registry.entities = defs
 	return registry
@@ -874,6 +1064,85 @@ func _test_input_highlights() -> bool:
 		return false
 	_free_renderer(renderer)
 	return true
+
+
+func _test_action_previews() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "mineral_patch", "owner": -1, "origin": Vector2i(6, 1), "id": 2},
+		],
+		10,
+		10
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	for method in ["set_action_previews", "action_preview_count"]:
+		if not renderer.has_method(method):
+			push_error("renderer should expose %s" % method)
+			_free_renderer(renderer)
+			return false
+	(
+		renderer
+		. call(
+			"set_action_previews",
+			[
+				{
+					"entity_id": 1,
+					"kind": "Gather",
+					"target_entity_id": 2,
+					"target_tile": Vector2i(6, 1),
+				},
+			]
+		)
+	)
+	var ok := true
+	if renderer.call("action_preview_count") != 1:
+		push_error("expected one action preview after set_action_previews")
+		ok = false
+	renderer.bind_state(state, registry)
+	if renderer.call("action_preview_count") != 0:
+		push_error("bind_state should clear stale action previews")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_unit_training_progress() -> bool:
+	var registry := _renderer_registry()
+	var marine_def: EntityDef = registry.get_by_id("marine")
+	if marine_def == null:
+		push_error("test registry missing marine")
+		return false
+	marine_def.construction = ConstructionDef.new()
+	marine_def.construction.build_time_turns = 3
+	var state := _make_renderer_state(
+		[
+			{"def_id": "barracks", "owner": 0, "origin": Vector2i(2, 2), "id": 1},
+		],
+		10,
+		10
+	)
+	var barracks: Entity = state.get_entity_by_id(1)
+	barracks.production_state = ProductionState.new()
+	barracks.production_state.active = {
+		ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
+		ProductionState.KEY_DEF_ID: "marine",
+		ProductionState.KEY_TURNS_REMAINING: 2,
+	}
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	if not renderer.has_method("production_progress_count"):
+		push_error("renderer should expose production_progress_count")
+		_free_renderer(renderer)
+		return false
+	var progress_count: int = renderer.call("production_progress_count")
+	var ok: bool = progress_count == 1
+	if not ok:
+		push_error("expected one unit-training progress bar, got %d" % progress_count)
+	_free_renderer(renderer)
+	return ok
 
 
 # ---------- Plan 07b3 — perspective + fog ----------

@@ -21,6 +21,7 @@ extends Resource
 	set(value):
 		map_height = max(1, value)
 @export var starting_resources_per_player: Dictionary = {}
+@export var auto_start_workers_on_minerals: bool = false
 @export var placements: Array[ScenarioPlacement] = []
 @export var registry_override: EntityRegistry  # optional; null => standard registry
 @export var stat_overrides: Array[ScenarioStatOverride] = []

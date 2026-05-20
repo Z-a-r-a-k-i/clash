@@ -22,7 +22,7 @@ const _SOURCE_TYPE_MINERALS := "minerals"
 const _SOURCE_TYPE_GAS := "gas"
 
 
-# Phase 2 hook — called per tick alongside MOVE / ATTACK_MOVE resolution.
+# Phase 2 hook — called per tick alongside MOVE resolution.
 # Walks workers in their travel phases one step.
 static func advance_move_phase(
 	state: MatchState,
@@ -153,7 +153,7 @@ static func _tick_gather(
 		actor.gather_state.phase = GatherState.Phase.IDLE
 		return
 	var rsd: ResourceSourceDef = source_def.resource_source
-	var yield_amount: int = rsd.yield_per_worker_per_turn
+	var yield_amount: int = rsd.yield_per_worker_per_turn * _worker_gather_rate(actor, registry)
 	if yield_amount <= 0:
 		# A misconfigured source with zero yield would loop the worker in
 		# GATHERING forever. Bail out to MOVING_TO_BASE if we have cargo,
@@ -407,3 +407,12 @@ static func _worker_carry_cap(actor: Entity, registry: EntityRegistry) -> int:
 	if def == null or def.gather == null:
 		return 0
 	return def.gather.carry_amount
+
+
+static func _worker_gather_rate(actor: Entity, registry: EntityRegistry) -> int:
+	if registry == null:
+		return 0
+	var def: EntityDef = registry.get_by_id(actor.current_def_id)
+	if def == null or def.gather == null:
+		return 0
+	return max(0, def.gather.gather_per_turn)

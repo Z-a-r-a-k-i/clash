@@ -38,8 +38,18 @@ const _DESTRUCTION_FADE_SECONDS := 0.5
 const _COMBAT_LOG_MAX_LINES := 50
 const _SELECTED_HIGHLIGHT_COLOR := Color(0.1, 0.85, 1.0, 0.32)
 const _HOVER_HIGHLIGHT_COLOR := Color(1.0, 1.0, 1.0, 0.22)
+const _ACTION_PREVIEW_COLOR := Color(0.2, 0.95, 0.9, 0.86)
+const _ACTION_PREVIEW_TEXT_COLOR := Color(0.95, 1.0, 1.0, 1.0)
+const _ACTION_PREVIEW_LINE_WIDTH := 3.0
+const _ACTION_PREVIEW_FONT_SIZE := 18
+const _PRODUCTION_PROGRESS_BACK := Color(0.0, 0.0, 0.0, 0.68)
+const _PRODUCTION_PROGRESS_FILL := Color(0.2, 0.95, 0.45, 0.95)
+const _PRODUCTION_PROGRESS_SIZE := Vector2(64.0, 8.0)
 const _FOG_UNSEEN_COLOR := Color(0.0, 0.0, 0.0, 0.62)
 const _FOG_SEEN_COLOR := Color(0.0, 0.0, 0.0, 0.34)
+const _DEV_PLAYABLE_ZOOM := 2.0
+const _MIN_CAMERA_ZOOM := 0.5
+const _MAX_CAMERA_ZOOM := 4.0
 
 # Hit flash applied to the target sprite for ~150 ms when ENTITY_DAMAGED
 # fires. Quick pulse to white-ish gives a readable "got hit" cue without
@@ -77,6 +87,9 @@ var _seen_enemy_buildings_by_player: Dictionary = {}
 @onready var _fog_root: Node2D = $Overlays/Fog
 @onready var _attack_lines_root: Node2D = $Overlays/AttackLines
 @onready var _input_highlights_root: Node2D = $Overlays/Highlights
+@onready var _action_previews_root: Node2D = get_node_or_null("Overlays/ActionPreviews") as Node2D
+@onready
+var _production_progress_root: Node2D = get_node_or_null("Overlays/ProductionProgress") as Node2D
 @onready var _damage_labels_root: Node2D = $Overlays/DamageLabels
 @onready var _combat_log: RichTextLabel = $HUD/CombatLog
 
@@ -104,12 +117,13 @@ func bind_state(state: MatchState, registry: EntityRegistry) -> void:
 	# preserves to keep positional indices stable. Iterating raw
 	# state.entities would crash on those nulls.
 	for entity in state.entities_sorted_by_id():
-		if entity.current_hp <= 0:
+		if not _is_renderable_entity(entity):
 			continue
 		_spawn_entity_view(entity, state)
 
 	_reset_visibility_memory()
 	_refresh_all_visibility()
+	_rebuild_production_progress()
 	_fit_camera_to_state(state)
 
 
@@ -139,6 +153,7 @@ func render_step(new_state: MatchState, events: Array[ResolverEvent]) -> void:
 	_prune_dead_views(new_state)
 	_update_surviving_views(new_state)
 	_refresh_all_visibility()
+	_rebuild_production_progress()
 
 
 # Lookup helper for tests — fastest way to assert on overlay state.
@@ -208,14 +223,65 @@ func input_highlight_count() -> int:
 	return _input_highlights_root.get_child_count()
 
 
+func set_action_previews(previews: Array) -> void:
+	_resolve_internal_nodes()
+	_clear_action_preview_nodes()
+	if _action_previews_root == null:
+		return
+	for preview in previews:
+		var preview_dict: Dictionary = preview
+		_render_action_preview(preview_dict)
+
+
+func action_preview_count() -> int:
+	if _action_previews_root == null:
+		return 0
+	return _action_previews_root.get_child_count()
+
+
+func production_progress_count() -> int:
+	if _production_progress_root == null:
+		return 0
+	return _production_progress_root.get_child_count()
+
+
 func set_perspective_player_id(player_id: int) -> void:
 	_perspective_player_id = player_id
 	_refresh_entity_visibility()
 	_rebuild_fog_overlay()
+	_rebuild_production_progress()
 
 
 func perspective_player_id() -> int:
 	return _perspective_player_id
+
+
+func focus_player_start(player_id: int) -> void:
+	_resolve_internal_nodes()
+	if _camera == null:
+		return
+	var bounds: Rect2 = _player_world_bounds(player_id)
+	if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
+		bounds = _map_world_bounds()
+	if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
+		return
+	_camera.position = bounds.get_center()
+	_set_camera_zoom(_DEV_PLAYABLE_ZOOM)
+
+
+func zoom_camera(multiplier: float) -> void:
+	_resolve_internal_nodes()
+	if _camera == null or multiplier <= 0.0:
+		return
+	_set_camera_zoom(_camera.zoom.x * multiplier)
+
+
+func pan_camera_by_screen_delta(delta: Vector2) -> void:
+	_resolve_internal_nodes()
+	if _camera == null:
+		return
+	var safe_zoom: float = maxf(_camera.zoom.x, 0.01)
+	_camera.position -= delta / safe_zoom
 
 
 func is_entity_view_visible(entity_id: int) -> bool:
@@ -277,6 +343,18 @@ func _resolve_internal_nodes() -> void:
 			_input_highlights_root = Node2D.new()
 			_input_highlights_root.name = "Highlights"
 			overlays.add_child(_input_highlights_root)
+	if _action_previews_root == null:
+		var overlays := get_node_or_null("Overlays") as Node2D
+		if overlays != null:
+			_action_previews_root = Node2D.new()
+			_action_previews_root.name = "ActionPreviews"
+			overlays.add_child(_action_previews_root)
+	if _production_progress_root == null:
+		var overlays := get_node_or_null("Overlays") as Node2D
+		if overlays != null:
+			_production_progress_root = Node2D.new()
+			_production_progress_root.name = "ProductionProgress"
+			overlays.add_child(_production_progress_root)
 	if _damage_labels_root == null:
 		_damage_labels_root = get_node_or_null("Overlays/DamageLabels") as Node2D
 	if _combat_log == null:
@@ -300,7 +378,13 @@ func _clear_existing_views() -> void:
 
 
 func _clear_overlay_roots() -> void:
-	for root in [_fog_root, _attack_lines_root, _damage_labels_root]:
+	for root in [
+		_fog_root,
+		_attack_lines_root,
+		_action_previews_root,
+		_production_progress_root,
+		_damage_labels_root,
+	]:
 		if root == null:
 			continue
 		for child in root.get_children():
@@ -313,6 +397,22 @@ func _clear_input_highlight_nodes() -> void:
 		return
 	for child in _input_highlights_root.get_children():
 		_input_highlights_root.remove_child(child)
+		child.queue_free()
+
+
+func _clear_action_preview_nodes() -> void:
+	if _action_previews_root == null:
+		return
+	for child in _action_previews_root.get_children():
+		_action_previews_root.remove_child(child)
+		child.queue_free()
+
+
+func _clear_production_progress_nodes() -> void:
+	if _production_progress_root == null:
+		return
+	for child in _production_progress_root.get_children():
+		_production_progress_root.remove_child(child)
 		child.queue_free()
 
 
@@ -349,6 +449,128 @@ func _highlight_polygon(rect: Rect2i, color: Color) -> Polygon2D:
 		]
 	)
 	return poly
+
+
+func _render_action_preview(preview: Dictionary) -> void:
+	var actor_id: int = preview.get("entity_id", -1)
+	var actor_view: EntityView = _views_by_id.get(actor_id)
+	if actor_view == null or not actor_view.visible:
+		return
+	var group := Node2D.new()
+	group.name = "ActionPreview_%d" % actor_id
+	var start: Vector2 = actor_view.position
+	var target: Vector2 = start
+	var has_target := false
+	var target_entity_id: int = preview.get("target_entity_id", -1)
+	if target_entity_id >= 0:
+		var target_view: EntityView = _views_by_id.get(target_entity_id)
+		if target_view != null and target_view.visible:
+			target = target_view.position
+			has_target = true
+	if not has_target and preview.has("target_tile"):
+		var target_tile: Vector2i = preview.get("target_tile", Vector2i.ZERO)
+		target = _tile_center(target_tile)
+		has_target = true
+	if has_target:
+		var line := Line2D.new()
+		line.default_color = _ACTION_PREVIEW_COLOR
+		line.width = _ACTION_PREVIEW_LINE_WIDTH
+		line.points = PackedVector2Array([start, target])
+		group.add_child(line)
+		group.add_child(_target_marker(target))
+	var label := Label.new()
+	label.text = _preview_label(preview)
+	label.modulate = _ACTION_PREVIEW_TEXT_COLOR
+	label.add_theme_font_size_override("font_size", _ACTION_PREVIEW_FONT_SIZE)
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+	label.add_theme_constant_override("outline_size", 4)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.size = Vector2(120.0, 0.0)
+	label.position = (target if has_target else start) + Vector2(-60.0, -32.0)
+	group.add_child(label)
+	_action_previews_root.add_child(group)
+
+
+func _target_marker(marker_position: Vector2) -> Polygon2D:
+	var marker := Polygon2D.new()
+	marker.color = _ACTION_PREVIEW_COLOR
+	var radius := 7.0
+	marker.polygon = PackedVector2Array(
+		[
+			marker_position + Vector2(0.0, -radius),
+			marker_position + Vector2(radius, 0.0),
+			marker_position + Vector2(0.0, radius),
+			marker_position + Vector2(-radius, 0.0),
+		]
+	)
+	return marker
+
+
+func _preview_label(preview: Dictionary) -> String:
+	var kind: String = preview.get("kind", "Action")
+	var def_id: String = preview.get("def_id", "")
+	if def_id != "":
+		return "%s %s" % [kind, def_id]
+	return kind
+
+
+func _tile_center(tile: Vector2i) -> Vector2:
+	return Vector2(tile.x + 0.5, tile.y + 0.5) * float(_tile_size)
+
+
+func _rebuild_production_progress() -> void:
+	_resolve_internal_nodes()
+	_clear_production_progress_nodes()
+	if _state == null or _registry == null or _production_progress_root == null:
+		return
+	for entity in _state.entities_sorted_by_id():
+		if (
+			entity == null
+			or entity.production_state == null
+			or entity.production_state.active.is_empty()
+		):
+			continue
+		if not _is_entity_currently_visible_for_player(entity, _perspective_player_id):
+			continue
+		var active: Dictionary = entity.production_state.active
+		var kind: String = active.get(ProductionState.KEY_KIND, "")
+		if kind != ProductionState.KIND_UNIT:
+			continue
+		var def_id: String = active.get(ProductionState.KEY_DEF_ID, "")
+		var total_turns: int = _production_total_turns(kind, def_id)
+		if total_turns <= 0:
+			continue
+		var remaining: int = active.get(ProductionState.KEY_TURNS_REMAINING, total_turns)
+		var done_ratio := clampf(float(total_turns - remaining) / float(total_turns), 0.0, 1.0)
+		_render_production_progress(entity, done_ratio)
+
+
+func _production_total_turns(kind: String, def_id: String) -> int:
+	if kind != ProductionState.KIND_UNIT or _registry == null:
+		return 0
+	var def: EntityDef = _registry.get_by_id(def_id)
+	if def == null or def.construction == null:
+		return 0
+	return def.construction.build_time_turns
+
+
+func _render_production_progress(entity: Entity, done_ratio: float) -> void:
+	var def: EntityDef = _def_for_entity(entity)
+	if def == null:
+		return
+	var rect: Rect2 = _entity_world_rect(entity, _state, def)
+	var group := Node2D.new()
+	group.name = "ProductionProgress_%d" % entity.id
+	group.position = rect.get_center() + Vector2(-_PRODUCTION_PROGRESS_SIZE.x / 2.0, -24.0)
+	var back := ColorRect.new()
+	back.color = _PRODUCTION_PROGRESS_BACK
+	back.size = _PRODUCTION_PROGRESS_SIZE
+	group.add_child(back)
+	var fill := ColorRect.new()
+	fill.color = _PRODUCTION_PROGRESS_FILL
+	fill.size = Vector2(_PRODUCTION_PROGRESS_SIZE.x * done_ratio, _PRODUCTION_PROGRESS_SIZE.y)
+	group.add_child(fill)
+	_production_progress_root.add_child(group)
 
 
 func _spawn_entity_view(entity: Entity, state: MatchState = null) -> void:
@@ -431,7 +653,71 @@ func _fit_camera_to_state(state: MatchState) -> void:
 	var pixel_h: float = max(span_tiles_y, 1) * _tile_size
 	var zoom_x: float = viewport_size.x / pixel_w
 	var zoom_y: float = viewport_size.y / pixel_h
-	_camera.zoom = Vector2.ONE * min(zoom_x, zoom_y)
+	_set_camera_zoom(min(zoom_x, zoom_y))
+
+
+func _set_camera_zoom(value: float) -> void:
+	if _camera == null:
+		return
+	var zoom: float = clampf(value, _MIN_CAMERA_ZOOM, _MAX_CAMERA_ZOOM)
+	_camera.zoom = Vector2.ONE * zoom
+
+
+func _player_world_bounds(player_id: int) -> Rect2:
+	var bounds := Rect2()
+	var has_bounds := false
+	if _state == null or _state.tile_grid == null:
+		return bounds
+	for entity in _state.entities_sorted_by_id():
+		if entity == null or entity.owner_player_id != player_id:
+			continue
+		if not _is_renderable_entity(entity):
+			continue
+		var world_rect := _entity_world_rect(entity, _state, _def_for_entity(entity))
+		if not has_bounds:
+			bounds = world_rect
+			has_bounds = true
+		else:
+			bounds = bounds.merge(world_rect)
+	if not has_bounds:
+		return bounds
+	var visibility: VisionSystem.Visibility = _visibility_by_player.get(player_id)
+	if visibility == null and _registry != null:
+		visibility = VISION_SYSTEM_SCRIPT.compute_player_visibility(_state, _registry, player_id)
+	for entity in _state.entities_sorted_by_id():
+		if entity == null or entity.owner_player_id != -1:
+			continue
+		if not _is_renderable_entity(entity):
+			continue
+		var def := _def_for_entity(entity)
+		if def == null or def.resource_source == null:
+			continue
+		var rect := _entity_rect_or_default(entity, _state, def)
+		if visibility != null and not visibility.is_rect_visible(rect):
+			continue
+		bounds = bounds.merge(_world_rect_from_grid_rect(rect))
+	return bounds
+
+
+func _entity_world_rect(entity: Entity, state: MatchState, def: EntityDef) -> Rect2:
+	var rect: Rect2i = _entity_rect_or_default(entity, state, def)
+	return _world_rect_from_grid_rect(rect)
+
+
+func _world_rect_from_grid_rect(rect: Rect2i) -> Rect2:
+	return Rect2(
+		Vector2(rect.position.x * _tile_size, rect.position.y * _tile_size),
+		Vector2(rect.size.x * _tile_size, rect.size.y * _tile_size)
+	)
+
+
+func _map_world_bounds() -> Rect2:
+	if _state == null or _state.tile_grid == null:
+		return Rect2()
+	return Rect2(
+		Vector2.ZERO,
+		Vector2(_state.tile_grid.width * _tile_size, _state.tile_grid.height * _tile_size)
+	)
 
 
 # Solid-color rect under entities until a real TileSet is wired up. Sized
@@ -476,7 +762,7 @@ func _read_tile_size() -> int:
 # ENTITY_DESTROYED events to render against them).
 func _spawn_added_views(new_state: MatchState) -> void:
 	for entity in new_state.entities_sorted_by_id():
-		if entity.current_hp <= 0:
+		if not _is_renderable_entity(entity):
 			continue
 		if not _views_by_id.has(entity.id):
 			_spawn_entity_view(entity, new_state)
@@ -490,7 +776,7 @@ func _spawn_added_views(new_state: MatchState) -> void:
 func _prune_dead_views(new_state: MatchState) -> void:
 	var live_ids: Dictionary[int, bool] = {}
 	for entity in new_state.entities_sorted_by_id():
-		if entity.current_hp > 0:
+		if _is_renderable_entity(entity):
 			live_ids[entity.id] = true
 	for entity_id in _views_by_id.keys():
 		if not live_ids.has(entity_id):
@@ -504,12 +790,12 @@ func _update_surviving_views(new_state: MatchState) -> void:
 	if _registry == null:
 		return
 	for entity in new_state.entities_sorted_by_id():
-		if entity.current_hp <= 0:
+		if not _is_renderable_entity(entity):
 			continue
 		var view: EntityView = _views_by_id.get(entity.id)
 		if view == null:
 			continue
-		var def: EntityDef = _registry.get_by_id(entity.current_def_id)
+		var def := _def_for_entity(entity)
 		if def == null:
 			continue
 		(
@@ -610,7 +896,7 @@ func _remember_visible_enemy_buildings(player_id: int, visibility: VisionSystem.
 
 func _is_entity_hit_testable(entity_id: int) -> bool:
 	var entity := _state.get_entity_by_id(entity_id)
-	if entity == null or entity.current_hp <= 0:
+	if not _is_renderable_entity(entity):
 		return false
 	if entity.owner_player_id == _perspective_player_id:
 		return true
@@ -636,11 +922,24 @@ func _is_seen_enemy_building(player_id: int, entity: Entity) -> bool:
 
 
 func _is_building(entity: Entity) -> bool:
-	if entity == null or _registry == null:
-		return false
-	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
-	var def: EntityDef = _registry.get_by_id(def_id)
+	var def := _def_for_entity(entity)
 	return def != null and def.tags.has("building")
+
+
+func _is_renderable_entity(entity: Entity) -> bool:
+	if entity == null:
+		return false
+	if entity.current_hp > 0:
+		return true
+	var def := _def_for_entity(entity)
+	return def != null and def.resource_source != null
+
+
+func _def_for_entity(entity: Entity) -> EntityDef:
+	if entity == null or _registry == null:
+		return null
+	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
+	return _registry.get_by_id(def_id)
 
 
 func _player_ids() -> Array[int]:

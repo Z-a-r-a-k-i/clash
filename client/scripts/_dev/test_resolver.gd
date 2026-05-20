@@ -71,8 +71,24 @@ func _all_tests() -> Array:
 			"persistent_move_uses_full_speed_budget_without_orders",
 			_test_persistent_move_uses_full_speed_budget_without_orders
 		],
+		[
+			"move_and_auto_attack_resolve_independently",
+			_test_move_and_auto_attack_resolve_independently
+		],
+		["multiple_moves_latest_destination_wins", _test_multiple_moves_latest_destination_wins],
+		["multiple_targets_latest_focus_wins", _test_multiple_targets_latest_focus_wins],
+		[
+			"focus_target_out_of_range_falls_back_to_closest",
+			_test_focus_target_out_of_range_falls_back_to_closest
+		],
+		["attack_clears_stale_persistent_move", _test_attack_clears_stale_persistent_move],
+		["fresh_move_persists_after_attack", _test_fresh_move_persists_after_attack],
 		["move_budget_respected", _test_move_budget_respected],
-		["attack_move_halts_when_enemy_in_range", _test_attack_move_halts_when_enemy_in_range],
+		[
+			"deprecated_attack_move_moves_and_targets",
+			_test_deprecated_attack_move_moves_and_targets
+		],
+		["idle_unit_auto_attacks_enemy_in_range", _test_idle_unit_auto_attacks_enemy_in_range],
 		# Chunk 5 — end-of-turn system.
 		["cooldowns_decrement", _test_cooldowns_decrement],
 		["cooldown_removed_at_zero", _test_cooldown_removed_at_zero],
@@ -85,6 +101,7 @@ func _all_tests() -> Array:
 		# Coverage gaps surfaced during fresh-review.
 		["hold_fire_toggle_distribution_sets_flag", _test_hold_fire_toggle_distribution_sets_flag],
 		["cancel_clears_persistent_order", _test_cancel_clears_persistent_order],
+		["cancel_clears_focus_target", _test_cancel_clears_focus_target],
 		["attack_move_no_enemy_in_range_advances", _test_attack_move_no_enemy_in_range_advances],
 		["fresh_order_overrides_persistent_order", _test_fresh_order_overrides_persistent_order],
 		["multi_buff_stacks_multiplicatively", _test_multi_buff_stacks_multiplicatively],
@@ -104,6 +121,10 @@ func _all_tests() -> Array:
 		# Plan node 04 — economy / gather pipeline.
 		["gather_order_distribution_sets_phase", _test_gather_order_distribution_sets_phase],
 		["gather_full_cycle_minerals", _test_gather_full_cycle_minerals],
+		[
+			"gather_worker_rate_multiplies_source_yield",
+			_test_gather_worker_rate_multiplies_source_yield
+		],
 		["gather_full_cycle_gas_via_refinery", _test_gather_full_cycle_gas_via_refinery],
 		["gather_fails_geyser_without_refinery", _test_gather_fails_geyser_without_refinery],
 		["gather_travel_uses_full_speed_budget", _test_gather_travel_uses_full_speed_budget],
@@ -115,6 +136,10 @@ func _all_tests() -> Array:
 		["worker_idles_on_all_sinks_destroyed", _test_worker_idles_on_all_sinks_destroyed],
 		["nearest_deposit_sink_chosen", _test_nearest_deposit_sink_chosen],
 		["gather_clears_prior_persistent_move", _test_gather_clears_prior_persistent_move],
+		[
+			"fresh_attack_move_cancels_gather_assignment",
+			_test_fresh_attack_move_cancels_gather_assignment
+		],
 		# Plan node 05 — production / build / research.
 		[
 			"train_appended_to_queue_no_immediate_cost",
@@ -195,6 +220,10 @@ func _all_tests() -> Array:
 			_test_scenario_loader_applies_starting_resources
 		],
 		[
+			"scenario_loader_auto_starts_workers_on_minerals",
+			_test_scenario_loader_auto_starts_workers_on_minerals
+		],
+		[
 			"scenario_loader_applies_initial_hp_override",
 			_test_scenario_loader_applies_initial_hp_override
 		],
@@ -207,6 +236,7 @@ func _all_tests() -> Array:
 		# Plan node 08 — mvp map.
 		["map_baker_validation", _test_map_baker_validation],
 		["mvp_map_loads", _test_mvp_map_loads],
+		["mvp_map_simple_facing_bases", _test_mvp_map_simple_facing_bases],
 		["mvp_map_is_mirror", _test_mvp_map_is_mirror],
 		["mvp_map_bake_parity", _test_mvp_map_bake_parity],
 		["golden_minerals_higher_yield", _test_golden_minerals_higher_yield],
@@ -444,6 +474,7 @@ func _test_hold_fire_blocks_auto_acquire() -> bool:
 	var attacker := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
 	attacker.hold_fire = true
 	var enemy := _make_entity(state, "marine", 1, Vector2i(8, 5), 50, "ground")
+	enemy.hold_fire = true
 	state.tile_grid.place(attacker.id, Rect2i(5, 5, 1, 1))
 	state.tile_grid.place(enemy.id, Rect2i(8, 5, 1, 1))
 
@@ -500,6 +531,7 @@ func _test_attack_layer_filter() -> bool:
 	var state := _state_with_grid(20, 20)
 	var tank := _make_entity(state, "tank", 0, Vector2i(5, 5), 150, "ground")
 	var heli := _make_entity(state, "helicopter", 1, Vector2i(8, 5), 80, "flying")
+	heli.hold_fire = true
 	state.tile_grid.place(tank.id, Rect2i(5, 5, 2, 2))
 	state.tile_grid.place(heli.id, Rect2i(8, 5, 1, 1))
 
@@ -730,6 +762,192 @@ func _test_persistent_move_uses_full_speed_budget_without_orders() -> bool:
 	return move_count == 4 and new_actor.origin == Vector2i(9, 5)
 
 
+func _test_move_and_auto_attack_resolve_independently() -> bool:
+	# A MOVE command is not an attack-mode choice. A combat unit should
+	# shoot an in-range enemy first, then still spend its move budget.
+	var registry := _combat_mover_registry(6, 3, 4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var enemy := _make_entity(state, "marine", 1, Vector2i(5, 7), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(5, 7, 1, 1))
+
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(12, 5)
+
+	var result := Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit(), registry, null
+	)
+	var damaged := false
+	var move_count := 0
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
+			damaged = ev.target_id == enemy.id
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			move_count += 1
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return damaged and move_count == 4 and new_actor.origin == Vector2i(9, 5)
+
+
+func _test_multiple_moves_latest_destination_wins() -> bool:
+	# Repeated move clicks during one planning turn should replace the
+	# destination, not create multiple movement slots.
+	var registry := _movable_registry(4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+
+	var old_move := EntityOrder.new()
+	old_move.type = EntityOrder.Type.MOVE
+	old_move.entity_id = actor.id
+	old_move.target_tile = Vector2i(15, 5)
+	var latest_move := EntityOrder.new()
+	latest_move.type = EntityOrder.Type.MOVE
+	latest_move.entity_id = actor.id
+	latest_move.target_tile = Vector2i(5, 15)
+
+	var result := Resolver.resolve(
+		state, _submit([old_move, latest_move] as Array[EntityOrder]), _submit(), registry, null
+	)
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return (
+		new_actor.origin == Vector2i(5, 9)
+		and new_actor.persistent_order != null
+		and new_actor.persistent_order.target_tile == latest_move.target_tile
+	)
+
+
+func _test_multiple_targets_latest_focus_wins() -> bool:
+	# Repeated target clicks during one planning turn should replace the
+	# focus target and should not produce two attacks in one resolve.
+	var registry := _two_unit_registry(6, 5, ["ground"], 50)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var first_target := _make_entity(state, "marine", 1, Vector2i(7, 5), 50, "ground")
+	var latest_target := _make_entity(state, "marine", 1, Vector2i(8, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(first_target.id, Rect2i(7, 5, 1, 1))
+	state.tile_grid.place(latest_target.id, Rect2i(8, 5, 1, 1))
+
+	var first_attack := EntityOrder.new()
+	first_attack.type = EntityOrder.Type.ATTACK
+	first_attack.entity_id = actor.id
+	first_attack.target_priority_chain = [first_target.id]
+	var latest_attack := EntityOrder.new()
+	latest_attack.type = EntityOrder.Type.ATTACK
+	latest_attack.entity_id = actor.id
+	latest_attack.target_priority_chain = [latest_target.id]
+
+	var result := Resolver.resolve(
+		state,
+		_submit([first_attack, latest_attack] as Array[EntityOrder]),
+		_submit(),
+		registry,
+		null
+	)
+	var damage_count := 0
+	var damaged_latest := false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
+			damage_count += 1
+			damaged_latest = ev.target_id == latest_target.id
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return (
+		damage_count == 1
+		and damaged_latest
+		and int(new_actor.get("focus_target_entity_id")) == latest_target.id
+	)
+
+
+func _test_focus_target_out_of_range_falls_back_to_closest() -> bool:
+	# A focus target is priority only when it is in range. If it is out of
+	# range, the unit should still shoot the closest in-range enemy.
+	var registry := _two_unit_registry(6, 3, ["ground"], 50)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var far_focus := _make_entity(state, "marine", 1, Vector2i(15, 5), 50, "ground")
+	var close_enemy := _make_entity(state, "marine", 1, Vector2i(7, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(far_focus.id, Rect2i(15, 5, 1, 1))
+	state.tile_grid.place(close_enemy.id, Rect2i(7, 5, 1, 1))
+
+	var attack := EntityOrder.new()
+	attack.type = EntityOrder.Type.ATTACK
+	attack.entity_id = actor.id
+	attack.target_priority_chain = [far_focus.id]
+
+	var result := Resolver.resolve(
+		state, _submit([attack] as Array[EntityOrder]), _submit(), registry, null
+	)
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
+			var new_actor := result.new_state.get_entity_by_id(actor.id)
+			return (
+				ev.target_id == close_enemy.id
+				and int(new_actor.get("focus_target_entity_id")) == far_focus.id
+			)
+	return false
+
+
+func _test_attack_clears_stale_persistent_move() -> bool:
+	# If a unit was already walking and then engages without a fresh move
+	# command, it may move this resolve but should stop continuing next turn.
+	var registry := _combat_mover_registry(6, 3, 4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var enemy := _make_entity(state, "marine", 1, Vector2i(5, 7), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(5, 7, 1, 1))
+	var po := EntityOrder.new()
+	po.type = EntityOrder.Type.MOVE
+	po.entity_id = actor.id
+	po.target_tile = Vector2i(12, 5)
+	actor.persistent_order = po
+
+	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
+	var damaged := false
+	var moved := false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
+			damaged = true
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			moved = true
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return damaged and moved and new_actor.persistent_order == null
+
+
+func _test_fresh_move_persists_after_attack() -> bool:
+	# A newly-issued move is intentional. Even if the unit shoots before
+	# moving this resolve, that new destination remains the persistent move.
+	var registry := _combat_mover_registry(6, 3, 4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var enemy := _make_entity(state, "marine", 1, Vector2i(5, 7), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(5, 7, 1, 1))
+
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(12, 5)
+
+	var result := Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit(), registry, null
+	)
+	var damaged := false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
+			damaged = true
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return (
+		damaged
+		and new_actor.persistent_order != null
+		and new_actor.persistent_order.target_tile == move.target_tile
+	)
+
+
 func _test_move_budget_respected() -> bool:
 	# Entity with speed 2; queue 5 moves. Expect at most 2 ENTITY_MOVED events.
 	var registry := _movable_registry(2)
@@ -753,9 +971,9 @@ func _test_move_budget_respected() -> bool:
 	return move_count == 2
 
 
-func _test_attack_move_halts_when_enemy_in_range() -> bool:
-	# ATTACK_MOVE with an enemy in range: should NOT emit ENTITY_MOVED
-	# this tick (combat halts movement).
+func _test_deprecated_attack_move_moves_and_targets() -> bool:
+	# ATTACK_MOVE is no longer exposed in the UX, but old builder/helper
+	# code still maps it to MOVE + optional focus target.
 	var registry := EntityRegistry.new()
 	registry.entities = [
 		_def_with_movement_combat(
@@ -776,14 +994,35 @@ func _test_attack_move_halts_when_enemy_in_range() -> bool:
 	var queue_a: Array[EntityOrder] = [attack_move]
 
 	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
+	var moved := false
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
-			return false
-	# We DO expect a damage event since the enemy is in range.
+			moved = true
+	var damaged := false
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
-			return true
-	return false
+			damaged = ev.target_id == enemy.id
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return (
+		moved
+		and damaged
+		and new_actor.persistent_order != null
+		and new_actor.persistent_order.type == EntityOrder.Type.MOVE
+		and int(new_actor.get("focus_target_entity_id")) == enemy.id
+	)
+
+
+func _test_idle_unit_auto_attacks_enemy_in_range() -> bool:
+	var registry := _combat_mover_registry(6, 3, 4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var enemy := _make_entity(state, "marine", 1, Vector2i(7, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(7, 5, 1, 1))
+
+	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
+	var new_enemy := result.new_state.get_entity_by_id(enemy.id)
+	return new_enemy.current_hp == 44
 
 
 # ---------- Chunk 5 — end-of-turn system ----------
@@ -1121,6 +1360,8 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 			return false
 		if ea.hold_fire != eb.hold_fire:
 			return false
+		if ea.focus_target_entity_id != eb.focus_target_entity_id:
+			return false
 		if ea.is_hidden != eb.is_hidden:
 			return false
 		if ea.current_resource_amount != eb.current_resource_amount:
@@ -1294,6 +1535,7 @@ func _test_hold_fire_toggle_distribution_sets_flag() -> bool:
 	var attacker := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
 	# Note: entity.hold_fire defaults to false; the order has to flip it.
 	var enemy := _make_entity(state, "marine", 1, Vector2i(8, 5), 50, "ground")
+	enemy.hold_fire = true
 	state.tile_grid.place(attacker.id, Rect2i(5, 5, 1, 1))
 	state.tile_grid.place(enemy.id, Rect2i(8, 5, 1, 1))
 
@@ -1354,6 +1596,34 @@ func _test_cancel_clears_persistent_order() -> bool:
 			return false
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
 	return new_actor.persistent_order == null
+
+
+func _test_cancel_clears_focus_target() -> bool:
+	# CANCEL(-1) is the current "clear standing intent" command. It should
+	# clear focus target as well as persistent movement.
+	var registry := _combat_mover_registry(6, 3, 4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var enemy := _make_entity(state, "marine", 1, Vector2i(7, 5), 50, "ground")
+	actor.hold_fire = true
+	actor.focus_target_entity_id = enemy.id
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(7, 5, 1, 1))
+
+	var cancel := EntityOrder.new()
+	cancel.type = EntityOrder.Type.CANCEL
+	cancel.entity_id = actor.id
+	cancel.cancel_index = -1
+
+	var result := Resolver.resolve(
+		state, _submit([cancel] as Array[EntityOrder]), _submit(), registry, null
+	)
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
+			push_error("cancelled hold-fire focus target should not fire")
+			return false
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return new_actor.focus_target_entity_id == -1
 
 
 func _test_attack_move_no_enemy_in_range_advances() -> bool:
@@ -1832,6 +2102,36 @@ func _test_gather_full_cycle_minerals() -> bool:
 	return new_patch.current_resource_amount == 1495
 
 
+func _test_gather_worker_rate_multiplies_source_yield() -> bool:
+	var registry := _gather_registry(10, 2, 4)
+	var state := _state_with_grid(20, 20)
+	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	worker.gather_state = GatherState.new()
+	worker.gather_state.phase = GatherState.Phase.GATHERING
+	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	var patch := _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
+	patch.current_resource_amount = 100
+	state.tile_grid.place(patch.id, Rect2i(6, 5, 1, 1))
+	worker.gather_state.assigned_source_entity_id = patch.id
+	_add_opponent_keepalive_building(state, registry)
+
+	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
+	var new_worker := result.new_state.get_entity_by_id(worker.id)
+	var new_patch := result.new_state.get_entity_by_id(patch.id)
+	if new_worker.gather_state.carrying_amount != 4:
+		push_error(
+			(
+				"worker gather_per_turn=2 on source yield=2 should gather 4, got %d"
+				% new_worker.gather_state.carrying_amount
+			)
+		)
+		return false
+	if new_patch.current_resource_amount != 96:
+		push_error("source should drain by 4, got %d" % new_patch.current_resource_amount)
+		return false
+	return true
+
+
 func _test_gather_full_cycle_gas_via_refinery() -> bool:
 	# Same loop, but the GATHER targets a refinery sitting on a geyser.
 	# Resolver should translate the refinery to the geyser, gather, then
@@ -2098,6 +2398,50 @@ func _test_gather_clears_prior_persistent_move() -> bool:
 	# never finished a cycle and the assertion above is vacuous.
 	var p := result.new_state.get_player(0)
 	return p != null and p.minerals > 0
+
+
+func _test_fresh_attack_move_cancels_gather_assignment() -> bool:
+	# A worker keeps gathering only while its latest standing job is GATHER.
+	# A deprecated fresh ATTACK_MOVE should replace that job as MOVE, not
+	# move once and then return to the previous mineral assignment.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(30, 30)
+	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	worker.gather_state = GatherState.new()
+	worker.gather_state.assigned_source_entity_id = 99
+	worker.gather_state.phase = GatherState.Phase.GATHERING
+	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	var patch := _make_entity(state, "minpatch", -1, Vector2i(4, 5), 100, "ground")
+	patch.current_resource_amount = 20
+	worker.gather_state.assigned_source_entity_id = patch.id
+	state.tile_grid.place(patch.id, Rect2i(4, 5, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
+
+	var attack_move := EntityOrder.new()
+	attack_move.type = EntityOrder.Type.ATTACK_MOVE
+	attack_move.entity_id = worker.id
+	attack_move.target_tile = Vector2i(12, 5)
+	var result := Resolver.resolve(
+		state, _submit([attack_move] as Array[EntityOrder]), _submit(), registry, null
+	)
+	var moved := false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == worker.id:
+			moved = true
+	if not moved:
+		push_error("fresh ATTACK_MOVE should still move the worker")
+		return false
+	var w := result.new_state.get_entity_by_id(worker.id)
+	if w.gather_state == null:
+		push_error("worker should keep gather_state capability")
+		return false
+	if w.gather_state.phase != GatherState.Phase.IDLE:
+		push_error("fresh ATTACK_MOVE should cancel active gather phase")
+		return false
+	if w.gather_state.assigned_source_entity_id != -1:
+		push_error("fresh ATTACK_MOVE should clear previous mineral assignment")
+		return false
+	return w.persistent_order != null and w.persistent_order.type == EntityOrder.Type.MOVE
 
 
 # ---------- Plan node 05: production / build / research ----------
@@ -2728,6 +3072,9 @@ func _test_build_distributes_creates_constructing_entity() -> bool:
 	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
 	worker.def_id = "worker"
 	worker.current_def_id = "worker"
+	worker.gather_state = GatherState.new()
+	worker.gather_state.assigned_source_entity_id = 99
+	worker.gather_state.phase = GatherState.Phase.GATHERING
 	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
 
 	var build_order := EntityOrder.new()
@@ -2755,6 +3102,12 @@ func _test_build_distributes_creates_constructing_entity() -> bool:
 	# Worker should be locked to the building.
 	var w := result.new_state.get_entity_by_id(worker.id)
 	if w.locked_to_building_id != found_building.id:
+		return false
+	if w.gather_state == null or w.gather_state.phase != GatherState.Phase.IDLE:
+		push_error("BUILD should interrupt active gathering")
+		return false
+	if w.gather_state.assigned_source_entity_id != -1:
+		push_error("BUILD should clear the previous mineral assignment")
 		return false
 	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_STARTED)
 
@@ -3164,6 +3517,7 @@ func _test_build_worker_death_pauses() -> bool:
 	var worker := _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
 	var enemy := _make_entity(state, "blocker", 1, Vector2i(0, 5), 50, "ground")
+	enemy.hold_fire = true
 	state.tile_grid.place(enemy.id, Rect2i(0, 5, 1, 1))
 	_add_opponent_keepalive_building(state, registry)
 
@@ -3556,6 +3910,72 @@ func _test_scenario_loader_applies_starting_resources() -> bool:
 		if p.pop_used != 0:
 			return false
 	return true
+
+
+func _test_scenario_loader_auto_starts_workers_on_minerals() -> bool:
+	var registry := _load_data_registry()
+	if registry == null:
+		return false
+	var scenario := ScenarioDef.new()
+	scenario.map_width = 20
+	scenario.map_height = 20
+	scenario.auto_start_workers_on_minerals = true
+	scenario.placements = [
+		_scenario_placement("base", 0, Vector2i(10, 8)),
+		_scenario_placement("worker", 0, Vector2i(7, 8)),
+		_scenario_placement("worker", 0, Vector2i(7, 10)),
+		_scenario_placement("mineral_patch", -1, Vector2i(5, 7)),
+		_scenario_placement("mineral_patch", -1, Vector2i(5, 11)),
+	]
+	var loaded := ScenarioLoader.load(scenario, registry, null)
+	if loaded == null:
+		push_error("[scenario_loader_auto_starts_workers_on_minerals] loader returned null")
+		return false
+	var seen_sources: Dictionary[int, bool] = {}
+	for entity in loaded.state.entities_sorted_by_id():
+		if entity.def_id != "worker" or entity.owner_player_id != 0:
+			continue
+		if entity.gather_state == null:
+			push_error(
+				"[scenario_loader_auto_starts_workers_on_minerals] worker has no gather state"
+			)
+			return false
+		var source_id: int = entity.gather_state.assigned_source_entity_id
+		if source_id < 0:
+			push_error("[scenario_loader_auto_starts_workers_on_minerals] worker has no source")
+			return false
+		if seen_sources.has(source_id):
+			push_error(
+				"[scenario_loader_auto_starts_workers_on_minerals] workers should prefer unique patches"
+			)
+			return false
+		seen_sources[source_id] = true
+		if entity.gather_state.phase == GatherState.Phase.IDLE:
+			push_error(
+				"[scenario_loader_auto_starts_workers_on_minerals] worker should not start idle"
+			)
+			return false
+		var source: Entity = loaded.state.get_entity_by_id(source_id)
+		var source_def: EntityDef = (
+			registry.get_by_id(source.current_def_id) if source != null else null
+		)
+		if source_def == null or source_def.resource_source == null:
+			push_error("[scenario_loader_auto_starts_workers_on_minerals] source is not a resource")
+			return false
+		if source_def.resource_source.resource_type != "minerals":
+			push_error("[scenario_loader_auto_starts_workers_on_minerals] source is not minerals")
+			return false
+	return seen_sources.size() == 2
+
+
+func _scenario_placement(
+	def_id: String, owner_player_id: int, origin: Vector2i
+) -> ScenarioPlacement:
+	var placement := ScenarioPlacement.new()
+	placement.def_id = def_id
+	placement.owner_player_id = owner_player_id
+	placement.origin = origin
+	return placement
 
 
 func _test_scenario_loader_applies_initial_hp_override() -> bool:
@@ -3958,6 +4378,21 @@ func _two_unit_registry(
 	var d := _def("marine", Vector2i(1, 1), ["light", "ground"], combat, max_hp)
 	var registry := EntityRegistry.new()
 	registry.entities = [d]
+	return registry
+
+
+func _combat_mover_registry(damage: int, range_tiles: int, speed: int) -> EntityRegistry:
+	var registry := EntityRegistry.new()
+	registry.entities = [
+		_def_with_movement_combat(
+			"marine",
+			Vector2i(1, 1),
+			["light", "ground"],
+			_combat_def(damage, range_tiles, ["ground"]),
+			50,
+			speed
+		),
+	]
 	return registry
 
 
@@ -4430,6 +4865,8 @@ func _load_mvp_map() -> LoadedScenario:
 func _scenario_defs_equal(a: ScenarioDef, b: ScenarioDef) -> bool:
 	if a.map_width != b.map_width or a.map_height != b.map_height:
 		return false
+	if a.auto_start_workers_on_minerals != b.auto_start_workers_on_minerals:
+		return false
 	if a.placements.size() != b.placements.size():
 		return false
 	for i in range(a.placements.size()):
@@ -4463,19 +4900,24 @@ func _test_mvp_map_loads() -> bool:
 		push_error("[mvp_map_loads] expected 2 players")
 		return false
 	# Expected entity counts after the baker mirrors the left half.
-	# 1 base + 2 workers + 8 main minerals + 1 main geyser
-	# + 6 natural minerals + 1 natural geyser
-	# + 6 expansion minerals + 1 expansion geyser
-	# + 4 golden minerals + 1 golden geyser
-	# = 31 per side; mirrored = 62 entities total.
+	# One base, four workers, eight minerals, and one geyser per player.
 	var counts := _entity_counts_by_def_id(loaded.state)
 	var expected := {
 		"base": 2,
-		"worker": 4,
-		"mineral_patch": 40,
-		"mineral_patch_gold": 8,
-		"gas_geyser": 8,
+		"worker": 8,
+		"mineral_patch": 16,
+		"mineral_patch_gold": 0,
+		"gas_geyser": 2,
 	}
+	var expected_total := 28
+	if loaded.state.entities.size() != expected_total:
+		push_error(
+			(
+				"[mvp_map_loads] expected %d total entities, got %d"
+				% [expected_total, loaded.state.entities.size()]
+			)
+		)
+		return false
 	for def_id in expected:
 		if counts.get(def_id, 0) != expected[def_id]:
 			push_error(
@@ -4485,7 +4927,119 @@ func _test_mvp_map_loads() -> bool:
 				)
 			)
 			return false
+	for player_id in [0, 1]:
+		var auto_started_workers := 0
+		for entity in loaded.state.entities_sorted_by_id():
+			if entity.def_id != "worker" or entity.owner_player_id != player_id:
+				continue
+			if entity.gather_state == null:
+				push_error("[mvp_map_loads] worker missing gather state")
+				return false
+			if entity.gather_state.assigned_source_entity_id < 0:
+				push_error("[mvp_map_loads] worker should start assigned to minerals")
+				return false
+			if entity.gather_state.phase != GatherState.Phase.GATHERING:
+				push_error("[mvp_map_loads] worker should start already mining minerals")
+				return false
+			auto_started_workers += 1
+		if auto_started_workers != 4:
+			push_error(
+				(
+					"[mvp_map_loads] expected four auto-started P%d workers, got %d"
+					% [player_id, auto_started_workers]
+				)
+			)
+			return false
 	return true
+
+
+func _test_mvp_map_simple_facing_bases() -> bool:
+	var loaded := _load_mvp_map()
+	if loaded == null or loaded.state == null:
+		push_error("[mvp_map_simple_facing_bases] failed to load mvp_map")
+		return false
+	var state: MatchState = loaded.state
+	var p0_base: Entity = _find_entity_by_def_and_owner(state, "base", 0)
+	var p1_base: Entity = _find_entity_by_def_and_owner(state, "base", 1)
+	if p0_base == null or p1_base == null:
+		push_error("[mvp_map_simple_facing_bases] expected one base for each player")
+		return false
+	var p0_rect: Rect2i = state.tile_grid.entity_rect(p0_base.id)
+	var p1_rect: Rect2i = state.tile_grid.entity_rect(p1_base.id)
+	var ok := true
+	if p0_rect.position.x >= p1_rect.position.x:
+		push_error("[mvp_map_simple_facing_bases] P0 base should be left of P1 base")
+		ok = false
+	if p0_rect.position.y * 2 + p0_rect.size.y != p1_rect.position.y * 2 + p1_rect.size.y:
+		push_error("[mvp_map_simple_facing_bases] bases should face each other on the same row")
+		ok = false
+
+	var left_resources := _resource_rects_on_side(state, true)
+	var right_resources := _resource_rects_on_side(state, false)
+	if left_resources.size() != 9:
+		push_error(
+			(
+				"[mvp_map_simple_facing_bases] expected 9 left-side resources, got %d"
+				% left_resources.size()
+			)
+		)
+		ok = false
+	if right_resources.size() != 9:
+		push_error(
+			(
+				"[mvp_map_simple_facing_bases] expected 9 right-side resources, got %d"
+				% right_resources.size()
+			)
+		)
+		ok = false
+	for rect in left_resources:
+		if rect.position.x + rect.size.x > p0_rect.position.x:
+			push_error(
+				(
+					"[mvp_map_simple_facing_bases] left resource %s is not behind P0 base %s"
+					% [str(rect), str(p0_rect)]
+				)
+			)
+			ok = false
+	for rect in right_resources:
+		if rect.position.x < p1_rect.position.x + p1_rect.size.x:
+			push_error(
+				(
+					"[mvp_map_simple_facing_bases] right resource %s is not behind P1 base %s"
+					% [str(rect), str(p1_rect)]
+				)
+			)
+			ok = false
+	return ok
+
+
+func _find_entity_by_def_and_owner(
+	state: MatchState, def_id: String, owner_player_id: int
+) -> Entity:
+	var found: Entity = null
+	for entity in state.entities:
+		if entity == null:
+			continue
+		if entity.def_id != def_id or entity.owner_player_id != owner_player_id:
+			continue
+		if found != null:
+			return null
+		found = entity
+	return found
+
+
+func _resource_rects_on_side(state: MatchState, left_side: bool) -> Array[Rect2i]:
+	var rects: Array[Rect2i] = []
+	var half_x: int = state.tile_grid.width / 2
+	for entity in state.entities:
+		if entity == null or not ["mineral_patch", "gas_geyser"].has(entity.def_id):
+			continue
+		var rect: Rect2i = state.tile_grid.entity_rect(entity.id)
+		if left_side and rect.position.x < half_x:
+			rects.append(rect)
+		elif not left_side and rect.position.x >= half_x:
+			rects.append(rect)
+	return rects
 
 
 func _test_mvp_map_is_mirror() -> bool:
@@ -4556,6 +5110,7 @@ func _test_mvp_map_bake_parity() -> bool:
 			tunables.map_height,
 			starting_resources,
 			registry,
+			true,
 		)
 	)
 	if fresh == null:
@@ -4626,6 +5181,7 @@ func _test_ability_stim_applies_cost_buff_cooldown_and_event() -> bool:
 	state.get_player(0).unlocked_researches.append("stim_research")
 	var marine: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 45, "ground")
 	var enemy: Entity = _make_entity(state, "marine", 1, Vector2i(7, 5), 45, "ground")
+	enemy.hold_fire = true
 	state.tile_grid.place(marine.id, Rect2i(5, 5, 1, 1))
 	state.tile_grid.place(enemy.id, Rect2i(7, 5, 1, 1))
 

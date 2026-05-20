@@ -8,8 +8,15 @@ const TUNABLES_PATH := "res://data/tunables.tres"
 const DEV_TURN_INPUT_SCRIPT := preload("res://scripts/game/dev_turn_input.gd")
 const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
 const PENDING_NONE := ""
-const PENDING_ATTACK_MOVE := "attack_move"
+const PENDING_MOVE := "move"
+const PENDING_TARGET := "target"
 const PENDING_BUILD := "build"
+const PENDING_GATHER := "gather"
+const HUD_MARGIN := 12.0
+const HUD_WIDTH := 440.0
+const HUD_HEIGHT := 560.0
+const CAMERA_ZOOM_STEP := 1.15
+const CAMERA_DRAG_THRESHOLD := 4.0
 
 @export_file("*.tres") var scenario_path: String = DEFAULT_SCENARIO_PATH
 
@@ -20,11 +27,17 @@ var _input: DevTurnInput = DEV_TURN_INPUT_SCRIPT.new() as DevTurnInput
 var _hud_layer: CanvasLayer = null
 var _active_label: Label = null
 var _selected_label: Label = null
+var _resources_label: Label = null
 var _queue_label: Label = null
 var _status_label: Label = null
 var _command_card: Control = null
 var _pending_command: String = PENDING_NONE
 var _pending_build_def_id: String = ""
+var _is_panning_camera: bool = false
+var _left_empty_drag_candidate: bool = false
+var _left_empty_drag_moved: bool = false
+var _left_empty_drag_start: Vector2 = Vector2.ZERO
+var _show_all_friendly_action_previews: bool = false
 
 
 func _ready() -> void:
@@ -50,6 +63,7 @@ func load_scenario_path(path: String) -> bool:
 		return false
 	_renderer.bind_state(_loaded.state, _loaded.registry)
 	_renderer.set_perspective_player_id(_input.active_player_id())
+	_renderer.focus_player_start(_input.active_player_id())
 	_input.bind_context(_loaded.state, _loaded.registry)
 	_update_hud()
 	return true
@@ -77,11 +91,17 @@ func pending_command_kind() -> String:
 	return _pending_command
 
 
+func set_show_all_friendly_action_previews(enabled: bool) -> void:
+	_show_all_friendly_action_previews = enabled
+	_refresh_action_previews()
+
+
 func set_active_player_id(player_id: int) -> void:
 	_input.set_active_player_id(player_id)
 	_clear_pending_command()
 	if _renderer != null:
 		_renderer.set_perspective_player_id(player_id)
+		_renderer.focus_player_start(player_id)
 		_renderer.clear_input_highlights()
 	_update_hud()
 
@@ -109,14 +129,20 @@ func issue_attack_selected(target_entity_id: int) -> bool:
 	return ok
 
 
+func issue_attack_target_selected(target_entity_id: int) -> bool:
+	var ok: bool = _input.issue_attack_target(target_entity_id)
+	_update_hud()
+	return ok
+
+
 func issue_gather_selected(target_entity_id: int) -> bool:
 	var ok: bool = _input.issue_gather(target_entity_id)
 	_update_hud()
 	return ok
 
 
-func issue_attack_move_selected(tile: Vector2i) -> bool:
-	var ok: bool = _input.issue_attack_move(tile)
+func issue_attack_move_selected(tile: Vector2i, target_entity_id: int = -1) -> bool:
+	var ok: bool = _input.issue_attack_move(tile, target_entity_id)
 	_update_hud()
 	return ok
 
@@ -169,20 +195,29 @@ func issue_context_at_tile(tile: Vector2i) -> bool:
 		var target: Entity = _loaded.state.get_entity_by_id(target_id)
 		if target != null and target.owner_player_id >= 0:
 			if target.owner_player_id != _input.active_player_id():
-				return issue_attack_selected(target_id)
+				return issue_attack_target_selected(target_id)
 			return false
 		if _is_gather_target(target):
 			return issue_gather_selected(target_id)
 	return issue_move_selected(tile)
 
 
-func begin_attack_move() -> void:
-	if not _input.can_issue_attack_move():
-		_update_hud("Select a movable attacker before ATTACK_MOVE.")
+func begin_move() -> void:
+	if not _input.can_issue_move():
+		_update_hud("Select a movable unit before MOVE.")
 		return
-	_pending_command = PENDING_ATTACK_MOVE
+	_pending_command = PENDING_MOVE
 	_pending_build_def_id = ""
-	_update_hud("Click a target tile for ATTACK_MOVE.")
+	_update_hud("Click a target tile for MOVE.")
+
+
+func begin_target() -> void:
+	if not _input.can_issue_attack_target():
+		_update_hud("Select a combat unit before TARGET.")
+		return
+	_pending_command = PENDING_TARGET
+	_pending_build_def_id = ""
+	_update_hud("Click an enemy for TARGET.")
 
 
 func begin_build(def_id: String) -> void:
@@ -195,18 +230,54 @@ func begin_build(def_id: String) -> void:
 
 
 func confirm_pending_at_tile(tile: Vector2i) -> bool:
-	if _pending_command == PENDING_ATTACK_MOVE:
-		var attack_ok: bool = issue_attack_move_selected(tile)
-		if attack_ok:
+	if _pending_command == PENDING_MOVE:
+		var move_ok: bool = issue_move_selected(tile)
+		if move_ok:
 			_clear_pending_command()
 			_update_hud()
-		return attack_ok
+		return move_ok
+	if _pending_command == PENDING_TARGET:
+		var target_id: int = (
+			_renderer.entity_id_at_tile(tile)
+			if _renderer != null
+			else _loaded.state.tile_grid.entity_at(tile)
+		)
+		var target: Entity = _loaded.state.get_entity_by_id(target_id)
+		if (
+			target == null
+			or target.owner_player_id < 0
+			or target.owner_player_id == _input.active_player_id()
+		):
+			_update_hud("Click an enemy to set TARGET.")
+			return false
+		var target_ok: bool = issue_attack_target_selected(target_id)
+		if target_ok:
+			_clear_pending_command()
+			_update_hud()
+		return target_ok
 	if _pending_command == PENDING_BUILD:
 		var build_ok: bool = issue_build_selected(_pending_build_def_id, tile)
 		if build_ok:
 			_clear_pending_command()
 			_update_hud()
 		return build_ok
+	if _pending_command == PENDING_GATHER:
+		if _loaded == null or _loaded.state == null:
+			return false
+		var target_id: int = (
+			_renderer.entity_id_at_tile(tile)
+			if _renderer != null
+			else _loaded.state.tile_grid.entity_at(tile)
+		)
+		var target: Entity = _loaded.state.get_entity_by_id(target_id)
+		if not _is_gather_target(target):
+			_update_hud("Click a mineral patch or refinery to GATHER.")
+			return false
+		var gather_ok: bool = issue_gather_selected(target_id)
+		if gather_ok:
+			_clear_pending_command()
+			_update_hud()
+		return gather_ok
 	return false
 
 
@@ -248,13 +319,47 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _renderer == null or _loaded == null:
 		return
 	if event is InputEventMouseMotion:
-		var hover_tile: Vector2i = _renderer.world_to_tile(_renderer.get_global_mouse_position())
+		var motion: InputEventMouseMotion = event as InputEventMouseMotion
+		if (
+			_left_empty_drag_candidate
+			and (
+				_left_empty_drag_moved
+				or (
+					motion.button_mask & MOUSE_BUTTON_MASK_LEFT != 0
+					and motion.position.distance_to(_left_empty_drag_start) >= CAMERA_DRAG_THRESHOLD
+				)
+			)
+		):
+			_left_empty_drag_moved = true
+			_is_panning_camera = true
+		if _is_panning_camera:
+			_renderer.pan_camera_by_screen_delta(motion.relative)
+			return
+		var hover_tile: Vector2i = _renderer.world_to_tile(_event_world_position(motion))
 		_renderer.set_hover_tile(hover_tile)
 	elif event is InputEventMouseButton:
 		var button: InputEventMouseButton = event as InputEventMouseButton
+		if button.button_index == MOUSE_BUTTON_WHEEL_UP and button.pressed:
+			_renderer.zoom_camera(CAMERA_ZOOM_STEP)
+			return
+		if button.button_index == MOUSE_BUTTON_WHEEL_DOWN and button.pressed:
+			_renderer.zoom_camera(1.0 / CAMERA_ZOOM_STEP)
+			return
+		if button.button_index == MOUSE_BUTTON_MIDDLE:
+			_is_panning_camera = button.pressed
+			return
+		if button.button_index == MOUSE_BUTTON_LEFT and not button.pressed:
+			if _left_empty_drag_candidate:
+				if not _left_empty_drag_moved:
+					_input.clear_selection()
+					_renderer.clear_input_highlights()
+					_update_hud("Selection cleared.")
+				_reset_left_empty_drag()
+				return
+			_reset_left_empty_drag()
 		if not button.pressed:
 			return
-		var tile: Vector2i = _renderer.world_to_tile(_renderer.get_global_mouse_position())
+		var tile: Vector2i = _renderer.world_to_tile(_event_world_position(button))
 		var entity_id: int = _renderer.entity_id_at_tile(tile)
 		if button.button_index == MOUSE_BUTTON_LEFT:
 			if _pending_command != PENDING_NONE:
@@ -263,9 +368,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			if entity_id >= 0:
 				select_entity_id(entity_id)
 			else:
-				_input.clear_selection()
-				_renderer.clear_input_highlights()
-				_update_hud("Selection cleared.")
+				_left_empty_drag_candidate = true
+				_left_empty_drag_moved = false
+				_left_empty_drag_start = button.position
 		elif button.button_index == MOUSE_BUTTON_RIGHT:
 			if _pending_command != PENDING_NONE:
 				cancel_pending_command()
@@ -287,6 +392,21 @@ func _ensure_renderer() -> void:
 	add_child(_renderer)
 
 
+func _event_world_position(event: InputEventMouse) -> Vector2:
+	if _renderer == null:
+		return event.position
+	if _renderer.get_viewport() == null:
+		return event.position
+	return _renderer.get_global_mouse_position()
+
+
+func _reset_left_empty_drag() -> void:
+	_left_empty_drag_candidate = false
+	_left_empty_drag_moved = false
+	_left_empty_drag_start = Vector2.ZERO
+	_is_panning_camera = false
+
+
 func _build_hud() -> void:
 	if _hud_layer != null:
 		return
@@ -296,10 +416,14 @@ func _build_hud() -> void:
 
 	var panel: PanelContainer = PanelContainer.new()
 	panel.name = "Panel"
-	panel.offset_left = 12.0
-	panel.offset_top = 12.0
-	panel.offset_right = 420.0
-	panel.offset_bottom = 520.0
+	panel.anchor_left = 1.0
+	panel.anchor_right = 1.0
+	panel.anchor_top = 0.0
+	panel.anchor_bottom = 0.0
+	panel.offset_left = -HUD_WIDTH - HUD_MARGIN
+	panel.offset_top = HUD_MARGIN
+	panel.offset_right = -HUD_MARGIN
+	panel.offset_bottom = HUD_MARGIN + HUD_HEIGHT
 	_hud_layer.add_child(panel)
 
 	var root: VBoxContainer = VBoxContainer.new()
@@ -330,19 +454,42 @@ func _build_hud() -> void:
 	surrender_button.pressed.connect(_surrender_from_hud)
 	buttons.add_child(surrender_button)
 
+	var preview_toggle := CheckBox.new()
+	preview_toggle.name = "ShowFriendlyPreviews"
+	preview_toggle.text = "Show all friendly orders"
+	preview_toggle.button_pressed = _show_all_friendly_action_previews
+	preview_toggle.add_theme_font_size_override("font_size", 18)
+	preview_toggle.toggled.connect(set_show_all_friendly_action_previews)
+	root.add_child(preview_toggle)
+
 	_active_label = Label.new()
+	_active_label.name = "ActivePlayer"
+	_style_label(_active_label)
 	root.add_child(_active_label)
 	_selected_label = Label.new()
+	_selected_label.name = "Selected"
+	_selected_label.visible = false
+	_style_label(_selected_label)
 	root.add_child(_selected_label)
+	_resources_label = Label.new()
+	_resources_label.name = "Resources"
+	_style_label(_resources_label)
+	root.add_child(_resources_label)
 	_queue_label = Label.new()
+	_queue_label.name = "QueuedOrders"
+	_style_label(_queue_label)
 	root.add_child(_queue_label)
 	_status_label = Label.new()
+	_status_label.name = "Status"
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_style_label(_status_label)
 	root.add_child(_status_label)
 
 	_command_card = COMMAND_CARD_SCRIPT.new() as Control
-	_command_card.connect("attack_move_requested", Callable(self, "begin_attack_move"))
+	_command_card.connect("move_requested", Callable(self, "begin_move"))
+	_command_card.connect("target_requested", Callable(self, "begin_target"))
 	_command_card.connect("hold_fire_requested", Callable(self, "issue_hold_fire_selected"))
+	_command_card.connect("gather_requested", Callable(self, "begin_gather"))
 	_command_card.connect("build_requested", Callable(self, "begin_build"))
 	_command_card.connect("train_requested", Callable(self, "issue_train_selected"))
 	_command_card.connect("research_requested", Callable(self, "issue_research_selected"))
@@ -355,7 +502,13 @@ func _build_hud() -> void:
 func _button(text: String) -> Button:
 	var button: Button = Button.new()
 	button.text = text
+	button.custom_minimum_size = Vector2(0.0, 34.0)
+	button.add_theme_font_size_override("font_size", 18)
 	return button
+
+
+func _style_label(label: Label) -> void:
+	label.add_theme_font_size_override("font_size", 18)
 
 
 func _clear_queues_from_hud() -> void:
@@ -373,16 +526,23 @@ func _update_hud(override_status: String = "") -> void:
 	if _active_label != null:
 		_active_label.text = "Active player: P%d" % _input.active_player_id()
 	if _selected_label != null:
-		var selected: int = _input.selected_entity_id()
-		_selected_label.text = "Selected: #%d" % selected if selected >= 0 else "Selected: none"
-	if _queue_label != null:
-		_queue_label.text = (
-			"Queues: P0=%d P1=%d"
-			% [
-				_input.queued_order_count(0),
-				_input.queued_order_count(1),
-			]
+		_selected_label.visible = false
+		_selected_label.text = ""
+	if _resources_label != null:
+		var player := (
+			_loaded.state.get_player(_input.active_player_id()) if _loaded != null else null
 		)
+		if player == null:
+			_resources_label.text = ""
+		else:
+			_resources_label.text = (
+				"Minerals: %d  Gas: %d  Pop: %d/%d"
+				% [player.minerals, player.gas, player.pop_used, player.pop_cap]
+			)
+	if _queue_label != null:
+		var queued: int = _input.queued_order_count(_input.active_player_id())
+		_queue_label.visible = queued > 0
+		_queue_label.text = ("Queued this turn: %d action%s" % [queued, "" if queued == 1 else "s"])
 	if _status_label != null:
 		var status_message: String = _input.status_message()
 		if override_status != "":
@@ -394,13 +554,18 @@ func _update_hud(override_status: String = "") -> void:
 			and not status_message.begins_with("Selected")
 		):
 			_status_label.text = status_message
-		elif _pending_command == PENDING_ATTACK_MOVE:
-			_status_label.text = "Pending ATTACK_MOVE: click target tile."
+		elif _pending_command == PENDING_MOVE:
+			_status_label.text = "Pending MOVE: click target tile."
+		elif _pending_command == PENDING_TARGET:
+			_status_label.text = "Pending TARGET: click an enemy."
 		elif _pending_command == PENDING_BUILD:
 			_status_label.text = "Pending BUILD %s: click placement tile." % _pending_build_def_id
+		elif _pending_command == PENDING_GATHER:
+			_status_label.text = "Pending GATHER: click a mineral patch or refinery."
 		else:
 			_status_label.text = status_message
 	_refresh_command_card()
+	_refresh_action_previews()
 
 
 func _is_gather_target(entity: Entity) -> bool:
@@ -418,16 +583,27 @@ func _clear_pending_command() -> void:
 	_pending_build_def_id = ""
 
 
+func begin_gather() -> void:
+	if not _input.can_issue_gather():
+		_update_hud("Select a worker before GATHER.")
+		return
+	_pending_command = PENDING_GATHER
+	_pending_build_def_id = ""
+	_update_hud("Click a mineral patch or refinery to GATHER.")
+
+
 func _refresh_command_card() -> void:
 	if _command_card == null:
 		return
 	_command_card.call(
 		"set_command_state",
 		_input.selected_entity_label(),
-		_input.can_issue_attack_move(),
+		_input.can_issue_move(),
+		_input.can_issue_attack_target(),
 		_input.can_issue_hold_fire_toggle(),
+		_input.can_issue_gather(),
 		_input.selected_hold_fire(),
-		_entity_options(_input.build_option_ids()),
+		_build_options(_input.build_option_ids()),
 		_entity_options(_input.train_option_ids()),
 		_research_options(_input.research_option_ids()),
 		_ability_options(_input.ability_option_ids()),
@@ -435,11 +611,139 @@ func _refresh_command_card() -> void:
 	)
 
 
+func _refresh_action_previews() -> void:
+	if _renderer == null or not _renderer.has_method("set_action_previews"):
+		return
+	var previews: Array[Dictionary] = []
+	var selected_id: int = _input.selected_entity_id()
+	previews.append_array(_previews_for_entity(selected_id))
+	if _show_all_friendly_action_previews:
+		var active_player_id: int = _input.active_player_id()
+		var seen: Dictionary[int, bool] = {}
+		if selected_id >= 0:
+			seen[selected_id] = true
+		for entity in _loaded.state.entities_sorted_by_id():
+			if entity == null or entity.owner_player_id != active_player_id or seen.has(entity.id):
+				continue
+			var entity_previews: Array[Dictionary] = _previews_for_entity(entity.id)
+			if entity_previews.is_empty():
+				continue
+			previews.append_array(entity_previews)
+			seen[entity.id] = true
+	_renderer.call("set_action_previews", previews)
+
+
+func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if entity_id < 0 or _loaded == null or _loaded.state == null:
+		return out
+	for queued in _queued_orders_for_entity(entity_id):
+		var queued_preview: Dictionary = _preview_for_order(queued)
+		if not queued_preview.is_empty():
+			out.append(queued_preview)
+	if not out.is_empty():
+		return out
+	var entity: Entity = _loaded.state.get_entity_by_id(entity_id)
+	if entity == null:
+		return out
+	if entity.persistent_order != null:
+		var move_preview: Dictionary = _preview_for_order(entity.persistent_order)
+		if not move_preview.is_empty():
+			out.append(move_preview)
+	if entity.focus_target_entity_id >= 0:
+		(
+			out
+			. append(
+				{
+					"entity_id": entity.id,
+					"kind": "Target",
+					"target_entity_id": entity.focus_target_entity_id,
+				}
+			)
+		)
+	if (
+		entity.gather_state != null
+		and entity.gather_state.phase != GatherState.Phase.IDLE
+		and entity.gather_state.assigned_source_entity_id >= 0
+	):
+		(
+			out
+			. append(
+				{
+					"entity_id": entity.id,
+					"kind": "Gather",
+					"target_entity_id": entity.gather_state.assigned_source_entity_id,
+				}
+			)
+		)
+	return out
+
+
+func _queued_orders_for_entity(entity_id: int) -> Array[EntityOrder]:
+	var out: Array[EntityOrder] = []
+	var submit: SubmitTurn = _input.submit_for_player(_input.active_player_id())
+	for order in submit.orders:
+		if order != null and order.entity_id == entity_id:
+			out.append(order)
+	return out
+
+
+func _preview_for_order(order: EntityOrder) -> Dictionary:
+	if order == null:
+		return {}
+	match order.type:
+		EntityOrder.Type.MOVE:
+			return {"entity_id": order.entity_id, "kind": "Move", "target_tile": order.target_tile}
+		EntityOrder.Type.ATTACK:
+			var target_id := -1
+			if not order.target_priority_chain.is_empty():
+				target_id = order.target_priority_chain[0]
+			return {"entity_id": order.entity_id, "kind": "Target", "target_entity_id": target_id}
+		EntityOrder.Type.GATHER:
+			return {
+				"entity_id": order.entity_id,
+				"kind": "Gather",
+				"target_entity_id": order.target_entity_id,
+			}
+		EntityOrder.Type.BUILD:
+			return {
+				"entity_id": order.entity_id,
+				"kind": "Build",
+				"target_tile": order.target_tile,
+				"def_id": order.def_id,
+			}
+		EntityOrder.Type.TRAIN:
+			return {"entity_id": order.entity_id, "kind": "Train", "def_id": order.def_id}
+		EntityOrder.Type.RESEARCH:
+			return {"entity_id": order.entity_id, "kind": "Research", "def_id": order.def_id}
+		EntityOrder.Type.USE_ABILITY:
+			return {"entity_id": order.entity_id, "kind": "Ability", "def_id": order.def_id}
+		_:
+			return {}
+
+
+func _build_options(ids: Array[String]) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for id in ids:
+		var def_id: String = id
+		(
+			out
+			. append(
+				{
+					"id": def_id,
+					"label": _input.label_for_entity_def_id_with_cost(def_id),
+					"disabled": not _input.can_afford_build(def_id),
+				}
+			)
+		)
+	return out
+
+
 func _entity_options(ids: Array[String]) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	for id in ids:
 		var def_id: String = id
-		out.append({"id": def_id, "label": _input.label_for_entity_def_id(def_id)})
+		out.append({"id": def_id, "label": _input.label_for_entity_def_id_with_cost(def_id)})
 	return out
 
 
@@ -447,7 +751,9 @@ func _research_options(ids: Array[String]) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	for id in ids:
 		var research_id: String = id
-		out.append({"id": research_id, "label": _input.label_for_research_id(research_id)})
+		out.append(
+			{"id": research_id, "label": _input.label_for_research_id_with_cost(research_id)}
+		)
 	return out
 
 

@@ -15,7 +15,7 @@ The order-issuance UI and the in-flight queue that submits to the resolver.
 | Move | tile or rect | Ignores enemies along path. Persists across turns until arrived / dead / overridden. |
 | Attack-move | tile or rect | Stops to engage if an enemy enters attack range; resumes pathing when threat is cleared. |
 | Attack | entity (with priority chain) | Up to N priority targets in chain; fall-back to closest enemy unless on hold-fire. |
-| Hold-fire toggle | self | Unit mode. Independent of move/attack-move. |
+| Hold-fire toggle | self | Unit mode. Independent of move/target focus. |
 | Build | building type + tile rect | Issued from a worker (or HQ for the initial set). N-turn build time. |
 | Train | unit type | Issued from a production building. N-turn train time. |
 | Research | research id | Issued from a building. N-turn research time. |
@@ -33,7 +33,8 @@ Players will mostly issue orders to *groups* of selected units, not individuals.
 
 ## Persistence
 
-- Move and attack-move persist across turns. The unit's "last issued order" is part of state and continues to be acted on each turn until it completes, the unit dies, or the player overrides it.
+- Move persists across turns. The unit's "last issued move" is part of state and continues to be acted on each turn until it completes, the unit dies, the player overrides it, or the unit fires while following an old move without a fresh move command.
+- Target focus persists separately from movement until replaced, cleared, or the target becomes invalid.
 - The submitted `queue[]` for a turn contains only **new** orders issued during that turn. Persistent state is held by the resolver, not re-sent each turn.
 
 ## UX considerations (M0 prototype level)

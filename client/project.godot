@@ -11,6 +11,7 @@ config_version=5
 [application]
 
 config/name="Clash"
+run/main_scene="res://scenes/_dev/dev_play_mode.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
 
@@ -20,8 +21,14 @@ AIGameBridge="*res://addons/godot_ai/runtime/ai_game_bridge.gd"
 
 [display]
 
-window/size/viewport_width=1280.0
-window/size/viewport_height=720.0
+window/size/viewport_width=1920.0
+window/size/viewport_height=1080.0
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[dotnet]
+
+project/assembly_name="Clash"
 
 [editor_plugins]
 

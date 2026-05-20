@@ -33,6 +33,10 @@ A match ends when one player has zero buildings, or surrenders. M0's purpose is 
 | Dev play mode + scenario tooling | [07-dev-play-mode/](07-dev-play-mode/) | compound - 07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `done`; 07b5 `done`; 07b6 `done`; 07b7 `stub` |
 | MVP map layout | [08-mvp-map.md](08-mvp-map.md) | `done` |
 | Manual playtest readiness | [09-manual-playtest-readiness.md](09-manual-playtest-readiness.md) | `done` |
+| Dev play human playability | [10-dev-play-human-playable.md](10-dev-play-human-playable.md) | `done` |
+| Simple facing playtest map | [11-simple-facing-playtest-map.md](11-simple-facing-playtest-map.md) | `done` |
+| Dev play command UX | [12-dev-play-command-ux.md](12-dev-play-command-ux.md) | `done` |
+| Combat command simplification | [13-combat-command-simplification.md](13-combat-command-simplification.md) | `ready` |
 
 ## What's deferred to M1 or later
 
@@ -41,6 +45,15 @@ A match ends when one player has zero buildings, or surrenders. M0's purpose is 
 - Control groups (M1) — M0 selects unit-by-unit; group orders come once we know the action surface.
 - Tuning pass on tile size, pop slots, timer length (M1 onward, with playtest data).
 - Polished art (post-MVP). M0 uses placeholder sprites.
+
+## Immediate next PR
+
+Pick up [13-combat-command-simplification.md](13-combat-command-simplification.md).
+The goal is to make the first playtest combat loop predictable before iterating
+on balance: automatic closest-target shooting remains the default, Target becomes
+priority focus only, Retreat is the explicit escape command, Halt on Sight
+replaces Hold Fire, attack damage is batched simultaneously, and firing reduces
+same-turn movement by a tunable percentage.
 
 ## Done when
 

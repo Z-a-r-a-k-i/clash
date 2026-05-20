@@ -29,7 +29,7 @@ This area splits into a headless half (07a), a gameplay-first visual/control pat
 - **No timer pressure.** The dev advances turns manually with a button. Player A's queue, Player B's queue, then "Resolve."
 - **Scenario loader.** Read a config file and spawn arbitrary entities at chosen positions, set resource counts, force-complete buildings, set research state. Lets us test "marines vs tanks at 8 tile range" or "helicopter harassing exposed mineral line" without playing 5 minutes to set it up.
 - **Save / load mid-match state.** Snapshot to a file; reload restores exactly, including in-flight production timers and persistent move orders. Critical for reproducing bugs.
-- **Gameplay command surface.** Use rough dev controls for build, train, research, cancel, hold-fire, attack-move, and abilities so the full M0 roster can be exercised.
+- **Gameplay command surface.** Use rough dev controls for move, target, build, train, research, cancel, hold-fire, and abilities so the full M0 roster can be exercised.
 - **Playtest loop.** Run repeatable sessions on `mvp_map.tres` and capture first gameplay notes before investing in deeper debug tooling.
 
 ## What it explicitly is not
@@ -50,7 +50,7 @@ This area splits into a headless half (07a), a gameplay-first visual/control pat
 - [x] At least three scenario files exist for regression testing key combat / economy situations. *(07a + 08)*
 - [x] Dev can issue orders for either player in any order and advance the turn manually. *(07b2)*
 - [x] Dev can switch between Player A and Player B perspectives at any time, with each view's fog of war computed correctly. *(07b3)*
-- [x] Dev can drive all non-ability M0 orders from the UI: attack-move, hold-fire, build, train, research, and cancel. *(07b4)*
+- [x] Dev can drive all non-ability M0 orders from the UI: move, target, hold-fire, build, train, research, and cancel. *(07b4)*
 - [x] Dev can use M0 self-target abilities, including stim and siege/unsiege. *(07b5)*
 - [x] A repeatable M0 playtest checklist exists and a smoke path proves `mvp_map.tres` can exercise economy, production, combat, fog, and match end. *(07b6)*
 - [x] Gameplay-first sub-PRs land. *(07a `done`; 07b1 `done`; 07b2 `done`; 07b3 `done`; 07b4 `done`; 07b5 `done`; 07b6 `done`; 07b7 is a deferred debugger `stub`, not part of the gameplay-first path.)*

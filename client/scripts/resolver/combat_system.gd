@@ -21,25 +21,25 @@ static func resolve_attack(
 	registry: EntityRegistry,
 	_tunables: Tunables,
 	events: Array[ResolverEvent]
-) -> void:
+) -> bool:
 	if attacker == null or attacker.current_hp <= 0:
-		return
+		return false
 	if registry == null:
-		return
+		return false
 	var def: EntityDef = registry.get_by_id(attacker.current_def_id)
 	if def == null or def.combat == null:
-		return  # Not combat-capable; silently skip.
+		return false  # Not combat-capable; silently skip.
 	var combat: CombatDef = def.combat
 
 	var target := _select_target(state, attacker, combat, order, registry)
 	if target == null:
-		return  # Chain exhausted + hold-fire OR no enemy in range.
+		return false  # Chain exhausted + hold-fire OR no enemy in range.
 
 	var damage := _compute_damage(combat, target, attacker, registry)
 	if damage <= 0:
 		# M0: suppress zero-damage attempts; revisit when miss/block
 		# semantics arrive.
-		return
+		return false
 
 	target.current_hp = max(0, target.current_hp - damage)
 
@@ -53,6 +53,20 @@ static func resolve_attack(
 
 	if target.current_hp <= 0:
 		_destroy_entity(state, target, attacker.id, registry, events)
+	return true
+
+
+static func can_attack_now(
+	state: MatchState, attacker: Entity, order: EntityOrder, registry: EntityRegistry
+) -> bool:
+	if attacker == null or attacker.current_hp <= 0:
+		return false
+	if registry == null:
+		return false
+	var def: EntityDef = registry.get_by_id(attacker.current_def_id)
+	if def == null or def.combat == null:
+		return false
+	return _select_target(state, attacker, def.combat, order, registry) != null
 
 
 # ---------- Target selection ----------
@@ -235,6 +249,10 @@ static func _destroy_entity(
 			var owner := state.get_player(dead.owner_player_id)
 			if owner != null:
 				owner.pop_used = max(0, owner.pop_used - paid_pop)
+
+	for entity in state.entities:
+		if entity != null and entity.focus_target_entity_id == dead.id:
+			entity.focus_target_entity_id = -1
 
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.ENTITY_DESTROYED

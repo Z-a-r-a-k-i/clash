@@ -92,6 +92,8 @@ static func load(
 	# entities) so skipped placements don't get charged.
 	_apply_placement_pop_used(state, effective_registry)
 	_apply_placement_pop_cap_from_buildings(state, effective_registry)
+	if scenario.auto_start_workers_on_minerals:
+		_auto_start_workers_on_minerals(state, effective_registry)
 
 	var loaded := LoadedScenario.new()
 	loaded.state = state
@@ -215,6 +217,102 @@ static func _apply_placement_pop_cap_from_buildings(
 		if player == null:
 			continue
 		player.pop_cap += def.population.pop_provides
+
+
+static func _auto_start_workers_on_minerals(state: MatchState, registry: EntityRegistry) -> void:
+	if state == null or registry == null or state.tile_grid == null:
+		return
+	var mineral_sources := _mineral_sources(state, registry)
+	if mineral_sources.is_empty():
+		return
+	for player in state.players:
+		if player == null:
+			continue
+		_auto_start_player_workers_on_minerals(state, registry, player.player_id, mineral_sources)
+
+
+static func _auto_start_player_workers_on_minerals(
+	state: MatchState, registry: EntityRegistry, player_id: int, mineral_sources: Array[Entity]
+) -> void:
+	var used_sources: Dictionary[int, bool] = {}
+	for worker in state.entities_sorted_by_id():
+		if worker == null or worker.owner_player_id != player_id or worker.current_hp <= 0:
+			continue
+		var worker_def: EntityDef = registry.get_by_id(worker.current_def_id)
+		if worker_def == null or worker_def.gather == null or worker.gather_state == null:
+			continue
+		var source := _nearest_source_for_worker(state, worker, mineral_sources, used_sources)
+		if source == null:
+			continue
+		used_sources[source.id] = true
+		_assign_worker_to_source(state, worker, source)
+
+
+static func _mineral_sources(state: MatchState, registry: EntityRegistry) -> Array[Entity]:
+	var sources: Array[Entity] = []
+	for entity in state.entities_sorted_by_id():
+		if entity == null or entity.current_resource_amount == 0:
+			continue
+		var def: EntityDef = registry.get_by_id(entity.current_def_id)
+		if def == null or def.resource_source == null:
+			continue
+		if def.resource_source.resource_type != "minerals":
+			continue
+		sources.append(entity)
+	return sources
+
+
+static func _nearest_source_for_worker(
+	state: MatchState, worker: Entity, sources: Array[Entity], used_sources: Dictionary[int, bool]
+) -> Entity:
+	var worker_rect: Rect2i = state.tile_grid.entity_rect(worker.id)
+	var best_unused: Entity = null
+	var best_unused_distance := 2147483647
+	var best_any: Entity = null
+	var best_any_distance := 2147483647
+	for source in sources:
+		if source == null:
+			continue
+		var source_rect: Rect2i = state.tile_grid.entity_rect(source.id)
+		if source_rect.size == Vector2i.ZERO:
+			continue
+		var distance: int = TileGrid.distance_between_rects(worker_rect, source_rect)
+		if _is_better_auto_source(source, distance, best_any, best_any_distance):
+			best_any = source
+			best_any_distance = distance
+		if (
+			not used_sources.has(source.id)
+			and _is_better_auto_source(source, distance, best_unused, best_unused_distance)
+		):
+			best_unused = source
+			best_unused_distance = distance
+	return best_unused if best_unused != null else best_any
+
+
+static func _is_better_auto_source(
+	source: Entity, distance: int, current: Entity, current_distance: int
+) -> bool:
+	if current == null:
+		return true
+	if distance < current_distance:
+		return true
+	return distance == current_distance and source.id < current.id
+
+
+static func _assign_worker_to_source(state: MatchState, worker: Entity, source: Entity) -> void:
+	var gather: GatherState = worker.gather_state
+	if gather == null:
+		return
+	gather.assigned_source_entity_id = source.id
+	gather.carrying_resource_type = ""
+	gather.carrying_amount = 0
+	var worker_rect: Rect2i = state.tile_grid.entity_rect(worker.id)
+	var source_rect: Rect2i = state.tile_grid.entity_rect(source.id)
+	gather.phase = (
+		GatherState.Phase.GATHERING
+		if state.tile_grid.are_rects_adjacent(worker_rect, source_rect)
+		else GatherState.Phase.MOVING_TO_SOURCE
+	)
 
 
 static func _instantiate_entity(

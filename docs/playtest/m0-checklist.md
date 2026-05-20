@@ -8,6 +8,10 @@ Purpose: get a complete, repeatable pass through the current playable loop so th
 - Run `res://scenes/_dev/dev_play_mode.tscn`.
 - Verify the scene uses `res://data/scenarios/mvp_map.tres`. This is the
   default `scenario_path` on the scene root.
+- Current map shape is intentionally simple: one mirrored base per player,
+  with minerals and geyser behind each base.
+- The dev window is currently tuned for a larger desktop pass at 1920x1080.
+  Final window sizing and mobile/web layout are deferred.
 - Start as player 0, then switch to player 1 when checking mirrored behavior.
 - Keep the resolver authoritative: queue actions, resolve the turn, and record what changed.
 
@@ -15,13 +19,25 @@ Purpose: get a complete, repeatable pass through the current playable loop so th
 
 - Left click selects a visible entity.
 - Right click issues a context action: move to empty tile, gather from a
-  resource, or attack an enemy.
+  resource, or set a persistent focus target on an enemy.
+- Mouse wheel zooms the camera.
+- Left drag on empty map space pans the camera.
+- Middle mouse drag pans the camera.
 - `P0` / `P1` switches the active player and fog perspective.
 - `Resolve` submits both players' queued actions and advances the turn.
 - `Clear` clears currently queued submissions.
 - `Surrender` queues surrender for the active player.
-- The command card exposes available attack-move, hold-fire, build, train,
-  research, ability, and cancel actions for the selected entity.
+- The HUD shows the active player's minerals, gas, population, and queued
+  action count when there is something queued.
+- The command card exposes available move, target, hold-fire, build, train,
+  research, ability, gather, and cancel actions for the selected entity. Empty
+  sections are hidden.
+- Move and Target are independent: a unit can shoot once at an in-range enemy
+  and still execute a move in the same resolve. Target prioritizes the focused
+  enemy when it is in range, otherwise the unit falls back to the closest
+  in-range enemy unless hold-fire is enabled.
+- The selected unit's intent is always shown on the map. Enable `Show all
+  friendly orders` to show every active-player friendly queued/current intent.
 
 ## Automated Smoke
 
@@ -33,7 +49,7 @@ make test "GODOT=C:\Program Files\Godot_v4.6.1-stable_mono_win64\Godot_v4.6.1-st
 
 The M0 smoke runner covers the mechanical path that should exist before a human pass:
 
-- MVP map loads with two bases, two workers per player, starting resources, and opening fog.
+- MVP map loads with two bases, four workers per player, starting resources, opening auto-mining, and opening fog.
 - Workers can gather from the MVP mineral patches and deposit at the canonical base.
 - A worker can build a barracks from gathered minerals.
 - A barracks can train a marine.
@@ -49,17 +65,30 @@ The M0 smoke runner covers the mechanical path that should exist before a human 
 
 ### Economy Opening
 
-- Select each worker and queue gather orders on nearby mineral patches.
-- Resolve until minerals are deposited.
-- Note whether the selected worker, target, and queued order are obvious.
+- Confirm the four starting workers are already assigned to nearby mineral
+  patches.
+- Optionally reassign a worker with Gather, then resolve until minerals are
+  deposited.
+- Confirm the worker Gather button enters target-pick mode and the gather loop
+  continues after resolve.
+- Issue Move or Target to a gathering worker and confirm it stops
+  auto-gathering until explicitly ordered to Gather again.
+- Note whether the selected worker, target, and queued order indicator are
+  obvious.
 - Note whether the resource flow is legible enough to support decisions.
 
 ### First Production
 
+- Confirm Barracks is visible with its cost but disabled until P0 has 150
+  minerals.
 - Build a barracks near the starting base.
+- Try one occupied/overlapping placement and confirm it is rejected immediately
+  with a status message before resolving.
 - Resolve until construction completes.
 - Train at least one marine.
-- Note whether placement feedback, construction progress, production state, and blocked actions are clear.
+- Confirm unit training shows a progress bar on the producer.
+- Note whether placement feedback, construction progress, production state, and
+  blocked actions are clear.
 
 ### Fog And Scouting
 
@@ -70,8 +99,9 @@ The M0 smoke runner covers the mechanical path that should exist before a human 
 
 ### First Fight
 
-- Queue a marine attack against a visible enemy.
-- Queue attack-move and hold-fire in nearby turns.
+- Queue a marine Target against a visible enemy.
+- Queue Move, Target, and hold-fire in nearby turns.
+- Toggle all-friendly order indicators on and off during the fight.
 - Use stim after research is available if the pass reaches that point.
 - Note whether damage, target choice, and unit state are readable.
 

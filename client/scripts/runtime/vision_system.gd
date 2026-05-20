@@ -56,9 +56,9 @@ static func compute_player_visibility(
 	if state == null or registry == null or state.tile_grid == null:
 		return visibility
 	for entity in state.entities_sorted_by_id():
-		if entity.current_hp <= 0 or entity.owner_player_id != player_id:
-			continue
 		var def := _def_for_entity(entity, registry)
+		if not _is_present_entity(entity, def) or entity.owner_player_id != player_id:
+			continue
 		if def == null or def.vision == null:
 			continue
 		var rect := _entity_rect(entity, state, def)
@@ -75,13 +75,15 @@ static func is_entity_visible_to_player(
 	player_id: int,
 	visibility: Visibility
 ) -> bool:
-	if entity == null or entity.current_hp <= 0:
+	if entity == null:
+		return false
+	var def := _def_for_entity(entity, registry)
+	if not _is_present_entity(entity, def):
 		return false
 	if entity.owner_player_id == player_id:
 		return true
 	if state == null or registry == null or state.tile_grid == null or visibility == null:
 		return false
-	var def := _def_for_entity(entity, registry)
 	if def == null:
 		return false
 	var rect := _entity_rect(entity, state, def)
@@ -141,3 +143,11 @@ static func _def_for_entity(entity: Entity, registry: EntityRegistry) -> EntityD
 		return null
 	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
 	return registry.get_by_id(def_id)
+
+
+static func _is_present_entity(entity: Entity, def: EntityDef) -> bool:
+	if entity == null:
+		return false
+	if entity.current_hp > 0:
+		return true
+	return def != null and def.resource_source != null

@@ -1,8 +1,7 @@
 class_name Resolver
 extends RefCounted
 
-# Pure-function turn resolver. Per ADR 0004 (action-slot lockstep) and
-# ADR 0013 (deterministic, no RNG).
+# Pure-function turn resolver. Per ADR 0013 (deterministic, no RNG).
 #
 # Contract:
 #   Resolver.resolve(state, submit_a, submit_b, registry, tunables) -> ResolveResult
@@ -19,8 +18,8 @@ extends RefCounted
 #   2. Distribute per-entity orders; HOLD_FIRE_TOGGLE / CANCEL apply now.
 #   3. For tick in 1..N:
 #        Phase 1: self-target abilities.
-#        Phase 2: every unit's k-th action that is an attack.
-#        Phase 3: every unit's k-th action that is a move (+ gather travel).
+#        Phase 2: every combat unit may fire once if it has a target in range.
+#        Phase 3: every unit's move action (+ gather travel).
 #        Phase 4: persistent move advance + gather state ticks (yield/deposit).
 #   4. End-of-turn pass: cooldowns, buffs, production progress, is_hidden,
 #      win check.
@@ -28,7 +27,7 @@ extends RefCounted
 # The resolver is split across these files for chunked implementation:
 # - resolver.gd          (this) — entry point + tick loop
 # - combat_system.gd     — attack resolution + target chains
-# - movement_system.gd   — move + attack-move + persistent
+# - movement_system.gd   — move + persistent movement
 # - gather_system.gd     — worker FSM (move-to-source, gather, deposit)
 # - end_of_turn_system.gd — bookkeeping + win check
 # - _state_helpers.gd    — deep-copy + queue distribution
@@ -50,7 +49,7 @@ static func resolve(
 	# 1. Working copies. Per the pure-function contract, neither the input
 	#    `state` nor the input submissions can be aliased into the result.
 	#    Cloning state is obvious; cloning the SubmitTurns matters because
-	#    a fresh MOVE / ATTACK_MOVE gets stashed into Entity.persistent_order
+	#    a fresh MOVE gets stashed into Entity.persistent_order
 	#    by the movement system — without the clone, `result.new_state`
 	#    would alias the caller's EntityOrder instances.
 	var working: MatchState = state.clone()
@@ -112,12 +111,16 @@ static func resolve(
 	#     from order submission, not N+1). Plan node 05.
 	ProductionSystem.try_fill_active_slots(working, registry, events)
 
-	# 4. Tick loop — action-slot lockstep per ADR 0004.
+	# 4. Tick loop. Move orders still consume movement budget in a stable
+	#    phase, but attacks are no longer queued slots: each combat unit
+	#    may fire at most once per resolve.
 	var n_ticks := _STATE_HELPERS.max_queue_length(per_entity)
 	# Ensure persistent moves, active gather cycles, and active production
 	# slots still advance on turns with no submitted orders.
-	if n_ticks == 0 and _has_standing_work(working):
+	if n_ticks == 0 and _has_standing_work(working, registry):
 		n_ticks = 1
+	var attacked_entity_ids: Dictionary = {}
+	var fresh_move_entity_ids: Dictionary = _fresh_move_entity_ids(per_entity)
 	for tick in n_ticks:
 		# Sort once per tick and reuse across phases. Determinism still
 		# requires fresh sorts each tick because attacks in the previous
@@ -136,21 +139,27 @@ static func resolve(
 			if order.type == EntityOrder.Type.USE_ABILITY:
 				_ABILITY_SYSTEM.resolve_use_ability(working, entity, order, registry, events)
 
-		# Phase 2: attacks. Stable iteration by id for determinism.
+		# Phase 2: attacks. Stable iteration by id for determinism. This
+		# is independent from movement: a unit can shoot and still spend
+		# its move budget later in the same resolve.
 		for entity in sorted_entities:
 			if _ABILITY_SYSTEM.is_casting(entity):
 				continue
-			var order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
-			if order == null:
+			if attacked_entity_ids.has(entity.id):
 				continue
-			if order.type == EntityOrder.Type.ATTACK or order.type == EntityOrder.Type.ATTACK_MOVE:
-				CombatSystem.resolve_attack(working, entity, order, registry, tunables, events)
+			var attack_order := _standing_attack_order(working, entity, registry)
+			if attack_order == null:
+				continue
+			if CombatSystem.resolve_attack(
+				working, entity, attack_order, registry, tunables, events
+			):
+				attacked_entity_ids[entity.id] = true
 
-		# Phase 3: movement substeps. A MOVE / ATTACK_MOVE action slot is
-		# one intent, but speed_tiles_per_turn is a per-turn distance
-		# budget. Iterate movement systems until every live mover has had
-		# a chance to spend that budget. `moves_used_this_turn` still caps
-		# each entity, so this upper bound is safe for mixed-speed rosters.
+		# Phase 3: movement substeps. A MOVE action is one intent, but
+		# speed_tiles_per_turn is a per-turn distance budget. Iterate
+		# movement systems until every live mover has had a chance to spend
+		# that budget. `moves_used_this_turn` still caps each entity, so
+		# this upper bound is safe for mixed-speed rosters.
 		for _substep in _max_live_movement_speed(working, registry):
 			for entity in sorted_entities:
 				if _ABILITY_SYSTEM.is_casting(entity):
@@ -158,10 +167,7 @@ static func resolve(
 				var order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
 				if order == null:
 					continue
-				if (
-					order.type == EntityOrder.Type.MOVE
-					or order.type == EntityOrder.Type.ATTACK_MOVE
-				):
+				if order.type == EntityOrder.Type.MOVE:
 					MovementSystem.resolve_move(working, entity, order, registry, tunables, events)
 
 			# Gather workers that are walking to a source or a deposit sink
@@ -178,6 +184,8 @@ static func resolve(
 			MovementSystem.advance_persistent_moves(
 				working, per_entity, tick, registry, tunables, events
 			)
+
+		_clear_attacked_persistent_moves(working, attacked_entity_ids, fresh_move_entity_ids)
 
 		# Phase 4 extension: gather workers at a source / sink tick yields
 		# and deposits.
@@ -196,7 +204,7 @@ static func resolve(
 # one tick to advance: a `persistent_order`, or a non-IDLE gather phase.
 # Used by resolve() to force n_ticks ≥ 1 on turns with no submitted
 # orders.
-static func _has_standing_work(state: MatchState) -> bool:
+static func _has_standing_work(state: MatchState, registry: EntityRegistry) -> bool:
 	for e in state.entities:
 		if e == null or e.current_hp <= 0:
 			continue
@@ -210,7 +218,37 @@ static func _has_standing_work(state: MatchState) -> bool:
 			return true
 		if e.is_constructing:
 			return true
+		if _standing_attack_order(state, e, registry) != null:
+			return true
 	return false
+
+
+static func _standing_attack_order(
+	state: MatchState, entity: Entity, registry: EntityRegistry
+) -> EntityOrder:
+	if entity == null or entity.current_hp <= 0:
+		return null
+	if entity.gather_state != null and entity.gather_state.phase != GatherState.Phase.IDLE:
+		return null
+	if entity.locked_to_building_id >= 0 or entity.is_constructing:
+		return null
+	var auto_attack := EntityOrder.new()
+	auto_attack.type = EntityOrder.Type.ATTACK
+	auto_attack.entity_id = entity.id
+	if entity.focus_target_entity_id >= 0:
+		var focus := state.get_entity_by_id(entity.focus_target_entity_id)
+		if (
+			focus == null
+			or focus.current_hp <= 0
+			or focus.owner_player_id < 0
+			or focus.owner_player_id == entity.owner_player_id
+		):
+			entity.focus_target_entity_id = -1
+		else:
+			auto_attack.target_priority_chain = [entity.focus_target_entity_id]
+	if CombatSystem.can_attack_now(state, entity, auto_attack, registry):
+		return auto_attack
+	return null
 
 
 static func _max_live_movement_speed(state: MatchState, registry: EntityRegistry) -> int:
@@ -222,3 +260,26 @@ static func _max_live_movement_speed(state: MatchState, registry: EntityRegistry
 			continue
 		max_speed = max(max_speed, MovementSystem.movement_speed_for_entity(e, registry))
 	return max_speed
+
+
+static func _fresh_move_entity_ids(per_entity: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	for entity_id in per_entity:
+		var queue: Array = per_entity[entity_id]
+		for order in queue:
+			var entity_order: EntityOrder = order
+			if entity_order != null and entity_order.type == EntityOrder.Type.MOVE:
+				out[entity_order.entity_id] = true
+				break
+	return out
+
+
+static func _clear_attacked_persistent_moves(
+	state: MatchState, attacked_entity_ids: Dictionary, fresh_move_entity_ids: Dictionary
+) -> void:
+	for entity_id in attacked_entity_ids:
+		if fresh_move_entity_ids.has(entity_id):
+			continue
+		var entity := state.get_entity_by_id(entity_id)
+		if entity != null:
+			entity.persistent_order = null

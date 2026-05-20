@@ -24,7 +24,8 @@ extends Resource
 @export var current_hp: int = 0
 
 @export var order_queue: Array[EntityOrder] = []  # orders queued for this turn
-@export var persistent_order: EntityOrder  # move/attack-move that persists across turns
+@export var persistent_order: EntityOrder  # move that persists across turns
+@export var focus_target_entity_id: int = -1  # preferred attack target; -1 = auto-acquire
 
 @export var ability_cooldowns: Dictionary = {}  # { ability_id: turns_remaining }
 @export var active_buffs: Array[ActiveBuff] = []
@@ -86,6 +87,7 @@ func clone() -> Entity:
 		else:
 			c.order_queue.append(null)
 	c.persistent_order = persistent_order.clone() if persistent_order != null else null
+	c.focus_target_entity_id = focus_target_entity_id
 
 	c.ability_cooldowns = ability_cooldowns.duplicate()
 	c.active_buffs = []

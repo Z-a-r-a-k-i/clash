@@ -11,6 +11,15 @@ Long-horizon view of clash. Concrete near-term work lives in the plan tree (`pla
 - **M4 — Web and mobile exports.** HTML5, Android, iOS. Public.
 - **M5 — Card / deck / progression layer.** Card-based unit selection, race or leader perks, card evolution, arena unlocks for deck slots, monetization for cosmetics and progression speed-ups.
 
+## Near-term handoff
+
+- **Next M0 PR:** `plan/m0/13-combat-command-simplification.md`. Simplify the
+  playtest combat command model before deeper balance iteration: automatic
+  closest-target shooting stays on, Target is priority focus only, Retreat gives
+  full move without shooting, Halt on Sight replaces Hold Fire, attack damage is
+  simultaneous, and units that shoot get reduced same-turn movement by a tunable
+  percentage.
+
 ## Speculative
 
 Ideas not yet ready to become plan nodes:

@@ -67,14 +67,15 @@ Pathfinding, range checks, vision (fog of war), and collision all assume multi-t
 A turn proceeds as follows:
 
 1. **Server: turn start.** Both clients receive `TurnStart { turn_index, timer_ms, current_state }`.
-2. **Clients: queue.** Each player issues orders during the timer. An order can be: a per-unit action (move, attack, attack-move), a unit-mode toggle (hold-fire), a build/research/production command, or a group order applied to multiple units. Move orders persist across turns; the player only re-issues to override.
+2. **Clients: queue.** Each player issues orders during the timer. An order can be: a per-unit movement intent, a target focus, a unit-mode toggle (hold-fire), a build/research/production command, or a group order applied to multiple units. Move orders persist across turns; the player only re-issues to override.
 3. **Clients: submit.** Each client sends `SubmitTurn { actions[] }` when the player finishes, or an empty submission if the timer expires.
 4. **Server: resolve.** Once both submissions are in, the resolver runs in **action-slot lockstep**:
    - Compute N = max action-queue length across all units this turn.
    - For each tick `k` from 1 to N:
      - Resolve every unit's `k`-th queued action. Within a tick, **all attacks fire before any moves execute**.
      - Target chains apply per attack: if the chosen target died earlier in the turn, fall back to the next chained target; if the chain is empty and the unit is not on hold-fire, fall back to the closest enemy in range.
-     - Persistent move orders (from prior turns) advance one step per movement-budget per tick; attack-move halts to engage if an enemy enters range.
+     - Combat and movement are independent for the current resolve: a combat unit may shoot once at its focus target or closest in-range enemy, then still spend movement budget if it has a move destination.
+     - Persistent move orders advance one step per movement-budget per tick; if a unit fires while following an old move, that old move is cleared unless the player submitted a fresh move.
    - After the last tick, apply end-of-turn effects (production progress, research progress, building completion, status effects).
 5. **Server: broadcast.** `ResolvedTurn { events[] }` goes to both clients.
 6. **Clients: animate.** Each client plays the events in order. Once animation finishes, request the next turn.

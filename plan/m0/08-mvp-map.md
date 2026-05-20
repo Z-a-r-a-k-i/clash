@@ -8,7 +8,11 @@ depends_on:
 
 # MVP map: authoring + baking
 
-A single hand-authored 50×50 map plus the authoring pipeline that produces it. Plan-07a shipped scenario load/save; this node ships the actual battlefield, modeled on SC2 macro-map shapes adapted for clash's smaller-tile, multi-tile-footprint grid.
+A single hand-authored 50×50 map plus the authoring pipeline that produces it.
+Plan-07a shipped scenario load/save; this node ships the actual battlefield.
+The current first-playtest map is intentionally simple: two mirrored main bases
+face each other, and each base has its resource line behind it on the outside
+edge away from the opponent.
 
 ## Goals
 
@@ -16,7 +20,8 @@ A single hand-authored 50×50 map plus the authoring pipeline that produces it. 
 2. Author **half the map only**; the other half is a guaranteed mirror — fairness enforced by the build step, not eyeballed.
 3. Produce a single `mvp_map.tres` that `ScenarioLoader.load()` consumes without changes — the resolver remains unaware of authoring details.
 4. Catch authoring mistakes (out-of-bounds, unknown def_id, right-half placements, axis violations) at bake time with clear errors pointing to the offending node.
-5. Add one new entity def — `mineral_patch_gold.tres` — to support the map's contested neutral middle base.
+5. Keep map output deterministic so tests catch stale bakes and unfair
+   placement drift.
 
 ## Non-goals
 
@@ -28,38 +33,40 @@ A single hand-authored 50×50 map plus the authoring pipeline that produces it. 
 
 ## Topology
 
-7-base symmetric layout, two players, vertical mirror across the **left↔right axis** (axis line between `x=24` and `x=25` for a 50-wide map). Each player gets:
+Two-player symmetric layout, vertical mirror across the **left↔right axis** (axis
+line between `x=24` and `x=25` for a 50-wide map). Each player gets:
 
-- **Main** — Base + main mineral cluster (8 patches) + main geyser. Center-left (or center-right for P2), against the map edge.
-- **Natural** — Mineral cluster (6 patches) + geyser. Forward of main, toward the map center.
-- **Expansion** — Mineral cluster (6 patches) + geyser. Top-left corner (top-right for P2).
+- **Main** — 1 base, 4 workers, 8 standard mineral patches, and 1 gas geyser.
+- **Back resource line** — minerals and geyser are placed on the outside/back
+  side of the base, away from the opponent, so the opening view reads like a
+  StarCraft-style main.
+- **Opening economy** — the MVP scenario auto-starts those workers on nearby
+  minerals so the first playtest begins with a readable economy loop already in
+  motion.
 
-Plus one **golden cluster** in the contested middle — `mineral_patch_gold` patches (4 left of axis, 4 mirrored to right) and 2 geysers (one left of axis, mirrored to right). Total: 62 entities in the baked output, 31 authored on the left half.
+No natural, third, contested gold, ramps, cliffs, or blockers are placed yet.
+Total: 28 entities in the baked output, 14 authored on the left half.
 
 ```text
                               x=24│x=25
    ┌──────────────────────────────┼──────────────────────────────┐
-   │ EXP                                                  EXP    │
    │                                                              │
-   │ ▓▓ P1 main                                  P2 main ▓▓       │
-   │ workers minerals                            minerals workers │
-   │ geyser                                              geyser   │
-   │            NATURAL              GOLDEN          NATURAL      │
-   │            minerals             ●●●●            minerals     │
-   │            geyser               ▓▓▓             geyser       │
-   │                                 ▓▓▓                          │
+   │ minerals  P0 main                    P1 main  minerals       │
+   │ geyser    workers        open        workers   geyser        │
+   │ minerals  base           field       base      minerals      │
+   │                                                              │
    │                                                              │
    └──────────────────────────────┼──────────────────────────────┘
 ```
 
 ### Why this shape
 
-- Encourages SC2-style macro decisions: one-base all-in, two-base timing, four-base late game.
-- Off-axis expansions equidistant between players means taking one is a real strategic statement: it's not "free territory," it's a contested asset within the opponent's reach.
-- Path distances should encourage at least some combat positioning — too cramped and there's no maneuver, too spread and the simultaneous-turn budget can't cover the map.
-- The contested middle (golden cluster) creates natural army convergence and a visible objective beyond economy.
-
-This layout follows SC2 ladder convention: main + close natural, with the third / fourth bases scattered toward map flanks. Pro ladder maps often use point-symmetry (diagonal mains) rather than vertical mirror because it equalizes path length to the middle from either spawn. MVP keeps vertical mirror for simplicity; point-symmetric variants become an option once the map-authoring story exists post-MVP.
+- Makes the first playtest visually legible before adding strategic map layers.
+- Keeps both sides perfectly mirrored for fairness.
+- Puts resources behind the base instead of between the base and enemy, matching
+  the expected RTS opening shape.
+- Avoids blockers until movement/pathfinding can support authored lanes without
+  units getting stuck.
 
 ## Authoring pipeline
 
@@ -70,13 +77,10 @@ Authored in Godot's 2D scene editor. Structure:
 ```text
 MvpMap (Node2D, @tool, script: mvp_map_root.gd)
 └── Placements (Node2D)
-    ├── P1Main (EntityPlacement, def_id=base, owner_player_id=0, tile_position=(2,22))
-    ├── P1MainMinerals_1..8 (EntityPlacement, def_id=mineral_patch, owner_player_id=-1, ...)
-    ├── P1MainGeyser (EntityPlacement, def_id=gas_geyser, owner_player_id=-1, ...)
-    ├── P1Worker_1, P1Worker_2 (EntityPlacement, def_id=worker, owner_player_id=0)
-    ├── P1Natural_*  ...
-    ├── P1Expansion_*  ...
-    └── Golden_*  (EntityPlacement, owner_player_id=-1, mirrored across axis)
+    ├── P0Main (EntityPlacement, def_id=base, owner_player_id=0, tile_position=(12,22))
+    ├── P0MainMinerals_1..8 (EntityPlacement, def_id=mineral_patch, owner_player_id=-1, ...)
+    ├── P0MainGeyser (EntityPlacement, def_id=gas_geyser, owner_player_id=-1, ...)
+    └── P0Worker_1..4 (EntityPlacement, def_id=worker, owner_player_id=0)
 ```
 
 Only the **left half + axis-paired neutrals** are authored. The right half is generated.
@@ -118,7 +122,8 @@ static func bake(
     map_width: int,
     map_height: int,
     starting_resources: Dictionary,
-    registry: EntityRegistry
+    registry: EntityRegistry,
+    auto_start_workers_on_minerals: bool = false
 ) -> Error
 
 static func bake_to_resource(...) -> ScenarioDef  # for tests, no disk write
@@ -152,13 +157,13 @@ The axis is a **line between tiles 24 and 25**, not a tile itself.
 | 1×1 patch | No | Mirrored normally. Author one, baker emits two. |
 | 2×1 / 1×2 (even × odd) | No (mirror produces non-overlapping pair) | Mirrored normally. |
 | 2×2 / 4×4 (even width, centered) | Yes if `on_axis=true` and `tile_position.x = map_width/2 - footprint.x/2` | Emitted once, owner must be -1. |
-| 3×3 (odd width) | **No.** Cannot be on-axis. | Use paired pattern: author one near axis, baker mirrors. The "golden base" therefore has 2 geysers. |
+| 3×3 (odd width) | **No.** Cannot be on-axis. | Use paired pattern: author one near axis, baker mirrors. |
 
 **Owner rule:** an `on_axis=true` placement must have `owner_player_id = -1`. A player-owned axis-straddling entity would be nonsensical (which player owns it?).
 
-## New entity def: `mineral_patch_gold.tres`
+## Existing gold mineral def: `mineral_patch_gold.tres`
 
-Near-clone of `mineral_patch.tres`. `resource_source.capacity = 2400` (was 1500 — +60% matches SC2 gold:standard ratio). `yield_per_worker_per_turn = 2` (vs 1 standard) — gold mines faster, not just lasts longer.
+Near-clone of `mineral_patch.tres`. `resource_source.capacity = 2400` (was 1500 — +60% matches SC2 gold:standard ratio). `yield_per_worker_per_turn = 2` (vs 1 standard) — gold mines faster, not just lasts longer. This def remains registered and covered by tests, but the simplified first-playtest map does not place gold patches yet.
 
 Footprint: `Vector2i(1, 3)`. Tags include `"golden"`.
 
@@ -181,10 +186,11 @@ Per-scenario starting resources still come from `ScenarioDef.starting_resources_
 
 | Name | Asserts |
 |---|---|
-| `mvp_map_loads` | Loading `mvp_map.tres` produces 50×50 grid, 2 players, expected entity counts by def_id. |
+| `mvp_map_loads` | Loading `mvp_map.tres` produces 50×50 grid, 2 players, exactly 28 expected entities, and four auto-started mineral workers per player. |
+| `mvp_map_simple_facing_bases` | Bases face each other on the same row, and each side's resources are behind its base. |
 | `mvp_map_is_mirror` | Every player-0 entity has a player-1 counterpart at the mirrored tile coords. Every neutral has a mirror neutral or sits on-axis. |
 | `mvp_map_bake_parity` | Re-baking the source `.tscn` matches the checked-in `.tres`. Catches stale-bake commits. |
-| `golden_minerals_higher_yield` | After N turns of mining, a worker on `mineral_patch_gold` produces strictly more minerals than one on `mineral_patch`. No specific ratio asserted (lets us retune). |
+| `golden_minerals_higher_yield` | Keeps the existing gold mineral def covered even though the simplified playtest map no longer places gold patches. |
 | `map_baker_validation` | The baker rejects: right-half placements, unknown `def_id`, axis-crossing without `on_axis=true`, on-axis placements with player owner. |
 
 ## Done when
@@ -193,8 +199,9 @@ Per-scenario starting resources still come from `ScenarioDef.starting_resources_
 - [x] `EntityPlacement`, `MvpMapRoot` `@tool` scripts in `client/scripts/data/`.
 - [x] `MapBaker` static class in `client/scripts/_dev/`.
 - [x] `client/addons/clash_dev/plugin.gd` + `plugin.cfg` register the "Bake MVP Map" Tools menu item.
-- [x] `mvp_map.tscn` authored with 31 left-half placements.
-- [x] `mvp_map.tres` baked, 62 entities total.
+- [x] `mvp_map.tscn` authored with 14 left-half placements.
+- [x] `mvp_map.tres` baked, 28 entities total.
+- [x] `mvp_map.tres` auto-starts four workers per player on nearby minerals.
 - [x] `mineral_patch_gold.tres` registered, footprint 1×3, capacity 2400, yield 2.
 - [x] `mineral_patch.tres` footprint updated to 1×3.
 - [x] `economy_full_base.tres` patch positions adjusted for new footprint.
