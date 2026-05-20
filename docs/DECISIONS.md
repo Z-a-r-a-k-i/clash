@@ -115,12 +115,13 @@ Total population cap per player is 50 (tunable). Each unit type costs a fixed in
 
 A move order issued to a unit persists across turns until: (a) the unit reaches its destination, (b) the unit dies, or (c) the player explicitly cancels or replaces it. The unit advances along its path each turn at its movement speed; players do not need to re-issue the order.
 
-Two move flavors:
+Movement and combat are independent in the current playable model:
 
-- **Move:** ignores enemies along the path. Will not stop to engage.
-- **Attack-move:** stops to engage if an enemy enters attack range; resumes pathing when the threat is cleared.
+- **Move:** advances toward the destination and does not stop just because combat is available.
+- **Target focus:** stores a preferred enemy target. If that enemy is in range, the unit shoots it first; otherwise it falls back to the closest in-range enemy unless hold-fire is enabled.
+- If a unit fires while following an old persistent move, that old move is cleared after the resolve unless the player submitted a fresh move this turn.
 
-Hold-fire mode is independent and orthogonal: a hold-fire unit on attack-move still won't fire unless explicitly given an attack target.
+Hold-fire mode is independent and orthogonal: a hold-fire unit still moves, but will not fallback-auto-acquire enemies.
 
 **Why:** SC2 demands continuous re-issuing of orders to a moving army; clash demands one issue, then the unit handles its trajectory. Aligns with the anti-overwhelm goal.
 

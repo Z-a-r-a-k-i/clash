@@ -12,8 +12,8 @@
 
 [sub_resource type="Resource" id="Resource_qtkpp"]
 script = ExtResource("2_bihp2")
-damage = 2
-attack_range = 1
+damage = 10
+attack_range = 2
 target_layers = Array[String](["ground"])
 
 [sub_resource type="Resource" id="Resource_bihp2"]
@@ -24,6 +24,8 @@ built_by_tag = "base"
 
 [sub_resource type="Resource" id="Resource_0rill"]
 script = ExtResource("4_513v4")
+gather_per_turn = 10
+carry_amount = 50
 accepts_resource_types = Array[String](["minerals", "gas"])
 
 [sub_resource type="Resource" id="Resource_513v4"]
@@ -32,7 +34,7 @@ max_hp = 40
 
 [sub_resource type="Resource" id="Resource_nb1ru"]
 script = ExtResource("6_uybqa")
-speed_tiles_per_turn = 3
+speed_tiles_per_turn = 2
 
 [sub_resource type="Resource" id="Resource_uybqa"]
 script = ExtResource("7_scf0o")

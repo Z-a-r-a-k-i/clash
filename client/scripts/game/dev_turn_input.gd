@@ -88,8 +88,8 @@ func issue_attack(target_entity_id: int) -> bool:
 	if actor == null:
 		_status_message = "Select a unit before issuing ATTACK."
 		return false
-	var target: Entity = _live_entity(target_entity_id)
-	if target == null or target.owner_player_id < 0 or target.owner_player_id == _active_player_id:
+	var target: Entity = _live_enemy_entity(target_entity_id)
+	if target == null:
 		_status_message = "ATTACK needs a live enemy target."
 		return false
 	var def: EntityDef = _def_for_entity(actor)
@@ -103,6 +103,14 @@ func issue_attack(target_entity_id: int) -> bool:
 	_append_order(order)
 	_status_message = "Queued ATTACK for #%d against #%d." % [actor.id, target_entity_id]
 	return true
+
+
+func issue_attack_target(target_entity_id: int) -> bool:
+	var target: Entity = _live_enemy_entity(target_entity_id)
+	if target == null:
+		_status_message = "Attack target needs a live enemy target."
+		return false
+	return issue_attack(target_entity_id)
 
 
 func issue_gather(target_entity_id: int) -> bool:
@@ -128,24 +136,13 @@ func issue_gather(target_entity_id: int) -> bool:
 	return true
 
 
-func issue_attack_move(target_tile: Vector2i) -> bool:
-	var actor: Entity = _selected_entity()
-	if actor == null:
-		_status_message = "Select a unit before issuing ATTACK_MOVE."
+func issue_attack_move(target_tile: Vector2i, target_entity_id: int = -1) -> bool:
+	var target_ok := true
+	if target_entity_id >= 0:
+		target_ok = issue_attack_target(target_entity_id)
+	if not target_ok:
 		return false
-	if _state == null or _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
-		_status_message = "ATTACK_MOVE target is outside the map."
-		return false
-	if not can_issue_attack_move():
-		_status_message = "%s cannot attack-move." % _def_id_for_entity(actor)
-		return false
-	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.ATTACK_MOVE
-	order.entity_id = actor.id
-	order.target_tile = target_tile
-	_append_order(order)
-	_status_message = "Queued ATTACK_MOVE for #%d to %s." % [actor.id, str(target_tile)]
-	return true
+	return issue_move(target_tile)
 
 
 func issue_hold_fire_toggle(enabled: bool) -> bool:
@@ -184,6 +181,15 @@ func issue_build(def_id: String, target_tile: Vector2i, target_entity_id: int = 
 	if not _state.tile_grid.is_rect_in_bounds(rect):
 		_status_message = "BUILD target is outside the map."
 		return false
+	if target_entity_id < 0:
+		var affordability_message := _build_affordability_message(def_id)
+		if affordability_message != "":
+			_status_message = affordability_message
+			return false
+		var placement_message := _build_placement_message(build_def, rect)
+		if placement_message != "":
+			_status_message = placement_message
+			return false
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.BUILD
 	order.entity_id = actor.id
@@ -285,7 +291,7 @@ func selected_entity_label() -> String:
 	if actor == null:
 		return "none"
 	var def_id: String = _def_id_for_entity(actor)
-	return "%s #%d" % [label_for_entity_def_id(def_id), actor.id]
+	return label_for_entity_def_id(def_id)
 
 
 func selected_hold_fire() -> bool:
@@ -293,16 +299,20 @@ func selected_hold_fire() -> bool:
 	return actor != null and actor.hold_fire
 
 
-func can_issue_attack_move() -> bool:
+func can_issue_move() -> bool:
 	var actor: Entity = _selected_entity()
 	var def: EntityDef = _def_for_entity(actor)
-	return (
-		def != null
-		and def.movement != null
-		and def.movement.speed_tiles_per_turn > 0
-		and def.combat != null
-		and def.combat.damage > 0
-	)
+	return def != null and def.movement != null and def.movement.speed_tiles_per_turn > 0
+
+
+func can_issue_attack_target() -> bool:
+	var actor: Entity = _selected_entity()
+	var def: EntityDef = _def_for_entity(actor)
+	return def != null and def.combat != null and def.combat.damage > 0
+
+
+func can_issue_attack_move() -> bool:
+	return can_issue_move() and can_issue_attack_target()
 
 
 func can_issue_hold_fire_toggle() -> bool:
@@ -311,8 +321,31 @@ func can_issue_hold_fire_toggle() -> bool:
 	return def != null and def.combat != null and def.combat.damage > 0
 
 
+func can_issue_gather() -> bool:
+	var actor: Entity = _selected_entity()
+	var def: EntityDef = _def_for_entity(actor)
+	return def != null and def.gather != null and actor.gather_state != null
+
+
 func can_issue_cancel() -> bool:
-	return _selected_entity() != null
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		return false
+	if (
+		actor.persistent_order != null
+		or actor.focus_target_entity_id >= 0
+		or actor.locked_to_building_id >= 0
+	):
+		return true
+	if actor.production_state == null:
+		return false
+	return (
+		not actor.production_state.active.is_empty() or not actor.production_state.queue.is_empty()
+	)
+
+
+func can_afford_build(def_id: String) -> bool:
+	return _build_affordability_message(def_id) == ""
 
 
 func build_option_ids() -> Array[String]:
@@ -388,6 +421,26 @@ func label_for_entity_def_id(def_id: String) -> String:
 	return def.display_name
 
 
+func label_for_entity_def_id_with_cost(def_id: String) -> String:
+	if _registry == null:
+		return def_id
+	var def: EntityDef = _registry.get_by_id(def_id)
+	if def == null:
+		return def_id
+	var label := def.display_name if def.display_name != "" else def_id
+	var parts: Array[String] = []
+	if def.construction != null:
+		parts.append("%dM" % def.construction.mineral_cost)
+		if def.construction.gas_cost > 0:
+			parts.append("%dG" % def.construction.gas_cost)
+		if def.population != null and def.population.pop_cost > 0:
+			parts.append("%dP" % def.population.pop_cost)
+		parts.append("%dT" % def.construction.build_time_turns)
+	if parts.is_empty():
+		return label
+	return "%s (%s)" % [label, ", ".join(parts)]
+
+
 func label_for_research_id(research_id: String) -> String:
 	if _registry == null:
 		return research_id
@@ -395,6 +448,20 @@ func label_for_research_id(research_id: String) -> String:
 	if research == null or research.display_name == "":
 		return research_id
 	return research.display_name
+
+
+func label_for_research_id_with_cost(research_id: String) -> String:
+	if _registry == null:
+		return research_id
+	var research: ResearchDef = _registry.get_research_by_id(research_id)
+	if research == null:
+		return research_id
+	var label := research.display_name if research.display_name != "" else research_id
+	var parts: Array[String] = ["%dM" % research.mineral_cost]
+	if research.gas_cost > 0:
+		parts.append("%dG" % research.gas_cost)
+	parts.append("%dT" % research.research_time_turns)
+	return "%s (%s)" % [label, ", ".join(parts)]
 
 
 func label_for_ability_id(ability_id: String) -> String:
@@ -410,7 +477,26 @@ func label_for_ability_id(ability_id: String) -> String:
 
 
 func _append_order(order: EntityOrder) -> void:
-	_submission_for(_active_player_id).orders.append(order)
+	var submit: SubmitTurn = _submission_for(_active_player_id)
+	var replace_index := _replacement_index_for_order(submit.orders, order)
+	if replace_index >= 0:
+		submit.orders[replace_index] = order
+	else:
+		submit.orders.append(order)
+
+
+func _replacement_index_for_order(orders: Array[EntityOrder], order: EntityOrder) -> int:
+	if order == null:
+		return -1
+	for i in orders.size():
+		var existing: EntityOrder = orders[i]
+		if existing == null or existing.entity_id != order.entity_id:
+			continue
+		if order.type == EntityOrder.Type.MOVE and existing.type == EntityOrder.Type.MOVE:
+			return i
+		if order.type == EntityOrder.Type.ATTACK and existing.type == EntityOrder.Type.ATTACK:
+			return i
+	return -1
 
 
 func _submission_for(player_id: int) -> SubmitTurn:
@@ -443,6 +529,15 @@ func _live_entity(entity_id: int) -> Entity:
 	return entity
 
 
+func _live_enemy_entity(entity_id: int) -> Entity:
+	var entity: Entity = _live_entity(entity_id)
+	if entity == null:
+		return null
+	if entity.owner_player_id < 0 or entity.owner_player_id == _active_player_id:
+		return null
+	return entity
+
+
 func _gather_target_entity(entity_id: int) -> Entity:
 	if _state == null:
 		return null
@@ -453,6 +548,7 @@ func _gather_target_entity(entity_id: int) -> Entity:
 	if def == null:
 		return null
 	if def.resource_source != null:
+		# -1 is infinite capacity; only exactly zero is depleted.
 		if entity.current_resource_amount == 0:
 			return null
 		return entity
@@ -481,6 +577,64 @@ func _is_gather_target(target: Entity, target_def: EntityDef) -> bool:
 	if target_def.resource_source != null:
 		return true
 	return target_def.tags.has("refinery")
+
+
+func _build_affordability_message(def_id: String) -> String:
+	var actor: Entity = _selected_entity()
+	if actor == null or _state == null or _registry == null:
+		return "Select a builder before issuing BUILD."
+	var def: EntityDef = _registry.get_by_id(def_id)
+	if def == null or def.construction == null:
+		return "Cannot build '%s'." % def_id
+	var player: PlayerState = _state.get_player(actor.owner_player_id)
+	if player == null:
+		return "BUILD needs an active player economy."
+	var missing: Array[String] = []
+	if player.minerals < def.construction.mineral_cost:
+		missing.append("%dM" % def.construction.mineral_cost)
+	if player.gas < def.construction.gas_cost:
+		missing.append("%dG" % def.construction.gas_cost)
+	var pop_cost := 0
+	if def.population != null:
+		pop_cost = def.population.pop_cost
+	if player.pop_used + pop_cost > player.pop_cap:
+		missing.append("%dP" % pop_cost)
+	if missing.is_empty():
+		return ""
+	return "Need %s for BUILD %s." % [", ".join(missing), label_for_entity_def_id(def_id)]
+
+
+func _build_placement_message(def: EntityDef, rect: Rect2i) -> String:
+	if def == null or def.construction == null or _state == null or _state.tile_grid == null:
+		return "BUILD needs a valid placement."
+	var require_tag: String = def.construction.requires_target_tag
+	if require_tag != "":
+		if _find_overlap_target(rect, require_tag) < 0:
+			return "BUILD target needs %s." % require_tag
+		return ""
+	if not _state.tile_grid.is_rect_clear(rect):
+		return "BUILD target is occupied."
+	return ""
+
+
+func _find_overlap_target(rect: Rect2i, tag: String) -> int:
+	if _state == null or _state.tile_grid == null or _registry == null:
+		return -1
+	var occupants: Array[int] = []
+	for x in range(rect.position.x, rect.position.x + rect.size.x):
+		for y in range(rect.position.y, rect.position.y + rect.size.y):
+			var occupant_id := _state.tile_grid.entity_at(Vector2i(x, y))
+			if occupant_id != -1 and not occupants.has(occupant_id):
+				occupants.append(occupant_id)
+	if occupants.size() != 1:
+		return -1
+	var occupant: Entity = _state.get_entity_by_id(occupants[0])
+	if occupant == null:
+		return -1
+	var occupant_def: EntityDef = _registry.get_by_id(_def_id_for_entity(occupant))
+	if occupant_def == null or not occupant_def.tags.has(tag):
+		return -1
+	return occupant.id
 
 
 func _player_has_research_in_progress(owner_player_id: int, research_id: String) -> bool:

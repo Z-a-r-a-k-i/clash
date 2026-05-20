@@ -4,7 +4,6 @@ extends Node
 const _REGISTRY_PATH: String = "res://data/entity_registry.tres"
 const _TUNABLES_PATH: String = "res://data/tunables.tres"
 const _MVP_MAP_PATH: String = "res://data/scenarios/mvp_map.tres"
-const _MINERALS_FOR_FIRST_BARRACKS: int = 150
 
 
 func _enter_tree() -> void:
@@ -51,7 +50,10 @@ func _test_m0_playtest_smoke() -> bool:
 		return false
 	if not _assert_opening_fog(state, registry):
 		return false
-	state = _drive_p0_gather_until(state, registry, tunables, _MINERALS_FOR_FIRST_BARRACKS)
+	var barracks_mineral_cost: int = _mineral_cost_for_def(registry, "barracks")
+	if barracks_mineral_cost < 0:
+		return false
+	state = _drive_p0_gather_until(state, registry, tunables, barracks_mineral_cost)
 	if state == null:
 		push_error("[m0_playtest_smoke] opening gather did not reach first barracks minerals")
 		return false
@@ -86,7 +88,10 @@ func _test_m0_playtest_smoke() -> bool:
 	if state == null:
 		push_error("[m0_playtest_smoke] barracks did not complete within smoke budget")
 		return false
-	state = _resolve_until_minerals_at_least(state, registry, tunables, 50, 120)
+	var marine_mineral_cost: int = _mineral_cost_for_def(registry, "marine")
+	if marine_mineral_cost < 0:
+		return false
+	state = _resolve_until_minerals_at_least(state, registry, tunables, marine_mineral_cost, 120)
 	if state == null:
 		push_error("[m0_playtest_smoke] minerals did not recover enough to train a marine")
 		return false
@@ -188,11 +193,11 @@ func _assert_baseline_map(state: MatchState) -> bool:
 	if _entity_count_by_def_owner(state, "base", 1) != 1:
 		push_error("[m0_playtest_smoke] expected one P1 base")
 		return false
-	if _entity_count_by_def_owner(state, "worker", 0) != 2:
-		push_error("[m0_playtest_smoke] expected two P0 workers")
+	if _entity_count_by_def_owner(state, "worker", 0) != 4:
+		push_error("[m0_playtest_smoke] expected four P0 workers")
 		return false
-	if _entity_count_by_def_owner(state, "worker", 1) != 2:
-		push_error("[m0_playtest_smoke] expected two P1 workers")
+	if _entity_count_by_def_owner(state, "worker", 1) != 4:
+		push_error("[m0_playtest_smoke] expected four P1 workers")
 		return false
 	var player_0: PlayerState = state.get_player(0)
 	var player_1: PlayerState = state.get_player(1)
@@ -473,6 +478,14 @@ func _spawn_entity(
 		state.entities.erase(entity)
 		return -1
 	return entity.id
+
+
+func _mineral_cost_for_def(registry: EntityRegistry, def_id: String) -> int:
+	var def: EntityDef = registry.get_by_id(def_id) if registry != null else null
+	if def == null or def.construction == null:
+		push_error("[m0_playtest_smoke] registry missing construction cost for '%s'" % def_id)
+		return -1
+	return def.construction.mineral_cost
 
 
 func _has_event(events: Array[ResolverEvent], event_type: ResolverEvent.Type) -> bool:

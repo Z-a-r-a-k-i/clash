@@ -25,6 +25,7 @@ func _init() -> void:
 			tunables.map_height,
 			starting_resources,
 			registry,
+			true,
 		)
 	)
 	if err != OK:

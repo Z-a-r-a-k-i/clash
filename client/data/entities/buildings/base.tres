@@ -9,7 +9,7 @@
 
 [sub_resource type="Resource" id="Resource_7crla"]
 script = ExtResource("1_7crla")
-build_time_turns = 20
+build_time_turns = 5
 mineral_cost = 400
 built_by_tag = "worker"
 

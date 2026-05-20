@@ -27,9 +27,17 @@ static func bake(
 	map_width: int,
 	map_height: int,
 	starting_resources: Dictionary,
-	registry: EntityRegistry
+	registry: EntityRegistry,
+	auto_start_workers_on_minerals: bool = false
 ) -> Error:
-	var sd := bake_to_resource(map_scene_path, map_width, map_height, starting_resources, registry)
+	var sd := bake_to_resource(
+		map_scene_path,
+		map_width,
+		map_height,
+		starting_resources,
+		registry,
+		auto_start_workers_on_minerals
+	)
 	if sd == null:
 		return ERR_INVALID_DATA
 	return ResourceSaver.save(sd, output_tres_path)
@@ -41,7 +49,8 @@ static func bake_to_resource(
 	map_width: int,
 	map_height: int,
 	starting_resources: Dictionary,
-	registry: EntityRegistry
+	registry: EntityRegistry,
+	auto_start_workers_on_minerals: bool = false
 ) -> ScenarioDef:
 	if not ResourceLoader.exists(map_scene_path):
 		push_error("[MapBaker] Map scene not found: %s" % map_scene_path)
@@ -55,7 +64,12 @@ static func bake_to_resource(
 		push_error("[MapBaker] Failed to instantiate map scene: %s" % map_scene_path)
 		return null
 	var sd := bake_to_resource_from_scene(
-		instance, map_width, map_height, starting_resources, registry
+		instance,
+		map_width,
+		map_height,
+		starting_resources,
+		registry,
+		auto_start_workers_on_minerals
 	)
 	instance.queue_free()
 	return sd
@@ -68,7 +82,8 @@ static func bake_to_resource_from_scene(
 	map_width: int,
 	map_height: int,
 	starting_resources: Dictionary,
-	registry: EntityRegistry
+	registry: EntityRegistry,
+	auto_start_workers_on_minerals: bool = false
 ) -> ScenarioDef:
 	if scene_root == null:
 		push_error("[MapBaker] scene_root is null.")
@@ -106,6 +121,7 @@ static func bake_to_resource_from_scene(
 	sd.map_width = map_width
 	sd.map_height = map_height
 	sd.starting_resources_per_player = starting_resources
+	sd.auto_start_workers_on_minerals = auto_start_workers_on_minerals
 	sd.placements = placements
 	return sd
 

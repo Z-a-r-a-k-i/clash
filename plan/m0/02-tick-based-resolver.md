@@ -57,7 +57,7 @@ Per attack action: `attack { target_id_priority: [t1, t2, t3, ...] }`.
 
 - [x] Pure-function `Resolver.resolve(state, submit_a, submit_b, registry, tunables) -> ResolveResult` exists in `client/scripts/resolver/`.
 - [x] Deterministic on identical input (golden test: same input → identical event list across N runs).
-- [x] Handles resolver-level order types from node 03 (move, attack, attack-move, hold-fire toggle, cancel, build, train, research, gather, surrender flag).
+- [x] Handles resolver-level order types from node 03 (move, target focus, hold-fire toggle, cancel, build, train, research, gather, surrender flag).
 - [x] Unit tests cover target-chain fallback, hold-fire blocking auto-acquire, persistent-move continuation, multi-tile collision during move, attacks-before-moves ordering within a tick, and movement-speed budget.
 - [x] No RNG in the resolver call graph (verified by grep + review).
 

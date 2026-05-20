@@ -8,7 +8,7 @@
 
 [sub_resource type="Resource" id="Resource_icvms"]
 script = ExtResource("1_icvms")
-build_time_turns = 7
+build_time_turns = 3
 mineral_cost = 150
 built_by_tag = "worker"
 

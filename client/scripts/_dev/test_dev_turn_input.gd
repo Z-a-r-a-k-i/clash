@@ -34,12 +34,22 @@ func _all_tests() -> Array:
 		["dev_input_selects_only_active_live_owned_entities", _test_selects_owned_live_entity],
 		["dev_input_queues_move_for_active_player", _test_queues_move_for_active_player],
 		["dev_input_queues_attack_against_enemy", _test_queues_attack_against_enemy],
+		["dev_input_queues_persistent_attack_target", _test_queues_persistent_attack_target],
+		["dev_input_replaces_duplicate_move_and_target", _test_replaces_duplicate_move_and_target],
 		["dev_input_queues_gather_for_worker_resource_target", _test_queues_gather],
 		[
-			"dev_input_queues_attack_move_hold_fire_and_cancel",
-			_test_queues_attack_move_hold_fire_cancel
+			"dev_input_queues_move_target_hold_fire_and_cancel",
+			_test_queues_move_target_hold_fire_cancel
 		],
 		["dev_input_queues_build_train_and_research", _test_queues_build_train_research],
+		[
+			"dev_input_rejects_unaffordable_build_without_queue",
+			_test_rejects_unaffordable_build_without_queue
+		],
+		[
+			"dev_input_rejects_occupied_build_without_queue",
+			_test_rejects_occupied_build_without_queue
+		],
 		["dev_input_derives_command_options_from_selection", _test_derives_command_options],
 		["dev_input_queues_use_ability", _test_queues_use_ability],
 		["dev_input_clears_submissions_after_resolve", _test_clears_submissions],
@@ -51,7 +61,7 @@ func _test_selects_owned_live_entity() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	if not input.select_entity(1):
@@ -79,7 +89,7 @@ func _test_queues_move_for_active_player() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(1)
@@ -99,7 +109,7 @@ func _test_queues_attack_against_enemy() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
@@ -115,11 +125,65 @@ func _test_queues_attack_against_enemy() -> bool:
 	return true
 
 
+func _test_queues_persistent_attack_target() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.has_method("issue_attack_target"):
+		push_error("DevTurnInput should expose persistent targeted attack intent")
+		return false
+	if not input.call("issue_attack_target", 2):
+		push_error("expected attack target to queue for selected marine")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("expected one queued order, got %d" % orders.size())
+		return false
+	return _expect_order(
+		orders[0], EntityOrder.Type.ATTACK, 5, Vector2i.ZERO, -1, [2] as Array[int]
+	)
+
+
+func _test_replaces_duplicate_move_and_target() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	_add_entity(setup.state, 8, "marine", 1, Vector2i(9, 7), Vector2i(1, 1), 45)
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.issue_move(Vector2i(6, 6)):
+		push_error("expected first MOVE to queue")
+		return false
+	if not input.issue_move(Vector2i(8, 8)):
+		push_error("expected second MOVE to replace first")
+		return false
+	if not input.issue_attack(2):
+		push_error("expected first target to queue")
+		return false
+	if not input.issue_attack(8):
+		push_error("expected second target to replace first")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 2:
+		push_error("expected one MOVE and one ATTACK after replacement, got %d" % orders.size())
+		return false
+	return (
+		_expect_order(orders[0], EntityOrder.Type.MOVE, 5, Vector2i(8, 8), -1, [])
+		and _expect_order(orders[1], EntityOrder.Type.ATTACK, 5, Vector2i.ZERO, -1, [8])
+	)
+
+
 func _test_queues_gather() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(1)
@@ -142,16 +206,19 @@ func _test_queues_gather() -> bool:
 	return true
 
 
-func _test_queues_attack_move_hold_fire_cancel() -> bool:
+func _test_queues_move_target_hold_fire_cancel() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
-	if not input.issue_attack_move(Vector2i(6, 6)):
-		push_error("expected ATTACK_MOVE to queue for selected marine")
+	if not input.issue_move(Vector2i(6, 6)):
+		push_error("expected MOVE to queue for selected marine")
+		return false
+	if not input.issue_attack_target(2):
+		push_error("expected target focus to queue for selected marine")
 		return false
 	if not input.issue_hold_fire_toggle(true):
 		push_error("expected HOLD_FIRE_TOGGLE to queue for selected marine")
@@ -160,17 +227,20 @@ func _test_queues_attack_move_hold_fire_cancel() -> bool:
 		push_error("expected CANCEL to queue for selected marine")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
-	if orders.size() != 3:
-		push_error("expected three queued orders, got %d" % orders.size())
+	if orders.size() != 4:
+		push_error("expected four queued orders, got %d" % orders.size())
 		return false
-	if orders[0].type != EntityOrder.Type.ATTACK_MOVE or orders[0].target_tile != Vector2i(6, 6):
-		push_error("first order should be ATTACK_MOVE to (6, 6)")
+	if orders[0].type != EntityOrder.Type.MOVE or orders[0].target_tile != Vector2i(6, 6):
+		push_error("first order should be MOVE to (6, 6)")
 		return false
-	if orders[1].type != EntityOrder.Type.HOLD_FIRE_TOGGLE or not orders[1].hold_fire:
-		push_error("second order should enable hold fire")
+	if orders[1].type != EntityOrder.Type.ATTACK or orders[1].target_priority_chain != [2]:
+		push_error("second order should focus target #2")
 		return false
-	if orders[2].type != EntityOrder.Type.CANCEL or orders[2].cancel_index != -1:
-		push_error("third order should cancel persistent action with index -1")
+	if orders[2].type != EntityOrder.Type.HOLD_FIRE_TOGGLE or not orders[2].hold_fire:
+		push_error("third order should enable hold fire")
+		return false
+	if orders[3].type != EntityOrder.Type.CANCEL or orders[3].cancel_index != -1:
+		push_error("fourth order should cancel persistent action with index -1")
 		return false
 	return true
 
@@ -179,7 +249,8 @@ func _test_queues_build_train_research() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
+	setup.state.get_player(0).minerals = 200
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(1)
@@ -213,11 +284,53 @@ func _test_queues_build_train_research() -> bool:
 	return true
 
 
+func _test_rejects_unaffordable_build_without_queue() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	setup.state.get_player(0).minerals = 50
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	if input.issue_build("barracks", Vector2i(5, 5)):
+		push_error("unaffordable BUILD should be rejected before queueing")
+		return false
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("rejected BUILD should not append an order")
+		return false
+	if input.status_message().find("Need") == -1 or input.status_message().find("150M") == -1:
+		push_error("unaffordable BUILD should explain the cost gap: %s" % input.status_message())
+		return false
+	return true
+
+
+func _test_rejects_occupied_build_without_queue() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	setup.state.get_player(0).minerals = 200
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	if input.issue_build("barracks", Vector2i(8, 4)):
+		push_error("BUILD overlapping existing barracks should be rejected before queueing")
+		return false
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("occupied BUILD should not append an order")
+		return false
+	if input.status_message().find("occupied") == -1:
+		push_error("occupied BUILD should explain placement failure: %s" % input.status_message())
+		return false
+	return true
+
+
 func _test_derives_command_options() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(1)
@@ -230,6 +343,11 @@ func _test_derives_command_options() -> bool:
 		return false
 	if not input.train_option_ids().is_empty():
 		push_error("worker should not expose train options")
+		return false
+	input.select_entity(5)
+	setup.state.get_entity_by_id(5).focus_target_entity_id = 2
+	if not input.can_issue_cancel():
+		push_error("selected unit with focus target should expose cancel")
 		return false
 	input.select_entity(6)
 	if input.build_option_ids().has("barracks"):
@@ -254,7 +372,7 @@ func _test_queues_use_ability() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	setup.state.get_player(0).unlocked_researches.append("stim_research")
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
@@ -285,7 +403,7 @@ func _test_clears_submissions() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(1)
@@ -307,7 +425,7 @@ func _test_surrender_active_player() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
-	var setup := _make_input_setup()
+	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(1)
 	input.surrender_active_player()

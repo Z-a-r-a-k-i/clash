@@ -30,9 +30,13 @@ Result:
 
 - Turns played:
 - Winner / end condition:
-- First moment of confusion:
+- First moment of confusion: initial attempt was blocked before gameplay; the
+  HUD covered the opening area, the map was framed as a tiny whole-map view,
+  zero-HP resource sources were not rendered as map entities, and the scene felt
+  non-interactive.
 - Most promising fun moment:
-- Biggest pacing issue:
+- Biggest pacing issue: not evaluated yet; visual/click playability blocked
+  the pass.
 
 ## Turn Log
 
@@ -81,7 +85,12 @@ Use short notes only when something matters.
 
 ## Next Iteration Triage
 
-- Must fix before next pass:
+- Must fix before next pass: make the dev scene human-playable by moving the
+  HUD away from the starting units, focusing the camera on the active player
+  and nearby resources, rendering zero-HP resources, and adding basic mouse
+  camera control. Follow-up command UX pass should make queued intent,
+  resources, gather, costs, auto-starting workers, and unit-training progress
+  visible enough for a human playtest.
 - Gameplay or pacing change:
 - Tooling or debuggability issue:
 - Later polish:

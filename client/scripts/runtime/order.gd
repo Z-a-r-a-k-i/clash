@@ -32,6 +32,9 @@ extends Resource
 enum Type {
 	INVALID = -1,
 	MOVE = 0,
+	# Deprecated compatibility shape. The human UX now exposes separate
+	# MOVE and ATTACK target-focus commands; the resolver maps ATTACK_MOVE
+	# to those intents during distribution.
 	ATTACK_MOVE,
 	ATTACK,
 	HOLD_FIRE_TOGGLE,
@@ -49,7 +52,7 @@ enum Type {
 # player's id and drops orders that don't match.
 @export var entity_id: int = -1
 
-# MOVE / ATTACK_MOVE / BUILD — destination tile.
+# MOVE / deprecated ATTACK_MOVE / BUILD — destination tile.
 @export var target_tile: Vector2i = Vector2i.ZERO
 
 # ATTACK — priority list. Resolver fires at the first live entity in this

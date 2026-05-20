@@ -10,10 +10,12 @@ extends SceneTree
 # repo so the map can be re-bootstrapped from scratch if needed.
 #
 # Layout (50x50, left half):
-#   - P1 main (base + 8 patches + geyser + 2 workers) center-left at y=22-26
-#   - P1 natural (6 patches + geyser) forward, around x=15-21
-#   - P1 expansion (6 patches + geyser) top-left corner around x=3-9
-#   - Golden (4 patches + 1 geyser) near axis around x=20-22
+#   - P0 main base at (12, 22), mirrored to P1 at (34, 22).
+#   - Bases face each other across the center of the map.
+#   - Each player starts with 4 workers between the base and resources.
+#   - Each base has exactly 8 mineral patches + 1 geyser behind it, on
+#     the outside edge away from the opponent.
+#   - No natural, third, gold base, obstacle, or terrain feature yet.
 #
 # All placements live on the LEFT half. Baker generates the right half.
 
@@ -70,21 +72,23 @@ func _init() -> void:
 func _all_placements() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 
-	# ---------- P1 Main (base, workers, minerals, geyser) ----------
-	# Base 4x4 at (2, 22) → occupies x=2..5, y=22..25.
-	out.append({"name": "P1Main", "def_id": "base", "owner": 0, "tile": Vector2i(2, 22)})
-	# 2 starting workers, just east of the base, in the gap between
-	# main mineral rows.
-	out.append({"name": "P1Worker_1", "def_id": "worker", "owner": 0, "tile": Vector2i(6, 22)})
-	out.append({"name": "P1Worker_2", "def_id": "worker", "owner": 0, "tile": Vector2i(6, 25)})
-	# Main mineral cluster — 8 patches in two rows of 4 at y=18 and y=24.
-	# 1x3 footprint: row at y=18 occupies y=18..20; row at y=24 occupies y=24..26.
+	# ---------- P0 Main (base, workers, minerals, geyser) ----------
+	# Base 4x4 at (12, 22) → occupies x=12..15, y=22..25.
+	# P1 is the exact horizontal mirror at x=34..37.
+	out.append({"name": "P0Main", "def_id": "base", "owner": 0, "tile": Vector2i(12, 22)})
+	# 4 starting workers sit between the base and its back resource line.
+	out.append({"name": "P0Worker_1", "def_id": "worker", "owner": 0, "tile": Vector2i(9, 21)})
+	out.append({"name": "P0Worker_2", "def_id": "worker", "owner": 0, "tile": Vector2i(10, 21)})
+	out.append({"name": "P0Worker_3", "def_id": "worker", "owner": 0, "tile": Vector2i(9, 26)})
+	out.append({"name": "P0Worker_4", "def_id": "worker", "owner": 0, "tile": Vector2i(10, 26)})
+	# Main mineral cluster — 8 patches behind the base, split into two rows.
+	# 1x3 footprint: row at y=18 occupies y=18..20; row at y=27 occupies y=27..29.
 	for i in range(4):
 		(
 			out
 			. append(
 				{
-					"name": "P1MainMineral_top_%d" % i,
+					"name": "P0MainMineral_top_%d" % i,
 					"def_id": "mineral_patch",
 					"owner": -1,
 					"tile": Vector2i(7 + i, 18),
@@ -96,134 +100,16 @@ func _all_placements() -> Array[Dictionary]:
 			out
 			. append(
 				{
-					"name": "P1MainMineral_bot_%d" % i,
+					"name": "P0MainMineral_bot_%d" % i,
 					"def_id": "mineral_patch",
 					"owner": -1,
-					"tile": Vector2i(7 + i, 24),
+					"tile": Vector2i(7 + i, 27),
 				}
 			)
 		)
-	# Main geyser 3x3 at (12, 22) — east of mineral cluster.
+	# Main geyser 3x3 at (6, 22) — behind the base, between mineral rows.
 	out.append(
-		{"name": "P1MainGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(12, 22)}
-	)
-
-	# ---------- P1 Natural (forward of main) ----------
-	# 6 mineral patches in two rows of 3 at y=21 and y=27.
-	# 1x3 footprint: y=21 occupies y=21..23; y=27 occupies y=27..29.
-	for i in range(3):
-		(
-			out
-			. append(
-				{
-					"name": "P1NaturalMineral_top_%d" % i,
-					"def_id": "mineral_patch",
-					"owner": -1,
-					"tile": Vector2i(15 + i, 21),
-				}
-			)
-		)
-	for i in range(3):
-		(
-			out
-			. append(
-				{
-					"name": "P1NaturalMineral_bot_%d" % i,
-					"def_id": "mineral_patch",
-					"owner": -1,
-					"tile": Vector2i(15 + i, 27),
-				}
-			)
-		)
-	# Natural geyser 3x3 at (15, 30) — south of natural minerals, sharing
-	# x=15-17 column. Sits clear of the golden cluster (x=21-22, y=22-28).
-	(
-		out
-		. append(
-			{
-				"name": "P1NaturalGeyser",
-				"def_id": "gas_geyser",
-				"owner": -1,
-				"tile": Vector2i(15, 30),
-			}
-		)
-	)
-
-	# ---------- P1 Expansion (top-left) ----------
-	# 6 patches in two rows of 3 at y=4 and y=8.
-	for i in range(3):
-		(
-			out
-			. append(
-				{
-					"name": "P1ExpMineral_top_%d" % i,
-					"def_id": "mineral_patch",
-					"owner": -1,
-					"tile": Vector2i(3 + i, 4),
-				}
-			)
-		)
-	for i in range(3):
-		(
-			out
-			. append(
-				{
-					"name": "P1ExpMineral_bot_%d" % i,
-					"def_id": "mineral_patch",
-					"owner": -1,
-					"tile": Vector2i(3 + i, 9),
-				}
-			)
-		)
-	# Expansion geyser 3x3 at (7, 5).
-	out.append({"name": "P1ExpGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(7, 5)})
-
-	# ---------- Golden (contested neutral, near axis) ----------
-	# 4 golden patches at x=21, 22 / y=22, 26 (left half, mirrored to right).
-	out.append(
-		{
-			"name": "Golden_Min_TL",
-			"def_id": "mineral_patch_gold",
-			"owner": -1,
-			"tile": Vector2i(21, 22)
-		}
-	)
-	out.append(
-		{
-			"name": "Golden_Min_TR",
-			"def_id": "mineral_patch_gold",
-			"owner": -1,
-			"tile": Vector2i(22, 22)
-		}
-	)
-	out.append(
-		{
-			"name": "Golden_Min_BL",
-			"def_id": "mineral_patch_gold",
-			"owner": -1,
-			"tile": Vector2i(21, 26)
-		}
-	)
-	out.append(
-		{
-			"name": "Golden_Min_BR",
-			"def_id": "mineral_patch_gold",
-			"owner": -1,
-			"tile": Vector2i(22, 26)
-		}
-	)
-	# Golden geyser 3x3 at (20, 30) (paired with mirror — odd footprint,
-	# can't sit on axis).
-	(
-		out
-		. append(
-			{
-				"name": "Golden_Geyser_L",
-				"def_id": "gas_geyser",
-				"owner": -1,
-				"tile": Vector2i(20, 30),
-			}
-		)
+		{"name": "P0MainGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(6, 22)}
 	)
 
 	return out
