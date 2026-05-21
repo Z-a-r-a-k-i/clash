@@ -78,8 +78,8 @@ func _all_tests() -> Array:
 			_test_resolution_toggle_switches_window_size_and_button_text
 		],
 		[
-			"dev_play_mode_resolution_toggle_reports_embedded_window_without_resizing",
-			_test_resolution_toggle_reports_embedded_window_without_resizing
+			"dev_play_mode_resolution_toggle_reports_embedded_window_uses_virtual_resolution",
+			_test_resolution_toggle_reports_embedded_window_uses_virtual_resolution
 		],
 	]
 
@@ -1040,6 +1040,12 @@ func _test_resolution_toggle_switches_window_size_and_button_text() -> bool:
 				)
 			)
 			ok = false
+		if not mode.has_method("dev_resolution_content_scale_size"):
+			push_error("DevPlayMode should expose dev_resolution_content_scale_size")
+			ok = false
+		elif mode.call("dev_resolution_content_scale_size") != Vector2i(2560, 1440):
+			push_error("2K toggle should set virtual content scale to 2560x1440")
+			ok = false
 		if button != null and button.text != "1080p":
 			push_error("2K window should show 1080p as the resolution target, got %s" % button.text)
 			ok = false
@@ -1052,6 +1058,12 @@ func _test_resolution_toggle_switches_window_size_and_button_text() -> bool:
 				)
 			)
 			ok = false
+		if (
+			mode.has_method("dev_resolution_content_scale_size")
+			and mode.call("dev_resolution_content_scale_size") != Vector2i(1920, 1080)
+		):
+			push_error("1080p toggle should restore virtual content scale to 1920x1080")
+			ok = false
 		if button != null and button.text != "2K":
 			push_error("1080p window should show 2K after toggling back, got %s" % button.text)
 			ok = false
@@ -1060,7 +1072,7 @@ func _test_resolution_toggle_switches_window_size_and_button_text() -> bool:
 	return ok
 
 
-func _test_resolution_toggle_reports_embedded_window_without_resizing() -> bool:
+func _test_resolution_toggle_reports_embedded_window_uses_virtual_resolution() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
 		return false
@@ -1075,12 +1087,26 @@ func _test_resolution_toggle_reports_embedded_window_without_resizing() -> bool:
 	mode.call("set_dev_resolution_resize_supported_override", false)
 	mode.call("toggle_dev_resolution")
 	var status_label := mode.get_node_or_null("DevHUD/Panel/Root/Status") as Label
+	var button := mode.get_node_or_null("DevHUD/Panel/Root/Buttons/Resolution") as Button
 	var ok := true
-	if mode.call("dev_resolution_size") != Vector2i(1920, 1080):
-		push_error("embedded resize fallback should not change tracked window size")
+	if mode.call("dev_resolution_size") != Vector2i(2560, 1440):
+		push_error("embedded resolution toggle should track 2560x1440")
 		ok = false
-	if status_label == null or status_label.text.find("embedded") == -1:
-		push_error("embedded resize fallback should explain the editor embedding limit")
+	if (
+		not mode.has_method("dev_resolution_content_scale_size")
+		or mode.call("dev_resolution_content_scale_size") != Vector2i(2560, 1440)
+	):
+		push_error("embedded resolution toggle should set virtual content scale to 2560x1440")
+		ok = false
+	if button == null or button.text != "1080p":
+		push_error("embedded 2K toggle should show 1080p as the next target")
+		ok = false
+	if (
+		status_label == null
+		or status_label.text.find("embedded") == -1
+		or status_label.text.find("virtual") == -1
+	):
+		push_error("embedded resolution toggle should report virtual embedded mode")
 		ok = false
 	_free_mode(mode)
 	return ok
