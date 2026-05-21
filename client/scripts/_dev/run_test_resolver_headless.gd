@@ -13,6 +13,7 @@ func _init() -> void:
 	var selected: Array[String] = _selected_tests()
 	var runner: Node = Node.new()
 	runner.set_script(script)
+	root.add_child(runner)
 
 	var passed: int = 0
 	var failed: int = 0
@@ -35,6 +36,8 @@ func _init() -> void:
 	print("[test_resolver_headless] %d passed, %d failed, %d skipped" % [passed, failed, skipped])
 	for test_name in fail_names:
 		push_error("  failed: %s" % test_name)
+	root.remove_child(runner)
+	runner.queue_free()
 	quit(0 if failed == 0 else 1)
 
 

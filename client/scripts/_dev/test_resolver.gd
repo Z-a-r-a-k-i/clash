@@ -4877,62 +4877,79 @@ func _make_test_map_scene(specs: Array) -> Node:
 	return scene_root
 
 
+func _bake_test_map_placements(
+	specs: Array, map_width: int, map_height: int, registry: EntityRegistry
+) -> Dictionary:
+	var scene_root: Node = _make_test_map_scene(specs)
+	var placements_node: Node = scene_root.get_node("Placements")
+	var result: Dictionary = MapBaker.bake_placements_with_mirror(
+		placements_node, map_width, map_height, registry
+	)
+	scene_root.free()
+	return result
+
+
 func _test_map_baker_validation() -> bool:
 	var registry := _baker_registry()
 	var w := 50
 	var h := 50
 
 	# Negative 1: right-half placement rejected (worker at x=40).
-	var scene1 := _make_test_map_scene(
-		[{"def_id": "worker", "owner": 0, "tile": Vector2i(40, 25), "on_axis": false}]
+	var result1: Dictionary = _bake_test_map_placements(
+		[{"def_id": "worker", "owner": 0, "tile": Vector2i(40, 25), "on_axis": false}],
+		w,
+		h,
+		registry
 	)
-	var sd1 := MapBaker.bake_to_resource_from_scene(scene1, w, h, {}, registry)
-	scene1.free()
-	if sd1 != null:
+	if result1["ok"]:
 		push_error("[map_baker_validation] right-half placement should fail")
 		return false
 
 	# Negative 2: unknown def_id rejected.
-	var scene2 := _make_test_map_scene(
-		[{"def_id": "no_such_def", "owner": 0, "tile": Vector2i(5, 5), "on_axis": false}]
+	var result2: Dictionary = _bake_test_map_placements(
+		[{"def_id": "no_such_def", "owner": 0, "tile": Vector2i(5, 5), "on_axis": false}],
+		w,
+		h,
+		registry
 	)
-	var sd2 := MapBaker.bake_to_resource_from_scene(scene2, w, h, {}, registry)
-	scene2.free()
-	if sd2 != null:
+	if result2["ok"]:
 		push_error("[map_baker_validation] unknown def_id should fail")
 		return false
 
 	# Negative 3: 3x3 axis-crossing placement without on_axis rejected.
 	# block3 at x=23 occupies x=23,24,25 — right edge crosses the axis (24/25).
-	var scene3 := _make_test_map_scene(
-		[{"def_id": "block3", "owner": -1, "tile": Vector2i(23, 23), "on_axis": false}]
+	var result3: Dictionary = _bake_test_map_placements(
+		[{"def_id": "block3", "owner": -1, "tile": Vector2i(23, 23), "on_axis": false}],
+		w,
+		h,
+		registry
 	)
-	var sd3 := MapBaker.bake_to_resource_from_scene(scene3, w, h, {}, registry)
-	scene3.free()
-	if sd3 != null:
+	if result3["ok"]:
 		push_error("[map_baker_validation] axis-crossing without on_axis should fail")
 		return false
 
 	# Negative 4: on-axis even-footprint with player owner rejected.
 	# block2 (2x2) at x=24 is centered (occupies x=24,25), but owner=0
 	# is invalid for axis-straddling placements.
-	var scene4 := _make_test_map_scene(
-		[{"def_id": "block2", "owner": 0, "tile": Vector2i(24, 23), "on_axis": true}]
+	var result4: Dictionary = _bake_test_map_placements(
+		[{"def_id": "block2", "owner": 0, "tile": Vector2i(24, 23), "on_axis": true}],
+		w,
+		h,
+		registry
 	)
-	var sd4 := MapBaker.bake_to_resource_from_scene(scene4, w, h, {}, registry)
-	scene4.free()
-	if sd4 != null:
+	if result4["ok"]:
 		push_error("[map_baker_validation] on-axis with player owner should fail")
 		return false
 
 	# Negative 5: on-axis odd-footprint rejected (3x3 can't be centered
 	# on an even-width axis).
-	var scene5 := _make_test_map_scene(
-		[{"def_id": "block3", "owner": -1, "tile": Vector2i(23, 23), "on_axis": true}]
+	var result5: Dictionary = _bake_test_map_placements(
+		[{"def_id": "block3", "owner": -1, "tile": Vector2i(23, 23), "on_axis": true}],
+		w,
+		h,
+		registry
 	)
-	var sd5 := MapBaker.bake_to_resource_from_scene(scene5, w, h, {}, registry)
-	scene5.free()
-	if sd5 != null:
+	if result5["ok"]:
 		push_error("[map_baker_validation] odd-footprint on_axis should fail")
 		return false
 
