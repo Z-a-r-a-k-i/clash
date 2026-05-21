@@ -54,6 +54,10 @@ func _all_tests() -> Array:
 			_test_rejects_occupied_build_without_queue
 		],
 		["dev_input_derives_command_options_from_selection", _test_derives_command_options],
+		[
+			"dev_input_cancel_removes_selected_unit_queued_order",
+			_test_cancel_removes_selected_unit_queued_order
+		],
 		["dev_input_queues_use_ability", _test_queues_use_ability],
 		["dev_input_clears_submissions_after_resolve", _test_clears_submissions],
 		["dev_input_surrender_only_marks_active_player", _test_surrender_active_player],
@@ -238,22 +242,24 @@ func _test_queues_move_only_and_applies_state_changes() -> bool:
 		push_error("expected CANCEL to clear selected marine state")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
-	if orders.size() != 1:
-		push_error("expected only MOVE_ONLY to remain queued, got %d" % orders.size())
+	if orders.size() != 0:
+		push_error("expected queued MOVE_ONLY to be cancelled, got %d orders" % orders.size())
 		return false
 	if not EntityOrder.Type.has("MOVE_ONLY"):
 		push_error("EntityOrder.Type should define MOVE_ONLY")
-		return false
-	var move_only_type: int = EntityOrder.Type.get("MOVE_ONLY", EntityOrder.Type.INVALID)
-	if orders[0].type != move_only_type or orders[0].target_tile != Vector2i(7, 7):
-		push_error("queued order should be MOVE_ONLY to (7, 7)")
 		return false
 	var actor: Entity = setup.state.get_entity_by_id(5)
 	if actor == null:
 		push_error("expected selected marine to exist")
 		return false
+	if actor.focus_target_entity_id != 2:
+		push_error("first CANCEL should keep target focus while cancelling queued order")
+		return false
+	if not input.issue_cancel():
+		push_error("second CANCEL should clear selected marine target focus")
+		return false
 	if actor.focus_target_entity_id != -1:
-		push_error("CANCEL should immediately clear target focus")
+		push_error("second CANCEL should immediately clear target focus")
 		return false
 	if not actor.halt_on_sight:
 		push_error("halt-on-sight should remain immediately enabled")
@@ -393,6 +399,32 @@ func _test_derives_command_options() -> bool:
 	setup.state.get_player(0).unlocked_researches.append("stim_research")
 	if not input.research_option_ids().is_empty():
 		push_error("unlocked research should disappear from command options")
+		return false
+	return true
+
+
+func _test_cancel_removes_selected_unit_queued_order() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	if not input.issue_move(Vector2i(6, 6)):
+		push_error("expected MOVE to queue for selected worker")
+		return false
+	if not input.can_issue_cancel():
+		push_error("selected worker with a queued order should expose cancel")
+		return false
+	if not input.issue_cancel():
+		push_error("cancel should remove the selected worker's queued order")
+		return false
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("selected worker cancel should remove queued order immediately")
+		return false
+	if input.status_message().find("queued order") == -1:
+		push_error("cancel status should mention the queued order: %s" % input.status_message())
 		return false
 	return true
 

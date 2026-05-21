@@ -77,6 +77,10 @@ func _all_tests() -> Array:
 			"dev_play_mode_resolution_toggle_switches_window_size_and_button_text",
 			_test_resolution_toggle_switches_window_size_and_button_text
 		],
+		[
+			"dev_play_mode_resolution_toggle_reports_embedded_window_without_resizing",
+			_test_resolution_toggle_reports_embedded_window_without_resizing
+		],
 	]
 
 
@@ -284,7 +288,7 @@ func _test_command_card_actions_and_state_changes_are_separate_rows() -> bool:
 		return false
 	add_child(card)
 	_set_command_card_state(card, true, true, true, true, true, true)
-	var move_button: Button = _find_exact_button(card, "Move")
+	var move_button: Button = _find_exact_button(card, "Attack and Move")
 	var move_only_button: Button = _find_exact_button(card, "Move Only")
 	var gather_button: Button = _find_exact_button(card, "Gather")
 	var target_button: Button = _find_exact_button(card, "Target")
@@ -308,7 +312,7 @@ func _test_command_card_actions_and_state_changes_are_separate_rows() -> bool:
 			action_parent != move_only_button.get_parent()
 			or action_parent != gather_button.get_parent()
 		):
-			push_error("Move, Move Only, and Gather should share the action row")
+			push_error("Attack and Move, Move Only, and Gather should share the action row")
 			ok = false
 		if state_parent != halt_button.get_parent() or state_parent != cancel_button.get_parent():
 			push_error("Target, Halt on Sight, and Cancel should share the state row")
@@ -341,7 +345,7 @@ func _test_command_card_primary_visibility_tracks_each_command() -> bool:
 		ok = false
 
 	_set_command_card_state(card, true, true, false, false, false, false)
-	if not _expect_button_visibility(card, "Move", true):
+	if not _expect_button_visibility(card, "Attack and Move", true):
 		ok = false
 	if not _expect_button_visibility(card, "Move Only", true):
 		ok = false
@@ -349,13 +353,13 @@ func _test_command_card_primary_visibility_tracks_each_command() -> bool:
 		ok = false
 
 	_set_command_card_state(card, true, false, false, false, false, false)
-	if not _expect_button_visibility(card, "Move", true):
+	if not _expect_button_visibility(card, "Attack and Move", true):
 		ok = false
 	if not _expect_button_visibility(card, "Move Only", false):
 		ok = false
 
 	_set_command_card_state(card, false, true, false, false, false, false)
-	if not _expect_button_visibility(card, "Move", false):
+	if not _expect_button_visibility(card, "Attack and Move", false):
 		ok = false
 	if not _expect_button_visibility(card, "Move Only", true):
 		ok = false
@@ -364,7 +368,7 @@ func _test_command_card_primary_visibility_tracks_each_command() -> bool:
 	for label in ["Target", "Halt on Sight: Off", "Gather", "Cancel"]:
 		if not _expect_button_visibility(card, label, true):
 			ok = false
-	if not _expect_button_visibility(card, "Move", false):
+	if not _expect_button_visibility(card, "Attack and Move", false):
 		ok = false
 	if not _expect_button_visibility(card, "Move Only", false):
 		ok = false
@@ -713,6 +717,15 @@ func _test_routes_command_card_orders() -> bool:
 		push_error("expected MOVE after pending click")
 		_free_mode(mode)
 		return false
+	if not _expect_button_visibility(card, "Cancel", true):
+		push_error("selected worker with a queued order should expose Cancel")
+		_free_mode(mode)
+		return false
+	card.emit_signal("cancel_requested", -1)
+	if mode.pending_order_count(0) != 0:
+		push_error("Cancel should remove the selected worker's queued MOVE")
+		_free_mode(mode)
+		return false
 	mode.input_model().clear_submissions()
 	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
 		push_error("expected combat scenario reload for target command")
@@ -759,16 +772,19 @@ func _test_routes_command_card_orders() -> bool:
 	card.emit_signal("halt_on_sight_requested", true)
 	card.emit_signal("cancel_requested", -1)
 	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
-	if orders.size() != 1:
-		push_error("expected only MOVE_ONLY to remain queued, got %d" % orders.size())
+	if orders.size() != 0:
+		push_error(
+			"Cancel should remove the selected marine's queued MOVE_ONLY, got %d" % orders.size()
+		)
 		_free_mode(mode)
 		return false
-	if orders[0].type != EntityOrder.Type.MOVE_ONLY:
-		push_error("Move Only signal should queue MOVE_ONLY")
+	if marine == null or marine.focus_target_entity_id != 4:
+		push_error("first cancel signal should keep target focus while cancelling MOVE_ONLY")
 		_free_mode(mode)
 		return false
+	card.emit_signal("cancel_requested", -1)
 	if marine == null or marine.focus_target_entity_id != -1:
-		push_error("cancel signal should immediately clear target focus")
+		push_error("second cancel signal should immediately clear target focus")
 		_free_mode(mode)
 		return false
 	if not marine.halt_on_sight:
@@ -1041,6 +1057,32 @@ func _test_resolution_toggle_switches_window_size_and_button_text() -> bool:
 			ok = false
 	_free_mode(mode)
 	DisplayServer.window_set_size(original_size)
+	return ok
+
+
+func _test_resolution_toggle_reports_embedded_window_without_resizing() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	if not mode.has_method("set_dev_resolution_resize_supported_override"):
+		push_error("DevPlayMode should expose a resize-support override for embedded play checks")
+		_free_mode(mode)
+		return false
+	mode.call("set_dev_resolution_resize_supported_override", false)
+	mode.call("toggle_dev_resolution")
+	var status_label := mode.get_node_or_null("DevHUD/Panel/Root/Status") as Label
+	var ok := true
+	if mode.call("dev_resolution_size") != Vector2i(1920, 1080):
+		push_error("embedded resize fallback should not change tracked window size")
+		ok = false
+	if status_label == null or status_label.text.find("embedded") == -1:
+		push_error("embedded resize fallback should explain the editor embedding limit")
+		ok = false
+	_free_mode(mode)
 	return ok
 
 

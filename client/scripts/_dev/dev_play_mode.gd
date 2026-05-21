@@ -38,6 +38,7 @@ var _pending_command: String = PENDING_NONE
 var _pending_build_def_id: String = ""
 var _dev_resolution_size: Vector2i = DEV_RESOLUTION_1080P
 var _dev_resolution_window_mode: DisplayServer.WindowMode = DisplayServer.WINDOW_MODE_WINDOWED
+var _dev_resolution_resize_supported_override: int = -1
 var _is_panning_camera: bool = false
 var _left_empty_drag_candidate: bool = false
 var _left_empty_drag_moved: bool = false
@@ -100,6 +101,11 @@ func toggle_dev_resolution() -> void:
 	var target: Vector2i = DEV_RESOLUTION_2K
 	if dev_resolution_size() == DEV_RESOLUTION_2K:
 		target = DEV_RESOLUTION_1080P
+	if not _dev_resolution_resize_supported():
+		_update_hud(
+			"Resolution toggle needs a separate game window; embedded editor play cannot resize."
+		)
+		return
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 	_dev_resolution_window_mode = DisplayServer.WINDOW_MODE_WINDOWED
 	DisplayServer.window_set_size(target)
@@ -119,6 +125,10 @@ func dev_resolution_window_mode() -> DisplayServer.WindowMode:
 	if DisplayServer.window_get_size() == Vector2i.ZERO:
 		return _dev_resolution_window_mode
 	return current
+
+
+func set_dev_resolution_resize_supported_override(supported: bool) -> void:
+	_dev_resolution_resize_supported_override = 1 if supported else 0
 
 
 func set_show_all_friendly_action_previews(enabled: bool) -> void:
@@ -234,11 +244,11 @@ func issue_context_at_tile(tile: Vector2i) -> bool:
 
 func begin_move() -> void:
 	if not _input.can_issue_move():
-		_update_hud("Select a movable unit before MOVE.")
+		_update_hud("Select a movable unit before Attack and Move.")
 		return
 	_pending_command = PENDING_MOVE
 	_pending_build_def_id = ""
-	_update_hud("Click a target tile for MOVE.")
+	_update_hud("Click a target tile for Attack and Move.")
 
 
 func begin_move_only() -> void:
@@ -564,6 +574,15 @@ func _update_resolution_button_text() -> void:
 	_resolution_button.text = "1080p" if dev_resolution_size() == DEV_RESOLUTION_2K else "2K"
 
 
+func _dev_resolution_resize_supported() -> bool:
+	if _dev_resolution_resize_supported_override >= 0:
+		return _dev_resolution_resize_supported_override == 1
+	var display_name := DisplayServer.get_name().to_lower()
+	if display_name == "headless":
+		return true
+	return not (display_name == "windows" and OS.has_feature("editor"))
+
+
 func _clear_queues_from_hud() -> void:
 	_input.clear_submissions()
 	_clear_pending_command()
@@ -606,7 +625,7 @@ func _update_hud(override_status: String = "") -> void:
 		):
 			_status_label.text = status_message
 		elif _pending_command == PENDING_MOVE:
-			_status_label.text = "Pending MOVE: click target tile."
+			_status_label.text = "Pending Attack and Move: click target tile."
 		elif _pending_command == PENDING_MOVE_ONLY:
 			_status_label.text = "Pending MOVE ONLY: click target tile. Unit will not shoot."
 		elif _pending_command == PENDING_TARGET:
@@ -761,7 +780,7 @@ func _preview_for_order(order: EntityOrder) -> Dictionary:
 		return {}
 	match order.type:
 		EntityOrder.Type.MOVE:
-			var kind := "Move"
+			var kind := "Attack and Move"
 			if _will_halt_on_sight(order.entity_id):
 				kind = (
 					"Shoot + Hold" if _attack_target_for_entity(order.entity_id) >= 0 else "Halted"

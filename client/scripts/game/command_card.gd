@@ -122,7 +122,7 @@ func _ensure_ui() -> void:
 	_action_row.name = "Actions"
 	add_child(_action_row)
 
-	_move_button = _button("Move")
+	_move_button = _button("Attack and Move")
 	_move_button.pressed.connect(func() -> void: move_requested.emit())
 	_action_row.add_child(_move_button)
 

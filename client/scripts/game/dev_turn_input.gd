@@ -66,10 +66,10 @@ func clear_selection() -> void:
 func issue_move(target_tile: Vector2i) -> bool:
 	var actor: Entity = _selected_entity()
 	if actor == null:
-		_status_message = "Select a unit before issuing MOVE."
+		_status_message = "Select a unit before issuing Attack and Move."
 		return false
 	if _state == null or _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
-		_status_message = "MOVE target is outside the map."
+		_status_message = "Attack and Move target is outside the map."
 		return false
 	var def: EntityDef = _def_for_entity(actor)
 	if def == null or def.movement == null or def.movement.speed_tiles_per_turn <= 0:
@@ -80,7 +80,7 @@ func issue_move(target_tile: Vector2i) -> bool:
 	order.entity_id = actor.id
 	order.target_tile = target_tile
 	_append_order(order)
-	_status_message = "Queued MOVE for #%d to %s." % [actor.id, str(target_tile)]
+	_status_message = "Queued Attack and Move for #%d to %s." % [actor.id, str(target_tile)]
 	return true
 
 
@@ -286,6 +286,9 @@ func issue_cancel(cancel_index: int = -1) -> bool:
 	if actor == null:
 		_status_message = "Select an entity before issuing CANCEL."
 		return false
+	if cancel_index < 0 and _remove_queued_order_for_entity(actor.id):
+		_status_message = "Cancelled queued order for #%d." % actor.id
+		return true
 	if (
 		cancel_index < 0
 		and actor.locked_to_building_id < 0
@@ -381,6 +384,7 @@ func can_issue_cancel() -> bool:
 		actor.persistent_order != null
 		or actor.focus_target_entity_id >= 0
 		or actor.locked_to_building_id >= 0
+		or _has_queued_order_for_entity(actor.id)
 	):
 		return true
 	if actor.production_state == null:
@@ -529,6 +533,24 @@ func _append_order(order: EntityOrder) -> void:
 		submit.orders[replace_index] = order
 	else:
 		submit.orders.append(order)
+
+
+func _has_queued_order_for_entity(entity_id: int) -> bool:
+	var submit: SubmitTurn = _submission_for(_active_player_id)
+	for order in submit.orders:
+		if order != null and order.entity_id == entity_id:
+			return true
+	return false
+
+
+func _remove_queued_order_for_entity(entity_id: int) -> bool:
+	var submit: SubmitTurn = _submission_for(_active_player_id)
+	for i in range(submit.orders.size() - 1, -1, -1):
+		var order: EntityOrder = submit.orders[i]
+		if order != null and order.entity_id == entity_id:
+			submit.orders.remove_at(i)
+			return true
+	return false
 
 
 func _replacement_index_for_order(orders: Array[EntityOrder], order: EntityOrder) -> int:
