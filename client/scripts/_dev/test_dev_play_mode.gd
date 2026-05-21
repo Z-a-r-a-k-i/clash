@@ -2,6 +2,7 @@
 extends Node
 
 const DEV_PLAY_MODE_PATH := "res://scripts/_dev/dev_play_mode.gd"
+const COMMAND_CARD_PATH := "res://scripts/game/command_card.gd"
 const COMBAT_SCENARIO_PATH := "res://data/scenarios/combat_marines_vs_tanks.tres"
 const MVP_SCENARIO_PATH := "res://data/scenarios/mvp_map.tres"
 
@@ -45,6 +46,14 @@ func _all_tests() -> Array:
 			"dev_play_mode_command_card_hides_when_not_actionable",
 			_test_command_card_hides_when_not_actionable
 		],
+		[
+			"command_card_actions_and_state_changes_are_separate_rows",
+			_test_command_card_actions_and_state_changes_are_separate_rows
+		],
+		[
+			"command_card_primary_visibility_tracks_each_command",
+			_test_command_card_primary_visibility_tracks_each_command
+		],
 		["dev_play_mode_command_card_shows_costs", _test_command_card_shows_costs],
 		[
 			"dev_play_mode_worker_gather_command_targets_resource",
@@ -64,6 +73,7 @@ func _all_tests() -> Array:
 		["dev_play_mode_left_drag_pans_camera", _test_left_drag_pans_camera],
 		["dev_play_mode_hud_anchors_away_from_start_area", _test_hud_anchors_away_from_start_area],
 		["dev_play_mode_focuses_active_player_on_switch", _test_focuses_active_player_on_switch],
+		["dev_play_mode_hud_omits_resolution_button", _test_hud_omits_resolution_button],
 	]
 
 
@@ -138,16 +148,16 @@ func _test_routes_context_actions() -> bool:
 	mode.select_entity_id(1)
 	mode.renderer().set_perspective_player_id(1)
 	if not mode.issue_context_at_tile(Vector2i(13, 10)):
-		push_error("right-clicking visible enemy-occupied tile should queue attack intent")
+		push_error("right-clicking visible enemy-occupied tile should set target intent")
 		_free_mode(mode)
 		return false
-	var attack_order: EntityOrder = mode.input_model().submit_for_player(0).orders[0]
-	if (
-		attack_order.type != EntityOrder.Type.ATTACK
-		or attack_order.target_priority_chain != [4]
-		or attack_order.target_tile != Vector2i.ZERO
-	):
-		push_error("context enemy action should set target focus on #4")
+	var marine: Entity = mode.current_state().get_entity_by_id(1)
+	if marine == null or marine.focus_target_entity_id != 4:
+		push_error("context enemy action should immediately set target focus on #4")
+		_free_mode(mode)
+		return false
+	if mode.pending_order_count(0) != 0:
+		push_error("context enemy target should not queue a turn order")
 		_free_mode(mode)
 		return false
 	mode.input_model().clear_submissions()
@@ -262,6 +272,104 @@ func _test_command_card_hides_when_not_actionable() -> bool:
 		push_error("command card should not expose debug entity ids")
 		ok = false
 	_free_mode(mode)
+	return ok
+
+
+func _test_command_card_actions_and_state_changes_are_separate_rows() -> bool:
+	var card: Control = _make_command_card()
+	if card == null:
+		return false
+	add_child(card)
+	_set_command_card_state(card, true, true, true, true, true, true)
+	var move_button: Button = _find_exact_button(card, "Attack and Move")
+	var move_only_button: Button = _find_exact_button(card, "Move Only")
+	var gather_button: Button = _find_exact_button(card, "Gather")
+	var target_button: Button = _find_exact_button(card, "Target")
+	var halt_button: Button = _find_exact_button(card, "Halt on Sight: Off")
+	var cancel_button: Button = _find_exact_button(card, "Cancel")
+	var ok: bool = true
+	if (
+		move_button == null
+		or move_only_button == null
+		or gather_button == null
+		or target_button == null
+		or halt_button == null
+		or cancel_button == null
+	):
+		push_error("command card should expose action and state buttons")
+		ok = false
+	else:
+		var action_parent: Node = move_button.get_parent()
+		var state_parent: Node = target_button.get_parent()
+		if (
+			action_parent != move_only_button.get_parent()
+			or action_parent != gather_button.get_parent()
+		):
+			push_error("Attack and Move, Move Only, and Gather should share the action row")
+			ok = false
+		if state_parent != halt_button.get_parent() or state_parent != cancel_button.get_parent():
+			push_error("Target, Halt on Sight, and Cancel should share the state row")
+			ok = false
+		if action_parent == state_parent:
+			push_error("actions and state changes should be on separate rows")
+			ok = false
+		if not action_parent is HBoxContainer or not state_parent is HBoxContainer:
+			push_error("action and state rows should be horizontal rows")
+			ok = false
+		if move_button.size_flags_horizontal != Control.SIZE_EXPAND_FILL:
+			push_error("Move button should expand within the action row")
+			ok = false
+		if move_only_button.size_flags_horizontal != Control.SIZE_EXPAND_FILL:
+			push_error("Move Only button should expand within the action row")
+			ok = false
+	_free_mode(card)
+	return ok
+
+
+func _test_command_card_primary_visibility_tracks_each_command() -> bool:
+	var card: Control = _make_command_card()
+	if card == null:
+		return false
+	add_child(card)
+	var ok: bool = true
+	_set_command_card_state(card, false, false, false, false, false, false)
+	if card.visible:
+		push_error("command card should hide when no command section has visible actions")
+		ok = false
+
+	_set_command_card_state(card, true, true, false, false, false, false)
+	if not _expect_button_visibility(card, "Attack and Move", true):
+		ok = false
+	if not _expect_button_visibility(card, "Move Only", true):
+		ok = false
+	if not _expect_button_visibility(card, "Gather", false):
+		ok = false
+
+	_set_command_card_state(card, true, false, false, false, false, false)
+	if not _expect_button_visibility(card, "Attack and Move", true):
+		ok = false
+	if not _expect_button_visibility(card, "Move Only", false):
+		ok = false
+
+	_set_command_card_state(card, false, true, false, false, false, false)
+	if not _expect_button_visibility(card, "Attack and Move", false):
+		ok = false
+	if not _expect_button_visibility(card, "Move Only", true):
+		ok = false
+
+	_set_command_card_state(card, false, false, true, true, true, true)
+	for label in ["Target", "Halt on Sight: Off", "Gather", "Cancel"]:
+		if not _expect_button_visibility(card, label, true):
+			ok = false
+	if not _expect_button_visibility(card, "Attack and Move", false):
+		ok = false
+	if not _expect_button_visibility(card, "Move Only", false):
+		ok = false
+	if not card.visible:
+		push_error("command card should show when non-move commands are visible")
+		ok = false
+
+	_free_mode(card)
 	return ok
 
 
@@ -602,6 +710,15 @@ func _test_routes_command_card_orders() -> bool:
 		push_error("expected MOVE after pending click")
 		_free_mode(mode)
 		return false
+	if not _expect_button_visibility(card, "Cancel", true):
+		push_error("selected worker with a queued order should expose Cancel")
+		_free_mode(mode)
+		return false
+	card.emit_signal("cancel_requested", -1)
+	if mode.pending_order_count(0) != 0:
+		push_error("Cancel should remove the selected worker's queued MOVE")
+		_free_mode(mode)
+		return false
 	mode.input_model().clear_submissions()
 	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
 		push_error("expected combat scenario reload for target command")
@@ -624,15 +741,16 @@ func _test_routes_command_card_orders() -> bool:
 		return false
 	mode.renderer().set_perspective_player_id(1)
 	if not mode.confirm_pending_at_tile(Vector2i(13, 10)):
-		push_error("pending target click should queue ATTACK focus")
+		push_error("pending target click should apply target focus")
 		_free_mode(mode)
 		return false
-	var target_order: EntityOrder = mode.input_model().submit_for_player(0).orders[0]
-	if (
-		target_order.type != EntityOrder.Type.ATTACK
-		or target_order.target_priority_chain.is_empty()
-	):
-		push_error("expected ATTACK focus after pending target click")
+	var marine: Entity = mode.current_state().get_entity_by_id(1)
+	if marine == null or marine.focus_target_entity_id != 4:
+		push_error("expected immediate target focus after pending target click")
+		_free_mode(mode)
+		return false
+	if mode.pending_order_count(0) != 0:
+		push_error("target focus should not queue a turn order")
 		_free_mode(mode)
 		return false
 	card.emit_signal("move_only_requested")
@@ -647,22 +765,23 @@ func _test_routes_command_card_orders() -> bool:
 	card.emit_signal("halt_on_sight_requested", true)
 	card.emit_signal("cancel_requested", -1)
 	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
-	if orders.size() < 4:
+	if orders.size() != 0:
 		push_error(
-			"expected ATTACK, MOVE_ONLY, HALT_ON_SIGHT_TOGGLE, CANCEL; got %d" % orders.size()
+			"Cancel should remove the selected marine's queued MOVE_ONLY, got %d" % orders.size()
 		)
 		_free_mode(mode)
 		return false
-	if orders[1].type != EntityOrder.Type.MOVE_ONLY:
-		push_error("Move Only signal should queue MOVE_ONLY")
+	if marine == null or marine.focus_target_entity_id != 4:
+		push_error("first cancel signal should keep target focus while cancelling MOVE_ONLY")
 		_free_mode(mode)
 		return false
-	if orders[2].type != EntityOrder.Type.HALT_ON_SIGHT_TOGGLE or not orders[2].halt_on_sight:
-		push_error("halt-on-sight signal should queue HALT_ON_SIGHT_TOGGLE(true)")
+	card.emit_signal("cancel_requested", -1)
+	if marine == null or marine.focus_target_entity_id != -1:
+		push_error("second cancel signal should immediately clear target focus")
 		_free_mode(mode)
 		return false
-	if orders[3].type != EntityOrder.Type.CANCEL or orders[3].cancel_index != -1:
-		push_error("cancel signal should queue CANCEL(-1)")
+	if not marine.halt_on_sight:
+		push_error("halt-on-sight signal should immediately enable halt-on-sight")
 		_free_mode(mode)
 		return false
 	mode.input_model().clear_submissions()
@@ -751,16 +870,16 @@ func _test_pending_target_targets_enemy() -> bool:
 	card.emit_signal("target_requested")
 	mode.renderer().set_perspective_player_id(1)
 	if not mode.confirm_pending_at_tile(Vector2i(13, 10)):
-		push_error("pending target click on enemy should queue targeted intent")
+		push_error("pending target click on enemy should apply targeted intent")
 		_free_mode(mode)
 		return false
-	var order: EntityOrder = mode.input_model().submit_for_player(0).orders[0]
-	if (
-		order.type != EntityOrder.Type.ATTACK
-		or order.target_priority_chain != [4]
-		or order.target_tile != Vector2i.ZERO
-	):
-		push_error("pending enemy click should queue ATTACK focus with target chain [4]")
+	var marine: Entity = mode.current_state().get_entity_by_id(1)
+	if marine == null or marine.focus_target_entity_id != 4:
+		push_error("pending enemy click should immediately set target focus to #4")
+		_free_mode(mode)
+		return false
+	if mode.pending_order_count(0) != 0:
+		push_error("pending enemy click should not queue ATTACK focus")
 		_free_mode(mode)
 		return false
 	_free_mode(mode)
@@ -875,12 +994,67 @@ func _test_focuses_active_player_on_switch() -> bool:
 	return ok
 
 
+func _test_hud_omits_resolution_button() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var ok: bool = true
+	var button: Button = mode.get_node_or_null("DevHUD/Panel/Root/Buttons/Resolution") as Button
+	if button != null:
+		push_error("dev HUD should not expose a Resolution/2K button")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
 func _make_mode() -> Node:
 	var script: Script = load(DEV_PLAY_MODE_PATH) as Script
 	if script == null:
 		push_error("could not load %s" % DEV_PLAY_MODE_PATH)
 		return null
 	return script.new()
+
+
+func _make_command_card() -> Control:
+	var script: Script = load(COMMAND_CARD_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % COMMAND_CARD_PATH)
+		return null
+	return script.new() as Control
+
+
+func _set_command_card_state(
+	card: Control,
+	can_move: bool,
+	can_move_only: bool,
+	can_target: bool,
+	can_halt_on_sight: bool,
+	can_gather: bool,
+	can_cancel: bool
+) -> void:
+	var build_options: Array[Dictionary] = []
+	var train_options: Array[Dictionary] = []
+	var research_options: Array[Dictionary] = []
+	var ability_options: Array[Dictionary] = []
+	card.call(
+		"set_command_state",
+		"Selection",
+		can_move,
+		can_move_only,
+		can_target,
+		can_halt_on_sight,
+		can_gather,
+		false,
+		build_options,
+		train_options,
+		research_options,
+		ability_options,
+		can_cancel
+	)
 
 
 func _find_entity_id(state: MatchState, def_id: String, owner: int) -> int:
@@ -972,6 +1146,36 @@ func _find_button_with_substring(root: Node, needle: String) -> Button:
 		if found != null:
 			return found
 	return null
+
+
+func _find_exact_button(root: Node, text: String) -> Button:
+	if root == null:
+		return null
+	if root is Button:
+		var button: Button = root as Button
+		if button.text == text:
+			return button
+	for child in root.get_children():
+		var found: Button = _find_exact_button(child, text)
+		if found != null:
+			return found
+	return null
+
+
+func _expect_button_visibility(root: Node, text: String, expected_visible: bool) -> bool:
+	var button: Button = _find_exact_button(root, text)
+	if button == null:
+		push_error("expected button '%s' to exist" % text)
+		return false
+	if button.visible != expected_visible:
+		push_error(
+			(
+				"button '%s' visibility should be %s, got %s"
+				% [text, str(expected_visible), str(button.visible)]
+			)
+		)
+		return false
+	return true
 
 
 func _button_text_has_all(button: Button, needles: Array[String]) -> bool:

@@ -204,11 +204,11 @@ func issue_context_at_tile(tile: Vector2i) -> bool:
 
 func begin_move() -> void:
 	if not _input.can_issue_move():
-		_update_hud("Select a movable unit before MOVE.")
+		_update_hud("Select a movable unit before Attack and Move.")
 		return
 	_pending_command = PENDING_MOVE
 	_pending_build_def_id = ""
-	_update_hud("Click a target tile for MOVE.")
+	_update_hud("Click a target tile for Attack and Move.")
 
 
 func begin_move_only() -> void:
@@ -563,7 +563,7 @@ func _update_hud(override_status: String = "") -> void:
 		):
 			_status_label.text = status_message
 		elif _pending_command == PENDING_MOVE:
-			_status_label.text = "Pending MOVE: click target tile."
+			_status_label.text = "Pending Attack and Move: click target tile."
 		elif _pending_command == PENDING_MOVE_ONLY:
 			_status_label.text = "Pending MOVE ONLY: click target tile. Unit will not shoot."
 		elif _pending_command == PENDING_TARGET:
@@ -718,7 +718,7 @@ func _preview_for_order(order: EntityOrder) -> Dictionary:
 		return {}
 	match order.type:
 		EntityOrder.Type.MOVE:
-			var kind := "Move"
+			var kind: String = "Attack and Move"
 			if _will_halt_on_sight(order.entity_id):
 				kind = (
 					"Shoot + Hold" if _attack_target_for_entity(order.entity_id) >= 0 else "Halted"

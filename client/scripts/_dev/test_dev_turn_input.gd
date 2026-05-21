@@ -34,12 +34,15 @@ func _all_tests() -> Array:
 		["dev_input_selects_only_active_live_owned_entities", _test_selects_owned_live_entity],
 		["dev_input_queues_move_for_active_player", _test_queues_move_for_active_player],
 		["dev_input_queues_attack_against_enemy", _test_queues_attack_against_enemy],
-		["dev_input_queues_persistent_attack_target", _test_queues_persistent_attack_target],
+		[
+			"dev_input_applies_persistent_attack_target_immediately",
+			_test_applies_persistent_attack_target_immediately
+		],
 		["dev_input_replaces_duplicate_move_and_target", _test_replaces_duplicate_move_and_target],
 		["dev_input_queues_gather_for_worker_resource_target", _test_queues_gather],
 		[
-			"dev_input_queues_move_only_target_halt_and_cancel",
-			_test_queues_move_only_target_halt_cancel
+			"dev_input_queues_move_only_and_applies_state_changes",
+			_test_queues_move_only_and_applies_state_changes
 		],
 		["dev_input_queues_build_train_and_research", _test_queues_build_train_research],
 		[
@@ -51,6 +54,10 @@ func _all_tests() -> Array:
 			_test_rejects_occupied_build_without_queue
 		],
 		["dev_input_derives_command_options_from_selection", _test_derives_command_options],
+		[
+			"dev_input_cancel_removes_selected_unit_queued_order",
+			_test_cancel_removes_selected_unit_queued_order
+		],
 		["dev_input_queues_use_ability", _test_queues_use_ability],
 		["dev_input_clears_submissions_after_resolve", _test_clears_submissions],
 		["dev_input_surrender_only_marks_active_player", _test_surrender_active_player],
@@ -125,7 +132,7 @@ func _test_queues_attack_against_enemy() -> bool:
 	return true
 
 
-func _test_queues_persistent_attack_target() -> bool:
+func _test_applies_persistent_attack_target_immediately() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
@@ -137,15 +144,17 @@ func _test_queues_persistent_attack_target() -> bool:
 		push_error("DevTurnInput should expose persistent targeted attack intent")
 		return false
 	if not input.call("issue_attack_target", 2):
-		push_error("expected attack target to queue for selected marine")
+		push_error("expected attack target to apply for selected marine")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
-	if orders.size() != 1:
-		push_error("expected one queued order, got %d" % orders.size())
+	if orders.size() != 0:
+		push_error("target focus should not queue an order, got %d" % orders.size())
 		return false
-	return _expect_order(
-		orders[0], EntityOrder.Type.ATTACK, 5, Vector2i.ZERO, -1, [2] as Array[int]
-	)
+	var actor: Entity = setup.state.get_entity_by_id(5)
+	if actor == null or actor.focus_target_entity_id != 2:
+		push_error("target focus should immediately set focus_target_entity_id to #2")
+		return false
+	return true
 
 
 func _test_replaces_duplicate_move_and_target() -> bool:
@@ -206,7 +215,7 @@ func _test_queues_gather() -> bool:
 	return true
 
 
-func _test_queues_move_only_target_halt_cancel() -> bool:
+func _test_queues_move_only_and_applies_state_changes() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
@@ -224,33 +233,36 @@ func _test_queues_move_only_target_halt_cancel() -> bool:
 		push_error("expected MOVE_ONLY to replace selected marine MOVE")
 		return false
 	if not input.issue_attack_target(2):
-		push_error("expected target focus to queue for selected marine")
+		push_error("expected target focus to apply for selected marine")
 		return false
 	if not input.issue_halt_on_sight_toggle(true):
-		push_error("expected HALT_ON_SIGHT_TOGGLE to queue for selected marine")
+		push_error("expected halt-on-sight to apply for selected marine")
 		return false
 	if not input.issue_cancel():
-		push_error("expected CANCEL to queue for selected marine")
+		push_error("expected CANCEL to clear selected marine state")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
-	if orders.size() != 4:
-		push_error("expected four queued orders, got %d" % orders.size())
+	if orders.size() != 0:
+		push_error("expected queued MOVE_ONLY to be cancelled, got %d orders" % orders.size())
 		return false
 	if not EntityOrder.Type.has("MOVE_ONLY"):
 		push_error("EntityOrder.Type should define MOVE_ONLY")
 		return false
-	var move_only_type: int = EntityOrder.Type.get("MOVE_ONLY", EntityOrder.Type.INVALID)
-	if orders[0].type != move_only_type or orders[0].target_tile != Vector2i(7, 7):
-		push_error("first order should be MOVE_ONLY to (7, 7)")
+	var actor: Entity = setup.state.get_entity_by_id(5)
+	if actor == null:
+		push_error("expected selected marine to exist")
 		return false
-	if orders[1].type != EntityOrder.Type.ATTACK or orders[1].target_priority_chain != [2]:
-		push_error("second order should focus target #2")
+	if actor.focus_target_entity_id != 2:
+		push_error("first CANCEL should keep target focus while cancelling queued order")
 		return false
-	if orders[2].type != EntityOrder.Type.HALT_ON_SIGHT_TOGGLE or not orders[2].halt_on_sight:
-		push_error("third order should enable halt-on-sight")
+	if not input.issue_cancel():
+		push_error("second CANCEL should clear selected marine target focus")
 		return false
-	if orders[3].type != EntityOrder.Type.CANCEL or orders[3].cancel_index != -1:
-		push_error("fourth order should cancel persistent action with index -1")
+	if actor.focus_target_entity_id != -1:
+		push_error("second CANCEL should immediately clear target focus")
+		return false
+	if not actor.halt_on_sight:
+		push_error("halt-on-sight should remain immediately enabled")
 		return false
 	return true
 
@@ -387,6 +399,32 @@ func _test_derives_command_options() -> bool:
 	setup.state.get_player(0).unlocked_researches.append("stim_research")
 	if not input.research_option_ids().is_empty():
 		push_error("unlocked research should disappear from command options")
+		return false
+	return true
+
+
+func _test_cancel_removes_selected_unit_queued_order() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	if not input.issue_move(Vector2i(6, 6)):
+		push_error("expected MOVE to queue for selected worker")
+		return false
+	if not input.can_issue_cancel():
+		push_error("selected worker with a queued order should expose cancel")
+		return false
+	if not input.issue_cancel():
+		push_error("cancel should remove the selected worker's queued order")
+		return false
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("selected worker cancel should remove queued order immediately")
+		return false
+	if input.status_message().find("queued order") == -1:
+		push_error("cancel status should mention the queued order: %s" % input.status_message())
 		return false
 	return true
 

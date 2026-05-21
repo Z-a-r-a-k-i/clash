@@ -5,6 +5,9 @@ GODOT ?= godot
 ifeq ($(OS),Windows_NT)
 SHELL := pwsh.exe
 .SHELLFLAGS := -NoProfile -Command
+# GODOT_HEADLESS redirects APPDATA/LOCALAPPDATA to keep test user data local.
+# This avoids polluting system Godot settings and keeps headless runs isolated.
+GODOT_HEADLESS = $$godotUserRoot = Join-Path (Get-Location) 'client/.godot-codex-user'; $$env:APPDATA = Join-Path $$godotUserRoot 'AppData'; $$env:LOCALAPPDATA = Join-Path $$godotUserRoot 'LocalAppData'; New-Item -ItemType Directory -Force -Path $$env:APPDATA,$$env:LOCALAPPDATA | Out-Null; & '$(GODOT)' --headless --path client
 endif
 
 help:
@@ -46,12 +49,12 @@ endif
 test:
 ifeq ($(OS),Windows_NT)
 	@if (-not (Get-Command '$(GODOT)' -ErrorAction SilentlyContinue)) { Write-Error "Godot executable not found. Run: make test GODOT='C:\path\to\Godot_v4.6.1-stable_mono_win64_console.exe'"; exit 1 }
-	@& '$(GODOT)' --headless --path client --script scripts/_dev/run_test_resolver_headless.gd
-	@& '$(GODOT)' --headless --path client --script scripts/_dev/run_test_vision_system_headless.gd
-	@& '$(GODOT)' --headless --path client --script scripts/_dev/run_test_renderer_headless.gd
-	@& '$(GODOT)' --headless --path client --script scripts/_dev/run_test_dev_turn_input_headless.gd
-	@& '$(GODOT)' --headless --path client --script scripts/_dev/run_test_dev_play_mode_headless.gd
-	@& '$(GODOT)' --headless --path client --script scripts/_dev/run_test_m0_playtest_smoke_headless.gd
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_resolver_headless.gd
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_vision_system_headless.gd
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_renderer_headless.gd
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_dev_turn_input_headless.gd
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_dev_play_mode_headless.gd
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_m0_playtest_smoke_headless.gd
 else
 	@if ! command -v '$(GODOT)' >/dev/null 2>&1; then echo "Godot executable not found. Run: make test GODOT=/path/to/godot"; exit 1; fi
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_resolver_headless.gd

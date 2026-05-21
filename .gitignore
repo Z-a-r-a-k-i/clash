@@ -1,5 +1,7 @@
 # Godot
 .godot/
+# Isolated Godot user/cache data created by headless test runs.
+client/.godot-codex-user/
 .import/
 *.tmp
 # Stray test scratch files Godot's "Run" command sometimes drops at

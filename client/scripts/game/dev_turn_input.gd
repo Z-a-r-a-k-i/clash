@@ -3,7 +3,8 @@ class_name DevTurnInput
 extends RefCounted
 
 # Dev-only turn input state for plan 07b2. Owns selection and pending
-# SubmitTurn resources; it does not mutate MatchState or call the resolver.
+# SubmitTurn resources; dev HUD state controls mutate standing MatchState state
+# immediately, while turn actions still queue for resolver submission.
 
 const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
 
@@ -65,10 +66,10 @@ func clear_selection() -> void:
 func issue_move(target_tile: Vector2i) -> bool:
 	var actor: Entity = _selected_entity()
 	if actor == null:
-		_status_message = "Select a unit before issuing MOVE."
+		_status_message = "Select a unit before issuing Attack and Move."
 		return false
 	if _state == null or _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
-		_status_message = "MOVE target is outside the map."
+		_status_message = "Attack and Move target is outside the map."
 		return false
 	var def: EntityDef = _def_for_entity(actor)
 	if def == null or def.movement == null or def.movement.speed_tiles_per_turn <= 0:
@@ -79,7 +80,7 @@ func issue_move(target_tile: Vector2i) -> bool:
 	order.entity_id = actor.id
 	order.target_tile = target_tile
 	_append_order(order)
-	_status_message = "Queued MOVE for #%d to %s." % [actor.id, str(target_tile)]
+	_status_message = "Queued Attack and Move for #%d to %s." % [actor.id, str(target_tile)]
 	return true
 
 
@@ -133,11 +134,22 @@ func issue_attack(target_entity_id: int) -> bool:
 
 
 func issue_attack_target(target_entity_id: int) -> bool:
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		_status_message = "Select a combat unit before setting TARGET."
+		return false
 	var target: Entity = _live_enemy_entity(target_entity_id)
 	if target == null:
 		_status_message = "Attack target needs a live enemy target."
 		return false
-	return issue_attack(target_entity_id)
+	var def: EntityDef = _def_for_entity(actor)
+	if def == null or def.combat == null or def.combat.damage <= 0:
+		_status_message = "%s cannot target enemies." % _def_id_for_entity(actor)
+		return false
+	_interrupt_gather_assignment(actor)
+	actor.focus_target_entity_id = target.id
+	_status_message = "Set TARGET for #%d to #%d." % [actor.id, target.id]
+	return true
 
 
 func issue_halt_on_sight_toggle(enabled: bool) -> bool:
@@ -148,12 +160,11 @@ func issue_halt_on_sight_toggle(enabled: bool) -> bool:
 	if not can_issue_halt_on_sight_toggle():
 		_status_message = "%s cannot use halt on sight." % _def_id_for_entity(actor)
 		return false
-	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.HALT_ON_SIGHT_TOGGLE
-	order.entity_id = actor.id
-	order.halt_on_sight = enabled
-	_append_order(order)
-	_status_message = "Queued HALT_ON_SIGHT_TOGGLE for #%d." % actor.id
+	actor.halt_on_sight = enabled
+	_status_message = (
+		("Halt on Sight enabled for #%d." if enabled else "Halt on Sight disabled for #%d.")
+		% actor.id
+	)
 	return true
 
 
@@ -275,6 +286,18 @@ func issue_cancel(cancel_index: int = -1) -> bool:
 	if actor == null:
 		_status_message = "Select an entity before issuing CANCEL."
 		return false
+	if cancel_index < 0 and _remove_queued_order_for_entity(actor.id):
+		_status_message = "Cancelled queued order for #%d." % actor.id
+		return true
+	if (
+		cancel_index < 0
+		and actor.locked_to_building_id < 0
+		and (actor.persistent_order != null or actor.focus_target_entity_id >= 0)
+	):
+		actor.persistent_order = null
+		actor.focus_target_entity_id = -1
+		_status_message = "Cancelled standing intent for #%d." % actor.id
+		return true
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.CANCEL
 	order.entity_id = actor.id
@@ -361,6 +384,7 @@ func can_issue_cancel() -> bool:
 		actor.persistent_order != null
 		or actor.focus_target_entity_id >= 0
 		or actor.locked_to_building_id >= 0
+		or _has_queued_order_for_entity(actor.id)
 	):
 		return true
 	if actor.production_state == null:
@@ -511,6 +535,24 @@ func _append_order(order: EntityOrder) -> void:
 		submit.orders.append(order)
 
 
+func _has_queued_order_for_entity(entity_id: int) -> bool:
+	var submit: SubmitTurn = _submission_for(_active_player_id)
+	for order in submit.orders:
+		if order != null and order.entity_id == entity_id:
+			return true
+	return false
+
+
+func _remove_queued_order_for_entity(entity_id: int) -> bool:
+	var submit: SubmitTurn = _submission_for(_active_player_id)
+	for i in range(submit.orders.size() - 1, -1, -1):
+		var order: EntityOrder = submit.orders[i]
+		if order != null and order.entity_id == entity_id:
+			submit.orders.remove_at(i)
+			return true
+	return false
+
+
 func _replacement_index_for_order(orders: Array[EntityOrder], order: EntityOrder) -> int:
 	if order == null:
 		return -1
@@ -527,6 +569,13 @@ func _replacement_index_for_order(orders: Array[EntityOrder], order: EntityOrder
 
 func _is_move_like(type: EntityOrder.Type) -> bool:
 	return type == EntityOrder.Type.MOVE or type == EntityOrder.Type.MOVE_ONLY
+
+
+func _interrupt_gather_assignment(entity: Entity) -> void:
+	if entity == null or entity.gather_state == null:
+		return
+	entity.gather_state.phase = GatherState.Phase.IDLE
+	entity.gather_state.assigned_source_entity_id = -1
 
 
 func _submission_for(player_id: int) -> SubmitTurn:
