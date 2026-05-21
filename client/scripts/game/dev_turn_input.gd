@@ -3,7 +3,8 @@ class_name DevTurnInput
 extends RefCounted
 
 # Dev-only turn input state for plan 07b2. Owns selection and pending
-# SubmitTurn resources; it does not mutate MatchState or call the resolver.
+# SubmitTurn resources; dev HUD state controls mutate standing MatchState state
+# immediately, while turn actions still queue for resolver submission.
 
 const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
 
@@ -133,11 +134,22 @@ func issue_attack(target_entity_id: int) -> bool:
 
 
 func issue_attack_target(target_entity_id: int) -> bool:
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		_status_message = "Select a combat unit before setting TARGET."
+		return false
 	var target: Entity = _live_enemy_entity(target_entity_id)
 	if target == null:
 		_status_message = "Attack target needs a live enemy target."
 		return false
-	return issue_attack(target_entity_id)
+	var def: EntityDef = _def_for_entity(actor)
+	if def == null or def.combat == null or def.combat.damage <= 0:
+		_status_message = "%s cannot target enemies." % _def_id_for_entity(actor)
+		return false
+	_interrupt_gather_assignment(actor)
+	actor.focus_target_entity_id = target.id
+	_status_message = "Set TARGET for #%d to #%d." % [actor.id, target.id]
+	return true
 
 
 func issue_halt_on_sight_toggle(enabled: bool) -> bool:
@@ -148,12 +160,11 @@ func issue_halt_on_sight_toggle(enabled: bool) -> bool:
 	if not can_issue_halt_on_sight_toggle():
 		_status_message = "%s cannot use halt on sight." % _def_id_for_entity(actor)
 		return false
-	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.HALT_ON_SIGHT_TOGGLE
-	order.entity_id = actor.id
-	order.halt_on_sight = enabled
-	_append_order(order)
-	_status_message = "Queued HALT_ON_SIGHT_TOGGLE for #%d." % actor.id
+	actor.halt_on_sight = enabled
+	_status_message = (
+		("Halt on Sight enabled for #%d." if enabled else "Halt on Sight disabled for #%d.")
+		% actor.id
+	)
 	return true
 
 
@@ -275,6 +286,15 @@ func issue_cancel(cancel_index: int = -1) -> bool:
 	if actor == null:
 		_status_message = "Select an entity before issuing CANCEL."
 		return false
+	if (
+		cancel_index < 0
+		and actor.locked_to_building_id < 0
+		and (actor.persistent_order != null or actor.focus_target_entity_id >= 0)
+	):
+		actor.persistent_order = null
+		actor.focus_target_entity_id = -1
+		_status_message = "Cancelled standing intent for #%d." % actor.id
+		return true
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.CANCEL
 	order.entity_id = actor.id
@@ -527,6 +547,13 @@ func _replacement_index_for_order(orders: Array[EntityOrder], order: EntityOrder
 
 func _is_move_like(type: EntityOrder.Type) -> bool:
 	return type == EntityOrder.Type.MOVE or type == EntityOrder.Type.MOVE_ONLY
+
+
+func _interrupt_gather_assignment(entity: Entity) -> void:
+	if entity == null or entity.gather_state == null:
+		return
+	entity.gather_state.phase = GatherState.Phase.IDLE
+	entity.gather_state.assigned_source_entity_id = -1
 
 
 func _submission_for(player_id: int) -> SubmitTurn:

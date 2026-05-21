@@ -1,5 +1,6 @@
 # Godot
 .godot/
+client/.godot-codex-user/
 .import/
 *.tmp
 # Stray test scratch files Godot's "Run" command sometimes drops at

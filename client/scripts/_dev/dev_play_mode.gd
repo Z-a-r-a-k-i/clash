@@ -18,6 +18,8 @@ const HUD_WIDTH := 440.0
 const HUD_HEIGHT := 560.0
 const CAMERA_ZOOM_STEP := 1.15
 const CAMERA_DRAG_THRESHOLD := 4.0
+const DEV_RESOLUTION_1080P := Vector2i(1920, 1080)
+const DEV_RESOLUTION_2K := Vector2i(2560, 1440)
 
 @export_file("*.tres") var scenario_path: String = DEFAULT_SCENARIO_PATH
 
@@ -30,9 +32,12 @@ var _active_label: Label = null
 var _resources_label: Label = null
 var _queue_label: Label = null
 var _status_label: Label = null
+var _resolution_button: Button = null
 var _command_card: Control = null
 var _pending_command: String = PENDING_NONE
 var _pending_build_def_id: String = ""
+var _dev_resolution_size: Vector2i = DEV_RESOLUTION_1080P
+var _dev_resolution_window_mode: DisplayServer.WindowMode = DisplayServer.WINDOW_MODE_WINDOWED
 var _is_panning_camera: bool = false
 var _left_empty_drag_candidate: bool = false
 var _left_empty_drag_moved: bool = false
@@ -89,6 +94,31 @@ func command_card() -> Control:
 
 func pending_command_kind() -> String:
 	return _pending_command
+
+
+func toggle_dev_resolution() -> void:
+	var target: Vector2i = DEV_RESOLUTION_2K
+	if dev_resolution_size() == DEV_RESOLUTION_2K:
+		target = DEV_RESOLUTION_1080P
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	_dev_resolution_window_mode = DisplayServer.WINDOW_MODE_WINDOWED
+	DisplayServer.window_set_size(target)
+	_dev_resolution_size = target
+	_update_resolution_button_text()
+
+
+func dev_resolution_size() -> Vector2i:
+	var current: Vector2i = DisplayServer.window_get_size()
+	if current == Vector2i.ZERO:
+		return _dev_resolution_size
+	return current
+
+
+func dev_resolution_window_mode() -> DisplayServer.WindowMode:
+	var current: DisplayServer.WindowMode = DisplayServer.window_get_mode()
+	if DisplayServer.window_get_size() == Vector2i.ZERO:
+		return _dev_resolution_window_mode
+	return current
 
 
 func set_show_all_friendly_action_previews(enabled: bool) -> void:
@@ -465,6 +495,12 @@ func _build_hud() -> void:
 	clear_button.pressed.connect(_clear_queues_from_hud)
 	buttons.add_child(clear_button)
 
+	_resolution_button = _button("")
+	_resolution_button.name = "Resolution"
+	_resolution_button.pressed.connect(toggle_dev_resolution)
+	buttons.add_child(_resolution_button)
+	_update_resolution_button_text()
+
 	var surrender_button: Button = _button("Surrender")
 	surrender_button.pressed.connect(_surrender_from_hud)
 	buttons.add_child(surrender_button)
@@ -522,6 +558,12 @@ func _style_label(label: Label) -> void:
 	label.add_theme_font_size_override("font_size", 18)
 
 
+func _update_resolution_button_text() -> void:
+	if _resolution_button == null:
+		return
+	_resolution_button.text = "1080p" if dev_resolution_size() == DEV_RESOLUTION_2K else "2K"
+
+
 func _clear_queues_from_hud() -> void:
 	_input.clear_submissions()
 	_clear_pending_command()
@@ -534,6 +576,7 @@ func _surrender_from_hud() -> void:
 
 
 func _update_hud(override_status: String = "") -> void:
+	_update_resolution_button_text()
 	if _active_label != null:
 		_active_label.text = "Active player: P%d" % _input.active_player_id()
 	if _resources_label != null:
