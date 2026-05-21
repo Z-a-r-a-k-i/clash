@@ -88,6 +88,10 @@ func _all_tests() -> Array:
 		["move_budget_respected", _test_move_budget_respected],
 		["post_shot_move_uses_reduced_budget", _test_post_shot_move_uses_reduced_budget],
 		[
+			"attack_move_without_shot_uses_full_budget",
+			_test_attack_move_without_shot_uses_full_budget
+		],
+		[
 			"move_only_skips_shot_and_uses_full_budget",
 			_test_move_only_skips_shot_and_uses_full_budget
 		],
@@ -1080,6 +1084,37 @@ func _test_post_shot_move_uses_reduced_budget() -> bool:
 		and new_actor.persistent_order != null
 		and new_actor.persistent_order.target_tile == move.target_tile
 	)
+
+
+func _test_attack_move_without_shot_uses_full_budget() -> bool:
+	var registry: EntityRegistry = _combat_mover_registry(6, 3, 4)
+	var state: MatchState = _state_with_grid(20, 20)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var enemy: Entity = _make_entity(state, "marine", 1, Vector2i(12, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(12, 5, 1, 1))
+
+	var move: EntityOrder = EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(15, 5)
+
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit([]), registry, null
+	)
+	var move_count: int = 0
+	var actor_damaged_enemy: bool = false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			move_count += 1
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == actor.id
+			and ev.target_id == enemy.id
+		):
+			actor_damaged_enemy = true
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	return not actor_damaged_enemy and move_count == 4 and new_actor.origin == Vector2i(9, 5)
 
 
 func _test_move_only_skips_shot_and_uses_full_budget() -> bool:
