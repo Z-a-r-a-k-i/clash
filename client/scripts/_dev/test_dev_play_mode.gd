@@ -73,14 +73,7 @@ func _all_tests() -> Array:
 		["dev_play_mode_left_drag_pans_camera", _test_left_drag_pans_camera],
 		["dev_play_mode_hud_anchors_away_from_start_area", _test_hud_anchors_away_from_start_area],
 		["dev_play_mode_focuses_active_player_on_switch", _test_focuses_active_player_on_switch],
-		[
-			"dev_play_mode_resolution_toggle_switches_window_size_and_button_text",
-			_test_resolution_toggle_switches_window_size_and_button_text
-		],
-		[
-			"dev_play_mode_resolution_toggle_reports_embedded_window_without_resizing",
-			_test_resolution_toggle_reports_embedded_window_without_resizing
-		],
+		["dev_play_mode_hud_omits_resolution_button", _test_hud_omits_resolution_button],
 	]
 
 
@@ -1001,70 +994,7 @@ func _test_focuses_active_player_on_switch() -> bool:
 	return ok
 
 
-func _test_resolution_toggle_switches_window_size_and_button_text() -> bool:
-	var original_size: Vector2i = DisplayServer.window_get_size()
-	var original_mode: DisplayServer.WindowMode = DisplayServer.window_get_mode()
-	DisplayServer.window_set_size(Vector2i(1920, 1080))
-	var mode: Node = _make_mode()
-	if mode == null:
-		DisplayServer.window_set_mode(original_mode)
-		DisplayServer.window_set_size(original_size)
-		return false
-	add_child(mode)
-	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
-		_free_mode(mode)
-		DisplayServer.window_set_mode(original_mode)
-		DisplayServer.window_set_size(original_size)
-		return false
-	var ok: bool = true
-	var button: Button = mode.get_node_or_null("DevHUD/Panel/Root/Buttons/Resolution") as Button
-	if button == null:
-		push_error("dev HUD should expose a Resolution button")
-		ok = false
-	elif button.text != "2K":
-		push_error("1080p window should show 2K as the resolution target, got %s" % button.text)
-		ok = false
-	if not mode.has_method("toggle_dev_resolution"):
-		push_error("DevPlayMode should expose toggle_dev_resolution")
-		ok = false
-	else:
-		mode.call("toggle_dev_resolution")
-		if not mode.has_method("dev_resolution_window_mode"):
-			push_error("DevPlayMode should expose dev_resolution_window_mode for verification")
-			ok = false
-		elif mode.call("dev_resolution_window_mode") != DisplayServer.WINDOW_MODE_WINDOWED:
-			push_error("resolution toggle should force windowed mode before resizing")
-			ok = false
-		if mode.call("dev_resolution_size") != Vector2i(2560, 1440):
-			push_error(
-				(
-					"first resolution toggle should switch to 2560x1440, got %s"
-					% str(mode.call("dev_resolution_size"))
-				)
-			)
-			ok = false
-		if button != null and button.text != "1080p":
-			push_error("2K window should show 1080p as the resolution target, got %s" % button.text)
-			ok = false
-		mode.call("toggle_dev_resolution")
-		if mode.call("dev_resolution_size") != Vector2i(1920, 1080):
-			push_error(
-				(
-					"second resolution toggle should switch to 1920x1080, got %s"
-					% str(mode.call("dev_resolution_size"))
-				)
-			)
-			ok = false
-		if button != null and button.text != "2K":
-			push_error("1080p window should show 2K after toggling back, got %s" % button.text)
-			ok = false
-	_free_mode(mode)
-	DisplayServer.window_set_mode(original_mode)
-	DisplayServer.window_set_size(original_size)
-	return ok
-
-
-func _test_resolution_toggle_reports_embedded_window_without_resizing() -> bool:
+func _test_hud_omits_resolution_button() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
 		return false
@@ -1072,27 +1002,10 @@ func _test_resolution_toggle_reports_embedded_window_without_resizing() -> bool:
 	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
 		_free_mode(mode)
 		return false
-	if not mode.has_method("set_dev_resolution_resize_supported_override"):
-		push_error("DevPlayMode should expose a resize-support override for embedded play checks")
-		_free_mode(mode)
-		return false
-	mode.call("set_dev_resolution_resize_supported_override", false)
-	mode.call("toggle_dev_resolution")
-	var status_label: Label = mode.get_node_or_null("DevHUD/Panel/Root/Status") as Label
-	var button: Button = mode.get_node_or_null("DevHUD/Panel/Root/Buttons/Resolution") as Button
 	var ok: bool = true
-	if mode.call("dev_resolution_size") != Vector2i(1920, 1080):
-		push_error("embedded resolution toggle should leave window size state at 1920x1080")
-		ok = false
-	if mode.has_method("dev_resolution_content_scale_size"):
-		push_error("embedded resolution toggle should not expose virtual content scaling")
-		ok = false
-	if button == null or button.text != "2K":
-		push_error("embedded 2K toggle should still show 2K as the target")
-		ok = false
-	var status_text: String = "" if status_label == null else status_label.text.to_lower()
-	if status_text.find("embedded") == -1 or status_text.find("resize") == -1:
-		push_error("embedded resolution toggle should report that embedded play cannot resize")
+	var button: Button = mode.get_node_or_null("DevHUD/Panel/Root/Buttons/Resolution") as Button
+	if button != null:
+		push_error("dev HUD should not expose a Resolution/2K button")
 		ok = false
 	_free_mode(mode)
 	return ok
