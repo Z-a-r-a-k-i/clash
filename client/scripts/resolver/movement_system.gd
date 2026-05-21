@@ -162,13 +162,13 @@ static func movement_speed_for_entity(actor: Entity, registry: EntityRegistry) -
 static func movement_budget_for_entity(
 	actor: Entity, registry: EntityRegistry, fired_this_turn: bool, move_only: bool
 ) -> int:
-	var speed := movement_speed_for_entity(actor, registry)
+	var speed: int = movement_speed_for_entity(actor, registry)
 	if speed <= 0:
 		return 0
 	if move_only or not fired_this_turn:
 		return speed
 	var def: EntityDef = registry.get_by_id(actor.current_def_id) if registry != null else null
-	var fraction := 0.5
+	var fraction: float = 0.5
 	if def != null and def.movement != null:
 		fraction = clampf(def.movement.post_shot_move_fraction, 0.0, 1.0)
 	return max(0, int(floor(float(speed) * fraction)))

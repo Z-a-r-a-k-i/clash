@@ -95,6 +95,9 @@ func issue_move_only(target_tile: Vector2i) -> bool:
 	if def == null or def.movement == null or def.movement.speed_tiles_per_turn <= 0:
 		_status_message = "%s cannot move." % _def_id_for_entity(actor)
 		return false
+	if def.combat == null or def.combat.damage <= 0:
+		_status_message = "%s cannot use Move Only." % _def_id_for_entity(actor)
+		return false
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.MOVE_ONLY
 	order.entity_id = actor.id
@@ -321,7 +324,15 @@ func can_issue_move() -> bool:
 
 
 func can_issue_move_only() -> bool:
-	return can_issue_move()
+	var actor: Entity = _selected_entity()
+	var def: EntityDef = _def_for_entity(actor)
+	return (
+		def != null
+		and def.movement != null
+		and def.movement.speed_tiles_per_turn > 0
+		and def.combat != null
+		and def.combat.damage > 0
+	)
 
 
 func can_issue_attack_target() -> bool:

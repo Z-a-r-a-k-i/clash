@@ -354,6 +354,13 @@ func _test_derives_command_options() -> bool:
 	if not input.train_option_ids().is_empty():
 		push_error("worker should not expose train options")
 		return false
+	input.select_entity(9)
+	if not input.can_issue_move():
+		push_error("non-combat mover should expose Move")
+		return false
+	if input.can_issue_move_only():
+		push_error("non-combat mover should not expose Move Only")
+		return false
 	input.select_entity(5)
 	setup.state.get_entity_by_id(5).focus_target_entity_id = 2
 	if not input.can_issue_move_only():
@@ -476,6 +483,7 @@ func _make_input_setup() -> Dictionary:
 		_make_def("marine", Vector2i(1, 1), true, false, false),
 		_make_def("mineral_patch", Vector2i(1, 3), false, false, true),
 		_make_barracks_def(),
+		_make_noncombat_mover_def(),
 	]
 	registry.researches = [_make_research_def()]
 	_add_entity(state, 1, "worker", 0, Vector2i(1, 1), Vector2i(1, 1), 40)
@@ -487,6 +495,7 @@ func _make_input_setup() -> Dictionary:
 	_add_entity(state, 6, "barracks", 0, Vector2i(8, 4), Vector2i(3, 3), 1000)
 	_add_entity(state, 7, "mineral_patch", -1, Vector2i(10, 1), Vector2i(1, 3), 0)
 	state.get_entity_by_id(7).current_resource_amount = 0
+	_add_entity(state, 9, "noncombat_mover", 0, Vector2i(10, 10), Vector2i(1, 1), 10)
 	state.get_entity_by_id(6).production_state = ProductionState.new()
 	return {"state": state, "registry": registry}
 
@@ -541,6 +550,16 @@ func _make_barracks_def() -> EntityDef:
 	production.produces = ["marine"]
 	production.researches = ["stim_research"]
 	def.production = production
+	return def
+
+
+func _make_noncombat_mover_def() -> EntityDef:
+	var def := EntityDef.new()
+	def.id = "noncombat_mover"
+	def.footprint = Vector2i(1, 1)
+	var movement := MovementDef.new()
+	movement.speed_tiles_per_turn = 3
+	def.movement = movement
 	return def
 
 

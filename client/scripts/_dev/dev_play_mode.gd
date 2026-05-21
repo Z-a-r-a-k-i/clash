@@ -665,7 +665,7 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 		if not move_preview.is_empty():
 			out.append(move_preview)
 	if out.is_empty():
-		var shot_target_id := _attack_target_for_entity(entity.id)
+		var shot_target_id: int = _attack_target_for_entity(entity.id)
 		if shot_target_id >= 0:
 			out.append(
 				{"entity_id": entity.id, "kind": "Idle + Shoot", "target_entity_id": shot_target_id}
@@ -762,7 +762,7 @@ func _attack_target_for_entity(entity_id: int) -> int:
 	if _loaded == null or _loaded.state == null or _loaded.registry == null:
 		return -1
 	var actor := _loaded.state.get_entity_by_id(entity_id)
-	if actor == null or actor.current_hp <= 0:
+	if not _can_preview_attack(actor):
 		return -1
 	var def := _loaded.registry.get_by_id(
 		actor.current_def_id if actor.current_def_id != "" else actor.def_id
@@ -789,9 +789,21 @@ func _will_halt_on_sight(entity_id: int) -> bool:
 	if _loaded == null or _loaded.state == null or _loaded.registry == null:
 		return false
 	var actor := _loaded.state.get_entity_by_id(entity_id)
-	if actor == null or not actor.halt_on_sight:
+	if not _can_preview_attack(actor) or not actor.halt_on_sight:
 		return false
 	return _visible_enemy_for_entity(actor) >= 0
+
+
+func _can_preview_attack(entity: Entity) -> bool:
+	if entity == null or entity.current_hp <= 0:
+		return false
+	if entity.ability_cast != null:
+		return false
+	if entity.gather_state != null and entity.gather_state.phase != GatherState.Phase.IDLE:
+		return false
+	if entity.locked_to_building_id >= 0 or entity.is_constructing:
+		return false
+	return true
 
 
 func _visible_enemy_for_entity(actor: Entity) -> int:

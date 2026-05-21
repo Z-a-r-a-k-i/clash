@@ -647,6 +647,12 @@ func _test_routes_command_card_orders() -> bool:
 	card.emit_signal("halt_on_sight_requested", true)
 	card.emit_signal("cancel_requested", -1)
 	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if orders.size() < 4:
+		push_error(
+			"expected ATTACK, MOVE_ONLY, HALT_ON_SIGHT_TOGGLE, CANCEL; got %d" % orders.size()
+		)
+		_free_mode(mode)
+		return false
 	if orders[1].type != EntityOrder.Type.MOVE_ONLY:
 		push_error("Move Only signal should queue MOVE_ONLY")
 		_free_mode(mode)

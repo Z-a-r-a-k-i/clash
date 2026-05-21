@@ -34,7 +34,7 @@ Game code defaults to C#. GDScript is allowed where it's meaningfully simpler (s
 
 Both players queue orders during a shared turn timer. A turn ends when both players submit or when the timer expires. The resolver then runs deterministically.
 
-A turn is divided into N ticks, where N equals the maximum action-queue length across all units that turn. On tick k, every unit's k-th queued action resolves; within a tick, all attacks are selected from start-of-phase positions and damage is applied as a simultaneous batch before movement. Target focus is priority only; if the focused target is not valid and in range, the unit falls back to the closest in-range enemy. End-of-turn effects fire after the last tick.
+A turn is divided into N movement ticks, where N equals the maximum action-queue length across all units that turn. Before movement, every eligible combat unit gets at most one shot in a single simultaneous attack phase; attacks are selected from start-of-phase positions and damage is applied as a batch before any movement. Target focus is priority only; if the focused target is not valid and in range, the unit falls back to the closest in-range enemy. End-of-turn effects fire after the last movement tick.
 
 **Why:** Simultaneous resolution is server authoritative without rollback, feels faster than alternating turns, and supports the "fast paced StarCraft turn based" vision. Lockstep ticks make multi-action turns (`attack A → move → attack B`) predictable for the player without ranking units by stats. Asymmetric information — both players commit blind, then see the result — is a feature, not a bug.
 

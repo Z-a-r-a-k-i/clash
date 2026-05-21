@@ -14,10 +14,10 @@ The deterministic engine that turns `(state, queue_a, queue_b)` into `events[]`.
 resolve(state, queue_a, queue_b) -> events[]:
   N = max action-queue length across all units this turn
   events = []
+  # Phase 1: first-slot self abilities, then one simultaneous automatic attack batch
+  collect_attack_intents_for_all_non_move_only_combat_units_once()
+  apply_attack_damage_batch(state, events)
   for tick in 1..N:
-    # Phase 1: self abilities, then a simultaneous automatic attack batch
-    collect_attack_intents_for_all_non_move_only_combat_units()
-    apply_attack_damage_batch(state, events)
     # Phase 2: every unit's k-th action that is a move
     for unit in stable_id_order(all_units):
       action = unit.queue[tick] if exists else None
@@ -56,7 +56,7 @@ Target focus: `attack { target_id_priority: [t1, t2, t3, ...] }`.
 - [x] Pure-function `Resolver.resolve(state, submit_a, submit_b, registry, tunables) -> ResolveResult` exists in `client/scripts/resolver/`.
 - [x] Deterministic on identical input (golden test: same input → identical event list across N runs).
 - [x] Handles resolver-level order types from node 03 (move, Move Only, target focus, halt-on-sight toggle, cancel, build, train, research, gather, surrender flag).
-- [x] Unit tests cover target fallback, simultaneous attack batches, Move Only, halt-on-sight movement blocking, post-shot movement budget, persistent-move continuation, multi-tile collision during move, attacks-before-moves ordering within a tick, and movement-speed budget.
+- [x] Unit tests cover target fallback, the single simultaneous attack phase before movement, Move Only, halt-on-sight movement blocking, post-shot movement budget, persistent-move continuation, multi-tile collision during move, attacks-before-moves ordering, and movement-speed budget.
 - [x] No RNG in the resolver call graph (verified by grep + review).
 
 ## Artifacts
