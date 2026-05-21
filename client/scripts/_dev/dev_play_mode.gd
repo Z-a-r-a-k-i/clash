@@ -37,7 +37,6 @@ var _command_card: Control = null
 var _pending_command: String = PENDING_NONE
 var _pending_build_def_id: String = ""
 var _dev_resolution_size: Vector2i = DEV_RESOLUTION_1080P
-var _dev_resolution_content_scale_size: Vector2i = DEV_RESOLUTION_1080P
 var _dev_resolution_window_mode: DisplayServer.WindowMode = DisplayServer.WINDOW_MODE_WINDOWED
 var _dev_resolution_resize_supported_override: int = -1
 var _is_panning_camera: bool = false
@@ -102,27 +101,22 @@ func toggle_dev_resolution() -> void:
 	var target: Vector2i = DEV_RESOLUTION_2K
 	if dev_resolution_size() == DEV_RESOLUTION_2K:
 		target = DEV_RESOLUTION_1080P
-	_apply_dev_resolution_content_scale(target)
-	_dev_resolution_size = target
 	if not _dev_resolution_resize_supported():
 		_update_resolution_button_text()
-		_update_hud("Set embedded virtual resolution to %dx%d." % [target.x, target.y])
+		_update_hud(
+			"Embedded Game view cannot resize from runtime. Disable Game embedding to use %dx%d."
+			% [target.x, target.y]
+		)
 		return
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 	_dev_resolution_window_mode = DisplayServer.WINDOW_MODE_WINDOWED
 	DisplayServer.window_set_size(target)
+	_dev_resolution_size = target
 	_update_resolution_button_text()
 
 
 func dev_resolution_size() -> Vector2i:
 	return _dev_resolution_size
-
-
-func dev_resolution_content_scale_size() -> Vector2i:
-	var window: Window = get_window()
-	if window == null:
-		return _dev_resolution_content_scale_size
-	return window.content_scale_size
 
 
 func dev_resolution_window_mode() -> DisplayServer.WindowMode:
@@ -586,16 +580,6 @@ func _dev_resolution_resize_supported() -> bool:
 	if window == null:
 		return true
 	return not window.is_embedded()
-
-
-func _apply_dev_resolution_content_scale(target: Vector2i) -> void:
-	_dev_resolution_content_scale_size = target
-	var window: Window = get_window()
-	if window == null:
-		return
-	if window.content_scale_mode == Window.CONTENT_SCALE_MODE_DISABLED:
-		window.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
-	window.content_scale_size = target
 
 
 func _clear_queues_from_hud() -> void:
