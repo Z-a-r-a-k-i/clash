@@ -294,7 +294,7 @@ func _test_command_card_actions_and_state_changes_are_separate_rows() -> bool:
 	var target_button: Button = _find_exact_button(card, "Target")
 	var halt_button: Button = _find_exact_button(card, "Halt on Sight: Off")
 	var cancel_button: Button = _find_exact_button(card, "Cancel")
-	var ok := true
+	var ok: bool = true
 	if (
 		move_button == null
 		or move_only_button == null
@@ -338,7 +338,7 @@ func _test_command_card_primary_visibility_tracks_each_command() -> bool:
 	if card == null:
 		return false
 	add_child(card)
-	var ok := true
+	var ok: bool = true
 	_set_command_card_state(card, false, false, false, false, false, false)
 	if card.visible:
 		push_error("command card should hide when no command section has visible actions")
@@ -1003,18 +1003,21 @@ func _test_focuses_active_player_on_switch() -> bool:
 
 func _test_resolution_toggle_switches_window_size_and_button_text() -> bool:
 	var original_size: Vector2i = DisplayServer.window_get_size()
+	var original_mode: DisplayServer.WindowMode = DisplayServer.window_get_mode()
 	DisplayServer.window_set_size(Vector2i(1920, 1080))
 	var mode: Node = _make_mode()
 	if mode == null:
+		DisplayServer.window_set_mode(original_mode)
 		DisplayServer.window_set_size(original_size)
 		return false
 	add_child(mode)
 	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
 		_free_mode(mode)
+		DisplayServer.window_set_mode(original_mode)
 		DisplayServer.window_set_size(original_size)
 		return false
-	var ok := true
-	var button := mode.get_node_or_null("DevHUD/Panel/Root/Buttons/Resolution") as Button
+	var ok: bool = true
+	var button: Button = mode.get_node_or_null("DevHUD/Panel/Root/Buttons/Resolution") as Button
 	if button == null:
 		push_error("dev HUD should expose a Resolution button")
 		ok = false
@@ -1056,6 +1059,7 @@ func _test_resolution_toggle_switches_window_size_and_button_text() -> bool:
 			push_error("1080p window should show 2K after toggling back, got %s" % button.text)
 			ok = false
 	_free_mode(mode)
+	DisplayServer.window_set_mode(original_mode)
 	DisplayServer.window_set_size(original_size)
 	return ok
 
@@ -1074,9 +1078,9 @@ func _test_resolution_toggle_reports_embedded_window_without_resizing() -> bool:
 		return false
 	mode.call("set_dev_resolution_resize_supported_override", false)
 	mode.call("toggle_dev_resolution")
-	var status_label := mode.get_node_or_null("DevHUD/Panel/Root/Status") as Label
-	var button := mode.get_node_or_null("DevHUD/Panel/Root/Buttons/Resolution") as Button
-	var ok := true
+	var status_label: Label = mode.get_node_or_null("DevHUD/Panel/Root/Status") as Label
+	var button: Button = mode.get_node_or_null("DevHUD/Panel/Root/Buttons/Resolution") as Button
+	var ok: bool = true
 	if mode.call("dev_resolution_size") != Vector2i(1920, 1080):
 		push_error("embedded resolution toggle should leave window size state at 1920x1080")
 		ok = false
@@ -1086,7 +1090,7 @@ func _test_resolution_toggle_reports_embedded_window_without_resizing() -> bool:
 	if button == null or button.text != "2K":
 		push_error("embedded 2K toggle should still show 2K as the target")
 		ok = false
-	var status_text := "" if status_label == null else status_label.text.to_lower()
+	var status_text: String = "" if status_label == null else status_label.text.to_lower()
 	if status_text.find("embedded") == -1 or status_text.find("resize") == -1:
 		push_error("embedded resolution toggle should report that embedded play cannot resize")
 		ok = false

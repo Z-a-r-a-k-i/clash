@@ -1,5 +1,6 @@
 # Godot
 .godot/
+# Isolated Godot user/cache data created by headless test runs.
 client/.godot-codex-user/
 .import/
 *.tmp

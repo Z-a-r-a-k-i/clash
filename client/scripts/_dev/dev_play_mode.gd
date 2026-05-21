@@ -104,8 +104,10 @@ func toggle_dev_resolution() -> void:
 	if not _dev_resolution_resize_supported():
 		_update_resolution_button_text()
 		_update_hud(
-			"Embedded Game view cannot resize from runtime. Disable Game embedding to use %dx%d."
-			% [target.x, target.y]
+			(
+				"Embedded Game view cannot resize from runtime. Disable Game embedding to use %dx%d."
+				% [target.x, target.y]
+			)
 		)
 		return
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
@@ -779,7 +781,7 @@ func _preview_for_order(order: EntityOrder) -> Dictionary:
 		return {}
 	match order.type:
 		EntityOrder.Type.MOVE:
-			var kind := "Attack and Move"
+			var kind: String = "Attack and Move"
 			if _will_halt_on_sight(order.entity_id):
 				kind = (
 					"Shoot + Hold" if _attack_target_for_entity(order.entity_id) >= 0 else "Halted"

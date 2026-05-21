@@ -5,6 +5,8 @@ GODOT ?= godot
 ifeq ($(OS),Windows_NT)
 SHELL := pwsh.exe
 .SHELLFLAGS := -NoProfile -Command
+# GODOT_HEADLESS redirects APPDATA/LOCALAPPDATA to keep test user data local.
+# This avoids polluting system Godot settings and keeps headless runs isolated.
 GODOT_HEADLESS = $$godotUserRoot = Join-Path (Get-Location) 'client/.godot-codex-user'; $$env:APPDATA = Join-Path $$godotUserRoot 'AppData'; $$env:LOCALAPPDATA = Join-Path $$godotUserRoot 'LocalAppData'; New-Item -ItemType Directory -Force -Path $$env:APPDATA,$$env:LOCALAPPDATA | Out-Null; & '$(GODOT)' --headless --path client
 endif
 
