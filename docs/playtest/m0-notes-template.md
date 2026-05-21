@@ -47,7 +47,7 @@ Result:
 
 - Targeting:
 - Damage feedback:
-- Attack-move / hold-fire:
+- Move / Move Only / halt-on-sight:
 - Abilities:
 
 ### End State

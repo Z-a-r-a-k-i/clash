@@ -15,7 +15,7 @@ extends RefCounted
 #
 # Algorithm summary (full text in plan/m0/02-tick-based-resolver.md):
 #   1. Apply player-level orders (surrender flag) — short-circuits if set.
-#   2. Distribute per-entity orders; HOLD_FIRE_TOGGLE / CANCEL apply now.
+#   2. Distribute per-entity orders; HALT_ON_SIGHT_TOGGLE / CANCEL apply now.
 #   3. For tick in 1..N:
 #        Phase 1: self-target abilities.
 #        Phase 2: every combat unit may fire once if it has a target in range.
@@ -93,7 +93,7 @@ static func resolve(
 		result.events = events
 		return result
 
-	# 3. Distribute orders into per-entity queues. HOLD_FIRE_TOGGLE and
+	# 3. Distribute orders into per-entity queues. HALT_ON_SIGHT_TOGGLE and
 	#    CANCEL apply during distribution (they're mode changes, not
 	#    actions).
 	var orders_a: Array[EntityOrder] = (
@@ -119,7 +119,7 @@ static func resolve(
 	# slots still advance on turns with no submitted orders.
 	if n_ticks == 0 and _has_standing_work(working, registry):
 		n_ticks = 1
-	var attacked_entity_ids: Dictionary = {}
+	var fired_entity_ids: Dictionary = {}
 	var fresh_move_entity_ids: Dictionary = _fresh_move_entity_ids(per_entity)
 	for tick in n_ticks:
 		# Sort once per tick and reuse across phases. Determinism still
@@ -139,21 +139,35 @@ static func resolve(
 			if order.type == EntityOrder.Type.USE_ABILITY:
 				_ABILITY_SYSTEM.resolve_use_ability(working, entity, order, registry, events)
 
-		# Phase 2: attacks. Stable iteration by id for determinism. This
-		# is independent from movement: a unit can shoot and still spend
-		# its move budget later in the same resolve.
-		for entity in sorted_entities:
-			if _ABILITY_SYSTEM.is_casting(entity):
-				continue
-			if attacked_entity_ids.has(entity.id):
-				continue
-			var attack_order := _standing_attack_order(working, entity, registry)
-			if attack_order == null:
-				continue
-			if CombatSystem.resolve_attack(
-				working, entity, attack_order, registry, tunables, events
-			):
-				attacked_entity_ids[entity.id] = true
+		var move_only_entity_ids: Dictionary = _move_only_entity_ids_at_tick(per_entity, tick)
+		var halted_entity_ids: Dictionary = _halted_entity_ids(working, registry, sorted_entities)
+
+		if tick == 0:
+			# Phase 2: attacks. Stable collection by id followed by one batch
+			# application keeps lethal exchanges simultaneous. This phase runs
+			# once from start-of-turn positions; moving into range never grants a
+			# same-turn shot.
+			var attack_intents: Array[Dictionary] = []
+			for entity in sorted_entities:
+				if _ABILITY_SYSTEM.is_casting(entity):
+					continue
+				if fired_entity_ids.has(entity.id):
+					continue
+				if move_only_entity_ids.has(entity.id):
+					continue
+				var attack_order := _standing_attack_order(working, entity, registry)
+				if attack_order == null:
+					continue
+				var intent := CombatSystem.build_attack_intent(
+					working, entity, attack_order, registry, tunables
+				)
+				if not intent.is_empty():
+					attack_intents.append(intent)
+			var tick_fired_ids := CombatSystem.apply_attack_intents(
+				working, attack_intents, registry, events
+			)
+			for entity_id in tick_fired_ids:
+				fired_entity_ids[entity_id] = true
 
 		# Phase 3: movement substeps. A MOVE action is one intent, but
 		# speed_tiles_per_turn is a per-turn distance budget. Iterate
@@ -168,7 +182,21 @@ static func resolve(
 				if order == null:
 					continue
 				if order.type == EntityOrder.Type.MOVE:
-					MovementSystem.resolve_move(working, entity, order, registry, tunables, events)
+					if halted_entity_ids.has(entity.id):
+						continue
+					var move_budget := MovementSystem.movement_budget_for_entity(
+						entity, registry, fired_entity_ids.has(entity.id), false
+					)
+					MovementSystem.resolve_move(
+						working, entity, order, registry, tunables, events, move_budget, true
+					)
+				elif order.type == EntityOrder.Type.MOVE_ONLY:
+					var move_only_budget := MovementSystem.movement_budget_for_entity(
+						entity, registry, false, true
+					)
+					MovementSystem.resolve_move(
+						working, entity, order, registry, tunables, events, move_only_budget, false
+					)
 
 			# Gather workers that are walking to a source or a deposit sink
 			# consume the same movement budget as explicit MOVE orders.
@@ -182,14 +210,21 @@ static func resolve(
 
 			# Persistent move advance for entities with no fresh order.
 			MovementSystem.advance_persistent_moves(
-				working, per_entity, tick, registry, tunables, events
+				working,
+				per_entity,
+				tick,
+				registry,
+				tunables,
+				events,
+				fired_entity_ids,
+				halted_entity_ids
 			)
 
 		# Phase 4 extension: gather workers at a source / sink tick yields
 		# and deposits.
 		GatherSystem.advance_state_phase(working, registry, tunables, events)
 
-	_clear_attacked_persistent_moves(working, attacked_entity_ids, fresh_move_entity_ids)
+	_clear_attacked_persistent_moves(working, fired_entity_ids, fresh_move_entity_ids)
 
 	# 5. End-of-turn pass.
 	EndOfTurnSystem.run(working, registry, tunables, events)
@@ -272,6 +307,57 @@ static func _fresh_move_entity_ids(per_entity: Dictionary) -> Dictionary:
 				out[entity_order.entity_id] = true
 				break
 	return out
+
+
+static func _move_only_entity_ids_at_tick(per_entity: Dictionary, tick: int) -> Dictionary:
+	var out: Dictionary = {}
+	for entity_id in per_entity:
+		var order := _STATE_HELPERS.action_at(per_entity, entity_id, tick)
+		if order != null and order.type == EntityOrder.Type.MOVE_ONLY:
+			out[entity_id] = true
+	return out
+
+
+static func _halted_entity_ids(
+	state: MatchState, registry: EntityRegistry, sorted_entities: Array[Entity]
+) -> Dictionary:
+	var out: Dictionary = {}
+	if state == null or registry == null:
+		return out
+	var visibility_by_player: Dictionary = {}
+	for entity in sorted_entities:
+		if entity == null or entity.current_hp <= 0:
+			continue
+		if not entity.halt_on_sight:
+			continue
+		if _has_visible_enemy(state, registry, sorted_entities, entity, visibility_by_player):
+			out[entity.id] = true
+	return out
+
+
+static func _has_visible_enemy(
+	state: MatchState,
+	registry: EntityRegistry,
+	sorted_entities: Array[Entity],
+	viewer: Entity,
+	visibility_by_player: Dictionary
+) -> bool:
+	if viewer == null or viewer.owner_player_id < 0:
+		return false
+	var visibility: VisionSystem.Visibility = visibility_by_player.get(viewer.owner_player_id)
+	if visibility == null:
+		visibility = VisionSystem.compute_player_visibility(state, registry, viewer.owner_player_id)
+		visibility_by_player[viewer.owner_player_id] = visibility
+	for candidate in sorted_entities:
+		if candidate == null or candidate.current_hp <= 0:
+			continue
+		if candidate.owner_player_id < 0 or candidate.owner_player_id == viewer.owner_player_id:
+			continue
+		if VisionSystem.is_entity_visible_to_player(
+			candidate, state, registry, viewer.owner_player_id, visibility
+		):
+			return true
+	return false
 
 
 static func _clear_attacked_persistent_moves(

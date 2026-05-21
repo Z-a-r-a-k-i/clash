@@ -11,5 +11,8 @@ func _init() -> void:
 		return
 	var runner: Node = Node.new()
 	runner.set_script(script)
+	root.add_child(runner)
 	var failed: int = runner._run_all()
+	root.remove_child(runner)
+	runner.queue_free()
 	quit(0 if failed == 0 else 1)

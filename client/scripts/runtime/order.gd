@@ -32,12 +32,9 @@ extends Resource
 enum Type {
 	INVALID = -1,
 	MOVE = 0,
-	# Deprecated compatibility shape. The human UX now exposes separate
-	# MOVE and ATTACK target-focus commands; the resolver maps ATTACK_MOVE
-	# to those intents during distribution.
-	ATTACK_MOVE,
+	MOVE_ONLY,
 	ATTACK,
-	HOLD_FIRE_TOGGLE,
+	HALT_ON_SIGHT_TOGGLE,
 	BUILD,
 	TRAIN,
 	RESEARCH,
@@ -52,17 +49,17 @@ enum Type {
 # player's id and drops orders that don't match.
 @export var entity_id: int = -1
 
-# MOVE / deprecated ATTACK_MOVE / BUILD — destination tile.
+# MOVE / MOVE_ONLY / BUILD — destination tile.
 @export var target_tile: Vector2i = Vector2i.ZERO
 
 # ATTACK — priority list. Resolver fires at the first live entity in this
-# list; if all are dead and unit isn't on hold-fire, falls back to closest
-# enemy in range. Primary target lives at index 0; the chain is a single
-# list per plan/m0/02-tick-based-resolver.md "Target chain resolution".
+# list; if the target is invalid or out of range, falls back to closest enemy
+# in range. Primary target lives at index 0; the chain is a single list per
+# plan/m0/02-tick-based-resolver.md "Target chain resolution".
 @export var target_priority_chain: Array[int] = []
 
-# HOLD_FIRE_TOGGLE — desired hold-fire state.
-@export var hold_fire: bool = false
+# HALT_ON_SIGHT_TOGGLE — desired movement halt state.
+@export var halt_on_sight: bool = false
 
 # BUILD / TRAIN / RESEARCH / USE_ABILITY — what to produce or use, by string id.
 @export var def_id: String = ""
@@ -85,7 +82,7 @@ func clone() -> EntityOrder:
 	# independent so a caller mutating the clone's chain doesn't leak into
 	# the original.
 	c.target_priority_chain = target_priority_chain.duplicate()
-	c.hold_fire = hold_fire
+	c.halt_on_sight = halt_on_sight
 	c.def_id = def_id
 	c.cancel_index = cancel_index
 	c.target_entity_id = target_entity_id

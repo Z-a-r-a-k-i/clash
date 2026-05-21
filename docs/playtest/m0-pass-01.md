@@ -74,7 +74,7 @@ Use short notes only when something matters.
 
 - Targeting:
 - Damage feedback:
-- Attack-move / hold-fire:
+- Move / Move Only / halt-on-sight:
 - Abilities:
 
 ### End State

@@ -1,12 +1,10 @@
 class_name CombatSystem
 extends RefCounted
 
-# Combat system — resolves ATTACK orders. Walks the target priority chain
+# Combat system — resolves ATTACK focus. Walks the target priority chain
 # per plan/m0/02-tick-based-resolver.md "Target chain resolution":
-# 1. For each id in priority list: if alive at this tick, fire at it.
-# 2. If list exhausted and not on hold-fire: fire at closest enemy in
-#    range (ties broken by id).
-# 3. If on hold-fire and chain exhausted: do not fire.
+# 1. For each id in priority list: if alive, in-range, and targetable, fire at it.
+# 2. If list exhausted: fire at closest enemy in range (ties broken by id).
 #
 # Damage is base damage × any matching AttackModifier multipliers from
 # CombatDef.attack_modifiers, × any active buff damage multipliers on
@@ -22,38 +20,94 @@ static func resolve_attack(
 	_tunables: Tunables,
 	events: Array[ResolverEvent]
 ) -> bool:
+	var intent := build_attack_intent(state, attacker, order, registry, _tunables)
+	if intent.is_empty():
+		return false
+	var fired := apply_attack_intents(state, [intent], registry, events)
+	return fired.has(attacker.id)
+
+
+static func build_attack_intent(
+	state: MatchState,
+	attacker: Entity,
+	order: EntityOrder,
+	registry: EntityRegistry,
+	_tunables: Tunables
+) -> Dictionary:
 	if attacker == null or attacker.current_hp <= 0:
-		return false
+		return {}
 	if registry == null:
-		return false
+		return {}
 	var def: EntityDef = registry.get_by_id(attacker.current_def_id)
 	if def == null or def.combat == null:
-		return false  # Not combat-capable; silently skip.
+		return {}  # Not combat-capable; silently skip.
 	var combat: CombatDef = def.combat
-
 	var target := _select_target(state, attacker, combat, order, registry)
 	if target == null:
-		return false  # Chain exhausted + hold-fire OR no enemy in range.
-
+		return {}
 	var damage := _compute_damage(combat, target, attacker, registry)
 	if damage <= 0:
 		# M0: suppress zero-damage attempts; revisit when miss/block
 		# semantics arrive.
-		return false
+		return {}
+	return {"actor_id": attacker.id, "target_id": target.id, "damage": damage}
 
-	target.current_hp = max(0, target.current_hp - damage)
 
-	var damaged := ResolverEvent.new()
-	damaged.type = ResolverEvent.Type.ENTITY_DAMAGED
-	damaged.actor_id = attacker.id
-	damaged.target_id = target.id
-	damaged.damage = damage
-	damaged.hp_after = target.current_hp
-	events.append(damaged)
+static func apply_attack_intents(
+	state: MatchState, intents: Array, registry: EntityRegistry, events: Array[ResolverEvent]
+) -> Dictionary:
+	var fired_entity_ids: Dictionary = {}
+	var live_intents: Array[Dictionary] = []
+	for item in intents:
+		var intent: Dictionary = item
+		var actor_id: int = intent.get("actor_id", -1)
+		var target_id: int = intent.get("target_id", -1)
+		var damage: int = intent.get("damage", 0)
+		if actor_id < 0 or target_id < 0 or damage <= 0:
+			continue
+		var actor := state.get_entity_by_id(actor_id)
+		var target := state.get_entity_by_id(target_id)
+		if actor == null or target == null:
+			continue
+		live_intents.append(intent)
+	live_intents.sort_custom(
+		func(a: Dictionary, b: Dictionary) -> bool: return int(a["actor_id"]) < int(b["actor_id"])
+	)
 
-	if target.current_hp <= 0:
-		_destroy_entity(state, target, attacker.id, registry, events)
-	return true
+	var killer_by_target: Dictionary = {}
+	var destroyed_targets: Dictionary = {}
+	for intent in live_intents:
+		var actor_id: int = intent["actor_id"]
+		var target_id: int = intent["target_id"]
+		var damage: int = intent["damage"]
+		var target := state.get_entity_by_id(target_id)
+		if target == null:
+			continue
+		target.current_hp = max(0, target.current_hp - damage)
+		fired_entity_ids[actor_id] = true
+
+		var damaged := ResolverEvent.new()
+		damaged.type = ResolverEvent.Type.ENTITY_DAMAGED
+		damaged.actor_id = actor_id
+		damaged.target_id = target_id
+		damaged.damage = damage
+		damaged.hp_after = target.current_hp
+		events.append(damaged)
+
+		if target.current_hp <= 0:
+			destroyed_targets[target_id] = true
+			if not killer_by_target.has(target_id):
+				killer_by_target[target_id] = actor_id
+
+	var destroyed_ids: Array[int] = []
+	for target_id in destroyed_targets.keys():
+		destroyed_ids.append(target_id)
+	destroyed_ids.sort()
+	for target_id in destroyed_ids:
+		var dead := state.get_entity_by_id(target_id)
+		if dead != null and dead.current_hp <= 0:
+			_destroy_entity(state, dead, killer_by_target.get(target_id, -1), registry, events)
+	return fired_entity_ids
 
 
 static func can_attack_now(
@@ -76,9 +130,7 @@ static func can_attack_now(
 # Order of resolution:
 # 1. Walk the priority chain in order, return first live, in-range,
 #    valid-layer enemy.
-# 2. If chain exhausted and attacker is NOT on hold-fire: closest enemy
-#    in range, ties broken by id.
-# 3. If on hold-fire: return null.
+# 2. If chain exhausted: closest enemy in range, ties broken by id.
 static func _select_target(
 	state: MatchState,
 	attacker: Entity,
@@ -87,14 +139,11 @@ static func _select_target(
 	registry: EntityRegistry
 ) -> Entity:
 	# Priority chain.
-	for target_id in order.target_priority_chain:
-		var candidate := state.get_entity_by_id(target_id)
-		if _is_valid_target(state, attacker, combat, candidate, registry):
-			return candidate
-
-	# Hold-fire blocks auto-acquire.
-	if attacker.hold_fire:
-		return null
+	if order != null:
+		for target_id in order.target_priority_chain:
+			var candidate := state.get_entity_by_id(target_id)
+			if _is_valid_target(state, attacker, combat, candidate, registry):
+				return candidate
 
 	# Closest enemy in range, ties broken by id (entities_sorted_by_id
 	# guarantees stable iteration).

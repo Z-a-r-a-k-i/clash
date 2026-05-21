@@ -16,11 +16,11 @@ extends RefCounted
 # player doesn't own are dropped with a push_warning (M0 — at M2 this
 # would be a wire-validation error).
 #
-# HOLD_FIRE_TOGGLE, CANCEL, GATHER, TRAIN, RESEARCH, and ATTACK focus
+# HALT_ON_SIGHT_TOGGLE, CANCEL, GATHER, TRAIN, RESEARCH, and ATTACK focus
 # apply immediately during distribution (state mutation, no tick —
 # they're mode changes / standing orders, not per-tick actions). Movement
 # orders accumulate into per-entity arrays for the tick loop to consume.
-# Duplicate move orders for the same entity collapse to the latest target.
+# Duplicate move-like orders for the same entity collapse to the latest target.
 # The caller
 # (resolver) is responsible for running ProductionSystem.try_fill_active_slots
 # after this returns, so an idle producer that just received a TRAIN
@@ -96,13 +96,11 @@ static func _distribute_one(
 				)
 			)
 			continue
-		# HOLD_FIRE_TOGGLE, CANCEL, GATHER, and ATTACK focus apply at
+		# HALT_ON_SIGHT_TOGGLE, CANCEL, GATHER, and ATTACK focus apply at
 		# distribution time, not in the tick loop — they're mode changes /
 		# standing orders, not per-tick actions.
-		if order.type == EntityOrder.Type.HOLD_FIRE_TOGGLE:
-			# `hold_fire` on the order is the desired state, not a delta.
-			# Naming kept as TOGGLE to match plan/m0/03 vocabulary.
-			entity.hold_fire = order.hold_fire
+		if order.type == EntityOrder.Type.HALT_ON_SIGHT_TOGGLE:
+			entity.halt_on_sight = order.halt_on_sight
 			continue
 		if order.type == EntityOrder.Type.CANCEL:
 			_handle_cancel_order(state, entity, order, registry, events)
@@ -151,19 +149,11 @@ static func _distribute_one(
 			_interrupt_gather_assignment(entity)
 			_set_focus_target_from_chain(state, entity, order.target_priority_chain)
 			continue
-		if order.type == EntityOrder.Type.ATTACK_MOVE:
-			_interrupt_gather_assignment(entity)
-			_set_focus_target_from_chain(state, entity, order.target_priority_chain)
-			var move_order: EntityOrder = order.clone()
-			move_order.type = EntityOrder.Type.MOVE
-			move_order.target_priority_chain = []
-			_queue_replacing_move(per_entity, move_order)
-			continue
 		# Per-tick orders queue up.
 		_interrupt_gather_assignment(entity)
 		if not per_entity.has(order.entity_id):
 			per_entity[order.entity_id] = []
-		if order.type == EntityOrder.Type.MOVE:
+		if order.type == EntityOrder.Type.MOVE or order.type == EntityOrder.Type.MOVE_ONLY:
 			_queue_replacing_move(per_entity, order)
 		else:
 			per_entity[order.entity_id].append(order)
@@ -196,7 +186,13 @@ static func _queue_replacing_move(per_entity: Dictionary, order: EntityOrder) ->
 	var queue: Array = per_entity[order.entity_id]
 	for i in range(queue.size() - 1, -1, -1):
 		var existing: EntityOrder = queue[i]
-		if existing != null and existing.type == EntityOrder.Type.MOVE:
+		if (
+			existing != null
+			and (
+				existing.type == EntityOrder.Type.MOVE
+				or existing.type == EntityOrder.Type.MOVE_ONLY
+			)
+		):
 			queue.remove_at(i)
 	queue.append(order)
 

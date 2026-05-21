@@ -34,7 +34,7 @@ Server technology and wire protocol are deferred to M2 per ADR 0006. Candidate p
 Godot 4.6+ project. GDScript only (per ADR 0020). Responsibilities:
 
 - Render the board, units, and resolved events.
-- Let the player queue actions during the shared turn timer (move, attack, hold-fire toggle, target priority chain, build, train, research, surrender).
+- Let the player queue actions during the shared turn timer (move, Move Only, target focus, halt-on-sight toggle, build, train, research, surrender).
 - At M0/M1: run the resolver locally.
 - At M2 onward: submit the queued actions to the server, await the resolved frame, animate it. Authoritative game state moves to the server; client state becomes a faithful rendering of what the server sent plus the in-flight queue.
 
@@ -67,11 +67,12 @@ Pathfinding, range checks, vision (fog of war), and collision all assume multi-t
 A turn proceeds as follows:
 
 1. **Server: turn start.** Both clients receive `TurnStart { turn_index, timer_ms, current_state }`.
-2. **Clients: queue.** Each player issues orders during the timer. An order can be: a per-unit movement intent, a target focus, a unit-mode toggle (hold-fire), a build/research/production command, or a group order applied to multiple units. Move orders persist across turns; the player only re-issues to override.
+2. **Clients: queue.** Each player issues orders during the timer. An order can be: a per-unit movement intent, a Move Only intent, a target focus, a unit-mode toggle (halt-on-sight), a build/research/production command, or a group order applied to multiple units. Move orders persist across turns; the player only re-issues to override.
 3. **Clients: submit.** Each client sends `SubmitTurn { actions[] }` when the player finishes, or an empty submission if the timer expires.
 4. **Server: resolve.** Once both submissions are in, the resolver applies immediate mode/order updates, then resolves the turn in deterministic phases:
    - Self-target abilities resolve first for units that submitted them.
-   - Every combat unit may fire at most once from its current position, preferring its focused target and otherwise falling back to the closest enemy in range unless hold-fire is enabled.
+   - Every combat unit may fire at most once from its current position, preferring its focused target and otherwise falling back to the closest enemy in range.
+   - Move Only units skip their shot and use full movement. Units that fire and also move use their post-shot movement budget.
    - Movement resolves after attacks. Fresh move orders and persistent moves spend the unit's per-turn movement budget independently from combat.
    - If a unit fired while following an old persistent move, that old move is cleared unless the player submitted a fresh move this turn.
    - End-of-turn effects then run: gather/deposit ticks, production progress, research progress, building completion, cooldowns, status effects, and win checks.

@@ -635,14 +635,33 @@ func _test_routes_command_card_orders() -> bool:
 		push_error("expected ATTACK focus after pending target click")
 		_free_mode(mode)
 		return false
-	card.emit_signal("hold_fire_requested", true)
-	card.emit_signal("cancel_requested", -1)
-	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
-	if orders[1].type != EntityOrder.Type.HOLD_FIRE_TOGGLE or not orders[1].hold_fire:
-		push_error("hold-fire signal should queue HOLD_FIRE_TOGGLE(true)")
+	card.emit_signal("move_only_requested")
+	if mode.pending_command_kind() != "move_only":
+		push_error("Move Only signal should enter pending move_only mode")
 		_free_mode(mode)
 		return false
-	if orders[2].type != EntityOrder.Type.CANCEL or orders[2].cancel_index != -1:
+	if not mode.confirm_pending_at_tile(Vector2i(8, 10)):
+		push_error("pending Move Only click should queue MOVE_ONLY")
+		_free_mode(mode)
+		return false
+	card.emit_signal("halt_on_sight_requested", true)
+	card.emit_signal("cancel_requested", -1)
+	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if orders.size() < 4:
+		push_error(
+			"expected ATTACK, MOVE_ONLY, HALT_ON_SIGHT_TOGGLE, CANCEL; got %d" % orders.size()
+		)
+		_free_mode(mode)
+		return false
+	if orders[1].type != EntityOrder.Type.MOVE_ONLY:
+		push_error("Move Only signal should queue MOVE_ONLY")
+		_free_mode(mode)
+		return false
+	if orders[2].type != EntityOrder.Type.HALT_ON_SIGHT_TOGGLE or not orders[2].halt_on_sight:
+		push_error("halt-on-sight signal should queue HALT_ON_SIGHT_TOGGLE(true)")
+		_free_mode(mode)
+		return false
+	if orders[3].type != EntityOrder.Type.CANCEL or orders[3].cancel_index != -1:
 		push_error("cancel signal should queue CANCEL(-1)")
 		_free_mode(mode)
 		return false

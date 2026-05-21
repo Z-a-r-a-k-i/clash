@@ -26,7 +26,9 @@ static func resolve_move(
 	order: EntityOrder,
 	registry: EntityRegistry,
 	_tunables: Tunables,
-	events: Array[ResolverEvent]
+	events: Array[ResolverEvent],
+	movement_budget: int = -1,
+	persist: bool = true
 ) -> void:
 	if actor == null or actor.current_hp <= 0:
 		return
@@ -34,7 +36,9 @@ static func resolve_move(
 		return
 
 	# Move budget check.
-	var movement_speed: int = movement_speed_for_entity(actor, registry)
+	var movement_speed: int = (
+		movement_speed_for_entity(actor, registry) if movement_budget < 0 else movement_budget
+	)
 	if movement_speed <= 0:
 		return  # Not movement-capable.
 	if actor.moves_used_this_turn >= movement_speed:
@@ -42,9 +46,10 @@ static func resolve_move(
 
 	if step_toward(state, actor, order.target_tile, events):
 		actor.moves_used_this_turn += 1
-		actor.persistent_order = order
-		if actor.origin == order.target_tile:
-			actor.persistent_order = null
+		if persist:
+			actor.persistent_order = order
+			if actor.origin == order.target_tile:
+				actor.persistent_order = null
 
 
 static func advance_persistent_moves(
@@ -53,7 +58,9 @@ static func advance_persistent_moves(
 	tick: int,
 	registry: EntityRegistry,
 	_tunables: Tunables,
-	events: Array[ResolverEvent]
+	events: Array[ResolverEvent],
+	fired_entity_ids: Dictionary = {},
+	halted_entity_ids: Dictionary = {}
 ) -> void:
 	if state.tile_grid == null:
 		return
@@ -71,9 +78,13 @@ static func advance_persistent_moves(
 		# here would double-step.
 		if actor.gather_state != null and actor.gather_state.phase != GatherState.Phase.IDLE:
 			continue
+		if halted_entity_ids.has(actor.id):
+			continue
 
 		var po: EntityOrder = actor.persistent_order
-		var movement_speed: int = movement_speed_for_entity(actor, registry)
+		var movement_speed: int = movement_budget_for_entity(
+			actor, registry, fired_entity_ids.has(actor.id), false
+		)
 		if movement_speed <= 0:
 			continue
 		if actor.moves_used_this_turn >= movement_speed:
@@ -146,3 +157,18 @@ static func movement_speed_for_entity(actor: Entity, registry: EntityRegistry) -
 		if buff != null:
 			speed *= buff.speed_mult
 	return max(0, int(round(speed)))
+
+
+static func movement_budget_for_entity(
+	actor: Entity, registry: EntityRegistry, fired_this_turn: bool, move_only: bool
+) -> int:
+	var speed: int = movement_speed_for_entity(actor, registry)
+	if speed <= 0:
+		return 0
+	if move_only or not fired_this_turn:
+		return speed
+	var def: EntityDef = registry.get_by_id(actor.current_def_id) if registry != null else null
+	var fraction: float = 0.5
+	if def != null and def.movement != null:
+		fraction = clampf(def.movement.post_shot_move_fraction, 0.0, 1.0)
+	return max(0, int(floor(float(speed) * fraction)))

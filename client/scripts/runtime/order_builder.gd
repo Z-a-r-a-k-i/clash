@@ -24,18 +24,13 @@ static func fan_out_move(entity_ids: Array[int], target_tile: Vector2i) -> Array
 	return out
 
 
-static func fan_out_attack_move(
-	entity_ids: Array[int], target_tile: Vector2i, target_priority_chain: Array[int] = []
-) -> Array[EntityOrder]:
+static func fan_out_move_only(entity_ids: Array[int], target_tile: Vector2i) -> Array[EntityOrder]:
 	var out: Array[EntityOrder] = []
 	for id in entity_ids:
 		var o := EntityOrder.new()
-		o.type = EntityOrder.Type.ATTACK_MOVE
+		o.type = EntityOrder.Type.MOVE_ONLY
 		o.entity_id = id
 		o.target_tile = target_tile
-		# Duplicate the chain per order so callers mutating one entity's
-		# chain post-submission can't leak into another's.
-		o.target_priority_chain = target_priority_chain.duplicate()
 		out.append(o)
 	return out
 
@@ -53,13 +48,15 @@ static func fan_out_attack(
 	return out
 
 
-static func fan_out_hold_fire_toggle(entity_ids: Array[int], hold_fire: bool) -> Array[EntityOrder]:
+static func fan_out_halt_on_sight_toggle(
+	entity_ids: Array[int], halt_on_sight: bool
+) -> Array[EntityOrder]:
 	var out: Array[EntityOrder] = []
 	for id in entity_ids:
 		var o := EntityOrder.new()
-		o.type = EntityOrder.Type.HOLD_FIRE_TOGGLE
+		o.type = EntityOrder.Type.HALT_ON_SIGHT_TOGGLE
 		o.entity_id = id
-		o.hold_fire = hold_fire
+		o.halt_on_sight = halt_on_sight
 		out.append(o)
 	return out
 

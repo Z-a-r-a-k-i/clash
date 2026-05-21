@@ -2,8 +2,9 @@ class_name CommandCard
 extends VBoxContainer
 
 signal move_requested
+signal move_only_requested
 signal target_requested
-signal hold_fire_requested(enabled: bool)
+signal halt_on_sight_requested(enabled: bool)
 signal gather_requested
 signal build_requested(def_id: String)
 signal train_requested(def_id: String)
@@ -16,8 +17,9 @@ const DEV_BUTTON_MIN_HEIGHT := 34.0
 
 var _selection_label: Label = null
 var _move_button: Button = null
+var _move_only_button: Button = null
 var _target_button: Button = null
-var _hold_fire_button: Button = null
+var _halt_on_sight_button: Button = null
 var _gather_button: Button = null
 var _cancel_button: Button = null
 var _primary_row: HBoxContainer = null
@@ -25,7 +27,7 @@ var _build_list: VBoxContainer = null
 var _train_list: VBoxContainer = null
 var _research_list: VBoxContainer = null
 var _ability_list: VBoxContainer = null
-var _hold_fire_enabled: bool = false
+var _halt_on_sight_enabled: bool = false
 var _build_options: Array[Dictionary] = []
 var _train_options: Array[Dictionary] = []
 var _research_options: Array[Dictionary] = []
@@ -39,10 +41,11 @@ func _ready() -> void:
 func set_command_state(
 	selection_text: String,
 	can_move: bool,
+	can_move_only: bool,
 	can_target: bool,
-	can_hold_fire: bool,
+	can_halt_on_sight: bool,
 	can_gather: bool,
-	hold_fire_enabled: bool,
+	halt_on_sight_enabled: bool,
 	build_options: Array[Dictionary],
 	train_options: Array[Dictionary],
 	research_options: Array[Dictionary],
@@ -50,7 +53,7 @@ func set_command_state(
 	can_cancel: bool
 ) -> void:
 	_ensure_ui()
-	_hold_fire_enabled = hold_fire_enabled
+	_halt_on_sight_enabled = halt_on_sight_enabled
 	_build_options = _copy_options(build_options)
 	_train_options = _copy_options(train_options)
 	_research_options = _copy_options(research_options)
@@ -58,11 +61,15 @@ func set_command_state(
 	_selection_label.text = selection_text
 	_move_button.visible = can_move
 	_move_button.disabled = false
+	_move_only_button.visible = can_move_only
+	_move_only_button.disabled = false
 	_target_button.visible = can_target
 	_target_button.disabled = false
-	_hold_fire_button.visible = can_hold_fire
-	_hold_fire_button.disabled = false
-	_hold_fire_button.text = "Hold Fire: On" if hold_fire_enabled else "Hold Fire: Off"
+	_halt_on_sight_button.visible = can_halt_on_sight
+	_halt_on_sight_button.disabled = false
+	_halt_on_sight_button.text = (
+		"Halt on Sight: On" if halt_on_sight_enabled else "Halt on Sight: Off"
+	)
 	_gather_button.visible = can_gather
 	_gather_button.disabled = false
 	_cancel_button.visible = can_cancel
@@ -71,7 +78,9 @@ func set_command_state(
 	_rebuild_option_buttons(_train_list, _train_options, train_requested)
 	_rebuild_option_buttons(_research_list, _research_options, research_requested)
 	_rebuild_option_buttons(_ability_list, _ability_options, ability_requested)
-	_primary_row.visible = can_move or can_target or can_hold_fire or can_gather or can_cancel
+	_primary_row.visible = (
+		can_move or can_move_only or can_target or can_halt_on_sight or can_gather or can_cancel
+	)
 	visible = (
 		_primary_row.visible
 		or not _build_options.is_empty()
@@ -116,15 +125,19 @@ func _ensure_ui() -> void:
 	_move_button.pressed.connect(func() -> void: move_requested.emit())
 	_primary_row.add_child(_move_button)
 
+	_move_only_button = _button("Move Only")
+	_move_only_button.pressed.connect(func() -> void: move_only_requested.emit())
+	_primary_row.add_child(_move_only_button)
+
 	_target_button = _button("Target")
 	_target_button.pressed.connect(func() -> void: target_requested.emit())
 	_primary_row.add_child(_target_button)
 
-	_hold_fire_button = _button("Hold Fire: Off")
-	_hold_fire_button.pressed.connect(
-		func() -> void: hold_fire_requested.emit(not _hold_fire_enabled)
+	_halt_on_sight_button = _button("Halt on Sight: Off")
+	_halt_on_sight_button.pressed.connect(
+		func() -> void: halt_on_sight_requested.emit(not _halt_on_sight_enabled)
 	)
-	_primary_row.add_child(_hold_fire_button)
+	_primary_row.add_child(_halt_on_sight_button)
 
 	_gather_button = _button("Gather")
 	_gather_button.pressed.connect(func() -> void: gather_requested.emit())

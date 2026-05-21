@@ -12,10 +12,10 @@ The order-issuance UI and the in-flight queue that submits to the resolver.
 
 | Order | Target | Notes |
 |---|---|---|
-| Move | tile or rect | Ignores enemies along path. Persists across turns until arrived / dead / overridden. |
-| Attack-move (deprecated/compat-only) | tile or rect | Stops to engage if an enemy enters attack range; deprecated in the human UX in favor of move + target focus. |
-| Attack | entity (with priority chain) | Up to N priority targets in chain; fall-back to closest enemy unless on hold-fire. |
-| Hold-fire toggle | self | Unit mode. Independent of move/target focus. |
+| Move | tile or rect | Ignores enemies along path. Persists across turns until arrived / dead / overridden. If the unit shoots first, it spends its post-shot movement budget. |
+| Move Only | tile or rect | One-turn move-only intent. Skips the unit's shot, ignores halt-on-sight, and uses full movement budget. |
+| Target focus | entity (with priority chain) | Priority target for automatic shooting. Falls back to closest enemy in range when the focus is invalid or out of range. |
+| Halt-on-sight toggle | self | Movement mode. Blocks normal movement while an enemy is visible; does not block automatic shooting. |
 | Build | building type + tile rect | Issued from a worker (or HQ for the initial set). N-turn build time. |
 | Train | unit type | Issued from a production building. N-turn train time. |
 | Research | research id | Issued from a building. N-turn research time. |
@@ -35,6 +35,7 @@ Players will mostly issue orders to *groups* of selected units, not individuals.
 
 - Move persists across turns. The unit's "last issued move" is part of state and continues to be acted on each turn until it completes, the unit dies, the player overrides it, or the unit fires while following an old move without a fresh move command.
 - Target focus persists separately from movement until replaced, cleared, or the target becomes invalid.
+- Move Only does not persist; it is a one-turn movement-only intent.
 - The submitted `queue[]` for a turn contains only **new** orders issued during that turn. Persistent state is held by the resolver, not re-sent each turn.
 
 ## UX considerations (M0 prototype level)

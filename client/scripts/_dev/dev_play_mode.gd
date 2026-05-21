@@ -9,6 +9,7 @@ const DEV_TURN_INPUT_SCRIPT := preload("res://scripts/game/dev_turn_input.gd")
 const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
 const PENDING_NONE := ""
 const PENDING_MOVE := "move"
+const PENDING_MOVE_ONLY := "move_only"
 const PENDING_TARGET := "target"
 const PENDING_BUILD := "build"
 const PENDING_GATHER := "gather"
@@ -122,6 +123,12 @@ func issue_move_selected(tile: Vector2i) -> bool:
 	return ok
 
 
+func issue_move_only_selected(tile: Vector2i) -> bool:
+	var ok: bool = _input.issue_move_only(tile)
+	_update_hud()
+	return ok
+
+
 func issue_attack_selected(target_entity_id: int) -> bool:
 	var ok: bool = _input.issue_attack(target_entity_id)
 	_update_hud()
@@ -140,14 +147,8 @@ func issue_gather_selected(target_entity_id: int) -> bool:
 	return ok
 
 
-func issue_attack_move_selected(tile: Vector2i, target_entity_id: int = -1) -> bool:
-	var ok: bool = _input.issue_attack_move(tile, target_entity_id)
-	_update_hud()
-	return ok
-
-
-func issue_hold_fire_selected(enabled: bool) -> bool:
-	var ok: bool = _input.issue_hold_fire_toggle(enabled)
+func issue_halt_on_sight_selected(enabled: bool) -> bool:
+	var ok: bool = _input.issue_halt_on_sight_toggle(enabled)
 	_update_hud()
 	return ok
 
@@ -210,6 +211,15 @@ func begin_move() -> void:
 	_update_hud("Click a target tile for MOVE.")
 
 
+func begin_move_only() -> void:
+	if not _input.can_issue_move_only():
+		_update_hud("Select a movable unit before MOVE ONLY.")
+		return
+	_pending_command = PENDING_MOVE_ONLY
+	_pending_build_def_id = ""
+	_update_hud("Click a target tile for MOVE ONLY. Unit will not shoot this turn.")
+
+
 func begin_target() -> void:
 	if not _input.can_issue_attack_target():
 		_update_hud("Select a combat unit before TARGET.")
@@ -235,6 +245,12 @@ func confirm_pending_at_tile(tile: Vector2i) -> bool:
 			_clear_pending_command()
 			_update_hud()
 		return move_ok
+	if _pending_command == PENDING_MOVE_ONLY:
+		var move_only_ok: bool = issue_move_only_selected(tile)
+		if move_only_ok:
+			_clear_pending_command()
+			_update_hud()
+		return move_only_ok
 	if _pending_command == PENDING_TARGET:
 		var target_id: int = (
 			_renderer.entity_id_at_tile(tile)
@@ -481,8 +497,9 @@ func _build_hud() -> void:
 
 	_command_card = COMMAND_CARD_SCRIPT.new() as Control
 	_command_card.connect("move_requested", Callable(self, "begin_move"))
+	_command_card.connect("move_only_requested", Callable(self, "begin_move_only"))
 	_command_card.connect("target_requested", Callable(self, "begin_target"))
-	_command_card.connect("hold_fire_requested", Callable(self, "issue_hold_fire_selected"))
+	_command_card.connect("halt_on_sight_requested", Callable(self, "issue_halt_on_sight_selected"))
 	_command_card.connect("gather_requested", Callable(self, "begin_gather"))
 	_command_card.connect("build_requested", Callable(self, "begin_build"))
 	_command_card.connect("train_requested", Callable(self, "issue_train_selected"))
@@ -547,6 +564,8 @@ func _update_hud(override_status: String = "") -> void:
 			_status_label.text = status_message
 		elif _pending_command == PENDING_MOVE:
 			_status_label.text = "Pending MOVE: click target tile."
+		elif _pending_command == PENDING_MOVE_ONLY:
+			_status_label.text = "Pending MOVE ONLY: click target tile. Unit will not shoot."
 		elif _pending_command == PENDING_TARGET:
 			_status_label.text = "Pending TARGET: click an enemy."
 		elif _pending_command == PENDING_BUILD:
@@ -590,10 +609,11 @@ func _refresh_command_card() -> void:
 		"set_command_state",
 		_input.selected_entity_label(),
 		_input.can_issue_move(),
+		_input.can_issue_move_only(),
 		_input.can_issue_attack_target(),
-		_input.can_issue_hold_fire_toggle(),
+		_input.can_issue_halt_on_sight_toggle(),
 		_input.can_issue_gather(),
-		_input.selected_hold_fire(),
+		_input.selected_halt_on_sight(),
 		_build_options(_input.build_option_ids()),
 		_entity_options(_input.train_option_ids()),
 		_research_options(_input.research_option_ids()),
@@ -644,6 +664,17 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 		var move_preview: Dictionary = _preview_for_order(entity.persistent_order)
 		if not move_preview.is_empty():
 			out.append(move_preview)
+	if out.is_empty():
+		var shot_target_id: int = _attack_target_for_entity(entity.id)
+		if shot_target_id >= 0:
+			out.append(
+				{"entity_id": entity.id, "kind": "Idle + Shoot", "target_entity_id": shot_target_id}
+			)
+		elif _will_halt_on_sight(entity.id):
+			var visible_enemy_id := _visible_enemy_for_entity(entity)
+			out.append(
+				{"entity_id": entity.id, "kind": "Halted", "target_entity_id": visible_enemy_id}
+			)
 	if entity.focus_target_entity_id >= 0:
 		(
 			out
@@ -687,7 +718,18 @@ func _preview_for_order(order: EntityOrder) -> Dictionary:
 		return {}
 	match order.type:
 		EntityOrder.Type.MOVE:
-			return {"entity_id": order.entity_id, "kind": "Move", "target_tile": order.target_tile}
+			var kind := "Move"
+			if _will_halt_on_sight(order.entity_id):
+				kind = (
+					"Shoot + Hold" if _attack_target_for_entity(order.entity_id) >= 0 else "Halted"
+				)
+			elif _attack_target_for_entity(order.entity_id) >= 0:
+				kind = "Shoot + Move"
+			return {"entity_id": order.entity_id, "kind": kind, "target_tile": order.target_tile}
+		EntityOrder.Type.MOVE_ONLY:
+			return {
+				"entity_id": order.entity_id, "kind": "Move Only", "target_tile": order.target_tile
+			}
 		EntityOrder.Type.ATTACK:
 			var target_id := -1
 			if not order.target_priority_chain.is_empty():
@@ -714,6 +756,110 @@ func _preview_for_order(order: EntityOrder) -> Dictionary:
 			return {"entity_id": order.entity_id, "kind": "Ability", "def_id": order.def_id}
 		_:
 			return {}
+
+
+func _attack_target_for_entity(entity_id: int) -> int:
+	if _loaded == null or _loaded.state == null or _loaded.registry == null:
+		return -1
+	var actor := _loaded.state.get_entity_by_id(entity_id)
+	if not _can_preview_attack(actor):
+		return -1
+	var def := _loaded.registry.get_by_id(
+		actor.current_def_id if actor.current_def_id != "" else actor.def_id
+	)
+	if def == null or def.combat == null:
+		return -1
+	if actor.focus_target_entity_id >= 0:
+		var focus := _loaded.state.get_entity_by_id(actor.focus_target_entity_id)
+		if _is_attack_target_in_range(actor, focus, def.combat):
+			return focus.id
+	var closest_id := -1
+	var closest_dist := -1
+	for candidate in _loaded.state.entities_sorted_by_id():
+		if not _is_attack_target_in_range(actor, candidate, def.combat):
+			continue
+		var dist := _entity_distance(actor, candidate)
+		if closest_id < 0 or dist < closest_dist:
+			closest_id = candidate.id
+			closest_dist = dist
+	return closest_id
+
+
+func _will_halt_on_sight(entity_id: int) -> bool:
+	if _loaded == null or _loaded.state == null or _loaded.registry == null:
+		return false
+	var actor := _loaded.state.get_entity_by_id(entity_id)
+	if not _can_preview_attack(actor) or not actor.halt_on_sight:
+		return false
+	return _visible_enemy_for_entity(actor) >= 0
+
+
+func _can_preview_attack(entity: Entity) -> bool:
+	if entity == null or entity.current_hp <= 0:
+		return false
+	if entity.ability_cast != null:
+		return false
+	if entity.gather_state != null and entity.gather_state.phase != GatherState.Phase.IDLE:
+		return false
+	if entity.locked_to_building_id >= 0 or entity.is_constructing:
+		return false
+	return true
+
+
+func _visible_enemy_for_entity(actor: Entity) -> int:
+	if actor == null or _loaded == null or _loaded.state == null or _loaded.registry == null:
+		return -1
+	var visibility := VisionSystem.compute_player_visibility(
+		_loaded.state, _loaded.registry, actor.owner_player_id
+	)
+	for candidate in _loaded.state.entities_sorted_by_id():
+		if candidate == null or candidate.current_hp <= 0:
+			continue
+		if candidate.owner_player_id < 0 or candidate.owner_player_id == actor.owner_player_id:
+			continue
+		if VisionSystem.is_entity_visible_to_player(
+			candidate, _loaded.state, _loaded.registry, actor.owner_player_id, visibility
+		):
+			return candidate.id
+	return -1
+
+
+func _is_attack_target_in_range(actor: Entity, target: Entity, combat: CombatDef) -> bool:
+	if actor == null or target == null or combat == null:
+		return false
+	if target.id == actor.id or target.current_hp <= 0:
+		return false
+	if target.owner_player_id < 0 or target.owner_player_id == actor.owner_player_id:
+		return false
+	if not combat.target_layers.has(target.current_layer):
+		return false
+	var dist := _entity_distance(actor, target)
+	return dist >= 0 and dist <= combat.attack_range
+
+
+func _entity_distance(a: Entity, b: Entity) -> int:
+	if _loaded == null or _loaded.state == null or _loaded.registry == null:
+		return -1
+	var a_rect := _entity_rect(a)
+	var b_rect := _entity_rect(b)
+	if a_rect.size == Vector2i.ZERO or b_rect.size == Vector2i.ZERO:
+		return -1
+	return TileGrid.distance_between_rects(a_rect, b_rect)
+
+
+func _entity_rect(entity: Entity) -> Rect2i:
+	if entity == null or _loaded == null or _loaded.state == null or _loaded.registry == null:
+		return Rect2i()
+	if _loaded.state.tile_grid != null:
+		var rect := _loaded.state.tile_grid.entity_rect(entity.id)
+		if rect.size != Vector2i.ZERO:
+			return rect
+	var def := _loaded.registry.get_by_id(
+		entity.current_def_id if entity.current_def_id != "" else entity.def_id
+	)
+	if def == null:
+		return Rect2i()
+	return Rect2i(entity.origin, def.footprint)
 
 
 func _build_options(ids: Array[String]) -> Array[Dictionary]:

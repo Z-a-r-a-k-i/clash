@@ -13,12 +13,10 @@ Long-horizon view of clash. Concrete near-term work lives in the plan tree (`pla
 
 ## Near-term handoff
 
-- **Next M0 PR:** `plan/m0/13-combat-command-simplification.md`. Simplify the
-  playtest combat command model before deeper balance iteration: automatic
-  closest-target shooting stays on, Target is priority focus only, Retreat gives
-  full move without shooting, Halt on Sight replaces Hold Fire, attack damage is
-  simultaneous, and units that shoot get reduced same-turn movement by a tunable
-  percentage.
+- **Next M0 PR:** run a manual playtest against the simplified command model and
+  turn the first concrete fun/readability blocker into the next plan node. The
+  current M0 command surface is Move, Move Only, Target, Halt on Sight, Gather,
+  Build, Train, Research, Ability, Cancel, Resolve.
 
 ## Speculative
 
