@@ -91,4 +91,4 @@ move, shoot-and-move, Move Only, or halt.
 
 ## Artifacts
 
-- PR: TBD
+- PR [#24](https://github.com/Z-a-r-a-k-i/clash/pull/24) — combat command simplification for manual playtesting.
