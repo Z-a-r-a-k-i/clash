@@ -1,7 +1,7 @@
 @tool
 extends Node
 
-const DEV_TURN_INPUT_PATH := "res://scripts/game/dev_turn_input.gd"
+const DEV_TURN_INPUT_PATH: String = "res://scripts/game/dev_turn_input.gd"
 
 
 func _enter_tree() -> void:
@@ -11,8 +11,8 @@ func _enter_tree() -> void:
 
 
 func _run_all() -> int:
-	var passed := 0
-	var failed := 0
+	var passed: int = 0
+	var failed: int = 0
 	var fail_names: Array[String] = []
 	for test_pair in _all_tests():
 		var test_name: String = test_pair[0]
@@ -101,7 +101,7 @@ func _test_queues_move_for_active_player() -> bool:
 	if submit_0.orders.size() != 1 or submit_1.orders.size() != 0:
 		push_error("expected exactly one order for P0 and none for P1")
 		return false
-	var order := submit_0.orders[0]
+	var order: EntityOrder = submit_0.orders[0]
 	return _expect_order(order, EntityOrder.Type.MOVE, 1, Vector2i(8, 8), -1, [])
 
 
@@ -470,14 +470,14 @@ func _make_input() -> DevTurnInput:
 
 
 func _make_input_setup() -> Dictionary:
-	var state := MatchState.new()
+	var state: MatchState = MatchState.new()
 	state.tile_grid = TileGrid.new(12, 12)
 	state.next_entity_id = 1
 	for player_id in [0, 1]:
-		var p := PlayerState.new()
+		var p: PlayerState = PlayerState.new()
 		p.player_id = player_id
 		state.players.append(p)
-	var registry := EntityRegistry.new()
+	var registry: EntityRegistry = EntityRegistry.new()
 	registry.entities = [
 		_make_def("worker", Vector2i(1, 1), true, true, false),
 		_make_def("marine", Vector2i(1, 1), true, false, false),
@@ -503,31 +503,31 @@ func _make_input_setup() -> Dictionary:
 func _make_def(
 	id: String, footprint: Vector2i, can_move: bool, can_gather: bool, resource_source: bool
 ) -> EntityDef:
-	var def := EntityDef.new()
+	var def: EntityDef = EntityDef.new()
 	def.id = id
 	def.footprint = footprint
 	if can_move:
-		var movement := MovementDef.new()
+		var movement: MovementDef = MovementDef.new()
 		movement.speed_tiles_per_turn = 3
 		def.movement = movement
-	var combat := CombatDef.new()
+	var combat: CombatDef = CombatDef.new()
 	combat.damage = 5
 	combat.attack_range = 3
 	combat.target_layers = ["ground"]
 	def.combat = combat
 	if can_gather:
-		var gather := GatherDef.new()
+		var gather: GatherDef = GatherDef.new()
 		gather.accepts_resource_types = ["minerals", "gas"]
 		def.gather = gather
 		def.tags.append("worker")
 	if resource_source:
-		var source := ResourceSourceDef.new()
+		var source: ResourceSourceDef = ResourceSourceDef.new()
 		source.resource_type = "minerals"
 		def.resource_source = source
 		def.tags.append("resource_source")
 	if id == "marine":
 		def.tags.append("ground")
-		var construction := ConstructionDef.new()
+		var construction: ConstructionDef = ConstructionDef.new()
 		construction.built_by_tag = "barracks"
 		def.construction = construction
 		def.abilities = _abilities_def([_stim_ability()])
@@ -535,18 +535,18 @@ func _make_def(
 
 
 func _make_barracks_def() -> EntityDef:
-	var def := EntityDef.new()
+	var def: EntityDef = EntityDef.new()
 	def.id = "barracks"
 	def.footprint = Vector2i(3, 3)
 	def.tags = ["building", "barracks", "structure", "ground"]
-	var health := HealthDef.new()
+	var health: HealthDef = HealthDef.new()
 	health.max_hp = 1000
 	def.health = health
-	var construction := ConstructionDef.new()
+	var construction: ConstructionDef = ConstructionDef.new()
 	construction.built_by_tag = "worker"
 	construction.mineral_cost = 150
 	def.construction = construction
-	var production := ProductionDef.new()
+	var production: ProductionDef = ProductionDef.new()
 	production.produces = ["marine"]
 	production.researches = ["stim_research"]
 	def.production = production
@@ -554,17 +554,17 @@ func _make_barracks_def() -> EntityDef:
 
 
 func _make_noncombat_mover_def() -> EntityDef:
-	var def := EntityDef.new()
+	var def: EntityDef = EntityDef.new()
 	def.id = "noncombat_mover"
 	def.footprint = Vector2i(1, 1)
-	var movement := MovementDef.new()
+	var movement: MovementDef = MovementDef.new()
 	movement.speed_tiles_per_turn = 3
 	def.movement = movement
 	return def
 
 
 func _make_research_def() -> ResearchDef:
-	var research := ResearchDef.new()
+	var research: ResearchDef = ResearchDef.new()
 	research.id = "stim_research"
 	research.display_name = "Stim Pack"
 	research.mineral_cost = 100
@@ -572,23 +572,23 @@ func _make_research_def() -> ResearchDef:
 
 
 func _abilities_def(abilities: Array[AbilityDef]) -> AbilitiesDef:
-	var out := AbilitiesDef.new()
+	var out: AbilitiesDef = AbilitiesDef.new()
 	out.abilities = abilities
 	return out
 
 
 func _stim_ability() -> AbilityDef:
-	var ability := AbilityDef.new()
+	var ability: AbilityDef = AbilityDef.new()
 	ability.id = "stim"
 	ability.display_name = "Stim"
 	ability.target_type = "self"
 	ability.cooldown_turns = 5
 	ability.requires_research_id = "stim_research"
-	var cost := AbilityCost.new()
+	var cost: AbilityCost = AbilityCost.new()
 	cost.type = "hp"
 	cost.amount = 10
 	ability.costs = [cost]
-	var effect := StatBuffEffect.new()
+	var effect: StatBuffEffect = StatBuffEffect.new()
 	effect.duration_turns = 3
 	effect.damage_mult = 1.5
 	effect.speed_mult = 1.5
@@ -605,7 +605,7 @@ func _add_entity(
 	footprint: Vector2i,
 	hp: int
 ) -> void:
-	var e := Entity.new()
+	var e: Entity = Entity.new()
 	e.id = id
 	e.def_id = def_id
 	e.current_def_id = def_id
