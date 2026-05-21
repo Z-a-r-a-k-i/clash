@@ -83,6 +83,30 @@ func issue_move(target_tile: Vector2i) -> bool:
 	return true
 
 
+func issue_move_only(target_tile: Vector2i) -> bool:
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		_status_message = "Select a unit before issuing MOVE ONLY."
+		return false
+	if _state == null or _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
+		_status_message = "MOVE ONLY target is outside the map."
+		return false
+	var def: EntityDef = _def_for_entity(actor)
+	if def == null or def.movement == null or def.movement.speed_tiles_per_turn <= 0:
+		_status_message = "%s cannot move." % _def_id_for_entity(actor)
+		return false
+	var order: EntityOrder = EntityOrder.new()
+	order.type = EntityOrder.Type.MOVE_ONLY
+	order.entity_id = actor.id
+	order.target_tile = target_tile
+	_append_order(order)
+	_status_message = (
+		"Queued MOVE ONLY for #%d to %s. Unit will not shoot this turn."
+		% [actor.id, str(target_tile)]
+	)
+	return true
+
+
 func issue_attack(target_entity_id: int) -> bool:
 	var actor: Entity = _selected_entity()
 	if actor == null:
@@ -113,6 +137,23 @@ func issue_attack_target(target_entity_id: int) -> bool:
 	return issue_attack(target_entity_id)
 
 
+func issue_halt_on_sight_toggle(enabled: bool) -> bool:
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		_status_message = "Select a combat entity before issuing HALT_ON_SIGHT_TOGGLE."
+		return false
+	if not can_issue_halt_on_sight_toggle():
+		_status_message = "%s cannot use halt on sight." % _def_id_for_entity(actor)
+		return false
+	var order: EntityOrder = EntityOrder.new()
+	order.type = EntityOrder.Type.HALT_ON_SIGHT_TOGGLE
+	order.entity_id = actor.id
+	order.halt_on_sight = enabled
+	_append_order(order)
+	_status_message = "Queued HALT_ON_SIGHT_TOGGLE for #%d." % actor.id
+	return true
+
+
 func issue_gather(target_entity_id: int) -> bool:
 	var actor: Entity = _selected_entity()
 	if actor == null:
@@ -133,32 +174,6 @@ func issue_gather(target_entity_id: int) -> bool:
 	order.target_entity_id = target_entity_id
 	_append_order(order)
 	_status_message = "Queued GATHER for #%d from #%d." % [actor.id, target_entity_id]
-	return true
-
-
-func issue_attack_move(target_tile: Vector2i, target_entity_id: int = -1) -> bool:
-	var target_ok := true
-	if target_entity_id >= 0:
-		target_ok = issue_attack_target(target_entity_id)
-	if not target_ok:
-		return false
-	return issue_move(target_tile)
-
-
-func issue_hold_fire_toggle(enabled: bool) -> bool:
-	var actor: Entity = _selected_entity()
-	if actor == null:
-		_status_message = "Select a combat entity before issuing HOLD_FIRE_TOGGLE."
-		return false
-	if not can_issue_hold_fire_toggle():
-		_status_message = "%s cannot use hold fire." % _def_id_for_entity(actor)
-		return false
-	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.HOLD_FIRE_TOGGLE
-	order.entity_id = actor.id
-	order.hold_fire = enabled
-	_append_order(order)
-	_status_message = "Queued HOLD_FIRE_TOGGLE for #%d." % actor.id
 	return true
 
 
@@ -294,9 +309,9 @@ func selected_entity_label() -> String:
 	return label_for_entity_def_id(def_id)
 
 
-func selected_hold_fire() -> bool:
+func selected_halt_on_sight() -> bool:
 	var actor: Entity = _selected_entity()
-	return actor != null and actor.hold_fire
+	return actor != null and actor.halt_on_sight
 
 
 func can_issue_move() -> bool:
@@ -305,17 +320,17 @@ func can_issue_move() -> bool:
 	return def != null and def.movement != null and def.movement.speed_tiles_per_turn > 0
 
 
+func can_issue_move_only() -> bool:
+	return can_issue_move()
+
+
 func can_issue_attack_target() -> bool:
 	var actor: Entity = _selected_entity()
 	var def: EntityDef = _def_for_entity(actor)
 	return def != null and def.combat != null and def.combat.damage > 0
 
 
-func can_issue_attack_move() -> bool:
-	return can_issue_move() and can_issue_attack_target()
-
-
-func can_issue_hold_fire_toggle() -> bool:
+func can_issue_halt_on_sight_toggle() -> bool:
 	var actor: Entity = _selected_entity()
 	var def: EntityDef = _def_for_entity(actor)
 	return def != null and def.combat != null and def.combat.damage > 0
@@ -492,11 +507,15 @@ func _replacement_index_for_order(orders: Array[EntityOrder], order: EntityOrder
 		var existing: EntityOrder = orders[i]
 		if existing == null or existing.entity_id != order.entity_id:
 			continue
-		if order.type == EntityOrder.Type.MOVE and existing.type == EntityOrder.Type.MOVE:
+		if _is_move_like(order.type) and _is_move_like(existing.type):
 			return i
 		if order.type == EntityOrder.Type.ATTACK and existing.type == EntityOrder.Type.ATTACK:
 			return i
 	return -1
+
+
+func _is_move_like(type: EntityOrder.Type) -> bool:
+	return type == EntityOrder.Type.MOVE or type == EntityOrder.Type.MOVE_ONLY
 
 
 func _submission_for(player_id: int) -> SubmitTurn:

@@ -34,7 +34,7 @@ Game code defaults to C#. GDScript is allowed where it's meaningfully simpler (s
 
 Both players queue orders during a shared turn timer. A turn ends when both players submit or when the timer expires. The resolver then runs deterministically.
 
-A turn is divided into N ticks, where N equals the maximum action-queue length across all units that turn. On tick k, every unit's k-th queued action resolves; within a tick, all attacks fire before any moves execute. Target-chain fallbacks (priority targets, closest-enemy unless on hold-fire) apply per attack action. End-of-turn effects fire after the last tick.
+A turn is divided into N ticks, where N equals the maximum action-queue length across all units that turn. On tick k, every unit's k-th queued action resolves; within a tick, all attacks are selected from start-of-phase positions and damage is applied as a simultaneous batch before movement. Target focus is priority only; if the focused target is not valid and in range, the unit falls back to the closest in-range enemy. End-of-turn effects fire after the last tick.
 
 **Why:** Simultaneous resolution is server authoritative without rollback, feels faster than alternating turns, and supports the "fast paced StarCraft turn based" vision. Lockstep ticks make multi-action turns (`attack A → move → attack B`) predictable for the player without ranking units by stats. Asymmetric information — both players commit blind, then see the result — is a feature, not a bug.
 
@@ -118,10 +118,12 @@ A move order issued to a unit persists across turns until: (a) the unit reaches 
 Movement and combat are independent in the current playable model:
 
 - **Move:** advances toward the destination and does not stop just because combat is available.
-- **Target focus:** stores a preferred enemy target. If that enemy is in range, the unit shoots it first; otherwise it falls back to the closest in-range enemy unless hold-fire is enabled.
+- **Target focus:** stores a preferred enemy target. If that enemy is in range, the unit shoots it first; otherwise it falls back to the closest in-range enemy.
+- **Move Only:** one-turn move-only intent. The unit skips its shot, ignores halt-on-sight, and spends full movement budget.
+- **Halt on Sight:** movement stance. The unit still shoots normally, but normal move/persistent move is blocked while an enemy is visible.
 - If a unit fires while following an old persistent move, that old move is cleared after the resolve unless the player submitted a fresh move this turn.
 
-Hold-fire mode is independent and orthogonal: a hold-fire unit still moves, but will not fallback-auto-acquire enemies.
+Post-shot movement is per-unit tunable; M0 defaults to 50 percent of normal movement.
 
 **Why:** SC2 demands continuous re-issuing of orders to a moving army; clash demands one issue, then the unit handles its trajectory. Aligns with the anti-overwhelm goal.
 

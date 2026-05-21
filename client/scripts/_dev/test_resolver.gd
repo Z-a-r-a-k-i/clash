@@ -53,11 +53,13 @@ func _all_tests() -> Array:
 		# Chunk 3 — combat system.
 		["attack_hits_target_in_chain", _test_attack_hits_target_in_chain],
 		["target_chain_fallback", _test_target_chain_fallback],
-		["hold_fire_blocks_auto_acquire", _test_hold_fire_blocks_auto_acquire],
+		["halt_on_sight_still_auto_acquires", _test_halt_on_sight_still_auto_acquires],
 		["closest_enemy_acquired", _test_closest_enemy_acquired],
 		["attack_layer_filter", _test_attack_layer_filter],
 		["attack_modifier_applies", _test_attack_modifier_applies],
 		["lethal_attack_emits_destroyed", _test_lethal_attack_emits_destroyed],
+		["simultaneous_lethal_units_both_fire", _test_simultaneous_lethal_units_both_fire],
+		["overkill_batch_damage_before_destroy", _test_overkill_batch_damage_before_destroy],
 		# Chunk 4 — movement system.
 		["move_emits_event", _test_move_emits_event],
 		["multi_tile_move_collision", _test_multi_tile_move_collision],
@@ -84,10 +86,20 @@ func _all_tests() -> Array:
 		["attack_clears_stale_persistent_move", _test_attack_clears_stale_persistent_move],
 		["fresh_move_persists_after_attack", _test_fresh_move_persists_after_attack],
 		["move_budget_respected", _test_move_budget_respected],
+		["post_shot_move_uses_reduced_budget", _test_post_shot_move_uses_reduced_budget],
 		[
-			"deprecated_attack_move_moves_and_targets",
-			_test_deprecated_attack_move_moves_and_targets
+			"move_only_skips_shot_and_uses_full_budget",
+			_test_move_only_skips_shot_and_uses_full_budget
 		],
+		[
+			"move_into_range_does_not_grant_same_turn_shot",
+			_test_move_into_range_does_not_grant_same_turn_shot
+		],
+		[
+			"halt_on_sight_blocks_move_when_enemy_visible",
+			_test_halt_on_sight_blocks_move_when_enemy_visible
+		],
+		["latest_move_like_intent_wins", _test_latest_move_like_intent_wins],
 		["idle_unit_auto_attacks_enemy_in_range", _test_idle_unit_auto_attacks_enemy_in_range],
 		# Chunk 5 — end-of-turn system.
 		["cooldowns_decrement", _test_cooldowns_decrement],
@@ -99,10 +111,12 @@ func _all_tests() -> Array:
 		# Chunk 6 — determinism golden test.
 		["determinism_golden", _test_determinism_golden],
 		# Coverage gaps surfaced during fresh-review.
-		["hold_fire_toggle_distribution_sets_flag", _test_hold_fire_toggle_distribution_sets_flag],
+		[
+			"halt_on_sight_toggle_distribution_sets_flag",
+			_test_halt_on_sight_toggle_distribution_sets_flag
+		],
 		["cancel_clears_persistent_order", _test_cancel_clears_persistent_order],
 		["cancel_clears_focus_target", _test_cancel_clears_focus_target],
-		["attack_move_no_enemy_in_range_advances", _test_attack_move_no_enemy_in_range_advances],
 		["fresh_order_overrides_persistent_order", _test_fresh_order_overrides_persistent_order],
 		["multi_buff_stacks_multiplicatively", _test_multi_buff_stacks_multiplicatively],
 		["no_tile_grid_distance_fallback", _test_no_tile_grid_distance_fallback],
@@ -111,9 +125,12 @@ func _all_tests() -> Array:
 		# Plan node 03a — submit-turn shape + group fan-out.
 		["submit_turn_clone_independence", _test_submit_turn_clone_independence],
 		["order_builder_fan_out_move", _test_order_builder_fan_out_move],
-		["order_builder_fan_out_attack_move", _test_order_builder_fan_out_attack_move],
+		["order_builder_fan_out_move_only", _test_order_builder_fan_out_move_only],
 		["order_builder_fan_out_attack", _test_order_builder_fan_out_attack],
-		["order_builder_fan_out_hold_fire_toggle", _test_order_builder_fan_out_hold_fire_toggle],
+		[
+			"order_builder_fan_out_halt_on_sight_toggle",
+			_test_order_builder_fan_out_halt_on_sight_toggle
+		],
 		["order_builder_fan_out_cancel", _test_order_builder_fan_out_cancel],
 		["validate_drops_unowned_order", _test_validate_drops_unowned_order],
 		["validate_drops_missing_entity_order", _test_validate_drops_missing_entity_order],
@@ -136,10 +153,7 @@ func _all_tests() -> Array:
 		["worker_idles_on_all_sinks_destroyed", _test_worker_idles_on_all_sinks_destroyed],
 		["nearest_deposit_sink_chosen", _test_nearest_deposit_sink_chosen],
 		["gather_clears_prior_persistent_move", _test_gather_clears_prior_persistent_move],
-		[
-			"fresh_attack_move_cancels_gather_assignment",
-			_test_fresh_attack_move_cancels_gather_assignment
-		],
+		["fresh_move_cancels_gather_assignment", _test_fresh_move_cancels_gather_assignment],
 		# Plan node 05 — production / build / research.
 		[
 			"train_appended_to_queue_no_immediate_cost",
@@ -467,32 +481,30 @@ func _test_target_chain_fallback() -> bool:
 	return false
 
 
-func _test_hold_fire_blocks_auto_acquire() -> bool:
-	# Empty chain + hold_fire + enemy in range → no fire.
+func _test_halt_on_sight_still_auto_acquires() -> bool:
+	# Halt-on-sight stops movement only. It must not suppress a unit's
+	# automatic defensive shot when an enemy is already in range.
 	var registry := _two_unit_registry(6, 5, ["ground"], 50)
 	var state := _state_with_grid(20, 20)
 	var attacker := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
-	attacker.hold_fire = true
+	attacker.halt_on_sight = true
 	var enemy := _make_entity(state, "marine", 1, Vector2i(8, 5), 50, "ground")
-	enemy.hold_fire = true
 	state.tile_grid.place(attacker.id, Rect2i(5, 5, 1, 1))
 	state.tile_grid.place(enemy.id, Rect2i(8, 5, 1, 1))
 
-	var attack := EntityOrder.new()
-	attack.type = EntityOrder.Type.ATTACK
-	attack.entity_id = attacker.id
-	# Empty chain.
-	var queue_a: Array[EntityOrder] = [attack]
-
-	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
+	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
 	for ev in result.events:
-		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED:
-			return false
-	return true
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == attacker.id
+			and ev.target_id == enemy.id
+		):
+			return true
+	return false
 
 
 func _test_closest_enemy_acquired() -> bool:
-	# Empty chain + no hold_fire + two enemies in range. Fires at closer one.
+	# Empty chain + two enemies in range. Fires at the closest one.
 	var registry := _two_unit_registry(6, 10, ["ground"], 50)
 	var state := _state_with_grid(20, 20)
 	var attacker := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
@@ -520,18 +532,11 @@ func _test_attack_layer_filter() -> bool:
 	var registry := EntityRegistry.new()
 	registry.entities = [
 		_def("tank", Vector2i(2, 2), ["heavy", "ground"], _combat_def(15, 7, ["ground"]), 150),
-		_def(
-			"helicopter",
-			Vector2i(1, 1),
-			["light", "flying"],
-			_combat_def(10, 5, ["ground", "flying"]),
-			80
-		),
+		_def("helicopter", Vector2i(1, 1), ["light", "flying"], _combat_def(10, 5, ["flying"]), 80),
 	]
 	var state := _state_with_grid(20, 20)
 	var tank := _make_entity(state, "tank", 0, Vector2i(5, 5), 150, "ground")
 	var heli := _make_entity(state, "helicopter", 1, Vector2i(8, 5), 80, "flying")
-	heli.hold_fire = true
 	state.tile_grid.place(tank.id, Rect2i(5, 5, 2, 2))
 	state.tile_grid.place(heli.id, Rect2i(8, 5, 1, 1))
 
@@ -603,6 +608,74 @@ func _test_lethal_attack_emits_destroyed() -> bool:
 		if ev.type == ResolverEvent.Type.ENTITY_DESTROYED and ev.target_id == target.id:
 			saw_destroyed = true
 	return saw_damaged and saw_destroyed
+
+
+func _test_simultaneous_lethal_units_both_fire() -> bool:
+	# Attack damage is batched: id order must not let the first lethal
+	# attacker prevent the victim from firing in the same attack phase.
+	var registry := _two_unit_registry(50, 5, ["ground"], 50)
+	var state := _state_with_grid(20, 20)
+	var left := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var right := _make_entity(state, "marine", 1, Vector2i(7, 5), 50, "ground")
+	state.tile_grid.place(left.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(right.id, Rect2i(7, 5, 1, 1))
+
+	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
+	var left_hit_right := false
+	var right_hit_left := false
+	for ev in result.events:
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == left.id
+			and ev.target_id == right.id
+		):
+			left_hit_right = true
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == right.id
+			and ev.target_id == left.id
+		):
+			right_hit_left = true
+	var new_left := result.new_state.get_entity_by_id(left.id)
+	var new_right := result.new_state.get_entity_by_id(right.id)
+	return (
+		left_hit_right and right_hit_left and new_left.current_hp == 0 and new_right.current_hp == 0
+	)
+
+
+func _test_overkill_batch_damage_before_destroy() -> bool:
+	# Multiple attackers that chose the same low-HP target at attack-phase
+	# start should all emit damage before one deterministic destroy event.
+	var attacker_def := _def(
+		"marine", Vector2i(1, 1), ["light", "ground"], _combat_def(10, 5, ["ground"]), 50
+	)
+	var target_def := _def("dummy", Vector2i(1, 1), ["light", "ground"], null, 5)
+	var registry := EntityRegistry.new()
+	registry.entities = [attacker_def, target_def]
+	var state := _state_with_grid(20, 20)
+	var first := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var second := _make_entity(state, "marine", 0, Vector2i(6, 5), 50, "ground")
+	var target := _make_entity(state, "dummy", 1, Vector2i(8, 5), 5, "ground")
+	state.tile_grid.place(first.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(second.id, Rect2i(6, 5, 1, 1))
+	state.tile_grid.place(target.id, Rect2i(8, 5, 1, 1))
+
+	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
+	var damage_count := 0
+	var last_damage_idx := -1
+	var destroy_idx := -1
+	var destroy_count := 0
+	for i in result.events.size():
+		var ev: ResolverEvent = result.events[i]
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.target_id == target.id:
+			damage_count += 1
+			last_damage_idx = i
+			if ev.hp_after != 0:
+				return false
+		if ev.type == ResolverEvent.Type.ENTITY_DESTROYED and ev.target_id == target.id:
+			destroy_count += 1
+			destroy_idx = i
+	return damage_count == 2 and destroy_count == 1 and destroy_idx > last_damage_idx
 
 
 # ---------- Chunk 4 — movement system ----------
@@ -764,7 +837,7 @@ func _test_persistent_move_uses_full_speed_budget_without_orders() -> bool:
 
 func _test_move_and_auto_attack_resolve_independently() -> bool:
 	# A MOVE command is not an attack-mode choice. A combat unit should
-	# shoot an in-range enemy first, then still spend its move budget.
+	# shoot an in-range enemy first, then still spend its post-shot move budget.
 	var registry := _combat_mover_registry(6, 3, 4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
@@ -788,7 +861,7 @@ func _test_move_and_auto_attack_resolve_independently() -> bool:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
 			move_count += 1
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	return damaged and move_count == 4 and new_actor.origin == Vector2i(9, 5)
+	return damaged and move_count == 2 and new_actor.origin == Vector2i(7, 5)
 
 
 func _test_multiple_moves_latest_destination_wins() -> bool:
@@ -971,45 +1044,166 @@ func _test_move_budget_respected() -> bool:
 	return move_count == 2
 
 
-func _test_deprecated_attack_move_moves_and_targets() -> bool:
-	# ATTACK_MOVE is no longer exposed in the UX, but old builder/helper
-	# code still maps it to MOVE + optional focus target.
+func _test_post_shot_move_uses_reduced_budget() -> bool:
 	var registry := EntityRegistry.new()
-	registry.entities = [
-		_def_with_movement_combat(
-			"marine", Vector2i(1, 1), ["light", "ground"], _combat_def(6, 5, ["ground"]), 50, 4
-		),
-	]
+	var marine := _def_with_movement_combat(
+		"marine", Vector2i(1, 1), ["light", "ground"], _combat_def(6, 3, ["ground"]), 50, 4
+	)
+	registry.entities = [marine]
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
-	var enemy := _make_entity(state, "marine", 1, Vector2i(8, 5), 50, "ground")
+	var enemy := _make_entity(state, "marine", 1, Vector2i(5, 7), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
-	state.tile_grid.place(enemy.id, Rect2i(8, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(5, 7, 1, 1))
 
-	var attack_move := EntityOrder.new()
-	attack_move.type = EntityOrder.Type.ATTACK_MOVE
-	attack_move.entity_id = actor.id
-	attack_move.target_tile = Vector2i(15, 5)
-	attack_move.target_priority_chain = [enemy.id]
-	var queue_a: Array[EntityOrder] = [attack_move]
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(12, 5)
 
-	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
-	var moved := false
+	var result := Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit([]), registry, null
+	)
+	var move_count := 0
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
-			moved = true
+			move_count += 1
 	var damaged := false
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
 			damaged = ev.target_id == enemy.id
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
 	return (
-		moved
-		and damaged
+		damaged
+		and move_count == 2
+		and new_actor.origin == Vector2i(7, 5)
 		and new_actor.persistent_order != null
-		and new_actor.persistent_order.type == EntityOrder.Type.MOVE
-		and int(new_actor.get("focus_target_entity_id")) == enemy.id
+		and new_actor.persistent_order.target_tile == move.target_tile
 	)
+
+
+func _test_move_only_skips_shot_and_uses_full_budget() -> bool:
+	var registry := _combat_mover_registry(6, 3, 4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var enemy := _make_entity(state, "marine", 1, Vector2i(5, 7), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(5, 7, 1, 1))
+
+	var move_only := EntityOrder.new()
+	move_only.type = EntityOrder.Type.MOVE_ONLY
+	move_only.entity_id = actor.id
+	move_only.target_tile = Vector2i(12, 5)
+
+	var result := Resolver.resolve(
+		state, _submit([move_only] as Array[EntityOrder]), _submit([]), registry, null
+	)
+	var actor_damaged_enemy := false
+	for ev in result.events:
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == actor.id
+			and ev.target_id == enemy.id
+		):
+			actor_damaged_enemy = true
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return (
+		not actor_damaged_enemy
+		and new_actor.origin == Vector2i(9, 5)
+		and new_actor.persistent_order == null
+	)
+
+
+func _test_move_into_range_does_not_grant_same_turn_shot() -> bool:
+	var registry := _combat_mover_registry(6, 3, 4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var dummy := _make_entity(state, "marine", 0, Vector2i(0, 0), 50, "ground")
+	var enemy := _make_entity(state, "marine", 1, Vector2i(10, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(dummy.id, Rect2i(0, 0, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(10, 5, 1, 1))
+
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(8, 5)
+	var noop_a := EntityOrder.new()
+	noop_a.type = EntityOrder.Type.USE_ABILITY
+	noop_a.entity_id = dummy.id
+	noop_a.def_id = "missing"
+	var noop_b := noop_a.clone()
+
+	var result := Resolver.resolve(
+		state, _submit([move, noop_a, noop_b] as Array[EntityOrder]), _submit([]), registry, null
+	)
+	for ev in result.events:
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == actor.id
+			and ev.target_id == enemy.id
+		):
+			return false
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return new_actor.origin == Vector2i(8, 5)
+
+
+func _test_halt_on_sight_blocks_move_when_enemy_visible() -> bool:
+	var registry := EntityRegistry.new()
+	var marine := _def_with_movement_combat(
+		"marine", Vector2i(1, 1), ["light", "ground"], _combat_def(6, 3, ["ground"]), 50, 4
+	)
+	marine.vision = _vision_def(8)
+	registry.entities = [marine]
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	actor.halt_on_sight = true
+	var enemy := _make_entity(state, "marine", 1, Vector2i(5, 7), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(5, 7, 1, 1))
+
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(12, 5)
+
+	var result := Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit([]), registry, null
+	)
+	var actor_shot := false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			return false
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == actor.id
+			and ev.target_id == enemy.id
+		):
+			actor_shot = true
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return actor_shot and new_actor.origin == Vector2i(5, 5)
+
+
+func _test_latest_move_like_intent_wins() -> bool:
+	var registry := _movable_registry(4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(15, 5)
+	var move_only := EntityOrder.new()
+	move_only.type = EntityOrder.Type.MOVE_ONLY
+	move_only.entity_id = actor.id
+	move_only.target_tile = Vector2i(5, 15)
+
+	var result := Resolver.resolve(
+		state, _submit([move, move_only] as Array[EntityOrder]), _submit([]), registry, null
+	)
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return new_actor.origin == Vector2i(5, 9) and new_actor.persistent_order == null
 
 
 func _test_idle_unit_auto_attacks_enemy_in_range() -> bool:
@@ -1358,7 +1552,7 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 			return false
 		if ea.moves_used_this_turn != eb.moves_used_this_turn:
 			return false
-		if ea.hold_fire != eb.hold_fire:
+		if ea.halt_on_sight != eb.halt_on_sight:
 			return false
 		if ea.focus_target_entity_id != eb.focus_target_entity_id:
 			return false
@@ -1454,7 +1648,7 @@ func _orders_equal(a: EntityOrder, b: EntityOrder) -> bool:
 		return false
 	if a.target_priority_chain != b.target_priority_chain:
 		return false
-	if a.hold_fire != b.hold_fire:
+	if a.halt_on_sight != b.halt_on_sight:
 		return false
 	if a.def_id != b.def_id:
 		return false
@@ -1527,36 +1721,38 @@ func _events_equal(a: Array, b: Array) -> bool:
 # ---------- Coverage gap tests (added during fresh-review) ----------
 
 
-func _test_hold_fire_toggle_distribution_sets_flag() -> bool:
-	# Submitting a HOLD_FIRE_TOGGLE order should set entity.hold_fire so
-	# the same turn's ATTACK with empty chain doesn't auto-acquire.
-	var registry := _two_unit_registry(6, 5, ["ground"], 50)
+func _test_halt_on_sight_toggle_distribution_sets_flag() -> bool:
+	# Submitting a HALT_ON_SIGHT_TOGGLE order should set entity.halt_on_sight
+	# before movement, blocking that same turn's MOVE when an enemy is visible.
+	var registry := EntityRegistry.new()
+	var marine := _def_with_movement_combat(
+		"marine", Vector2i(1, 1), ["light", "ground"], _combat_def(6, 3, ["ground"]), 50, 4
+	)
+	marine.vision = _vision_def(8)
+	registry.entities = [marine]
 	var state := _state_with_grid(20, 20)
 	var attacker := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
-	# Note: entity.hold_fire defaults to false; the order has to flip it.
 	var enemy := _make_entity(state, "marine", 1, Vector2i(8, 5), 50, "ground")
-	enemy.hold_fire = true
 	state.tile_grid.place(attacker.id, Rect2i(5, 5, 1, 1))
 	state.tile_grid.place(enemy.id, Rect2i(8, 5, 1, 1))
 
-	var hf := EntityOrder.new()
-	hf.type = EntityOrder.Type.HOLD_FIRE_TOGGLE
-	hf.entity_id = attacker.id
-	hf.hold_fire = true
-	var attack := EntityOrder.new()
-	attack.type = EntityOrder.Type.ATTACK
-	attack.entity_id = attacker.id
-	# Empty chain — auto-acquire would normally fire; hold_fire blocks it.
+	var halt := EntityOrder.new()
+	halt.type = EntityOrder.Type.HALT_ON_SIGHT_TOGGLE
+	halt.entity_id = attacker.id
+	halt.halt_on_sight = true
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = attacker.id
+	move.target_tile = Vector2i(10, 5)
 
 	var result := Resolver.resolve(
-		state, _submit([hf, attack] as Array[EntityOrder]), _submit([]), registry, null
+		state, _submit([halt, move] as Array[EntityOrder]), _submit([]), registry, null
 	)
 	for ev in result.events:
-		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == attacker.id:
 			return false
-	# Verify the flag actually got applied (not just that no fire happened).
 	var new_attacker := result.new_state.get_entity_by_id(attacker.id)
-	return new_attacker.hold_fire
+	return new_attacker.halt_on_sight
 
 
 func _test_cancel_clears_persistent_order() -> bool:
@@ -1604,11 +1800,10 @@ func _test_cancel_clears_focus_target() -> bool:
 	var registry := _combat_mover_registry(6, 3, 4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
-	var enemy := _make_entity(state, "marine", 1, Vector2i(7, 5), 50, "ground")
-	actor.hold_fire = true
+	var enemy := _make_entity(state, "marine", 1, Vector2i(15, 5), 50, "ground")
 	actor.focus_target_entity_id = enemy.id
 	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
-	state.tile_grid.place(enemy.id, Rect2i(7, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(15, 5, 1, 1))
 
 	var cancel := EntityOrder.new()
 	cancel.type = EntityOrder.Type.CANCEL
@@ -1618,51 +1813,8 @@ func _test_cancel_clears_focus_target() -> bool:
 	var result := Resolver.resolve(
 		state, _submit([cancel] as Array[EntityOrder]), _submit(), registry, null
 	)
-	for ev in result.events:
-		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
-			push_error("cancelled hold-fire focus target should not fire")
-			return false
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
 	return new_actor.focus_target_entity_id == -1
-
-
-func _test_attack_move_no_enemy_in_range_advances() -> bool:
-	# ATTACK_MOVE with no enemy in range should behave like a regular MOVE:
-	# emit ENTITY_MOVED and set persistent_order so future turns continue.
-	var registry := EntityRegistry.new()
-	registry.entities = [
-		_def_with_movement_combat(
-			"marine", Vector2i(1, 1), ["light", "ground"], _combat_def(6, 3, ["ground"]), 50, 4
-		),
-	]
-	var state := _state_with_grid(20, 20)
-	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
-	# Far-away enemy (distance > attack_range of 3) so the halt branch
-	# doesn't trigger. The closest-enemy logic in CombatSystem still runs
-	# during the ATTACK phase but the enemy is out of range.
-	var enemy := _make_entity(state, "marine", 1, Vector2i(15, 15), 50, "ground")
-	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
-	state.tile_grid.place(enemy.id, Rect2i(15, 15, 1, 1))
-
-	var am := EntityOrder.new()
-	am.type = EntityOrder.Type.ATTACK_MOVE
-	am.entity_id = actor.id
-	am.target_tile = Vector2i(10, 5)
-
-	var result := Resolver.resolve(
-		state, _submit([am] as Array[EntityOrder]), _submit([]), registry, null
-	)
-	var saw_moved := false
-	for ev in result.events:
-		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
-			saw_moved = true
-	if not saw_moved:
-		return false
-	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	return (
-		new_actor.persistent_order != null
-		and new_actor.persistent_order.target_tile == am.target_tile
-	)
 
 
 func _test_fresh_order_overrides_persistent_order() -> bool:
@@ -1879,26 +2031,20 @@ func _test_order_builder_fan_out_move() -> bool:
 	return true
 
 
-func _test_order_builder_fan_out_attack_move() -> bool:
+func _test_order_builder_fan_out_move_only() -> bool:
 	var ids: Array[int] = [3, 5]
-	var chain: Array[int] = [42, 17]
-	var orders := OrderBuilder.fan_out_attack_move(ids, Vector2i(8, 8), chain)
+	var orders := OrderBuilder.fan_out_move_only(ids, Vector2i(8, 8))
 	if orders.size() != 2:
 		return false
 	for i in 2:
 		var o: EntityOrder = orders[i]
-		if o.type != EntityOrder.Type.ATTACK_MOVE:
+		if o.type != EntityOrder.Type.MOVE_ONLY:
 			return false
 		if o.entity_id != ids[i]:
 			return false
 		if o.target_tile != Vector2i(8, 8):
 			return false
-		if o.target_priority_chain != chain:
-			return false
-	# Mutating one order's chain must not leak into the others (each got a
-	# duplicated copy of the input chain).
-	orders[0].target_priority_chain.append(99)
-	return orders[1].target_priority_chain.size() == 2
+	return true
 
 
 func _test_order_builder_fan_out_attack() -> bool:
@@ -1918,18 +2064,18 @@ func _test_order_builder_fan_out_attack() -> bool:
 	return true
 
 
-func _test_order_builder_fan_out_hold_fire_toggle() -> bool:
+func _test_order_builder_fan_out_halt_on_sight_toggle() -> bool:
 	var ids: Array[int] = [3, 5]
-	var orders := OrderBuilder.fan_out_hold_fire_toggle(ids, true)
+	var orders := OrderBuilder.fan_out_halt_on_sight_toggle(ids, true)
 	if orders.size() != 2:
 		return false
 	for i in 2:
 		var o: EntityOrder = orders[i]
-		if o.type != EntityOrder.Type.HOLD_FIRE_TOGGLE:
+		if o.type != EntityOrder.Type.HALT_ON_SIGHT_TOGGLE:
 			return false
 		if o.entity_id != ids[i]:
 			return false
-		if not o.hold_fire:
+		if not o.halt_on_sight:
 			return false
 	return true
 
@@ -2400,10 +2546,10 @@ func _test_gather_clears_prior_persistent_move() -> bool:
 	return p != null and p.minerals > 0
 
 
-func _test_fresh_attack_move_cancels_gather_assignment() -> bool:
+func _test_fresh_move_cancels_gather_assignment() -> bool:
 	# A worker keeps gathering only while its latest standing job is GATHER.
-	# A deprecated fresh ATTACK_MOVE should replace that job as MOVE, not
-	# move once and then return to the previous mineral assignment.
+	# A fresh MOVE should replace that job, not move once and then return
+	# to the previous mineral assignment.
 	var registry := _gather_registry(5, 1, 4)
 	var state := _state_with_grid(30, 30)
 	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
@@ -2417,29 +2563,29 @@ func _test_fresh_attack_move_cancels_gather_assignment() -> bool:
 	state.tile_grid.place(patch.id, Rect2i(4, 5, 1, 1))
 	_add_opponent_keepalive_building(state, registry)
 
-	var attack_move := EntityOrder.new()
-	attack_move.type = EntityOrder.Type.ATTACK_MOVE
-	attack_move.entity_id = worker.id
-	attack_move.target_tile = Vector2i(12, 5)
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = worker.id
+	move.target_tile = Vector2i(12, 5)
 	var result := Resolver.resolve(
-		state, _submit([attack_move] as Array[EntityOrder]), _submit(), registry, null
+		state, _submit([move] as Array[EntityOrder]), _submit(), registry, null
 	)
 	var moved := false
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == worker.id:
 			moved = true
 	if not moved:
-		push_error("fresh ATTACK_MOVE should still move the worker")
+		push_error("fresh MOVE should move the worker")
 		return false
 	var w := result.new_state.get_entity_by_id(worker.id)
 	if w.gather_state == null:
 		push_error("worker should keep gather_state capability")
 		return false
 	if w.gather_state.phase != GatherState.Phase.IDLE:
-		push_error("fresh ATTACK_MOVE should cancel active gather phase")
+		push_error("fresh MOVE should cancel active gather phase")
 		return false
 	if w.gather_state.assigned_source_entity_id != -1:
-		push_error("fresh ATTACK_MOVE should clear previous mineral assignment")
+		push_error("fresh MOVE should clear previous mineral assignment")
 		return false
 	return w.persistent_order != null and w.persistent_order.type == EntityOrder.Type.MOVE
 
@@ -3505,20 +3651,11 @@ func _test_build_worker_death_pauses() -> bool:
 	# Worker dies mid-build → building stays alive, construction_worker_id
 	# = -1, BUILD_PAUSED emitted.
 	var registry := _build_registry()
-	# Add an enemy to kill the worker; reuse blocker as enemy by giving
-	# it minimal combat to deal lethal damage.
-	registry.entities[2].combat = CombatDef.new()
-	registry.entities[2].combat.damage = 100
-	registry.entities[2].combat.attack_range = 5
-	registry.entities[2].combat.target_layers = ["ground"]
 	var state := _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
 	state.players[0].minerals = 500
 	var worker := _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
-	var enemy := _make_entity(state, "blocker", 1, Vector2i(0, 5), 50, "ground")
-	enemy.hold_fire = true
-	state.tile_grid.place(enemy.id, Rect2i(0, 5, 1, 1))
 	_add_opponent_keepalive_building(state, registry)
 
 	var build_order := EntityOrder.new()
@@ -3532,9 +3669,8 @@ func _test_build_worker_death_pauses() -> bool:
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.BUILD_STARTED:
 			building_id = ev.target_id
-	# Now kill the worker. enemy is at (0,5), worker at (4,5) — out of
-	# range (5). Move enemy adjacent first via direct attack with a long
-	# chain. Easier: just zero-out worker hp to simulate death.
+	# Now kill the worker by direct state mutation so the pause lifecycle is
+	# isolated from combat targeting.
 	result.new_state.get_entity_by_id(worker.id).current_hp = 0
 	result.new_state.tile_grid.remove(worker.id)
 
@@ -4102,7 +4238,7 @@ func _test_match_state_save_load_roundtrip() -> bool:
 	var marine := _make_entity(state, "marine", 0, Vector2i(8, 8), 32, "ground")
 	state.tile_grid.place(marine.id, Rect2i(8, 8, 1, 1))
 	marine.ability_cooldowns = {"stim": 4}
-	marine.hold_fire = true
+	marine.halt_on_sight = true
 	marine.moves_used_this_turn = 1
 	var buff := ActiveBuff.new()
 	buff.source_ability_id = "stim"
@@ -4353,6 +4489,12 @@ func _combat_def(damage: int, range_tiles: int, target_layers: Array[String]) ->
 	c.attack_range = range_tiles
 	c.target_layers = target_layers
 	return c
+
+
+func _vision_def(sight_radius: int) -> VisionDef:
+	var v := VisionDef.new()
+	v.sight_radius = sight_radius
+	return v
 
 
 func _def(
@@ -5180,8 +5322,7 @@ func _test_ability_stim_applies_cost_buff_cooldown_and_event() -> bool:
 	var state: MatchState = _ability_state_with_bases()
 	state.get_player(0).unlocked_researches.append("stim_research")
 	var marine: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 45, "ground")
-	var enemy: Entity = _make_entity(state, "marine", 1, Vector2i(7, 5), 45, "ground")
-	enemy.hold_fire = true
+	var enemy: Entity = _make_entity(state, "base", 1, Vector2i(7, 5), 45, "ground")
 	state.tile_grid.place(marine.id, Rect2i(5, 5, 1, 1))
 	state.tile_grid.place(enemy.id, Rect2i(7, 5, 1, 1))
 

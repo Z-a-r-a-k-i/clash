@@ -38,8 +38,8 @@ func _all_tests() -> Array:
 		["dev_input_replaces_duplicate_move_and_target", _test_replaces_duplicate_move_and_target],
 		["dev_input_queues_gather_for_worker_resource_target", _test_queues_gather],
 		[
-			"dev_input_queues_move_target_hold_fire_and_cancel",
-			_test_queues_move_target_hold_fire_cancel
+			"dev_input_queues_move_only_target_halt_and_cancel",
+			_test_queues_move_only_target_halt_cancel
 		],
 		["dev_input_queues_build_train_and_research", _test_queues_build_train_research],
 		[
@@ -206,7 +206,7 @@ func _test_queues_gather() -> bool:
 	return true
 
 
-func _test_queues_move_target_hold_fire_cancel() -> bool:
+func _test_queues_move_only_target_halt_cancel() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
@@ -217,11 +217,17 @@ func _test_queues_move_target_hold_fire_cancel() -> bool:
 	if not input.issue_move(Vector2i(6, 6)):
 		push_error("expected MOVE to queue for selected marine")
 		return false
+	if not input.has_method("issue_move_only"):
+		push_error("DevTurnInput should expose MOVE_ONLY as the move-without-shooting command")
+		return false
+	if not input.call("issue_move_only", Vector2i(7, 7)):
+		push_error("expected MOVE_ONLY to replace selected marine MOVE")
+		return false
 	if not input.issue_attack_target(2):
 		push_error("expected target focus to queue for selected marine")
 		return false
-	if not input.issue_hold_fire_toggle(true):
-		push_error("expected HOLD_FIRE_TOGGLE to queue for selected marine")
+	if not input.issue_halt_on_sight_toggle(true):
+		push_error("expected HALT_ON_SIGHT_TOGGLE to queue for selected marine")
 		return false
 	if not input.issue_cancel():
 		push_error("expected CANCEL to queue for selected marine")
@@ -230,14 +236,18 @@ func _test_queues_move_target_hold_fire_cancel() -> bool:
 	if orders.size() != 4:
 		push_error("expected four queued orders, got %d" % orders.size())
 		return false
-	if orders[0].type != EntityOrder.Type.MOVE or orders[0].target_tile != Vector2i(6, 6):
-		push_error("first order should be MOVE to (6, 6)")
+	if not EntityOrder.Type.has("MOVE_ONLY"):
+		push_error("EntityOrder.Type should define MOVE_ONLY")
+		return false
+	var move_only_type: int = EntityOrder.Type.get("MOVE_ONLY", EntityOrder.Type.INVALID)
+	if orders[0].type != move_only_type or orders[0].target_tile != Vector2i(7, 7):
+		push_error("first order should be MOVE_ONLY to (7, 7)")
 		return false
 	if orders[1].type != EntityOrder.Type.ATTACK or orders[1].target_priority_chain != [2]:
 		push_error("second order should focus target #2")
 		return false
-	if orders[2].type != EntityOrder.Type.HOLD_FIRE_TOGGLE or not orders[2].hold_fire:
-		push_error("third order should enable hold fire")
+	if orders[2].type != EntityOrder.Type.HALT_ON_SIGHT_TOGGLE or not orders[2].halt_on_sight:
+		push_error("third order should enable halt-on-sight")
 		return false
 	if orders[3].type != EntityOrder.Type.CANCEL or orders[3].cancel_index != -1:
 		push_error("fourth order should cancel persistent action with index -1")
@@ -346,6 +356,12 @@ func _test_derives_command_options() -> bool:
 		return false
 	input.select_entity(5)
 	setup.state.get_entity_by_id(5).focus_target_entity_id = 2
+	if not input.can_issue_move_only():
+		push_error("movable unit should expose Move Only")
+		return false
+	if not input.can_issue_halt_on_sight_toggle():
+		push_error("combat unit should expose halt-on-sight")
+		return false
 	if not input.can_issue_cancel():
 		push_error("selected unit with focus target should expose cancel")
 		return false

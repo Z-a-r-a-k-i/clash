@@ -14,8 +14,9 @@ systems on `mvp_map.tres` and start finding obvious gameplay problems.
 
 - Extend `DevTurnInput` with order builders for:
   - `MOVE`
+  - `MOVE_ONLY`
   - target focus (`ATTACK`)
-  - `HOLD_FIRE_TOGGLE`
+  - `HALT_ON_SIGHT_TOGGLE`
   - `BUILD`
   - `TRAIN`
   - `RESEARCH`
@@ -25,6 +26,7 @@ systems on `mvp_map.tres` and start finding obvious gameplay problems.
   - build/train/research option lists derived from the selected entity and registry
   - build-placement mode that uses the next clicked tile
   - move mode that uses the next clicked tile
+  - Move Only mode that uses the next clicked tile
   - target mode that uses the next clicked enemy
   - cancel action defaulting to `cancel_index = -1`
 - Keep the current right-click context path for move/attack/gather.
@@ -42,7 +44,7 @@ systems on `mvp_map.tres` and start finding obvious gameplay problems.
 
 ## Done when
 
-- [x] Dev input can queue `MOVE`, target focus, `HOLD_FIRE_TOGGLE`, `BUILD`,
+- [x] Dev input can queue `MOVE`, `MOVE_ONLY`, target focus, `HALT_ON_SIGHT_TOGGLE`, `BUILD`,
   `TRAIN`, `RESEARCH`, and `CANCEL` orders with strict GDScript typing.
 - [x] Dev play mode exposes rough controls for every non-ability M0 order.
 - [x] Build placement, move, and target use an explicit pending-click mode.
