@@ -3,7 +3,7 @@ extends RefCounted
 
 # Movement system — resolves submitted MOVE orders.
 #
-# Per-tick semantics (called from Phase 2 of the resolver tick loop):
+# Per-tick semantics (called from Phase 3 of the resolver tick loop):
 # - MOVE: advance one tile toward order.target_tile if the entity has
 #   move budget remaining. Ignores enemies along the path.
 #

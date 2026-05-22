@@ -113,14 +113,14 @@ Total population cap per player is 50 (tunable). Each unit type costs a fixed in
 
 **Date:** 2026-04-29
 
-A movement destination issued to a unit is carried by the client/input layer across turns until: (a) the unit reaches its destination, (b) the unit dies, (c) another command interrupts it, or (d) the player explicitly cancels or replaces it. The helper re-submits a fresh movement order each turn, so the resolver only executes visible submitted input and does not own hidden standing movement.
+A movement destination issued to a unit is carried by the client/input layer across turns until: (a) the unit reaches its destination, (b) the unit dies, (c) another exclusive command such as new movement, gather, build, or ability use interrupts it, or (d) the player explicitly cancels it. The helper re-submits a fresh movement order each turn, so the resolver only executes visible submitted input and does not own hidden standing movement.
 
 Movement and combat are independent in the current playable model:
 
 - **Move:** advances toward the destination and does not stop just because combat is available.
 - **Target focus:** stores a preferred enemy target. If that enemy is in range, the unit shoots it first; otherwise it falls back to the closest in-range enemy.
 - **Move Only:** move-without-shooting intent. If the helper carries it across turns, it re-submits Move Only each turn, so the unit keeps skipping its shot until the destination is reached, cancelled, or replaced.
-- **Halt on Sight:** movement stance. The unit still shoots normally, but normal Move is blocked while an enemy is visible.
+- **Halt on Sight:** movement stance. The unit still shoots normally, but the order resolver blocks submitted normal Move orders while an enemy is visible. Move Only ignores this stance.
 
 Post-shot movement is per-unit tunable; M0 defaults to 50 percent of normal movement.
 
