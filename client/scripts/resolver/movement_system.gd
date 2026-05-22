@@ -1,10 +1,10 @@
 class_name MovementSystem
 extends RefCounted
 
-# Movement system — resolves submitted MOVE orders.
+# Movement system — resolves submitted MOVE and MOVE_ONLY orders.
 #
 # Per-tick semantics (called from Phase 3 of the resolver tick loop):
-# - MOVE: advance one tile toward order.target_tile if the entity has
+# - MOVE / MOVE_ONLY: advance one tile toward order.target_tile if the entity has
 #   move budget remaining. Ignores enemies along the path.
 #
 # Per-turn budget: an entity can move at most `def.movement.speed_tiles_per_turn`
