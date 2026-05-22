@@ -68,6 +68,10 @@ func _all_tests() -> Array:
 			"dev_play_mode_selected_and_friendly_action_previews",
 			_test_selected_and_friendly_action_previews
 		],
+		[
+			"dev_play_mode_requeues_unfinished_move_after_resolve",
+			_test_requeues_unfinished_move_after_resolve
+		],
 		["dev_play_mode_routes_command_card_orders", _test_routes_command_card_orders],
 		["dev_play_mode_pending_target_targets_enemy", _test_pending_target_targets_enemy],
 		["dev_play_mode_left_drag_pans_camera", _test_left_drag_pans_camera],
@@ -675,6 +679,49 @@ func _test_selected_and_friendly_action_previews() -> bool:
 		return false
 	_free_mode(mode)
 	return true
+
+
+func _test_requeues_unfinished_move_after_resolve() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	if worker_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected to select a P0 worker")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(20, 22)):
+		push_error("expected long-range move to queue")
+		_free_mode(mode)
+		return false
+	if not mode.resolve_turn():
+		push_error("expected resolve to succeed")
+		_free_mode(mode)
+		return false
+	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("unfinished long-range move should requeue, got %d orders" % orders.size())
+		_free_mode(mode)
+		return false
+	var order: EntityOrder = orders[0]
+	var ok := (
+		order.type == EntityOrder.Type.MOVE
+		and order.entity_id == worker_id
+		and order.target_tile == Vector2i(20, 22)
+	)
+	if not ok:
+		push_error("requeued move should preserve type, actor, and target")
+	var renderer: MatchRenderer = mode.renderer()
+	if renderer != null and renderer.action_preview_count() != 1:
+		push_error("requeued move should remain visible as an action preview")
+		ok = false
+	_free_mode(mode)
+	return ok
 
 
 func _test_routes_command_card_orders() -> bool:

@@ -10,7 +10,7 @@ extends RefCounted
 #  - advance_move_phase (Phase 2 of the resolver loop): MOVING_TO_SOURCE
 #    and MOVING_TO_BASE workers step toward their target one tile per
 #    tick; reaching the target advances the FSM phase.
-#  - advance_state_phase (Phase 3, after persistent moves): GATHERING
+#  - advance_state_phase (after movement): GATHERING
 #    yields a tick of resources from the source; DEPOSITING is instant
 #    and credits the player's pool.
 #
@@ -49,7 +49,7 @@ static func advance_move_phase(
 			_step_to_base(state, actor, registry, events)
 
 
-# Phase 3 hook — called per tick after persistent-move advance.
+# Phase 3 hook — called per tick after movement.
 # GATHERING yields to cargo + decrements source capacity; DEPOSITING is
 # instant and credits the player.
 static func advance_state_phase(

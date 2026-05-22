@@ -109,19 +109,18 @@ Total population cap per player is 50 (tunable). Each unit type costs a fixed in
 
 **Why:** Caps the action surface a player has to manage and forces composition tradeoffs (mass-T1 vs few-T3). Aligns with the anti-overwhelm design goal: at any given moment a player has on the order of 4–5 *groups* to think about, not 50 individual units.
 
-## 0012 — Persistent move orders
+## 0012 — Long-range move assist
 
 **Date:** 2026-04-29
 
-A move order issued to a unit persists across turns until: (a) the unit reaches its destination, (b) the unit dies, or (c) the player explicitly cancels or replaces it. The unit advances along its path each turn at its movement speed; players do not need to re-issue the order.
+A movement destination issued to a unit is carried by the client/input layer across turns until: (a) the unit reaches its destination, (b) the unit dies, (c) another command interrupts it, or (d) the player explicitly cancels or replaces it. The helper re-submits a fresh movement order each turn, so the resolver only executes visible submitted input and does not own hidden standing movement.
 
 Movement and combat are independent in the current playable model:
 
 - **Move:** advances toward the destination and does not stop just because combat is available.
 - **Target focus:** stores a preferred enemy target. If that enemy is in range, the unit shoots it first; otherwise it falls back to the closest in-range enemy.
-- **Move Only:** one-turn move-only intent. The unit skips its shot, ignores halt-on-sight, and spends full movement budget.
-- **Halt on Sight:** movement stance. The unit still shoots normally, but normal move/persistent move is blocked while an enemy is visible.
-- If a unit fires while following an old persistent move, that old move is cleared after the resolve unless the player submitted a fresh move this turn.
+- **Move Only:** move-without-shooting intent. If the helper carries it across turns, it re-submits Move Only each turn, so the unit keeps skipping its shot until the destination is reached, cancelled, or replaced.
+- **Halt on Sight:** movement stance. The unit still shoots normally, but normal Move is blocked while an enemy is visible.
 
 Post-shot movement is per-unit tunable; M0 defaults to 50 percent of normal movement.
 

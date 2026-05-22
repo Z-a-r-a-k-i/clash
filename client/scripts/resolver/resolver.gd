@@ -20,14 +20,14 @@ extends RefCounted
 #        Phase 1: self-target abilities.
 #        Phase 2: every combat unit may fire once if it has a target in range.
 #        Phase 3: every unit's move action (+ gather travel).
-#        Phase 4: persistent move advance + gather state ticks (yield/deposit).
+#        Phase 4: gather state ticks (yield/deposit).
 #   4. End-of-turn pass: cooldowns, buffs, production progress, is_hidden,
 #      win check.
 #
 # The resolver is split across these files for chunked implementation:
 # - resolver.gd          (this) — entry point + tick loop
 # - combat_system.gd     — attack resolution + target chains
-# - movement_system.gd   — move + persistent movement
+# - movement_system.gd   — submitted movement
 # - gather_system.gd     — worker FSM (move-to-source, gather, deposit)
 # - end_of_turn_system.gd — bookkeeping + win check
 # - _state_helpers.gd    — deep-copy + queue distribution
@@ -48,13 +48,10 @@ static func resolve(
 
 	# 1. Working copies. Per the pure-function contract, neither the input
 	#    `state` nor the input submissions can be aliased into the result.
-	#    Cloning state is obvious; cloning the SubmitTurns matters because
-	#    a fresh MOVE gets stashed into Entity.persistent_order
-	#    by the movement system — without the clone, `result.new_state`
-	#    would alias the caller's EntityOrder instances.
 	var working: MatchState = state.clone()
 	var safe_submit_a: SubmitTurn = submit_a.clone() if submit_a != null else null
 	var safe_submit_b: SubmitTurn = submit_b.clone() if submit_b != null else null
+	_clear_deprecated_persistent_orders(working)
 
 	# 1a. If the match is already over, return a clone with no further
 	#     processing. Prevents re-emitting MATCH_ENDED or mutating terminal
@@ -115,12 +112,11 @@ static func resolve(
 	#    phase, but attacks are no longer queued slots: each combat unit
 	#    may fire at most once per resolve.
 	var n_ticks := _STATE_HELPERS.max_queue_length(per_entity)
-	# Ensure persistent moves, active gather cycles, and active production
-	# slots still advance on turns with no submitted orders.
+	# Ensure active gather cycles and active production slots still advance
+	# on turns with no submitted orders.
 	if n_ticks == 0 and _has_standing_work(working, registry):
 		n_ticks = 1
 	var fired_entity_ids: Dictionary = {}
-	var fresh_move_entity_ids: Dictionary = _fresh_move_entity_ids(per_entity)
 	for tick in n_ticks:
 		# Sort once per tick and reuse across phases. Determinism still
 		# requires fresh sorts each tick because attacks in the previous
@@ -188,14 +184,14 @@ static func resolve(
 						entity, registry, fired_entity_ids.has(entity.id), false
 					)
 					MovementSystem.resolve_move(
-						working, entity, order, registry, tunables, events, move_budget, true
+						working, entity, order, registry, tunables, events, move_budget
 					)
 				elif order.type == EntityOrder.Type.MOVE_ONLY:
 					var move_only_budget := MovementSystem.movement_budget_for_entity(
 						entity, registry, false, true
 					)
 					MovementSystem.resolve_move(
-						working, entity, order, registry, tunables, events, move_only_budget, false
+						working, entity, order, registry, tunables, events, move_only_budget
 					)
 
 			# Gather workers that are walking to a source or a deposit sink
@@ -208,23 +204,9 @@ static func resolve(
 				working, per_entity, tick, registry, tunables, events
 			)
 
-			# Persistent move advance for entities with no fresh order.
-			MovementSystem.advance_persistent_moves(
-				working,
-				per_entity,
-				tick,
-				registry,
-				tunables,
-				events,
-				fired_entity_ids,
-				halted_entity_ids
-			)
-
 		# Phase 4 extension: gather workers at a source / sink tick yields
 		# and deposits.
 		GatherSystem.advance_state_phase(working, registry, tunables, events)
-
-	_clear_attacked_persistent_moves(working, fired_entity_ids, fresh_move_entity_ids)
 
 	# 5. End-of-turn pass.
 	EndOfTurnSystem.run(working, registry, tunables, events)
@@ -236,15 +218,14 @@ static func resolve(
 
 
 # Returns true if any live entity has standing work that needs at least
-# one tick to advance: a `persistent_order`, or a non-IDLE gather phase.
+# one tick to advance: a non-IDLE gather phase, active ability cast,
+# construction, production, or an automatic attack.
 # Used by resolve() to force n_ticks ≥ 1 on turns with no submitted
 # orders.
 static func _has_standing_work(state: MatchState, registry: EntityRegistry) -> bool:
 	for e in state.entities:
 		if e == null or e.current_hp <= 0:
 			continue
-		if e.persistent_order != null:
-			return true
 		if e.ability_cast != null:
 			return true
 		if e.gather_state != null and e.gather_state.phase != GatherState.Phase.IDLE:
@@ -295,18 +276,6 @@ static func _max_live_movement_speed(state: MatchState, registry: EntityRegistry
 			continue
 		max_speed = max(max_speed, MovementSystem.movement_speed_for_entity(e, registry))
 	return max_speed
-
-
-static func _fresh_move_entity_ids(per_entity: Dictionary) -> Dictionary:
-	var out: Dictionary = {}
-	for entity_id in per_entity:
-		var queue: Array = per_entity[entity_id]
-		for order in queue:
-			var entity_order: EntityOrder = order
-			if entity_order != null and entity_order.type == EntityOrder.Type.MOVE:
-				out[entity_order.entity_id] = true
-				break
-	return out
 
 
 static func _move_only_entity_ids_at_tick(per_entity: Dictionary, tick: int) -> Dictionary:
@@ -360,12 +329,9 @@ static func _has_visible_enemy(
 	return false
 
 
-static func _clear_attacked_persistent_moves(
-	state: MatchState, attacked_entity_ids: Dictionary, fresh_move_entity_ids: Dictionary
-) -> void:
-	for entity_id in attacked_entity_ids:
-		if fresh_move_entity_ids.has(entity_id):
-			continue
-		var entity := state.get_entity_by_id(entity_id)
+static func _clear_deprecated_persistent_orders(state: MatchState) -> void:
+	if state == null:
+		return
+	for entity in state.entities_sorted_by_id():
 		if entity != null:
 			entity.persistent_order = null

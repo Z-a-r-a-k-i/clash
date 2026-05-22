@@ -1,15 +1,11 @@
 class_name MovementSystem
 extends RefCounted
 
-# Movement system — resolves MOVE orders and advances persistent moves.
+# Movement system — resolves submitted MOVE orders.
 #
 # Per-tick semantics (called from Phase 2 of the resolver tick loop):
 # - MOVE: advance one tile toward order.target_tile if the entity has
 #   move budget remaining. Ignores enemies along the path.
-#
-# Persistent moves (Phase 3): for each entity with `persistent_order` set
-# and no fresh order at this tick, advance one tile toward the persistent
-# target. Clears the order on arrival or on the entity's death.
 #
 # Per-turn budget: an entity can move at most `def.movement.speed_tiles_per_turn`
 # tiles in one turn, accumulated across all ticks. Tracked via
@@ -27,8 +23,7 @@ static func resolve_move(
 	registry: EntityRegistry,
 	_tunables: Tunables,
 	events: Array[ResolverEvent],
-	movement_budget: int = -1,
-	persist: bool = true
+	movement_budget: int = -1
 ) -> void:
 	if actor == null or actor.current_hp <= 0:
 		return
@@ -46,57 +41,19 @@ static func resolve_move(
 
 	if step_toward(state, actor, order.target_tile, events):
 		actor.moves_used_this_turn += 1
-		if persist:
-			actor.persistent_order = order
-			if actor.origin == order.target_tile:
-				actor.persistent_order = null
-
-
-static func advance_persistent_moves(
-	state: MatchState,
-	per_entity: Dictionary,
-	tick: int,
-	registry: EntityRegistry,
-	_tunables: Tunables,
-	events: Array[ResolverEvent],
-	fired_entity_ids: Dictionary = {},
-	halted_entity_ids: Dictionary = {}
-) -> void:
-	if state.tile_grid == null:
-		return
-	for actor in state.entities_sorted_by_id():
-		if actor.current_hp <= 0:
-			continue
-		if actor.persistent_order == null:
-			continue
-		# Skip entities that had a fresh order at this tick — Phase 2
-		# already handled them.
-		if has_fresh_order_at(per_entity, actor.id, tick):
-			continue
-		# Skip workers actively gathering. GatherSystem.advance_move_phase
-		# already stepped them in Phase 2; advancing a stale persistent_order
-		# here would double-step.
-		if actor.gather_state != null and actor.gather_state.phase != GatherState.Phase.IDLE:
-			continue
-		if halted_entity_ids.has(actor.id):
-			continue
-
-		var po: EntityOrder = actor.persistent_order
-		var movement_speed: int = movement_budget_for_entity(
-			actor, registry, fired_entity_ids.has(actor.id), false
-		)
-		if movement_speed <= 0:
-			continue
-		if actor.moves_used_this_turn >= movement_speed:
-			continue
-
-		if step_toward(state, actor, po.target_tile, events):
-			actor.moves_used_this_turn += 1
-			if actor.origin == po.target_tile:
-				actor.persistent_order = null
 
 
 # ---------- Internals ----------
+
+
+static func has_fresh_order_at(per_entity: Dictionary, entity_id: int, tick: int) -> bool:
+	if not per_entity.has(entity_id):
+		return false
+	var queue: Array = per_entity[entity_id]
+	if tick < 0 or tick >= queue.size():
+		return false
+	var order: EntityOrder = queue[tick]
+	return order != null
 
 
 # Try to advance one tile toward `target_tile`. Returns true on success.
@@ -133,17 +90,6 @@ static func step_toward(
 			return true
 
 	return false
-
-
-# Lookup-only helper — does this entity have a queued action at this tick?
-static func has_fresh_order_at(per_entity: Dictionary, entity_id: int, tick: int) -> bool:
-	if not per_entity.has(entity_id):
-		return false
-	var queue: Array = per_entity[entity_id]
-	if tick >= queue.size():
-		return false
-	var o: EntityOrder = queue[tick]
-	return o != null
 
 
 static func movement_speed_for_entity(actor: Entity, registry: EntityRegistry) -> int:

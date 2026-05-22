@@ -4,10 +4,10 @@ extends Resource
 
 # What one player submits at the end of their turn.
 #
-# - `orders` is the list of NEW orders issued this turn (move, attack,
-#   build, cancel, etc.). Persistent state (a unit's running MOVE) is
-#   NOT re-submitted; the resolver carries it across turns via
-#   Entity.persistent_order.
+# - `orders` is the list of orders submitted for this turn (move, attack,
+#   build, cancel, etc.). Long-range move assistance lives in the input
+#   layer, which re-submits unfinished movement as ordinary orders; the
+#   resolver does not carry hidden move orders across turns.
 # - `surrender` is a per-turn flag rather than an order in `orders`,
 #   per plan/m0/03 ("Surrender ... goes in SubmitTurn flag, not the
 #   per-unit queue"). Removes the special-case entity_id=-1 sentinel

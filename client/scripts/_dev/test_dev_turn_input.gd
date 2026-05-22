@@ -44,6 +44,13 @@ func _all_tests() -> Array:
 			"dev_input_queues_move_only_and_applies_state_changes",
 			_test_queues_move_only_and_applies_state_changes
 		],
+		["dev_input_requeues_unfinished_move_assist", _test_requeues_unfinished_move_assist],
+		["dev_input_drops_completed_move_assist", _test_drops_completed_move_assist],
+		["dev_input_cancel_clears_move_assist", _test_cancel_clears_move_assist],
+		[
+			"dev_input_non_move_command_replaces_requeued_move_assist",
+			_test_non_move_command_replaces_requeued_move_assist
+		],
 		["dev_input_queues_build_train_and_research", _test_queues_build_train_research],
 		[
 			"dev_input_rejects_unaffordable_build_without_queue",
@@ -265,6 +272,105 @@ func _test_queues_move_only_and_applies_state_changes() -> bool:
 		push_error("halt-on-sight should remain immediately enabled")
 		return false
 	return true
+
+
+func _test_requeues_unfinished_move_assist() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.issue_move_only(Vector2i(9, 1)):
+		push_error("expected MOVE_ONLY to queue for selected marine")
+		return false
+	if not input.has_method("queue_move_assists_for_next_turn"):
+		push_error("DevTurnInput should expose move-assist requeue")
+		return false
+	setup.state.tile_grid.move(5, Vector2i(6, 1))
+	var actor: Entity = setup.state.get_entity_by_id(5)
+	actor.origin = Vector2i(6, 1)
+	input.call("clear_submissions", false)
+	input.call("queue_move_assists_for_next_turn")
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("unfinished move assist should requeue one order, got %d" % orders.size())
+		return false
+	return _expect_order(orders[0], EntityOrder.Type.MOVE_ONLY, 5, Vector2i(9, 1), -1, [])
+
+
+func _test_drops_completed_move_assist() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.issue_move(Vector2i(9, 1)):
+		push_error("expected MOVE to queue for selected marine")
+		return false
+	if not input.has_method("queue_move_assists_for_next_turn"):
+		push_error("DevTurnInput should expose move-assist requeue")
+		return false
+	setup.state.tile_grid.move(5, Vector2i(9, 1))
+	var actor: Entity = setup.state.get_entity_by_id(5)
+	actor.origin = Vector2i(9, 1)
+	input.call("clear_submissions", false)
+	input.call("queue_move_assists_for_next_turn")
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("completed move assist should not requeue")
+		return false
+	return true
+
+
+func _test_cancel_clears_move_assist() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.issue_move(Vector2i(9, 1)):
+		push_error("expected MOVE to queue for selected marine")
+		return false
+	if not input.issue_cancel():
+		push_error("expected cancel to clear queued move")
+		return false
+	input.call("clear_submissions", false)
+	input.call("queue_move_assists_for_next_turn")
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("cancelled move assist should not requeue")
+		return false
+	return true
+
+
+func _test_non_move_command_replaces_requeued_move_assist() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	if not input.issue_move(Vector2i(10, 10)):
+		push_error("expected MOVE to queue for selected worker")
+		return false
+	input.call("clear_submissions", false)
+	input.call("queue_move_assists_for_next_turn")
+	if input.submit_for_player(0).orders.size() != 1:
+		push_error("expected requeued move assist before replacement")
+		return false
+	if not input.issue_gather(3):
+		push_error("expected GATHER to replace assisted move")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("non-move command should remove assisted move, got %d orders" % orders.size())
+		return false
+	return _expect_order(orders[0], EntityOrder.Type.GATHER, 1, Vector2i.ZERO, 3, [])
 
 
 func _test_queues_build_train_research() -> bool:
