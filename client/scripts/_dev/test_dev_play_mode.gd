@@ -311,6 +311,13 @@ func _test_command_card_actions_and_state_changes_are_separate_rows() -> bool:
 		):
 			push_error("Attack and Move, Move Only, and Gather should share the action row")
 			ok = false
+		if (
+			action_parent.get_child(0) != move_only_button
+			or action_parent.get_child(1) != move_button
+			or action_parent.get_child(2) != gather_button
+		):
+			push_error("action row should order Move Only before Attack and Move")
+			ok = false
 		if state_parent != halt_button.get_parent() or state_parent != cancel_button.get_parent():
 			push_error("Target, Halt on Sight, and Cancel should share the state row")
 			ok = false
