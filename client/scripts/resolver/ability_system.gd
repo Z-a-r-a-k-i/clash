@@ -51,7 +51,6 @@ static func resolve_use_ability(
 		cast.ability_id = ability.id
 		cast.turns_remaining = ability.cast_time_turns
 		actor.ability_cast = cast
-		actor.persistent_order = null
 		return
 
 	_apply_effect(actor, ability, registry, events)
@@ -172,8 +171,6 @@ static func _apply_transform(
 		_emit_order_rejected(actor.id, "bad_transform_target", events)
 		return
 	actor.current_def_id = target_def.id
-	if target_def.movement == null:
-		actor.persistent_order = null
 	var ev: ResolverEvent = ResolverEvent.new()
 	ev.type = ResolverEvent.Type.ENTITY_TRANSFORMED
 	ev.actor_id = actor.id

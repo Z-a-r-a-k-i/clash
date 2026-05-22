@@ -65,6 +65,7 @@ func load_scenario_path(path: String) -> bool:
 	_renderer.set_perspective_player_id(_input.active_player_id())
 	_renderer.focus_player_start(_input.active_player_id())
 	_input.bind_context(_loaded.state, _loaded.registry)
+	_input.clear_submissions()
 	_update_hud()
 	return true
 
@@ -325,7 +326,8 @@ func resolve_turn() -> bool:
 		_renderer.render_step(result.new_state, result.events)
 		_renderer.clear_input_highlights()
 	_input.bind_context(_loaded.state, _loaded.registry)
-	_input.clear_submissions()
+	_input.clear_submissions(false)
+	_input.queue_move_assists_for_next_turn()
 	_update_hud("Resolved turn %d." % _loaded.state.turn_index)
 	return true
 
@@ -660,10 +662,6 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 	var entity: Entity = _loaded.state.get_entity_by_id(entity_id)
 	if entity == null:
 		return out
-	if entity.persistent_order != null:
-		var move_preview: Dictionary = _preview_for_order(entity.persistent_order)
-		if not move_preview.is_empty():
-			out.append(move_preview)
 	if out.is_empty():
 		var shot_target_id: int = _attack_target_for_entity(entity.id)
 		if shot_target_id >= 0:

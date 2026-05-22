@@ -63,15 +63,18 @@ func _all_tests() -> Array:
 		# Chunk 4 — movement system.
 		["move_emits_event", _test_move_emits_event],
 		["multi_tile_move_collision", _test_multi_tile_move_collision],
-		["persistent_move_continuation", _test_persistent_move_continuation],
+		[
+			"stale_persistent_order_does_not_move_without_submission",
+			_test_stale_persistent_order_does_not_move_without_submission
+		],
 		["attacks_before_moves", _test_attacks_before_moves],
 		[
 			"move_uses_full_speed_budget_single_order",
 			_test_move_uses_full_speed_budget_single_order
 		],
 		[
-			"persistent_move_uses_full_speed_budget_without_orders",
-			_test_persistent_move_uses_full_speed_budget_without_orders
+			"empty_submission_does_not_advance_persistent_order",
+			_test_empty_submission_does_not_advance_persistent_order
 		],
 		[
 			"move_and_auto_attack_resolve_independently",
@@ -84,7 +87,10 @@ func _all_tests() -> Array:
 			_test_focus_target_out_of_range_falls_back_to_closest
 		],
 		["attack_clears_stale_persistent_move", _test_attack_clears_stale_persistent_move],
-		["fresh_move_persists_after_attack", _test_fresh_move_persists_after_attack],
+		[
+			"fresh_move_does_not_store_persistent_order",
+			_test_fresh_move_does_not_store_persistent_order
+		],
 		["move_budget_respected", _test_move_budget_respected],
 		["post_shot_move_uses_reduced_budget", _test_post_shot_move_uses_reduced_budget],
 		[
@@ -170,8 +176,8 @@ func _all_tests() -> Array:
 		],
 		["train_resumes_after_funds_arrive", _test_train_resumes_after_funds_arrive],
 		[
-			"train_spawn_adjacent_with_persistent_move_to_rally",
-			_test_train_spawn_adjacent_with_persistent_move_to_rally
+			"train_spawn_adjacent_without_hidden_rally_move",
+			_test_train_spawn_adjacent_without_hidden_rally_move
 		],
 		["train_spawn_deferred_no_free_tile", _test_train_spawn_deferred_no_free_tile],
 		["unit_death_returns_pop", _test_unit_death_returns_pop],
@@ -730,9 +736,10 @@ func _test_multi_tile_move_collision() -> bool:
 	return true
 
 
-func _test_persistent_move_continuation() -> bool:
-	# Entity has persistent_order set; no fresh order this tick. Expect
-	# Phase 3 to advance toward the persistent target.
+func _test_stale_persistent_order_does_not_move_without_submission() -> bool:
+	# Long-range movement is a client/input helper, not hidden resolver
+	# standing work. A stale Entity.persistent_order must not move a unit
+	# when no MOVE was submitted this turn.
 	var registry := _movable_registry(4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
@@ -747,9 +754,9 @@ func _test_persistent_move_continuation() -> bool:
 	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
-			# First step still starts one tile toward (15, 5).
-			return ev.from_origin == Vector2i(5, 5) and ev.to_origin == Vector2i(6, 5)
-	return false
+			return false
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return new_actor.origin == Vector2i(5, 5)
 
 
 func _test_attacks_before_moves() -> bool:
@@ -816,13 +823,18 @@ func _test_move_uses_full_speed_budget_single_order() -> bool:
 	return move_count == 4 and new_actor.origin == Vector2i(9, 5)
 
 
-func _test_persistent_move_uses_full_speed_budget_without_orders() -> bool:
-	# Standing movement with no submitted orders should still spend the
-	# full speed budget, otherwise persistent movement crawls at 1 tile/turn.
+func _test_empty_submission_does_not_advance_persistent_order() -> bool:
+	# Even when another standing system forces a resolver tick, stale
+	# persistent movement should not advance without an explicit submitted
+	# MOVE / MOVE_ONLY order.
 	var registry := _movable_registry(4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	var producer := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	producer.is_constructing = true
+	producer.construction_turns_remaining = 1
+	state.tile_grid.place(producer.id, Rect2i(0, 0, 1, 1))
 
 	var po := EntityOrder.new()
 	po.type = EntityOrder.Type.MOVE
@@ -831,12 +843,11 @@ func _test_persistent_move_uses_full_speed_budget_without_orders() -> bool:
 	actor.persistent_order = po
 
 	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
-	var move_count := 0
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
-			move_count += 1
+			return false
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	return move_count == 4 and new_actor.origin == Vector2i(9, 5)
+	return new_actor.origin == Vector2i(5, 5)
 
 
 func _test_move_and_auto_attack_resolve_independently() -> bool:
@@ -889,11 +900,7 @@ func _test_multiple_moves_latest_destination_wins() -> bool:
 		state, _submit([old_move, latest_move] as Array[EntityOrder]), _submit(), registry, null
 	)
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	return (
-		new_actor.origin == Vector2i(5, 9)
-		and new_actor.persistent_order != null
-		and new_actor.persistent_order.target_tile == latest_move.target_tile
-	)
+	return new_actor.origin == Vector2i(5, 9) and new_actor.persistent_order == null
 
 
 func _test_multiple_targets_latest_focus_wins() -> bool:
@@ -969,8 +976,9 @@ func _test_focus_target_out_of_range_falls_back_to_closest() -> bool:
 
 
 func _test_attack_clears_stale_persistent_move() -> bool:
-	# If a unit was already walking and then engages without a fresh move
-	# command, it may move this resolve but should stop continuing next turn.
+	# Stale persistent movement is ignored by the resolver. The unit can
+	# still auto-attack, but movement only happens through submitted MOVE
+	# or MOVE_ONLY orders.
 	var registry := _combat_mover_registry(6, 3, 4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
@@ -992,12 +1000,18 @@ func _test_attack_clears_stale_persistent_move() -> bool:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
 			moved = true
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	return damaged and moved and new_actor.persistent_order == null
+	return (
+		damaged
+		and not moved
+		and new_actor.origin == Vector2i(5, 5)
+		and new_actor.persistent_order == null
+	)
 
 
-func _test_fresh_move_persists_after_attack() -> bool:
-	# A newly-issued move is intentional. Even if the unit shoots before
-	# moving this resolve, that new destination remains the persistent move.
+func _test_fresh_move_does_not_store_persistent_order() -> bool:
+	# Long-range move continuation is owned by input requeueing. The resolver
+	# should execute this turn's MOVE without storing hidden follow-up movement
+	# on the entity.
 	var registry := _combat_mover_registry(6, 3, 4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
@@ -1018,11 +1032,7 @@ func _test_fresh_move_persists_after_attack() -> bool:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
 			damaged = true
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	return (
-		damaged
-		and new_actor.persistent_order != null
-		and new_actor.persistent_order.target_tile == move.target_tile
-	)
+	return damaged and new_actor.persistent_order == null and new_actor.origin == Vector2i(7, 5)
 
 
 func _test_move_budget_respected() -> bool:
@@ -1081,8 +1091,7 @@ func _test_post_shot_move_uses_reduced_budget() -> bool:
 		damaged
 		and move_count == 2
 		and new_actor.origin == Vector2i(7, 5)
-		and new_actor.persistent_order != null
-		and new_actor.persistent_order.target_tile == move.target_tile
+		and new_actor.persistent_order == null
 	)
 
 
@@ -1855,8 +1864,7 @@ func _test_cancel_clears_focus_target() -> bool:
 func _test_fresh_order_overrides_persistent_order() -> bool:
 	# Entity has persistent_order toward (15,5) from a prior turn but a
 	# fresh MOVE order toward (5,15) is queued. The fresh target must win:
-	# step is taken toward (5,15) and persistent_order updates to the new
-	# order — not the stale one.
+	# step is taken toward (5,15), and stale persistent state is cleared.
 	var registry := _movable_registry(4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
@@ -1885,10 +1893,7 @@ func _test_fresh_order_overrides_persistent_order() -> bool:
 	if moved_to != Vector2i(5, 6):
 		return false
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	return (
-		new_actor.persistent_order != null
-		and new_actor.persistent_order.target_tile == fresh.target_tile
-	)
+	return new_actor.persistent_order == null
 
 
 func _test_multi_buff_stacks_multiplicatively() -> bool:
@@ -2159,10 +2164,7 @@ func _test_validate_drops_unowned_order() -> bool:
 
 func _test_submit_turn_input_not_aliased_in_result() -> bool:
 	# After resolve(), mutating the caller's submitted EntityOrder must
-	# NOT mutate anything stored in result.new_state. Specifically: a
-	# fresh MOVE order is stashed into Entity.persistent_order by the
-	# movement system — this test asserts the resolver clones the
-	# SubmitTurn at its boundary so that path doesn't leak.
+	# NOT mutate anything stored in result.new_state.
 	var registry := _movable_registry(4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
@@ -2182,14 +2184,8 @@ func _test_submit_turn_input_not_aliased_in_result() -> bool:
 	move.target_tile = Vector2i(99, 99)
 	move.target_priority_chain = [42] as Array[int]
 
-	# The cloned actor's persistent_order in the result must NOT reflect
-	# those mutations.
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	if new_actor.persistent_order == null:
-		return false
-	if new_actor.persistent_order.target_tile != Vector2i(15, 5):
-		return false
-	return new_actor.persistent_order.target_priority_chain.is_empty()
+	return new_actor.origin == Vector2i(9, 5) and new_actor.persistent_order == null
 
 
 func _test_validate_drops_missing_entity_order() -> bool:
@@ -2622,7 +2618,7 @@ func _test_fresh_move_cancels_gather_assignment() -> bool:
 	if w.gather_state.assigned_source_entity_id != -1:
 		push_error("fresh MOVE should clear previous mineral assignment")
 		return false
-	return w.persistent_order != null and w.persistent_order.type == EntityOrder.Type.MOVE
+	return w.persistent_order == null
 
 
 # ---------- Plan node 05: production / build / research ----------
@@ -2770,9 +2766,9 @@ func _test_train_resumes_after_funds_arrive() -> bool:
 	return result.new_state.get_player(0).minerals == 50
 
 
-func _test_train_spawn_adjacent_with_persistent_move_to_rally() -> bool:
+func _test_train_spawn_adjacent_without_hidden_rally_move() -> bool:
 	# Full cycle: TRAIN → install → tick to completion → spawn adjacent
-	# → spawned unit has persistent MOVE to producer.origin + rally_offset.
+	# without hidden resolver-owned movement state.
 	var registry := _production_registry()
 	var state := _state_with_grid(30, 30)
 	state.players = [_player(0), _player(1)]
@@ -2810,12 +2806,7 @@ func _test_train_spawn_adjacent_with_persistent_move_to_rally() -> bool:
 	var mr: Rect2i = result.new_state.tile_grid.entity_rect(marine.id)
 	if TileGrid.distance_between_rects(br, mr) != 1:
 		return false
-	# persistent_order = MOVE to rally tile (5+0, 5+4) = (5, 9).
-	if marine.persistent_order == null:
-		return false
-	if marine.persistent_order.type != EntityOrder.Type.MOVE:
-		return false
-	return marine.persistent_order.target_tile == Vector2i(5, 9)
+	return marine.persistent_order == null
 
 
 func _test_train_spawn_deferred_no_free_tile() -> bool:

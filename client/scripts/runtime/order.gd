@@ -64,7 +64,7 @@ enum Type {
 # BUILD / TRAIN / RESEARCH / USE_ABILITY — what to produce or use, by string id.
 @export var def_id: String = ""
 
-# CANCEL — index into the entity's order_queue, or -1 to cancel persistent_order.
+# CANCEL — index into the entity's order_queue, or -1 to clear standing intent.
 @export var cancel_index: int = -1
 
 # GATHER — entity to gather from. Can be a ResourceSource (mineral patch /

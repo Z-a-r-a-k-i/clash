@@ -209,16 +209,6 @@ static func _finalize_train(
 		_emit_spawn_deferred_once(producer, def_id, events)
 		return
 	var unit := _spawn_unit(state, unit_def, producer.owner_player_id, spawn_tile)
-	# Auto-rally: persistent MOVE order toward producer.origin + rally_offset.
-	var producer_def := registry.get_by_id(producer.current_def_id)
-	if producer_def != null and producer_def.production != null:
-		var rally_tile: Vector2i = producer.origin + producer_def.production.rally_offset
-		if rally_tile != unit.origin:
-			var rally_order := EntityOrder.new()
-			rally_order.type = EntityOrder.Type.MOVE
-			rally_order.entity_id = unit.id
-			rally_order.target_tile = rally_tile
-			unit.persistent_order = rally_order
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.TRAIN_COMPLETED
 	ev.actor_id = producer.id

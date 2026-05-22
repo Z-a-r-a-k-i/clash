@@ -24,7 +24,9 @@ extends Resource
 @export var current_hp: int = 0
 
 @export var order_queue: Array[EntityOrder] = []  # orders queued for this turn
-@export var persistent_order: EntityOrder  # move that persists across turns
+# Deprecated compatibility field for older save snapshots. The resolver clears
+# and ignores it; long-range move assistance lives in the input layer.
+@export var persistent_order: EntityOrder
 @export var focus_target_entity_id: int = -1  # preferred attack target; -1 = auto-acquire
 
 @export var ability_cooldowns: Dictionary = {}  # { ability_id: turns_remaining }

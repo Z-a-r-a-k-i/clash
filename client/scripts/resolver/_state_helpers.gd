@@ -123,9 +123,7 @@ static func _distribute_one(
 			# assignment + transition the FSM into MOVING_TO_SOURCE; the
 			# resolver's gather_system advances it from there each tick.
 			# Workers without a gather_state (non-worker units) silently
-			# drop the order. Any prior MOVE persistent_order is cleared —
-			# gathering supersedes it, otherwise the move would resume after
-			# the gather FSM returns to IDLE.
+			# drop the order.
 			if entity.gather_state == null:
 				push_warning(
 					(
@@ -143,7 +141,6 @@ static func _distribute_one(
 				entity.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
 			else:
 				entity.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
-			entity.persistent_order = null
 			continue
 		if order.type == EntityOrder.Type.ATTACK:
 			_interrupt_gather_assignment(entity)
@@ -291,7 +288,6 @@ static func _handle_build_order(
 		_emit_order_rejected(order.entity_id, "tile_occupied", events)
 		return
 	worker.locked_to_building_id = building.id
-	worker.persistent_order = null
 	if worker.gather_state != null:
 		worker.gather_state.phase = GatherState.Phase.IDLE
 		worker.gather_state.assigned_source_entity_id = -1
@@ -337,7 +333,6 @@ static func _handle_build_resume(
 				return
 	building.construction_worker_id = worker.id
 	worker.locked_to_building_id = building.id
-	worker.persistent_order = null
 	if worker.gather_state != null:
 		worker.gather_state.phase = GatherState.Phase.IDLE
 		worker.gather_state.assigned_source_entity_id = -1
@@ -526,7 +521,7 @@ static func _emit_order_rejected(
 
 
 # CANCEL handler — splits the three semantic flavours per plan node 05:
-#   cancel_index == -1: clear persistent_order (and, in chunks 5/6,
+#   cancel_index == -1: clear standing focus intent (and, in chunks 5/6,
 #                       cancel a BUILD via the worker).
 #   cancel_index == 0:  cancel the active production slot, refund the
 #                       paid amounts. Queue head can install same turn
@@ -541,7 +536,6 @@ static func _handle_cancel_order(
 	events: Array[ResolverEvent]
 ) -> void:
 	if order.cancel_index < 0:
-		entity.persistent_order = null
 		entity.focus_target_entity_id = -1
 		# If the entity is a worker locked to an in-progress build,
 		# cancel the build too: refund full cost, remove the building
