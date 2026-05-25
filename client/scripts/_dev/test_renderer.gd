@@ -1532,7 +1532,7 @@ func _test_hidden_destroyed_building_keeps_last_seen_ghost() -> bool:
 	)
 	var destroy_event := ResolverEvent.new()
 	destroy_event.type = ResolverEvent.Type.ENTITY_DESTROYED
-	destroy_event.actor_id = 99
+	destroy_event.actor_id = 1
 	destroy_event.target_id = 2
 	renderer.render_step(state_c, [destroy_event])
 	var ok := true
