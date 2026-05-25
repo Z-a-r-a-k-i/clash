@@ -1013,10 +1013,13 @@ func _test_hides_geyser_under_refinery() -> bool:
 	if not renderer.call("is_entity_view_visible", 2):
 		push_error("refinery covering geyser should be visible")
 		ok = false
-	var hit_id: int = renderer.call("entity_id_at_tile", Vector2i(5, 5))
-	if hit_id != 2:
-		push_error("clicking covered geyser tile should hit refinery, got #%d" % hit_id)
-		ok = false
+	for tile: Vector2i in [Vector2i(5, 5), Vector2i(6, 5), Vector2i(5, 6), Vector2i(6, 6)]:
+		var hit_id: int = renderer.call("entity_id_at_tile", tile)
+		if hit_id != 2:
+			push_error(
+				"clicking covered geyser tile %s should hit refinery, got #%d" % [str(tile), hit_id]
+			)
+			ok = false
 	_free_renderer(renderer)
 	return ok
 

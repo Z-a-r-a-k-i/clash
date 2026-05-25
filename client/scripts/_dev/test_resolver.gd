@@ -3635,9 +3635,16 @@ func _test_build_refinery_double_target_rejected() -> bool:
 	b1.def_id = "refinery"
 	b1.target_tile = Vector2i(11, 6)
 	var result := Resolver.resolve(state, _submit([b0]), _submit([b1]), registry, null)
+	var saw_p1_rejection := false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ORDER_REJECTED and ev.actor_id == w1.id:
+			saw_p1_rejection = true
 	# Player 0 paid; player 1 did NOT (rejected because the geyser already
 	# has a refinery on it after player 0's BUILD).
 	if result.new_state.get_player(0).minerals != 425:
+		return false
+	if not saw_p1_rejection:
+		push_error("expected player 1 refinery attempt to emit ORDER_REJECTED")
 		return false
 	return result.new_state.get_player(1).minerals == 500
 

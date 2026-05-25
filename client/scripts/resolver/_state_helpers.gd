@@ -240,7 +240,7 @@ static func _handle_build_order(
 			_emit_order_rejected(order.entity_id, "missing_target_tag", events)
 			return
 		rect = Rect2i(target_rect.position, footprint)
-		if target_rect.position != rect.position or target_rect.size != rect.size:
+		if target_rect.size != rect.size:
 			_emit_order_rejected(order.entity_id, "target_footprint_mismatch", events)
 			return
 		if not state.tile_grid.is_rect_in_bounds(rect):
