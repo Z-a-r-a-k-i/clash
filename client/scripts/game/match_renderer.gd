@@ -45,6 +45,10 @@ const _ACTION_PREVIEW_FONT_SIZE := 18
 const _PRODUCTION_PROGRESS_BACK := Color(0.0, 0.0, 0.0, 0.68)
 const _PRODUCTION_PROGRESS_FILL := Color(0.2, 0.95, 0.45, 0.95)
 const _PRODUCTION_PROGRESS_SIZE := Vector2(64.0, 8.0)
+const _CONSTRUCTION_PROGRESS_BACK := Color(0.0, 0.0, 0.0, 0.68)
+const _CONSTRUCTION_PROGRESS_FILL := Color(0.2, 0.95, 0.45, 0.95)
+const _CONSTRUCTION_PROGRESS_PAUSED_FILL := Color(1.0, 0.58, 0.12, 0.96)
+const _CONSTRUCTION_PROGRESS_SIZE := Vector2(64.0, 8.0)
 const _FOG_UNSEEN_COLOR := Color(0.0, 0.0, 0.0, 0.62)
 const _FOG_SEEN_COLOR := Color(0.0, 0.0, 0.0, 0.34)
 const _DEV_PLAYABLE_ZOOM := 2.0
@@ -90,6 +94,9 @@ var _seen_enemy_buildings_by_player: Dictionary = {}
 @onready var _action_previews_root: Node2D = get_node_or_null("Overlays/ActionPreviews") as Node2D
 @onready
 var _production_progress_root: Node2D = get_node_or_null("Overlays/ProductionProgress") as Node2D
+@onready var _construction_progress_root: Node2D = (
+	get_node_or_null("Overlays/ConstructionProgress") as Node2D
+)
 @onready var _damage_labels_root: Node2D = $Overlays/DamageLabels
 @onready var _combat_log: RichTextLabel = $HUD/CombatLog
 
@@ -124,6 +131,7 @@ func bind_state(state: MatchState, registry: EntityRegistry) -> void:
 	_reset_visibility_memory()
 	_refresh_all_visibility()
 	_rebuild_production_progress()
+	_rebuild_construction_progress()
 	_fit_camera_to_state(state)
 
 
@@ -154,6 +162,7 @@ func render_step(new_state: MatchState, events: Array[ResolverEvent]) -> void:
 	_update_surviving_views(new_state)
 	_refresh_all_visibility()
 	_rebuild_production_progress()
+	_rebuild_construction_progress()
 
 
 # Lookup helper for tests — fastest way to assert on overlay state.
@@ -249,11 +258,18 @@ func production_progress_count() -> int:
 	return _production_progress_root.get_child_count()
 
 
+func construction_progress_count() -> int:
+	if _construction_progress_root == null:
+		return 0
+	return _construction_progress_root.get_child_count()
+
+
 func set_perspective_player_id(player_id: int) -> void:
 	_perspective_player_id = player_id
 	_refresh_entity_visibility()
 	_rebuild_fog_overlay()
 	_rebuild_production_progress()
+	_rebuild_construction_progress()
 
 
 func perspective_player_id() -> int:
@@ -359,6 +375,12 @@ func _resolve_internal_nodes() -> void:
 			_production_progress_root = Node2D.new()
 			_production_progress_root.name = "ProductionProgress"
 			overlays.add_child(_production_progress_root)
+	if _construction_progress_root == null:
+		var overlays := get_node_or_null("Overlays") as Node2D
+		if overlays != null:
+			_construction_progress_root = Node2D.new()
+			_construction_progress_root.name = "ConstructionProgress"
+			overlays.add_child(_construction_progress_root)
 	if _damage_labels_root == null:
 		_damage_labels_root = get_node_or_null("Overlays/DamageLabels") as Node2D
 	if _combat_log == null:
@@ -387,6 +409,7 @@ func _clear_overlay_roots() -> void:
 		_attack_lines_root,
 		_action_previews_root,
 		_production_progress_root,
+		_construction_progress_root,
 		_damage_labels_root,
 	]:
 		if root == null:
@@ -417,6 +440,14 @@ func _clear_production_progress_nodes() -> void:
 		return
 	for child in _production_progress_root.get_children():
 		_production_progress_root.remove_child(child)
+		child.queue_free()
+
+
+func _clear_construction_progress_nodes() -> void:
+	if _construction_progress_root == null:
+		return
+	for child in _construction_progress_root.get_children():
+		_construction_progress_root.remove_child(child)
 		child.queue_free()
 
 
@@ -575,6 +606,52 @@ func _render_production_progress(entity: Entity, done_ratio: float) -> void:
 	fill.size = Vector2(_PRODUCTION_PROGRESS_SIZE.x * done_ratio, _PRODUCTION_PROGRESS_SIZE.y)
 	group.add_child(fill)
 	_production_progress_root.add_child(group)
+
+
+func _rebuild_construction_progress() -> void:
+	_resolve_internal_nodes()
+	_clear_construction_progress_nodes()
+	if _state == null or _registry == null or _construction_progress_root == null:
+		return
+	for entity in _state.entities_sorted_by_id():
+		if entity == null or not entity.is_constructing or entity.current_hp <= 0:
+			continue
+		if entity.owner_player_id != _perspective_player_id:
+			continue
+		if not _is_entity_currently_visible_for_player(entity, _perspective_player_id):
+			continue
+		var total_turns: int = _construction_total_turns(entity)
+		if total_turns <= 0:
+			continue
+		var remaining: int = clampi(entity.construction_turns_remaining, 0, total_turns)
+		var done_ratio := clampf(float(total_turns - remaining) / float(total_turns), 0.0, 1.0)
+		_render_construction_progress(entity, done_ratio, entity.construction_worker_id < 0)
+
+
+func _construction_total_turns(entity: Entity) -> int:
+	var def := _def_for_entity(entity)
+	if def == null or def.construction == null:
+		return 0
+	return def.construction.build_time_turns
+
+
+func _render_construction_progress(entity: Entity, done_ratio: float, paused: bool) -> void:
+	var def: EntityDef = _def_for_entity(entity)
+	if def == null:
+		return
+	var rect: Rect2 = _entity_world_rect(entity, _state, def)
+	var group := Node2D.new()
+	group.name = "ConstructionProgress_%d" % entity.id
+	group.position = rect.get_center() + Vector2(-_CONSTRUCTION_PROGRESS_SIZE.x / 2.0, -36.0)
+	var back := ColorRect.new()
+	back.color = _CONSTRUCTION_PROGRESS_BACK
+	back.size = _CONSTRUCTION_PROGRESS_SIZE
+	group.add_child(back)
+	var fill := ColorRect.new()
+	fill.color = _CONSTRUCTION_PROGRESS_PAUSED_FILL if paused else _CONSTRUCTION_PROGRESS_FILL
+	fill.size = Vector2(_CONSTRUCTION_PROGRESS_SIZE.x * done_ratio, _CONSTRUCTION_PROGRESS_SIZE.y)
+	group.add_child(fill)
+	_construction_progress_root.add_child(group)
 
 
 func _spawn_entity_view(entity: Entity, state: MatchState = null) -> void:
