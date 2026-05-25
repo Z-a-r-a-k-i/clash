@@ -19,10 +19,13 @@ const COLOR_PLAYER_0 := Color(0.3, 0.55, 1.0)
 const COLOR_PLAYER_1 := Color(1.0, 0.3, 0.3)
 const COLOR_NEUTRAL := Color(1.0, 1.0, 1.0)
 const COLOR_FOG_SILHOUETTE := Color(0.16, 0.18, 0.20, 0.72)
+const CONSTRUCTION_COLOR_SCALE := 0.62
+const CONSTRUCTION_ALPHA := 0.58
 
 var _entity_id: int = -1
 var _owner_player_id: int = -1
 var _fog_silhouette: bool = false
+var _is_constructing: bool = false
 
 @onready var _sprite: Sprite2D = $Sprite2D
 @onready var _label: Label = $Label
@@ -59,6 +62,7 @@ func update_from_state(
 	var fp_y: int = max(placement_rect.size.y, 1)
 	var tile_size := _tile_pixel_size()
 	_owner_player_id = entity.owner_player_id
+	_is_constructing = entity.is_constructing
 	_fog_silhouette = false
 	# Position is the center of the placement rect in world pixels.
 	var center_x: float = (placement_rect.position.x + fp_x / 2.0) * tile_size
@@ -67,7 +71,7 @@ func update_from_state(
 
 	if _sprite != null:
 		_sprite.texture = sprite_texture
-		_sprite.modulate = _color_for_owner(entity.owner_player_id)
+		_sprite.modulate = _current_modulate()
 		# Scale the sprite so it covers the placement rect in world pixels.
 		# Without this, a 4x4 base renders at the same on-screen size as a
 		# 1x1 worker (both at native PNG pixel dimensions), so the RTS scale
@@ -95,7 +99,7 @@ func set_fog_silhouette(enabled: bool) -> void:
 	_fog_silhouette = enabled
 	if _sprite == null:
 		return
-	_sprite.modulate = COLOR_FOG_SILHOUETTE if enabled else _color_for_owner(_owner_player_id)
+	_sprite.modulate = _current_modulate()
 
 
 func is_fog_silhouette() -> bool:
@@ -119,6 +123,20 @@ static func _color_for_owner(owner_player_id: int) -> Color:
 			return COLOR_PLAYER_1
 		_:
 			return COLOR_NEUTRAL
+
+
+func _current_modulate() -> Color:
+	if _fog_silhouette:
+		return COLOR_FOG_SILHOUETTE
+	var base := _color_for_owner(_owner_player_id)
+	if not _is_constructing:
+		return base
+	return Color(
+		base.r * CONSTRUCTION_COLOR_SCALE,
+		base.g * CONSTRUCTION_COLOR_SCALE,
+		base.b * CONSTRUCTION_COLOR_SCALE,
+		CONSTRUCTION_ALPHA
+	)
 
 
 static func _tile_pixel_size() -> int:

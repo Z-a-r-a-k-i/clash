@@ -73,6 +73,22 @@ func _all_tests() -> Array:
 		["match_renderer_input_highlights", _test_input_highlights],
 		["match_renderer_action_previews", _test_action_previews],
 		["match_renderer_unit_training_progress", _test_unit_training_progress],
+		[
+			"match_renderer_owned_construction_progress_visuals",
+			_test_owned_construction_progress_visuals
+		],
+		[
+			"match_renderer_enemy_construction_state_without_progress_bar",
+			_test_enemy_construction_state_without_progress_bar
+		],
+		[
+			"match_renderer_paused_construction_progress_uses_paused_color",
+			_test_paused_construction_progress_uses_paused_color
+		],
+		[
+			"match_renderer_completed_construction_restores_normal_visuals",
+			_test_completed_construction_restores_normal_visuals
+		],
 		["match_renderer_perspective_hides_unseen_enemy", _test_perspective_hides_unseen_enemy],
 		[
 			"match_renderer_perspective_switch_changes_visible_entities",
@@ -539,6 +555,39 @@ static func _modulate_of(view: EntityView) -> Color:
 	if sprite == null:
 		return Color(1, 1, 1, 1)
 	return sprite.modulate
+
+
+static func _set_build_time(registry: EntityRegistry, def_id: String, turns: int) -> void:
+	var def: EntityDef = registry.get_by_id(def_id) if registry != null else null
+	if def == null:
+		return
+	def.construction = ConstructionDef.new()
+	def.construction.build_time_turns = turns
+
+
+static func _set_constructing(
+	entity: Entity, turns_remaining: int, construction_worker_id: int
+) -> void:
+	if entity == null:
+		return
+	entity.is_constructing = true
+	entity.construction_turns_remaining = turns_remaining
+	entity.construction_worker_id = construction_worker_id
+
+
+static func _construction_progress_fill_color(renderer: MatchRenderer) -> Color:
+	if renderer == null:
+		return Color.TRANSPARENT
+	var root := renderer.get_node_or_null("Overlays/ConstructionProgress")
+	if root == null or root.get_child_count() <= 0:
+		return Color.TRANSPARENT
+	var group := root.get_child(0)
+	if group == null or group.get_child_count() < 2:
+		return Color.TRANSPARENT
+	var fill := group.get_child(1) as ColorRect
+	if fill == null:
+		return Color.TRANSPARENT
+	return fill.color
 
 
 # ---------- Chunk 4 — render_step events + reconciliation ----------
@@ -1202,6 +1251,117 @@ func _test_unit_training_progress() -> bool:
 	var ok: bool = progress_count == 1
 	if not ok:
 		push_error("expected one unit-training progress bar, got %d" % progress_count)
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_owned_construction_progress_visuals() -> bool:
+	var registry := _renderer_registry()
+	_set_build_time(registry, "barracks", 10)
+	var state := _make_renderer_state(
+		[{"def_id": "barracks", "owner": 0, "origin": Vector2i(2, 2), "id": 1}], 12, 12
+	)
+	_set_constructing(state.get_entity_by_id(1), 7, 99)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	renderer.call("set_perspective_player_id", 0)
+	if not renderer.has_method("construction_progress_count"):
+		push_error("renderer should expose construction_progress_count")
+		_free_renderer(renderer)
+		return false
+	var ok := true
+	var progress_count: int = renderer.call("construction_progress_count")
+	if progress_count != 1:
+		push_error("expected one owned construction progress bar, got %d" % progress_count)
+		ok = false
+	var view := renderer.get_entity_view(1)
+	if _modulate_of(view).a >= 1.0:
+		push_error("constructing building sprite should be visibly transparent/dimmed")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_enemy_construction_state_without_progress_bar() -> bool:
+	var registry := _renderer_registry()
+	_set_build_time(registry, "barracks", 10)
+	var state := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "barracks", "owner": 1, "origin": Vector2i(4, 1), "id": 2},
+		],
+		14,
+		14
+	)
+	_set_constructing(state.get_entity_by_id(2), 5, 88)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	renderer.call("set_perspective_player_id", 0)
+	if not renderer.has_method("construction_progress_count"):
+		push_error("renderer should expose construction_progress_count")
+		_free_renderer(renderer)
+		return false
+	var ok := true
+	if not renderer.call("is_entity_view_visible", 2):
+		push_error("visible enemy constructing building should render")
+		ok = false
+	if renderer.call("construction_progress_count") != 0:
+		push_error("enemy construction progress amount should not render")
+		ok = false
+	var view := renderer.get_entity_view(2)
+	if _modulate_of(view).a >= 1.0:
+		push_error("enemy should still see unfinished building state")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_paused_construction_progress_uses_paused_color() -> bool:
+	var registry := _renderer_registry()
+	_set_build_time(registry, "barracks", 10)
+	var state := _make_renderer_state(
+		[{"def_id": "barracks", "owner": 0, "origin": Vector2i(2, 2), "id": 1}], 12, 12
+	)
+	_set_constructing(state.get_entity_by_id(1), 6, -1)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var fill_color := _construction_progress_fill_color(renderer)
+	var ok := true
+	if renderer.call("construction_progress_count") != 1:
+		push_error("expected one paused construction progress bar")
+		ok = false
+	if not (fill_color.r > 0.8 and fill_color.g > 0.35 and fill_color.b < 0.3):
+		push_error(
+			"paused construction progress should use an amber fill, got %s" % str(fill_color)
+		)
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_completed_construction_restores_normal_visuals() -> bool:
+	var registry := _renderer_registry()
+	_set_build_time(registry, "barracks", 10)
+	var constructing_state := _make_renderer_state(
+		[{"def_id": "barracks", "owner": 0, "origin": Vector2i(2, 2), "id": 1}], 12, 12
+	)
+	_set_constructing(constructing_state.get_entity_by_id(1), 1, 99)
+	var completed_state := _make_renderer_state(
+		[{"def_id": "barracks", "owner": 0, "origin": Vector2i(2, 2), "id": 1}], 12, 12
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(constructing_state, registry)
+	renderer.render_step(completed_state, [])
+	var ok := true
+	var progress_count: int = renderer.call("construction_progress_count")
+	if progress_count != 0:
+		push_error("completed construction should remove progress bar, got %d" % progress_count)
+		ok = false
+	var view := renderer.get_entity_view(1)
+	if _modulate_of(view).a < 0.99:
+		push_error("completed construction should restore normal sprite opacity")
+		ok = false
 	_free_renderer(renderer)
 	return ok
 
