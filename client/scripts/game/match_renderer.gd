@@ -49,11 +49,12 @@ const _CONSTRUCTION_PROGRESS_BACK := Color(0.0, 0.0, 0.0, 0.68)
 const _CONSTRUCTION_PROGRESS_FILL := Color(0.2, 0.95, 0.45, 0.95)
 const _CONSTRUCTION_PROGRESS_PAUSED_FILL := Color(1.0, 0.58, 0.12, 0.96)
 const _CONSTRUCTION_PROGRESS_SIZE := Vector2(64.0, 8.0)
-const _FOG_UNSEEN_COLOR := Color(0.0, 0.0, 0.0, 0.62)
-const _FOG_SEEN_COLOR := Color(0.0, 0.0, 0.0, 0.34)
+const _FOG_OUT_OF_VISION_COLOR := Color(0.0, 0.0, 0.0, 0.22)
 const _DEV_PLAYABLE_ZOOM := 2.0
 const _MIN_CAMERA_ZOOM := 0.5
 const _MAX_CAMERA_ZOOM := 4.0
+const _BUILDING_MEMORY_ENTITY := "entity"
+const _BUILDING_MEMORY_RECT := "rect"
 
 # Hit flash applied to the target sprite for ~150 ms when ENTITY_DAMAGED
 # fires. Quick pulse to white-ish gives a readable "got hit" cue without
@@ -83,7 +84,8 @@ var _has_hover_tile: bool = false
 var _perspective_player_id: int = 0
 var _visibility_by_player: Dictionary = {}
 var _seen_tiles_by_player: Dictionary = {}
-var _seen_enemy_buildings_by_player: Dictionary = {}
+var _seen_enemy_building_snapshots_by_player: Dictionary = {}
+var _event_visible_entity_ids: Dictionary[int, bool] = {}
 
 @onready var _entities_root: Node2D = $Entities
 @onready var _terrain: TileMapLayer = $Terrain
@@ -152,12 +154,17 @@ func entity_view_count() -> int:
 # pre-event positions captured at the previous render_step / bind_state.
 func render_step(new_state: MatchState, events: Array[ResolverEvent]) -> void:
 	_resolve_internal_nodes()
+	var event_visible_ids: Dictionary[int, bool] = _visible_entity_ids_for_player(
+		_perspective_player_id
+	)
 	_state = new_state
 	if new_state == null:
 		return
 	_spawn_added_views(new_state)
+	_event_visible_entity_ids = event_visible_ids
 	for event in events:
 		_render_event(event)
+	_event_visible_entity_ids = {}
 	_prune_dead_views(new_state)
 	_update_surviving_views(new_state)
 	_refresh_all_visibility()
@@ -203,7 +210,9 @@ func entity_id_at_tile(tile: Vector2i) -> int:
 	if entity_id < 0:
 		return -1
 	var entity := _state.get_entity_by_id(entity_id)
-	var refinery_id: int = _covering_refinery_id_for_gas_geyser(entity)
+	var refinery_id: int = _known_covering_refinery_id_for_gas_geyser(
+		entity, _perspective_player_id
+	)
 	if refinery_id >= 0:
 		return refinery_id if _is_entity_hit_testable(refinery_id) else -1
 	return entity_id if _is_entity_hit_testable(entity_id) else -1
@@ -660,7 +669,7 @@ func _spawn_entity_view(entity: Entity, state: MatchState = null) -> void:
 	# current_def_id tracks transforms (e.g. tank → siege_tank). Falls back
 	# to def_id only at spawn time when current_def_id may not have been
 	# initialized; the resolver clones it from def_id on entity creation.
-	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
+	var def_id: String = _def_id_for_entity(entity)
 	var def: EntityDef = _registry.get_by_id(def_id)
 	if def == null:
 		return
@@ -860,7 +869,7 @@ func _prune_dead_views(new_state: MatchState) -> void:
 		if _is_renderable_entity(entity):
 			live_ids[entity.id] = true
 	for entity_id in _views_by_id.keys():
-		if not live_ids.has(entity_id):
+		if not live_ids.has(entity_id) and not _has_any_seen_enemy_building_snapshot(entity_id):
 			_destroy_entity_view(entity_id)
 
 
@@ -893,10 +902,10 @@ func _update_surviving_views(new_state: MatchState) -> void:
 func _reset_visibility_memory() -> void:
 	_visibility_by_player.clear()
 	_seen_tiles_by_player.clear()
-	_seen_enemy_buildings_by_player.clear()
+	_seen_enemy_building_snapshots_by_player.clear()
 	for player_id in _player_ids():
 		_seen_tiles_by_player[player_id] = {}
-		_seen_enemy_buildings_by_player[player_id] = {}
+		_seen_enemy_building_snapshots_by_player[player_id] = {}
 
 
 func _refresh_all_visibility() -> void:
@@ -909,7 +918,7 @@ func _refresh_all_visibility() -> void:
 		)
 		_visibility_by_player[player_id] = visibility
 		_remember_visible_tiles(player_id, visibility)
-		_remember_visible_enemy_buildings(player_id, visibility)
+		_refresh_seen_enemy_building_snapshots(player_id, visibility)
 	_refresh_entity_visibility()
 	_rebuild_fog_overlay()
 
@@ -917,20 +926,60 @@ func _refresh_all_visibility() -> void:
 func _refresh_entity_visibility() -> void:
 	if _state == null:
 		return
+	var live_ids: Dictionary[int, bool] = {}
 	for entity in _state.entities_sorted_by_id():
+		live_ids[entity.id] = true
 		var view: EntityView = _views_by_id.get(entity.id)
 		if view == null:
 			continue
-		if _covering_refinery_id_for_gas_geyser(entity) >= 0:
+		if _known_covering_refinery_id_for_gas_geyser(entity, _perspective_player_id) >= 0:
 			view.visible = false
 			view.set_fog_silhouette(false)
 			continue
+		if _is_resource_source(entity):
+			view.visible = true
+			view.set_fog_silhouette(false)
+			continue
 		var visible_now := _is_entity_currently_visible_for_player(entity, _perspective_player_id)
-		var silhouette := false
-		if not visible_now and _is_seen_enemy_building(_perspective_player_id, entity):
-			silhouette = true
-		view.visible = visible_now or silhouette
-		view.set_fog_silhouette(silhouette)
+		if visible_now:
+			view.visible = true
+			view.set_fog_silhouette(false)
+			continue
+		var snapshot: Dictionary = _seen_enemy_building_snapshot(_perspective_player_id, entity.id)
+		if not snapshot.is_empty():
+			_apply_building_snapshot_to_view(entity.id, snapshot)
+			view = _views_by_id.get(entity.id)
+			if view != null:
+				view.visible = true
+				view.set_fog_silhouette(true)
+			continue
+		view.visible = false
+		view.set_fog_silhouette(false)
+	var snapshots: Dictionary = _seen_enemy_building_snapshots_by_player.get(
+		_perspective_player_id, {}
+	)
+	for entity_id in snapshots.keys():
+		if live_ids.has(entity_id):
+			continue
+		var snapshot: Dictionary = snapshots.get(entity_id, {})
+		if snapshot.is_empty():
+			continue
+		_apply_building_snapshot_to_view(entity_id, snapshot)
+		var ghost_view: EntityView = _views_by_id.get(entity_id)
+		if ghost_view != null:
+			ghost_view.visible = true
+			ghost_view.set_fog_silhouette(true)
+	for entity_id in _views_by_id.keys():
+		if live_ids.has(entity_id):
+			continue
+		if _seen_enemy_building_snapshot(_perspective_player_id, entity_id).is_empty():
+			if _has_any_seen_enemy_building_snapshot(entity_id):
+				var hidden_view: EntityView = _views_by_id.get(entity_id)
+				if hidden_view != null:
+					hidden_view.visible = false
+					hidden_view.set_fog_silhouette(false)
+			else:
+				_destroy_entity_view(entity_id)
 
 
 func _rebuild_fog_overlay() -> void:
@@ -950,12 +999,9 @@ func _rebuild_fog_overlay() -> void:
 			var tile := Vector2i(x, y)
 			if visibility.is_tile_visible(tile):
 				continue
-			var color := (
-				_FOG_SEEN_COLOR
-				if is_tile_previously_seen(_perspective_player_id, tile)
-				else _FOG_UNSEEN_COLOR
+			_fog_root.add_child(
+				_highlight_polygon(Rect2i(tile, Vector2i.ONE), _FOG_OUT_OF_VISION_COLOR)
 			)
-			_fog_root.add_child(_highlight_polygon(Rect2i(tile, Vector2i.ONE), color))
 
 
 func _remember_visible_tiles(player_id: int, visibility: VisionSystem.Visibility) -> void:
@@ -965,8 +1011,32 @@ func _remember_visible_tiles(player_id: int, visibility: VisionSystem.Visibility
 	_seen_tiles_by_player[player_id] = seen
 
 
-func _remember_visible_enemy_buildings(player_id: int, visibility: VisionSystem.Visibility) -> void:
-	var seen: Dictionary = _seen_enemy_buildings_by_player.get(player_id, {})
+func _refresh_seen_enemy_building_snapshots(
+	player_id: int, visibility: VisionSystem.Visibility
+) -> void:
+	var snapshots: Dictionary = _seen_enemy_building_snapshots_by_player.get(player_id, {})
+	var snapshot_ids_to_clear: Array[int] = []
+	for entity_id in snapshots.keys():
+		var snapshot: Dictionary = snapshots.get(entity_id, {})
+		var rect: Rect2i = snapshot.get(_BUILDING_MEMORY_RECT, Rect2i())
+		if rect.size.x <= 0 or rect.size.y <= 0:
+			snapshot_ids_to_clear.append(entity_id)
+			continue
+		if not visibility.is_rect_visible(rect):
+			continue
+		var live_entity: Entity = _state.get_entity_by_id(entity_id)
+		if (
+			live_entity == null
+			or live_entity.owner_player_id == player_id
+			or live_entity.owner_player_id < 0
+			or not _is_building(live_entity)
+			or not VISION_SYSTEM_SCRIPT.is_entity_visible_to_player(
+				live_entity, _state, _registry, player_id, visibility
+			)
+		):
+			snapshot_ids_to_clear.append(entity_id)
+	for entity_id in snapshot_ids_to_clear:
+		snapshots.erase(entity_id)
 	for entity in _state.entities_sorted_by_id():
 		if entity.owner_player_id == player_id or entity.owner_player_id < 0:
 			continue
@@ -975,22 +1045,29 @@ func _remember_visible_enemy_buildings(player_id: int, visibility: VisionSystem.
 		if VISION_SYSTEM_SCRIPT.is_entity_visible_to_player(
 			entity, _state, _registry, player_id, visibility
 		):
-			seen[entity.id] = true
-	_seen_enemy_buildings_by_player[player_id] = seen
+			var def := _def_for_entity(entity)
+			snapshots[entity.id] = _building_snapshot(
+				entity, _entity_rect_or_default(entity, _state, def)
+			)
+	_seen_enemy_building_snapshots_by_player[player_id] = snapshots
 
 
 func _is_entity_hit_testable(entity_id: int) -> bool:
 	var entity := _state.get_entity_by_id(entity_id)
 	if not _is_renderable_entity(entity):
 		return false
-	if _covering_refinery_id_for_gas_geyser(entity) >= 0:
+	if _known_covering_refinery_id_for_gas_geyser(entity, _perspective_player_id) >= 0:
 		return false
+	if _is_resource_source(entity):
+		return true
 	if entity.owner_player_id == _perspective_player_id:
 		return true
 	return _is_entity_currently_visible_for_player(entity, _perspective_player_id)
 
 
 func _is_entity_currently_visible_for_player(entity: Entity, player_id: int) -> bool:
+	if _is_resource_source(entity):
+		return true
 	var visibility = _visibility_by_player.get(player_id)
 	if visibility == null:
 		return entity != null and entity.owner_player_id == player_id
@@ -999,13 +1076,58 @@ func _is_entity_currently_visible_for_player(entity: Entity, player_id: int) -> 
 	)
 
 
-func _is_seen_enemy_building(player_id: int, entity: Entity) -> bool:
-	if entity == null or entity.owner_player_id == player_id or entity.owner_player_id < 0:
-		return false
-	if not _is_building(entity):
-		return false
-	var seen: Dictionary = _seen_enemy_buildings_by_player.get(player_id, {})
-	return seen.has(entity.id)
+func _seen_enemy_building_snapshot(player_id: int, entity_id: int) -> Dictionary:
+	var snapshots: Dictionary = _seen_enemy_building_snapshots_by_player.get(player_id, {})
+	return snapshots.get(entity_id, {})
+
+
+func _has_any_seen_enemy_building_snapshot(entity_id: int) -> bool:
+	for snapshots in _seen_enemy_building_snapshots_by_player.values():
+		var player_snapshots: Dictionary = snapshots
+		if player_snapshots.has(entity_id):
+			return true
+	return false
+
+
+func _building_snapshot(entity: Entity, rect: Rect2i) -> Dictionary:
+	if entity == null:
+		return {}
+	return {
+		_BUILDING_MEMORY_ENTITY: entity.clone(),
+		_BUILDING_MEMORY_RECT: rect,
+	}
+
+
+func _apply_building_snapshot_to_view(entity_id: int, snapshot: Dictionary) -> void:
+	var snapshot_entity: Entity = snapshot.get(_BUILDING_MEMORY_ENTITY) as Entity
+	if snapshot_entity == null:
+		return
+	var rect: Rect2i = snapshot.get(_BUILDING_MEMORY_RECT, Rect2i())
+	if rect.size.x <= 0 or rect.size.y <= 0:
+		return
+	var def := _def_for_entity(snapshot_entity)
+	if def == null:
+		return
+	var view: EntityView = _views_by_id.get(entity_id)
+	if view == null:
+		view = _spawn_entity_view_for_snapshot(entity_id)
+	if view == null:
+		return
+	view.update_from_state(
+		snapshot_entity, def, _texture_for_def(_def_id_for_entity(snapshot_entity)), rect
+	)
+
+
+func _spawn_entity_view_for_snapshot(entity_id: int) -> EntityView:
+	if _entities_root == null or _entity_view_scene == null:
+		return null
+	var view := _entity_view_scene.instantiate() as EntityView
+	if view == null:
+		return null
+	_entities_root.add_child(view)
+	view.bind_entity_id(entity_id)
+	_views_by_id[entity_id] = view
+	return view
 
 
 func _is_building(entity: Entity) -> bool:
@@ -1013,7 +1135,12 @@ func _is_building(entity: Entity) -> bool:
 	return def != null and def.tags.has("building")
 
 
-func _covering_refinery_id_for_gas_geyser(entity: Entity) -> int:
+func _is_resource_source(entity: Entity) -> bool:
+	var def := _def_for_entity(entity)
+	return def != null and def.resource_source != null
+
+
+func _known_covering_refinery_id_for_gas_geyser(entity: Entity, player_id: int) -> int:
 	if entity == null or _state == null:
 		return -1
 	var def := _def_for_entity(entity)
@@ -1029,8 +1156,26 @@ func _covering_refinery_id_for_gas_geyser(entity: Entity) -> int:
 		if other_def == null or other_def.id != "refinery":
 			continue
 		var other_rect: Rect2i = _entity_rect_or_default(other, _state, other_def)
-		if other_rect.position == rect.position and other_rect.size == rect.size:
+		if other_rect.position != rect.position or other_rect.size != rect.size:
+			continue
+		if other.owner_player_id == player_id:
 			return other.id
+		if _is_entity_currently_visible_for_player(other, player_id):
+			return other.id
+		if not _seen_enemy_building_snapshot(player_id, other.id).is_empty():
+			return other.id
+	var snapshots: Dictionary = _seen_enemy_building_snapshots_by_player.get(player_id, {})
+	for entity_id in snapshots.keys():
+		var snapshot: Dictionary = snapshots.get(entity_id, {})
+		var snapshot_entity: Entity = snapshot.get(_BUILDING_MEMORY_ENTITY) as Entity
+		if snapshot_entity == null:
+			continue
+		var snapshot_def := _def_for_entity(snapshot_entity)
+		if snapshot_def == null or snapshot_def.id != "refinery":
+			continue
+		var snapshot_rect: Rect2i = snapshot.get(_BUILDING_MEMORY_RECT, Rect2i())
+		if snapshot_rect.position == rect.position and snapshot_rect.size == rect.size:
+			return entity_id
 	return -1
 
 
@@ -1046,8 +1191,13 @@ func _is_renderable_entity(entity: Entity) -> bool:
 func _def_for_entity(entity: Entity) -> EntityDef:
 	if entity == null or _registry == null:
 		return null
-	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
-	return _registry.get_by_id(def_id)
+	return _registry.get_by_id(_def_id_for_entity(entity))
+
+
+func _def_id_for_entity(entity: Entity) -> String:
+	if entity == null:
+		return ""
+	return entity.current_def_id if entity.current_def_id != "" else entity.def_id
 
 
 func _player_ids() -> Array[int]:
@@ -1069,26 +1219,59 @@ func _destroy_entity_view(entity_id: int) -> void:
 	view.fade_out_and_despawn(_DESTRUCTION_FADE_SECONDS)
 
 
+func _visible_entity_ids_for_player(player_id: int) -> Dictionary[int, bool]:
+	var out: Dictionary[int, bool] = {}
+	if _state == null:
+		return out
+	for entity in _state.entities_sorted_by_id():
+		if _is_entity_currently_visible_for_player(entity, player_id):
+			out[entity.id] = true
+	return out
+
+
+func _was_entity_visible_for_event(entity_id: int) -> bool:
+	return _event_visible_entity_ids.has(entity_id)
+
+
+func _forget_seen_enemy_building_snapshot(player_id: int, entity_id: int) -> void:
+	var snapshots: Dictionary = _seen_enemy_building_snapshots_by_player.get(player_id, {})
+	snapshots.erase(entity_id)
+	_seen_enemy_building_snapshots_by_player[player_id] = snapshots
+
+
 func _render_event(event: ResolverEvent) -> void:
 	if event == null:
 		return
 	match event.type:
 		ResolverEvent.Type.ENTITY_DAMAGED:
-			_render_attack_overlay(event.actor_id, event.target_id)
+			var target_visible := _was_entity_visible_for_event(event.target_id)
+			if not target_visible:
+				return
+			var actor_visible := _was_entity_visible_for_event(event.actor_id)
+			if actor_visible:
+				_render_attack_overlay(event.actor_id, event.target_id)
 			_render_damage_label(event.target_id, event.damage)
-			_append_combat_log(
-				(
-					"#%d hit #%d for %d (HP %d)"
-					% [event.actor_id, event.target_id, event.damage, event.hp_after]
+			if actor_visible:
+				_append_combat_log(
+					(
+						"#%d hit #%d for %d (HP %d)"
+						% [event.actor_id, event.target_id, event.damage, event.hp_after]
+					)
 				)
-			)
+			else:
+				_append_combat_log(
+					"#%d took %d damage (HP %d)" % [event.target_id, event.damage, event.hp_after]
+				)
 		ResolverEvent.Type.ENTITY_DESTROYED:
+			if not _was_entity_visible_for_event(event.target_id):
+				return
 			# Render-order is: spawn → events → prune. The view is still
 			# alive at this point (the prune phase below would have removed
 			# it post-event). Kick off the fade now so the destruction
 			# animation is tied to the event, not to the cleanup pass.
 			if _views_by_id.has(event.target_id):
 				_destroy_entity_view(event.target_id)
+			_forget_seen_enemy_building_snapshot(_perspective_player_id, event.target_id)
 			_append_combat_log("#%d destroyed" % event.target_id)
 		ResolverEvent.Type.MATCH_ENDED:
 			# winner_player_id == -1 is the resolver's draw/unknown sentinel.
