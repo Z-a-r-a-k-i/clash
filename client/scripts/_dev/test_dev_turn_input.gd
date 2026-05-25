@@ -53,6 +53,10 @@ func _all_tests() -> Array:
 		],
 		["dev_input_queues_build_train_and_research", _test_queues_build_train_research],
 		[
+			"dev_input_snaps_refinery_build_to_geyser_origin",
+			_test_snaps_refinery_build_to_geyser_origin
+		],
+		[
 			"dev_input_rejects_unaffordable_build_without_queue",
 			_test_rejects_unaffordable_build_without_queue
 		],
@@ -412,6 +416,34 @@ func _test_queues_build_train_research() -> bool:
 	return true
 
 
+func _test_snaps_refinery_build_to_geyser_origin() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	setup.state.get_player(0).minerals = 200
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	if not input.issue_build("refinery", Vector2i(6, 9)):
+		push_error("expected refinery BUILD to accept a click inside the geyser footprint")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("expected exactly one refinery BUILD order, got %d" % orders.size())
+		return false
+	var build_order: EntityOrder = orders[0]
+	if build_order.target_tile != Vector2i(5, 8):
+		push_error(
+			(
+				"refinery BUILD should target geyser origin (5, 8), got %s"
+				% str(build_order.target_tile)
+			)
+		)
+		return false
+	return true
+
+
 func _test_rejects_unaffordable_build_without_queue() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
@@ -625,21 +657,24 @@ func _make_input_setup() -> Dictionary:
 	registry.entities = [
 		_make_def("worker", Vector2i(1, 1), true, true, false),
 		_make_def("marine", Vector2i(1, 1), true, false, false),
-		_make_def("mineral_patch", Vector2i(1, 3), false, false, true),
+		_make_def("mineral_patch", Vector2i(1, 1), false, false, true),
 		_make_barracks_def(),
+		_make_gas_geyser_def(),
+		_make_refinery_def(),
 		_make_noncombat_mover_def(),
 	]
 	registry.researches = [_make_research_def()]
 	_add_entity(state, 1, "worker", 0, Vector2i(1, 1), Vector2i(1, 1), 40)
 	_add_entity(state, 2, "marine", 1, Vector2i(7, 1), Vector2i(1, 1), 45)
-	_add_entity(state, 3, "mineral_patch", -1, Vector2i(4, 4), Vector2i(1, 3), 0)
+	_add_entity(state, 3, "mineral_patch", -1, Vector2i(4, 4), Vector2i(1, 1), 0)
 	state.get_entity_by_id(3).current_resource_amount = 500
 	_add_entity(state, 4, "worker", 0, Vector2i(2, 1), Vector2i(1, 1), 0)
 	_add_entity(state, 5, "marine", 0, Vector2i(3, 1), Vector2i(1, 1), 45)
 	_add_entity(state, 6, "barracks", 0, Vector2i(8, 4), Vector2i(3, 3), 1000)
-	_add_entity(state, 7, "mineral_patch", -1, Vector2i(10, 1), Vector2i(1, 3), 0)
+	_add_entity(state, 7, "mineral_patch", -1, Vector2i(10, 1), Vector2i(1, 1), 0)
 	state.get_entity_by_id(7).current_resource_amount = 0
 	_add_entity(state, 9, "noncombat_mover", 0, Vector2i(10, 10), Vector2i(1, 1), 10)
+	_add_entity(state, 10, "gas_geyser", -1, Vector2i(5, 8), Vector2i(2, 2), 1000)
 	state.get_entity_by_id(6).production_state = ProductionState.new()
 	return {"state": state, "registry": registry}
 
@@ -694,6 +729,31 @@ func _make_barracks_def() -> EntityDef:
 	production.produces = ["marine"]
 	production.researches = ["stim_research"]
 	def.production = production
+	return def
+
+
+func _make_gas_geyser_def() -> EntityDef:
+	var def: EntityDef = EntityDef.new()
+	def.id = "gas_geyser"
+	def.footprint = Vector2i(2, 2)
+	def.tags = ["neutral", "resource_source", "gas", "gas_geyser"]
+	var source: ResourceSourceDef = ResourceSourceDef.new()
+	source.resource_type = "gas"
+	source.requires_extractor = true
+	def.resource_source = source
+	return def
+
+
+func _make_refinery_def() -> EntityDef:
+	var def: EntityDef = EntityDef.new()
+	def.id = "refinery"
+	def.footprint = Vector2i(2, 2)
+	def.tags = ["building", "refinery", "structure", "ground", "extractor"]
+	var construction: ConstructionDef = ConstructionDef.new()
+	construction.built_by_tag = "worker"
+	construction.mineral_cost = 75
+	construction.requires_target_tag = "gas_geyser"
+	def.construction = construction
 	return def
 
 

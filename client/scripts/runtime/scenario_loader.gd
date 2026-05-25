@@ -135,12 +135,19 @@ static func _place_entity(
 ) -> bool:
 	if def.construction != null and def.construction.requires_target_tag != "":
 		var tag: String = def.construction.requires_target_tag
-		var target_id := _find_overlap_target(state, registry, rect, tag)
+		var target_id := _find_target_at_tile(state, registry, rect.position, tag)
 		if target_id < 0:
 			return false
+		var target_rect: Rect2i = state.tile_grid.entity_rect(target_id)
+		if target_rect.size.x <= 0 or target_rect.size.y <= 0:
+			return false
+		rect = Rect2i(target_rect.position, rect.size)
+		if target_rect.size != rect.size:
+			return false
+		entity.origin = rect.position
 		# Defensive: every occupant in `rect` must be the target. This
-		# is already implied by _find_overlap_target's "exactly one
-		# distinct occupant" rule and TileGrid.place_overlapping's own
+		# is already implied by _find_target_at_tile plus the matched
+		# footprint above and TileGrid.place_overlapping's own
 		# rect-intersection check, but we make the contract local so a
 		# future refactor of either callee can't silently break it.
 		for x in range(rect.position.x, rect.position.x + rect.size.x):
@@ -152,23 +159,20 @@ static func _place_entity(
 	return state.tile_grid.place(entity.id, rect)
 
 
-# Returns the id of an existing entity in `rect` whose def carries
-# `tag`, or -1 if no such target. Mirrors _state_helpers._find_overlap_target
-# (kept in this module to avoid cross-module coupling for plan-07a).
-static func _find_overlap_target(
-	state: MatchState, registry: EntityRegistry, rect: Rect2i, tag: String
+# Returns the id of the existing entity at `tile` whose def carries `tag`,
+# or -1 if no such target. Kept local to avoid cross-module coupling for
+# scenario placement.
+static func _find_target_at_tile(
+	state: MatchState, registry: EntityRegistry, tile: Vector2i, tag: String
 ) -> int:
 	if state.tile_grid == null or registry == null:
 		return -1
-	var occupants: Array[int] = []
-	for x in range(rect.position.x, rect.position.x + rect.size.x):
-		for y in range(rect.position.y, rect.position.y + rect.size.y):
-			var occ := state.tile_grid.entity_at(Vector2i(x, y))
-			if occ != -1 and not occupants.has(occ):
-				occupants.append(occ)
-	if occupants.size() != 1:
+	if not state.tile_grid.is_in_bounds(tile):
 		return -1
-	var occupant := state.get_entity_by_id(occupants[0])
+	var occupant_id: int = state.tile_grid.entity_at(tile)
+	if occupant_id < 0:
+		return -1
+	var occupant := state.get_entity_by_id(occupant_id)
 	if occupant == null:
 		return -1
 	var occ_def: EntityDef = registry.get_by_id(occupant.current_def_id)

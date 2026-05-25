@@ -67,6 +67,7 @@ func _all_tests() -> Array:
 			"match_renderer_fit_camera_handles_null_entity_slots",
 			_test_fit_camera_handles_null_entity_slots
 		],
+		["match_renderer_hides_geyser_under_refinery", _test_hides_geyser_under_refinery],
 		["match_renderer_match_ended_draw_event_logged", _test_match_ended_draw_event_logged],
 		["match_renderer_world_tile_hit_testing", _test_world_tile_hit_testing],
 		["match_renderer_input_highlights", _test_input_highlights],
@@ -140,7 +141,7 @@ func _test_match_renderer_initial_state_spawns_views() -> bool:
 				"def_id": "mineral_patch",
 				"owner": -1,
 				"origin": Vector2i(7, 5),
-				"footprint": Vector2i(1, 3)
+				"footprint": Vector2i(1, 1)
 			},
 		],
 		10,
@@ -195,7 +196,7 @@ func _test_renders_zero_hp_resource_sources() -> bool:
 				"def_id": "mineral_patch",
 				"owner": -1,
 				"origin": Vector2i(6, 3),
-				"footprint": Vector2i(1, 3),
+				"footprint": Vector2i(1, 1),
 				"hp": 0,
 				"resources": 1500,
 				"id": 2
@@ -266,13 +267,13 @@ func _test_match_renderer_uses_visuals_registry() -> bool:
 				"def_id": "mineral_patch",
 				"owner": -1,
 				"origin": Vector2i(2, 2),
-				"footprint": Vector2i(1, 3)
+				"footprint": Vector2i(1, 1)
 			},
 			{
 				"def_id": "mineral_patch",
 				"owner": -1,
 				"origin": Vector2i(5, 2),
-				"footprint": Vector2i(1, 3)
+				"footprint": Vector2i(1, 1)
 			},
 		],
 		10,
@@ -312,14 +313,14 @@ func _test_focuses_player_start_at_playable_zoom() -> bool:
 				"def_id": "mineral_patch",
 				"owner": -1,
 				"origin": Vector2i(10, 18),
-				"footprint": Vector2i(1, 3),
+				"footprint": Vector2i(1, 1),
 				"id": 5
 			},
 			{
 				"def_id": "gas_geyser",
 				"owner": -1,
 				"origin": Vector2i(12, 22),
-				"footprint": Vector2i(3, 3),
+				"footprint": Vector2i(2, 2),
 				"id": 6
 			},
 			{
@@ -334,14 +335,14 @@ func _test_focuses_player_start_at_playable_zoom() -> bool:
 				"def_id": "mineral_patch",
 				"owner": -1,
 				"origin": Vector2i(20, 4),
-				"footprint": Vector2i(1, 3),
+				"footprint": Vector2i(1, 1),
 				"id": 7
 			},
 			{
 				"def_id": "gas_geyser",
 				"owner": -1,
 				"origin": Vector2i(18, 4),
-				"footprint": Vector2i(3, 3),
+				"footprint": Vector2i(2, 2),
 				"id": 8
 			},
 		],
@@ -479,7 +480,11 @@ func _make_renderer_state(entity_specs: Array, w: int, h: int) -> MatchState:
 		e.current_resource_amount = spec.get("resources", -1)
 		state.entities.append(e)
 		var fp: Vector2i = spec.get("footprint", Vector2i(1, 1))
-		state.tile_grid.place(e.id, Rect2i(e.origin, fp))
+		var rect := Rect2i(e.origin, fp)
+		if spec.has("overlap_id"):
+			state.tile_grid.place_overlapping(e.id, rect, spec.get("overlap_id", -1))
+		else:
+			state.tile_grid.place(e.id, rect)
 	return state
 
 
@@ -495,8 +500,9 @@ func _renderer_registry() -> EntityRegistry:
 		["siege_tank", Vector2i(2, 2)],
 		["barracks", Vector2i(3, 3)],
 		["watch_tower", Vector2i(1, 1)],
-		["mineral_patch", Vector2i(1, 3)],
-		["gas_geyser", Vector2i(3, 3)],
+		["mineral_patch", Vector2i(1, 1)],
+		["gas_geyser", Vector2i(2, 2)],
+		["refinery", Vector2i(2, 2)],
 	]:
 		var d := EntityDef.new()
 		d.id = entry[0]
@@ -511,6 +517,12 @@ func _renderer_registry() -> EntityRegistry:
 		if ["mineral_patch", "gas_geyser"].has(d.id):
 			d.tags.append("resource_source")
 			d.resource_source = ResourceSourceDef.new()
+		if d.id == "gas_geyser":
+			d.tags.append("gas_geyser")
+			d.resource_source.resource_type = "gas"
+			d.resource_source.requires_extractor = true
+		if d.id == "refinery":
+			d.tags.append_array(["building", "refinery", "extractor"])
 		defs.append(d)
 	registry.entities = defs
 	return registry
@@ -959,6 +971,52 @@ func _test_fit_camera_handles_null_entity_slots() -> bool:
 		push_error(
 			"null slot crashed bind_state; expected 2 views, got %d" % renderer.entity_view_count()
 		)
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_hides_geyser_under_refinery() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{
+				"def_id": "gas_geyser",
+				"owner": -1,
+				"origin": Vector2i(5, 5),
+				"footprint": Vector2i(2, 2),
+				"id": 1,
+				"hp": 0,
+				"resources": -1,
+			},
+			{
+				"def_id": "refinery",
+				"owner": 0,
+				"origin": Vector2i(5, 5),
+				"footprint": Vector2i(2, 2),
+				"id": 2,
+				"hp": 500,
+				"overlap_id": 1,
+			},
+		],
+		12,
+		12
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	var ok := true
+	if renderer.get_entity_view(1) == null:
+		push_error("covered geyser should still have a view for reveal after refinery removal")
+		ok = false
+	if renderer.call("is_entity_view_visible", 1):
+		push_error("covered geyser sprite should be hidden")
+		ok = false
+	if not renderer.call("is_entity_view_visible", 2):
+		push_error("refinery covering geyser should be visible")
+		ok = false
+	var hit_id: int = renderer.call("entity_id_at_tile", Vector2i(5, 5))
+	if hit_id != 2:
+		push_error("clicking covered geyser tile should hit refinery, got #%d" % hit_id)
+		ok = false
 	_free_renderer(renderer)
 	return ok
 

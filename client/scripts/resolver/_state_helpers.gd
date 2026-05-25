@@ -225,16 +225,30 @@ static func _handle_build_order(
 		return
 	var footprint := def.footprint if def.footprint != Vector2i.ZERO else Vector2i.ONE
 	var rect := Rect2i(order.target_tile, footprint)
-	if state.tile_grid == null or not state.tile_grid.is_rect_in_bounds(rect):
+	if state.tile_grid == null:
 		_emit_order_rejected(order.entity_id, "off_grid", events)
 		return
 	var require_tag: String = def.construction.requires_target_tag
 	var overlap_target_id := -1
 	if require_tag != "":
-		overlap_target_id = _find_overlap_target(state, registry, rect, require_tag)
+		overlap_target_id = _find_target_at_tile(state, registry, order.target_tile, require_tag)
 		if overlap_target_id < 0:
 			_emit_order_rejected(order.entity_id, "missing_target_tag", events)
 			return
+		var target_rect: Rect2i = state.tile_grid.entity_rect(overlap_target_id)
+		if target_rect.size.x <= 0 or target_rect.size.y <= 0:
+			_emit_order_rejected(order.entity_id, "missing_target_tag", events)
+			return
+		rect = Rect2i(target_rect.position, footprint)
+		if target_rect.position != rect.position or target_rect.size != rect.size:
+			_emit_order_rejected(order.entity_id, "target_footprint_mismatch", events)
+			return
+		if not state.tile_grid.is_rect_in_bounds(rect):
+			_emit_order_rejected(order.entity_id, "off_grid", events)
+			return
+	elif not state.tile_grid.is_rect_in_bounds(rect):
+		_emit_order_rejected(order.entity_id, "off_grid", events)
+		return
 	elif not state.tile_grid.is_rect_clear(rect):
 		_emit_order_rejected(order.entity_id, "tile_occupied", events)
 		return
@@ -260,7 +274,7 @@ static func _handle_build_order(
 	building.def_id = def.id
 	building.current_def_id = def.id
 	building.owner_player_id = worker.owner_player_id
-	building.origin = order.target_tile
+	building.origin = rect.position
 	building.current_layer = "ground"
 	if def.health != null:
 		building.current_hp = def.health.max_hp
@@ -353,25 +367,17 @@ static func _worker_has_tag(worker: Entity, registry: EntityRegistry, tag: Strin
 	return def.tags.has(tag)
 
 
-# For BUILD with `requires_target_tag`: returns the id of the (single)
-# overlap-target entity in `rect` whose def carries `tag`, or -1 if no
-# such target exists or the rect is occupied by something else.
-# Used by BUILD's refinery-on-geyser path; the actual placement uses
-# TileGrid.place_overlapping with this id.
-static func _find_overlap_target(
-	state: MatchState, registry: EntityRegistry, rect: Rect2i, tag: String
+static func _find_target_at_tile(
+	state: MatchState, registry: EntityRegistry, tile: Vector2i, tag: String
 ) -> int:
 	if state.tile_grid == null or registry == null:
 		return -1
-	var occupants: Array[int] = []
-	for x in range(rect.position.x, rect.position.x + rect.size.x):
-		for y in range(rect.position.y, rect.position.y + rect.size.y):
-			var occ := state.tile_grid.entity_at(Vector2i(x, y))
-			if occ != -1 and not occupants.has(occ):
-				occupants.append(occ)
-	if occupants.size() != 1:
+	if not state.tile_grid.is_in_bounds(tile):
 		return -1
-	var occupant := state.get_entity_by_id(occupants[0])
+	var occupant_id: int = state.tile_grid.entity_at(tile)
+	if occupant_id < 0:
+		return -1
+	var occupant := state.get_entity_by_id(occupant_id)
 	if occupant == null:
 		return -1
 	var def: EntityDef = registry.get_by_id(occupant.current_def_id)

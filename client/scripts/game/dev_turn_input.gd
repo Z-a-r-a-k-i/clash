@@ -209,9 +209,8 @@ func issue_build(def_id: String, target_tile: Vector2i, target_entity_id: int = 
 		return false
 	var build_def: EntityDef = _registry.get_by_id(def_id) if _registry != null else null
 	var footprint: Vector2i = build_def.footprint if build_def != null else Vector2i.ONE
-	var rect: Rect2i = Rect2i(
-		target_tile, footprint if footprint != Vector2i.ZERO else Vector2i.ONE
-	)
+	var build_tile: Vector2i = _normalized_build_tile(build_def, target_tile)
+	var rect: Rect2i = Rect2i(build_tile, footprint if footprint != Vector2i.ZERO else Vector2i.ONE)
 	if not _state.tile_grid.is_rect_in_bounds(rect):
 		_status_message = "BUILD target is outside the map."
 		return false
@@ -228,11 +227,11 @@ func issue_build(def_id: String, target_tile: Vector2i, target_entity_id: int = 
 	order.type = EntityOrder.Type.BUILD
 	order.entity_id = actor.id
 	order.def_id = def_id
-	order.target_tile = target_tile
+	order.target_tile = build_tile
 	order.target_entity_id = target_entity_id
 	_append_order(order)
 	_clear_move_assist(actor.id, true)
-	_status_message = "Queued BUILD %s for #%d at %s." % [def_id, actor.id, str(target_tile)]
+	_status_message = "Queued BUILD %s for #%d at %s." % [def_id, actor.id, str(build_tile)]
 	return true
 
 
@@ -780,12 +779,48 @@ func _build_placement_message(def: EntityDef, rect: Rect2i) -> String:
 		return "BUILD needs a valid placement."
 	var require_tag: String = def.construction.requires_target_tag
 	if require_tag != "":
-		if _find_overlap_target(rect, require_tag) < 0:
+		var target_id: int = _find_overlap_target(rect, require_tag)
+		if target_id < 0:
 			return "BUILD target needs %s." % require_tag
+		var target_rect: Rect2i = _state.tile_grid.entity_rect(target_id)
+		if target_rect.position != rect.position or target_rect.size != rect.size:
+			return "BUILD target must match the %s footprint." % require_tag
 		return ""
 	if not _state.tile_grid.is_rect_clear(rect):
 		return "BUILD target is occupied."
 	return ""
+
+
+func _normalized_build_tile(def: EntityDef, clicked_tile: Vector2i) -> Vector2i:
+	if def == null or def.construction == null or _state == null or _state.tile_grid == null:
+		return clicked_tile
+	var require_tag: String = def.construction.requires_target_tag
+	if require_tag == "":
+		return clicked_tile
+	var target_id: int = _find_target_at_tile(clicked_tile, require_tag)
+	if target_id < 0:
+		return clicked_tile
+	var target_rect: Rect2i = _state.tile_grid.entity_rect(target_id)
+	if target_rect.size.x <= 0 or target_rect.size.y <= 0:
+		return clicked_tile
+	return target_rect.position
+
+
+func _find_target_at_tile(tile: Vector2i, tag: String) -> int:
+	if _state == null or _state.tile_grid == null or _registry == null:
+		return -1
+	if not _state.tile_grid.is_in_bounds(tile):
+		return -1
+	var occupant_id: int = _state.tile_grid.entity_at(tile)
+	if occupant_id < 0:
+		return -1
+	var occupant: Entity = _state.get_entity_by_id(occupant_id)
+	if occupant == null:
+		return -1
+	var occupant_def: EntityDef = _registry.get_by_id(_def_id_for_entity(occupant))
+	if occupant_def == null or not occupant_def.tags.has(tag):
+		return -1
+	return occupant.id
 
 
 func _find_overlap_target(rect: Rect2i, tag: String) -> int:

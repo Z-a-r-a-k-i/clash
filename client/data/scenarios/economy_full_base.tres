@@ -7,10 +7,10 @@
 ; 1 base far across the map (so the win check doesn't fire). Drives the
 ; gather pipeline at scale once a renderer + UI exist (plan-07b).
 ;
-; mineral_patch footprint is Vector2i(1, 3) — patches are arranged in a
-; 2x2 cluster at x=5,6 / y=14,17 (each patch spans 3 rows vertically).
+; mineral_patch footprint is Vector2i(1, 1) — patches are arranged in a
+; 2x2 cluster at x=5,6 / y=14,17.
 ; base footprint is 4x4 (placed at origin (5,5) → occupies (5,5)..(8,8)).
-; Workers at (5..8, 10) avoid the base. Geyser is 3x3 placed clear of
+; Workers at (5..8, 10) avoid the base. Geyser is 2x2 placed clear of
 ; everything else.
 ; Mineral patches and the geyser use owner_player_id = -1 (neutral) so
 ; the resolver's owner-filtered logic (target validity, deposit-sink

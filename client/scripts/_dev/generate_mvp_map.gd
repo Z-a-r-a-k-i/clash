@@ -82,7 +82,7 @@ func _all_placements() -> Array[Dictionary]:
 	out.append({"name": "P0Worker_3", "def_id": "worker", "owner": 0, "tile": Vector2i(9, 26)})
 	out.append({"name": "P0Worker_4", "def_id": "worker", "owner": 0, "tile": Vector2i(10, 26)})
 	# Main mineral cluster — 8 patches behind the base, split into two rows.
-	# 1x3 footprint: row at y=18 occupies y=18..20; row at y=27 occupies y=27..29.
+	# 1x1 footprint: rows at y=20 and y=27 keep starting workers adjacent.
 	for i in range(4):
 		(
 			out
@@ -91,7 +91,7 @@ func _all_placements() -> Array[Dictionary]:
 					"name": "P0MainMineral_top_%d" % i,
 					"def_id": "mineral_patch",
 					"owner": -1,
-					"tile": Vector2i(7 + i, 18),
+					"tile": Vector2i(7 + i, 20),
 				}
 			)
 		)
@@ -107,7 +107,7 @@ func _all_placements() -> Array[Dictionary]:
 				}
 			)
 		)
-	# Main geyser 3x3 at (6, 22) — behind the base, between mineral rows.
+	# Main geyser 2x2 at (6, 22) — behind the base, between mineral rows.
 	out.append(
 		{"name": "P0MainGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(6, 22)}
 	)

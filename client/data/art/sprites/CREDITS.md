@@ -104,4 +104,4 @@ entity sprite set is fully covered by the first candidates for the custom art
 direction.
 
 Known weak picks:
-- The whole sprite set is footprint-agnostic and not yet sized per-entity (1x1 vs 2x2 vs 4x4 vs 1x3 vs 3x3). A dedicated sprite-asset PR will replace these with footprint-aware art.
+- The whole sprite set is footprint-agnostic and not yet sized per-entity (1x1 vs 2x2 vs 3x3 vs 4x4). A dedicated sprite-asset PR will replace these with footprint-aware art.
