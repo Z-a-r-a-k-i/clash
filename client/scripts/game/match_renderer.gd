@@ -193,6 +193,10 @@ func entity_id_at_tile(tile: Vector2i) -> int:
 	var entity_id: int = _state.tile_grid.entity_at(tile)
 	if entity_id < 0:
 		return -1
+	var entity := _state.get_entity_by_id(entity_id)
+	var refinery_id: int = _covering_refinery_id_for_gas_geyser(entity)
+	if refinery_id >= 0:
+		return refinery_id if _is_entity_hit_testable(refinery_id) else -1
 	return entity_id if _is_entity_hit_testable(entity_id) else -1
 
 
@@ -840,6 +844,10 @@ func _refresh_entity_visibility() -> void:
 		var view: EntityView = _views_by_id.get(entity.id)
 		if view == null:
 			continue
+		if _covering_refinery_id_for_gas_geyser(entity) >= 0:
+			view.visible = false
+			view.set_fog_silhouette(false)
+			continue
 		var visible_now := _is_entity_currently_visible_for_player(entity, _perspective_player_id)
 		var silhouette := false
 		if not visible_now and _is_seen_enemy_building(_perspective_player_id, entity):
@@ -898,6 +906,8 @@ func _is_entity_hit_testable(entity_id: int) -> bool:
 	var entity := _state.get_entity_by_id(entity_id)
 	if not _is_renderable_entity(entity):
 		return false
+	if _covering_refinery_id_for_gas_geyser(entity) >= 0:
+		return false
 	if entity.owner_player_id == _perspective_player_id:
 		return true
 	return _is_entity_currently_visible_for_player(entity, _perspective_player_id)
@@ -924,6 +934,27 @@ func _is_seen_enemy_building(player_id: int, entity: Entity) -> bool:
 func _is_building(entity: Entity) -> bool:
 	var def := _def_for_entity(entity)
 	return def != null and def.tags.has("building")
+
+
+func _covering_refinery_id_for_gas_geyser(entity: Entity) -> int:
+	if entity == null or _state == null:
+		return -1
+	var def := _def_for_entity(entity)
+	if def == null or def.id != "gas_geyser":
+		return -1
+	var rect: Rect2i = _entity_rect_or_default(entity, _state, def)
+	if rect.size.x <= 0 or rect.size.y <= 0:
+		return -1
+	for other in _state.entities_sorted_by_id():
+		if other == null or other.id == entity.id or other.current_hp <= 0:
+			continue
+		var other_def := _def_for_entity(other)
+		if other_def == null or other_def.id != "refinery":
+			continue
+		var other_rect: Rect2i = _entity_rect_or_default(other, _state, other_def)
+		if other_rect.position == rect.position and other_rect.size == rect.size:
+			return other.id
+	return -1
 
 
 func _is_renderable_entity(entity: Entity) -> bool:

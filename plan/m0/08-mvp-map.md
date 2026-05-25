@@ -165,13 +165,13 @@ The axis is a **line between tiles 24 and 25**, not a tile itself.
 
 Near-clone of `mineral_patch.tres`. `resource_source.capacity = 2400` (was 1500 — +60% matches SC2 gold:standard ratio). `yield_per_worker_per_turn = 2` (vs 1 standard) — gold mines faster, not just lasts longer. This def remains registered and covered by tests, but the simplified first-playtest map does not place gold patches yet.
 
-Footprint: `Vector2i(1, 3)`. Tags include `"golden"`.
+Footprint: `Vector2i(1, 1)`. Tags include `"golden"`.
 
 Registered in `entity_registry.tres` alongside `mineral_patch`.
 
 ## Updated existing footprint: `mineral_patch`
 
-`Vector2i(2, 1)` → `Vector2i(1, 3)`. Reason: workers must stand on adjacent tiles to gather, and a taller patch gives more adjacency points without forcing wide horizontal sprawl. This change required re-positioning patches in `economy_full_base.tres`; folded into the same chunk to keep tests green.
+`Vector2i(1, 3)` → `Vector2i(1, 1)`. Reason: after transparent-padding crop, the mineral art is nearly square; keeping a tall footprint deforms and oversizes it. Gas geysers and refineries use matching `Vector2i(2, 2)` footprints so a refinery replaces the geyser footprint.
 
 ## Tunables additions
 
@@ -202,8 +202,8 @@ Per-scenario starting resources still come from `ScenarioDef.starting_resources_
 - [x] `mvp_map.tscn` authored with 14 left-half placements.
 - [x] `mvp_map.tres` baked, 28 entities total.
 - [x] `mvp_map.tres` auto-starts four workers per player on nearby minerals.
-- [x] `mineral_patch_gold.tres` registered, footprint 1×3, capacity 2400, yield 2.
-- [x] `mineral_patch.tres` footprint updated to 1×3.
+- [x] `mineral_patch_gold.tres` registered, footprint 1×1, capacity 2400, yield 2.
+- [x] `mineral_patch.tres` footprint updated to 1×1.
 - [x] `economy_full_base.tres` patch positions adjusted for new footprint.
 - [x] Tunables `map_width` / `map_height` defaults set to 50.
 - [x] All 5 new tests pass; existing ~90 resolver tests still pass.

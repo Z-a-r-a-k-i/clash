@@ -237,6 +237,10 @@ func _all_tests() -> Array:
 			_test_helicopter_anti_light_damage_at_data_values
 		],
 		["registry_loads_from_data", _test_registry_loads_from_data],
+		[
+			"registry_resource_footprints_match_visual_scale",
+			_test_registry_resource_footprints_match_visual_scale
+		],
 		# Plan node 07a — scenario loader + save/load.
 		["scenario_loader_minimal", _test_scenario_loader_minimal],
 		[
@@ -246,6 +250,10 @@ func _all_tests() -> Array:
 		[
 			"scenario_loader_auto_starts_workers_on_minerals",
 			_test_scenario_loader_auto_starts_workers_on_minerals
+		],
+		[
+			"scenario_loader_snaps_refinery_to_geyser_origin",
+			_test_scenario_loader_snaps_refinery_to_geyser_origin
 		],
 		[
 			"scenario_loader_applies_initial_hp_override",
@@ -3544,9 +3552,13 @@ func _run_determinism_scenario() -> ResolveResult:
 
 
 func _test_build_refinery_on_geyser_overlap_allowed() -> bool:
-	# BUILD(refinery, target=geyser_tile) succeeds; both entities on
-	# grid at the same rect; gas gather works post-completion.
+	# BUILD(refinery, target=any geyser tile) succeeds and snaps to the
+	# geyser's full rect, not the clicked tile inside the geyser.
 	var registry := _gather_registry(5, 1, 4)
+	var geyser_def: EntityDef = registry.get_by_id("geyser")
+	var refinery_def: EntityDef = registry.get_by_id("refinery")
+	geyser_def.footprint = Vector2i(2, 2)
+	refinery_def.footprint = Vector2i(2, 2)
 	var state := _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
 	state.players[0].minerals = 500
@@ -3557,13 +3569,13 @@ func _test_build_refinery_on_geyser_overlap_allowed() -> bool:
 	state.tile_grid.place(worker.id, Rect2i(9, 5, 1, 1))
 	var geyser := _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
 	geyser.current_resource_amount = -1
-	state.tile_grid.place(geyser.id, Rect2i(10, 5, 1, 1))
+	state.tile_grid.place(geyser.id, Rect2i(10, 5, 2, 2))
 
 	var build_order := EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
 	build_order.entity_id = worker.id
 	build_order.def_id = "refinery"
-	build_order.target_tile = Vector2i(10, 5)
+	build_order.target_tile = Vector2i(11, 6)
 	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
 
 	# Refinery created, cost deducted.
@@ -3576,30 +3588,41 @@ func _test_build_refinery_on_geyser_overlap_allowed() -> bool:
 			refinery_id = ev.target_id
 	var refinery_rect: Rect2i = result.new_state.tile_grid.entity_rect(refinery_id)
 	var geyser_rect: Rect2i = result.new_state.tile_grid.entity_rect(geyser.id)
+	var built_refinery := result.new_state.get_entity_by_id(refinery_id)
+	if built_refinery == null:
+		return false
+	if built_refinery.origin != Vector2i(10, 5):
+		push_error("refinery entity origin should snap to geyser origin")
+		return false
 	if refinery_rect.position != Vector2i(10, 5):
+		push_error("refinery grid rect should snap to geyser origin")
 		return false
 	if geyser_rect.position != Vector2i(10, 5):
 		return false
-	# Refinery and geyser have the same footprint (both 1x1) — confirms
-	# the design choice of matching dimensions.
+	# Refinery and geyser have the same footprint so the refinery replaces
+	# the whole geyser visually and spatially.
 	return refinery_rect.size == geyser_rect.size
 
 
 func _test_build_refinery_double_target_rejected() -> bool:
-	# Two players target the same geyser the same turn → player 0 lands,
+	# Two players target the same 2x2 geyser the same turn -> player 0 lands,
 	# player 1 rejected (no cost deducted on player 1).
 	var registry := _gather_registry(5, 1, 4)
+	var geyser_def: EntityDef = registry.get_by_id("geyser")
+	var refinery_def: EntityDef = registry.get_by_id("refinery")
+	geyser_def.footprint = Vector2i(2, 2)
+	refinery_def.footprint = Vector2i(2, 2)
 	var state := _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
 	state.players[0].minerals = 500
 	state.players[1].minerals = 500
 	var w0 := _make_entity(state, "worker", 0, Vector2i(9, 5), 50, "ground")
 	state.tile_grid.place(w0.id, Rect2i(9, 5, 1, 1))
-	var w1 := _make_entity(state, "worker", 1, Vector2i(11, 5), 50, "ground")
-	state.tile_grid.place(w1.id, Rect2i(11, 5, 1, 1))
+	var w1 := _make_entity(state, "worker", 1, Vector2i(13, 5), 50, "ground")
+	state.tile_grid.place(w1.id, Rect2i(13, 5, 1, 1))
 	var geyser := _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
 	geyser.current_resource_amount = -1
-	state.tile_grid.place(geyser.id, Rect2i(10, 5, 1, 1))
+	state.tile_grid.place(geyser.id, Rect2i(10, 5, 2, 2))
 
 	var b0 := EntityOrder.new()
 	b0.type = EntityOrder.Type.BUILD
@@ -3610,11 +3633,18 @@ func _test_build_refinery_double_target_rejected() -> bool:
 	b1.type = EntityOrder.Type.BUILD
 	b1.entity_id = w1.id
 	b1.def_id = "refinery"
-	b1.target_tile = Vector2i(10, 5)
+	b1.target_tile = Vector2i(11, 6)
 	var result := Resolver.resolve(state, _submit([b0]), _submit([b1]), registry, null)
+	var saw_p1_rejection := false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ORDER_REJECTED and ev.actor_id == w1.id:
+			saw_p1_rejection = true
 	# Player 0 paid; player 1 did NOT (rejected because the geyser already
 	# has a refinery on it after player 0's BUILD).
 	if result.new_state.get_player(0).minerals != 425:
+		return false
+	if not saw_p1_rejection:
+		push_error("expected player 1 refinery attempt to emit ORDER_REJECTED")
 		return false
 	return result.new_state.get_player(1).minerals == 500
 
@@ -3999,6 +4029,44 @@ func _test_registry_loads_from_data() -> bool:
 	return true
 
 
+func _test_registry_resource_footprints_match_visual_scale() -> bool:
+	var registry := _load_data_registry()
+	if registry == null:
+		return false
+	var mineral := registry.get_by_id("mineral_patch")
+	var gold := registry.get_by_id("mineral_patch_gold")
+	var geyser := registry.get_by_id("gas_geyser")
+	var refinery := registry.get_by_id("refinery")
+	if mineral == null or gold == null or geyser == null or refinery == null:
+		push_error("resource/refinery entity data should be present")
+		return false
+	if mineral.footprint != Vector2i.ONE:
+		push_error(
+			"mineral_patch should render on a 1x1 footprint, got %s" % str(mineral.footprint)
+		)
+		return false
+	if gold.footprint != Vector2i.ONE:
+		push_error(
+			"mineral_patch_gold should render on a 1x1 footprint, got %s" % str(gold.footprint)
+		)
+		return false
+	if geyser.footprint != Vector2i(2, 2):
+		push_error("gas_geyser should use a compact 2x2 footprint, got %s" % str(geyser.footprint))
+		return false
+	if refinery.footprint != geyser.footprint:
+		push_error(
+			(
+				"refinery footprint should match gas_geyser footprint, got refinery=%s geyser=%s"
+				% [str(refinery.footprint), str(geyser.footprint)]
+			)
+		)
+		return false
+	if not refinery.tags.has("extractor"):
+		push_error("refinery should carry extractor tag for gas gather resolution")
+		return false
+	return true
+
+
 # ---------- Plan node 07a — scenario loader ----------
 
 
@@ -4128,6 +4196,44 @@ func _test_scenario_loader_auto_starts_workers_on_minerals() -> bool:
 			push_error("[scenario_loader_auto_starts_workers_on_minerals] source is not minerals")
 			return false
 	return seen_sources.size() == 2
+
+
+func _test_scenario_loader_snaps_refinery_to_geyser_origin() -> bool:
+	var registry := _load_data_registry()
+	if registry == null:
+		return false
+	var scenario := ScenarioDef.new()
+	scenario.map_width = 20
+	scenario.map_height = 20
+	scenario.placements = [
+		_scenario_placement("gas_geyser", -1, Vector2i(5, 5)),
+		_scenario_placement("refinery", 0, Vector2i(6, 6)),
+	]
+	var loaded := ScenarioLoader.load(scenario, registry, null)
+	if loaded == null:
+		push_error("[scenario_loader_snaps_refinery_to_geyser_origin] loader returned null")
+		return false
+	var geyser: Entity = null
+	var refinery: Entity = null
+	for entity in loaded.state.entities_sorted_by_id():
+		if entity.current_def_id == "gas_geyser":
+			geyser = entity
+		elif entity.current_def_id == "refinery":
+			refinery = entity
+	if geyser == null or refinery == null:
+		push_error("[scenario_loader_snaps_refinery_to_geyser_origin] missing placement")
+		return false
+	var geyser_rect: Rect2i = loaded.state.tile_grid.entity_rect(geyser.id)
+	var refinery_rect: Rect2i = loaded.state.tile_grid.entity_rect(refinery.id)
+	if refinery.origin != geyser.origin:
+		push_error(
+			(
+				"[scenario_loader_snaps_refinery_to_geyser_origin] expected refinery origin %s, got %s"
+				% [str(geyser.origin), str(refinery.origin)]
+			)
+		)
+		return false
+	return refinery_rect.position == geyser_rect.position and refinery_rect.size == geyser_rect.size
 
 
 func _scenario_placement(

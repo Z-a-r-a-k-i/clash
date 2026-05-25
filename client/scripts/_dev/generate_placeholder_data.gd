@@ -199,8 +199,8 @@ func _gen_buildings() -> int:
 	var refinery := EntityDef.new()
 	refinery.id = "refinery"
 	refinery.display_name = "Refinery"
-	refinery.footprint = Vector2i(3, 3)
-	refinery.tags = ["building", "refinery", "structure", "ground"]
+	refinery.footprint = Vector2i(2, 2)
+	refinery.tags = ["building", "refinery", "structure", "ground", "extractor"]
 	refinery.health = _health(750)
 	refinery.vision = _vision(8)
 	var refinery_construction := _construction(8, 75, 0, "worker")
@@ -268,7 +268,7 @@ func _gen_neutrals() -> int:
 	var patch := EntityDef.new()
 	patch.id = "mineral_patch"
 	patch.display_name = "Mineral Patch"
-	patch.footprint = Vector2i(1, 3)
+	patch.footprint = Vector2i(1, 1)
 	patch.tags = ["neutral", "resource_source", "minerals"]
 	var patch_source := ResourceSourceDef.new()
 	patch_source.resource_type = "minerals"
@@ -284,7 +284,7 @@ func _gen_neutrals() -> int:
 	var gold_patch := EntityDef.new()
 	gold_patch.id = "mineral_patch_gold"
 	gold_patch.display_name = "Golden Mineral Patch"
-	gold_patch.footprint = Vector2i(1, 3)
+	gold_patch.footprint = Vector2i(1, 1)
 	gold_patch.tags = ["neutral", "resource_source", "minerals", "golden"]
 	var gold_patch_source := ResourceSourceDef.new()
 	gold_patch_source.resource_type = "minerals"
@@ -298,7 +298,7 @@ func _gen_neutrals() -> int:
 	var geyser := EntityDef.new()
 	geyser.id = "gas_geyser"
 	geyser.display_name = "Gas Geyser"
-	geyser.footprint = Vector2i(3, 3)
+	geyser.footprint = Vector2i(2, 2)
 	geyser.tags = ["neutral", "resource_source", "gas", "gas_geyser"]
 	var geyser_source := ResourceSourceDef.new()
 	geyser_source.resource_type = "gas"

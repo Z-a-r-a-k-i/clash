@@ -12,6 +12,6 @@ requires_extractor = true
 script = ExtResource("2_edocv")
 id = "gas_geyser"
 display_name = "Gas Geyser"
-footprint = Vector2i(3, 3)
+footprint = Vector2i(2, 2)
 tags = Array[String](["neutral", "resource_source", "gas", "gas_geyser"])
 resource_source = SubResource("Resource_gu3yx")

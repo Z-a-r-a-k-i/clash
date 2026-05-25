@@ -11,6 +11,6 @@ capacity = 1500
 script = ExtResource("2_tojot")
 id = "mineral_patch"
 display_name = "Mineral Patch"
-footprint = Vector2i(1, 3)
+footprint = Vector2i(1, 1)
 tags = Array[String](["neutral", "resource_source", "minerals"])
 resource_source = SubResource("Resource_jto5k")
