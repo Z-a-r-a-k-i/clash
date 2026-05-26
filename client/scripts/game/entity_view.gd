@@ -127,6 +127,13 @@ static func _color_for_owner(owner_player_id: int) -> Color:
 
 func _current_modulate() -> Color:
 	if _fog_silhouette:
+		if _is_constructing:
+			return Color(
+				COLOR_FOG_SILHOUETTE.r * CONSTRUCTION_COLOR_SCALE,
+				COLOR_FOG_SILHOUETTE.g * CONSTRUCTION_COLOR_SCALE,
+				COLOR_FOG_SILHOUETTE.b * CONSTRUCTION_COLOR_SCALE,
+				minf(COLOR_FOG_SILHOUETTE.a, CONSTRUCTION_ALPHA)
+			)
 		return COLOR_FOG_SILHOUETTE
 	var base := _color_for_owner(_owner_player_id)
 	if not _is_constructing:

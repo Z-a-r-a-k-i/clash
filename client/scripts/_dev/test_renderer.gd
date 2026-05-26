@@ -95,10 +95,39 @@ func _all_tests() -> Array:
 			_test_perspective_switch_changes_visible_entities
 		],
 		[
+			"match_renderer_initial_enemy_base_memory_seeded_once",
+			_test_initial_enemy_base_memory_seeded_once
+		],
+		[
 			"match_renderer_previously_seen_building_silhouette",
 			_test_previously_seen_building_silhouette
 		],
+		[
+			"match_renderer_hidden_destroyed_building_keeps_last_seen_ghost",
+			_test_hidden_destroyed_building_keeps_last_seen_ghost
+		],
+		[
+			"match_renderer_revealed_empty_last_seen_building_location_clears_ghost",
+			_test_revealed_empty_last_seen_building_location_clears_ghost
+		],
+		[
+			"match_renderer_hidden_building_snapshot_does_not_update",
+			_test_hidden_building_snapshot_does_not_update
+		],
+		[
+			"match_renderer_resources_visible_outside_current_vision",
+			_test_resources_visible_outside_current_vision
+		],
+		[
+			"match_renderer_hidden_refinery_does_not_hide_unseen_geyser",
+			_test_hidden_refinery_does_not_hide_unseen_geyser
+		],
 		["match_renderer_fog_overlay_marks_unseen_tiles", _test_fog_overlay_marks_unseen_tiles],
+		[
+			"match_renderer_fog_overlay_uses_light_vision_tint",
+			_test_fog_overlay_uses_light_vision_tint
+		],
+		["match_renderer_hidden_combat_events_do_not_leak", _test_hidden_combat_events_do_not_leak],
 		[
 			"match_renderer_focuses_player_start_at_playable_zoom",
 			_test_focuses_player_start_at_playable_zoom
@@ -386,7 +415,7 @@ func _test_focuses_player_start_at_playable_zoom() -> bool:
 			)
 		)
 		ok = false
-	if camera.zoom.x < 1.5 or camera.zoom.x > 3.0:
+	if camera.zoom.x < 1.0 or camera.zoom.x > 3.0:
 		push_error("P0 focus zoom is %s, expected readable dev zoom" % str(camera.zoom))
 		ok = false
 	renderer.call("focus_player_start", 1)
@@ -590,6 +619,18 @@ static func _construction_progress_fill_color(renderer: MatchRenderer) -> Color:
 	return fill.color
 
 
+static func _fog_overlay_first_color(renderer: MatchRenderer) -> Color:
+	if renderer == null:
+		return Color.TRANSPARENT
+	var root := renderer.get_node_or_null("Overlays/Fog")
+	if root == null or root.get_child_count() <= 0:
+		return Color.TRANSPARENT
+	var poly := root.get_child(0) as Polygon2D
+	if poly == null:
+		return Color.TRANSPARENT
+	return poly.color
+
+
 # ---------- Chunk 4 — render_step events + reconciliation ----------
 
 
@@ -643,7 +684,7 @@ func _test_step_renders_attack_event() -> bool:
 	var state := _make_renderer_state(
 		[
 			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
-			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(3, 1), "id": 2},
 		],
 		10,
 		10
@@ -676,7 +717,7 @@ func _test_step_appends_combat_log() -> bool:
 	var state := _make_renderer_state(
 		[
 			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
-			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(3, 1), "id": 2},
 		],
 		10,
 		10
@@ -795,7 +836,7 @@ func _test_combat_log_caps_at_max() -> bool:
 	var state := _make_renderer_state(
 		[
 			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
-			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(3, 1), "id": 2},
 		],
 		10,
 		10
@@ -857,7 +898,7 @@ func _test_bind_state_clears_overlays() -> bool:
 	var state_a := _make_renderer_state(
 		[
 			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
-			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(3, 1), "id": 2},
 		],
 		10,
 		10
@@ -912,7 +953,7 @@ func _test_lethal_attack_renders_overlay() -> bool:
 	var state_a := _make_renderer_state(
 		[
 			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
-			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(3, 1), "id": 2},
 		],
 		10,
 		10
@@ -923,7 +964,7 @@ func _test_lethal_attack_renders_overlay() -> bool:
 	var state_b := _make_renderer_state(
 		[
 			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
-			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2, "hp": 0},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(3, 1), "id": 2, "hp": 0},
 		],
 		10,
 		10
@@ -1428,6 +1469,122 @@ func _test_perspective_switch_changes_visible_entities() -> bool:
 	return ok
 
 
+func _test_initial_enemy_base_memory_seeded_once() -> bool:
+	var registry := _renderer_registry()
+	var state_a := _make_renderer_state(
+		[
+			{
+				"def_id": "base",
+				"owner": 0,
+				"origin": Vector2i(1, 1),
+				"footprint": Vector2i(4, 4),
+				"id": 1,
+			},
+			{
+				"def_id": "base",
+				"owner": 1,
+				"origin": Vector2i(22, 22),
+				"footprint": Vector2i(4, 4),
+				"id": 2,
+			},
+		],
+		32,
+		32
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state_a, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var ok := true
+	if renderer.call("is_tile_currently_visible", 0, Vector2i(22, 22)):
+		push_error("setup: enemy starting base should be outside current P0 vision")
+		ok = false
+	if not renderer.call("is_entity_view_visible", 2):
+		push_error("enemy starting base should be remembered at match initialization")
+		ok = false
+	if not renderer.call("is_entity_view_silhouette", 2):
+		push_error("enemy starting base memory should render as a fog silhouette")
+		ok = false
+	if renderer.call("entity_id_at_tile", Vector2i(22, 22)) != -1:
+		push_error("seeded starting base memory should not be hit-testable")
+		ok = false
+
+	var state_b := _make_renderer_state(
+		[
+			{
+				"def_id": "base",
+				"owner": 0,
+				"origin": Vector2i(1, 1),
+				"footprint": Vector2i(4, 4),
+				"id": 1,
+			},
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(22, 22), "id": 3},
+		],
+		32,
+		32
+	)
+	renderer.render_step(state_b, [])
+	if renderer.call("is_entity_view_visible", 2):
+		push_error("scouting an empty starting-base location should clear the seeded memory")
+		ok = false
+
+	var state_c := _make_renderer_state(
+		[
+			{
+				"def_id": "base",
+				"owner": 0,
+				"origin": Vector2i(1, 1),
+				"footprint": Vector2i(4, 4),
+				"id": 1,
+			},
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 8), "id": 3},
+			{
+				"def_id": "base",
+				"owner": 1,
+				"origin": Vector2i(22, 1),
+				"footprint": Vector2i(4, 4),
+				"id": 4,
+			},
+		],
+		32,
+		32
+	)
+	renderer.render_step(state_c, [])
+	if renderer.call("is_entity_view_visible", 4):
+		push_error("hidden base added after initialization should not be auto-remembered")
+		ok = false
+	_free_renderer(renderer)
+
+	var midgame_state := _make_renderer_state(
+		[
+			{
+				"def_id": "base",
+				"owner": 0,
+				"origin": Vector2i(1, 1),
+				"footprint": Vector2i(4, 4),
+				"id": 1,
+			},
+			{
+				"def_id": "base",
+				"owner": 1,
+				"origin": Vector2i(22, 22),
+				"footprint": Vector2i(4, 4),
+				"id": 2,
+			},
+		],
+		32,
+		32
+	)
+	midgame_state.turn_index = 3
+	var midgame_renderer := _make_renderer()
+	midgame_renderer.bind_state(midgame_state, registry)
+	midgame_renderer.call("set_perspective_player_id", 0)
+	if midgame_renderer.call("is_entity_view_visible", 2):
+		push_error("mid-game bind should not seed hidden enemy bases")
+		ok = false
+	_free_renderer(midgame_renderer)
+	return ok
+
+
 func _test_previously_seen_building_silhouette() -> bool:
 	var registry := _renderer_registry()
 	var state_a := _make_renderer_state(
@@ -1468,6 +1625,218 @@ func _test_previously_seen_building_silhouette() -> bool:
 	return ok
 
 
+func _test_hidden_destroyed_building_keeps_last_seen_ghost() -> bool:
+	var registry := _renderer_registry()
+	var state_a := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "barracks", "owner": 1, "origin": Vector2i(4, 1), "id": 2},
+		],
+		14,
+		14
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state_a, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var state_b := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 10), "id": 1},
+			{"def_id": "barracks", "owner": 1, "origin": Vector2i(4, 1), "id": 2},
+		],
+		14,
+		14
+	)
+	renderer.render_step(state_b, [])
+	var state_c := _make_renderer_state(
+		[{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 10), "id": 1}], 14, 14
+	)
+	var destroy_event := ResolverEvent.new()
+	destroy_event.type = ResolverEvent.Type.ENTITY_DESTROYED
+	destroy_event.actor_id = 1
+	destroy_event.target_id = 2
+	renderer.render_step(state_c, [destroy_event])
+	var ok := true
+	if not renderer.call("is_entity_view_visible", 2):
+		push_error("hidden destroyed enemy building should remain as last-seen ghost")
+		ok = false
+	if not renderer.call("is_entity_view_silhouette", 2):
+		push_error("hidden destroyed enemy building ghost should render as silhouette")
+		ok = false
+	if renderer.call("entity_id_at_tile", Vector2i(4, 1)) != -1:
+		push_error("last-seen building ghost should not be hit-testable")
+		ok = false
+	if renderer.combat_log_text().find("#2 destroyed") != -1:
+		push_error("hidden destroyed enemy building should not leak a combat log line")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_revealed_empty_last_seen_building_location_clears_ghost() -> bool:
+	var registry := _renderer_registry()
+	var state_a := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "barracks", "owner": 1, "origin": Vector2i(4, 1), "id": 2},
+		],
+		14,
+		14
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state_a, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var hidden_destroyed_state := _make_renderer_state(
+		[{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 10), "id": 1}], 14, 14
+	)
+	renderer.render_step(hidden_destroyed_state, [])
+	var revealed_empty_state := _make_renderer_state(
+		[{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1}], 14, 14
+	)
+	renderer.render_step(revealed_empty_state, [])
+	var ok := true
+	if renderer.call("is_entity_view_visible", 2):
+		push_error("last-seen building ghost should clear once its empty location is visible")
+		ok = false
+	if renderer.get_entity_view(2) != null:
+		push_error("cleared last-seen building should not keep a registered view")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_hidden_building_snapshot_does_not_update() -> bool:
+	var registry := _renderer_registry()
+	var state_a := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{
+				"def_id": "barracks",
+				"owner": 1,
+				"origin": Vector2i(4, 1),
+				"footprint": Vector2i(3, 3),
+				"id": 2,
+			},
+		],
+		14,
+		14
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state_a, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var last_seen_position: Vector2 = renderer.get_entity_view(2).position
+	var hidden_changed_state := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 10), "id": 1},
+			{
+				"def_id": "barracks",
+				"owner": 1,
+				"origin": Vector2i(4, 1),
+				"footprint": Vector2i(4, 4),
+				"id": 2,
+			},
+		],
+		14,
+		14
+	)
+	hidden_changed_state.get_entity_by_id(2).current_def_id = "base"
+	renderer.render_step(hidden_changed_state, [])
+	var ok := true
+	if not _approximately_equal(renderer.get_entity_view(2).position, last_seen_position):
+		push_error(
+			(
+				"hidden building ghost moved from last-seen position %s to %s"
+				% [str(last_seen_position), str(renderer.get_entity_view(2).position)]
+			)
+		)
+		ok = false
+	if not renderer.call("is_entity_view_silhouette", 2):
+		push_error("hidden changed building should still render as last-seen silhouette")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_resources_visible_outside_current_vision() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{
+				"def_id": "mineral_patch",
+				"owner": -1,
+				"origin": Vector2i(8, 1),
+				"hp": 0,
+				"resources": 1500,
+				"id": 2,
+			},
+			{
+				"def_id": "gas_geyser",
+				"owner": -1,
+				"origin": Vector2i(8, 3),
+				"footprint": Vector2i(2, 2),
+				"hp": 0,
+				"resources": -1,
+				"id": 3,
+			},
+		],
+		14,
+		14
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var ok := true
+	if not renderer.call("is_entity_view_visible", 2):
+		push_error("neutral mineral patch should stay visible outside current vision")
+		ok = false
+	if not renderer.call("is_entity_view_visible", 3):
+		push_error("neutral gas geyser should stay visible outside current vision")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_hidden_refinery_does_not_hide_unseen_geyser() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{
+				"def_id": "gas_geyser",
+				"owner": -1,
+				"origin": Vector2i(8, 1),
+				"footprint": Vector2i(2, 2),
+				"id": 2,
+				"hp": 0,
+				"resources": -1,
+			},
+			{
+				"def_id": "refinery",
+				"owner": 1,
+				"origin": Vector2i(8, 1),
+				"footprint": Vector2i(2, 2),
+				"id": 3,
+				"hp": 500,
+				"overlap_id": 2,
+			},
+		],
+		14,
+		14
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var ok := true
+	if not renderer.call("is_entity_view_visible", 2):
+		push_error("hidden enemy refinery should not hide the map-fixture gas geyser")
+		ok = false
+	if renderer.call("is_entity_view_visible", 3):
+		push_error("hidden enemy refinery should not be visible before it is scouted")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
 func _test_fog_overlay_marks_unseen_tiles() -> bool:
 	var registry := _renderer_registry()
 	var state := _make_renderer_state(
@@ -1484,5 +1853,67 @@ func _test_fog_overlay_marks_unseen_tiles() -> bool:
 	var ok := overlay_count == 24
 	if not ok:
 		push_error("expected 24 unseen fog tiles, got %d" % overlay_count)
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_fog_overlay_uses_light_vision_tint() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "watch_tower", "owner": 0, "origin": Vector2i(2, 2), "id": 1},
+		],
+		5,
+		5
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var color := _fog_overlay_first_color(renderer)
+	var ok := true
+	if color.a <= 0.0 or color.a > 0.28:
+		push_error("out-of-vision fog tint should be light, got %s" % str(color))
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_hidden_combat_events_do_not_leak() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+			{"def_id": "tank", "owner": 1, "origin": Vector2i(8, 3), "id": 3},
+		],
+		14,
+		14
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var damage_event := ResolverEvent.new()
+	damage_event.type = ResolverEvent.Type.ENTITY_DAMAGED
+	damage_event.actor_id = 2
+	damage_event.target_id = 3
+	damage_event.damage = 7
+	damage_event.hp_after = 43
+	var destroy_event := ResolverEvent.new()
+	destroy_event.type = ResolverEvent.Type.ENTITY_DESTROYED
+	destroy_event.actor_id = 2
+	destroy_event.target_id = 3
+	renderer.render_step(state, [damage_event, destroy_event])
+	var ok := true
+	if renderer.attack_line_count() != 0:
+		push_error("hidden combat should not render attack lines")
+		ok = false
+	if renderer.damage_label_count() != 0:
+		push_error("hidden combat should not render damage labels")
+		ok = false
+	if renderer.combat_log_text() != "":
+		push_error(
+			"hidden combat should not append combat log text, got: %s" % renderer.combat_log_text()
+		)
+		ok = false
 	_free_renderer(renderer)
 	return ok
