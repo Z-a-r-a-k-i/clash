@@ -1553,6 +1553,35 @@ func _test_initial_enemy_base_memory_seeded_once() -> bool:
 		push_error("hidden base added after initialization should not be auto-remembered")
 		ok = false
 	_free_renderer(renderer)
+
+	var midgame_state := _make_renderer_state(
+		[
+			{
+				"def_id": "base",
+				"owner": 0,
+				"origin": Vector2i(1, 1),
+				"footprint": Vector2i(4, 4),
+				"id": 1,
+			},
+			{
+				"def_id": "base",
+				"owner": 1,
+				"origin": Vector2i(22, 22),
+				"footprint": Vector2i(4, 4),
+				"id": 2,
+			},
+		],
+		32,
+		32
+	)
+	midgame_state.turn_index = 3
+	var midgame_renderer := _make_renderer()
+	midgame_renderer.bind_state(midgame_state, registry)
+	midgame_renderer.call("set_perspective_player_id", 0)
+	if midgame_renderer.call("is_entity_view_visible", 2):
+		push_error("mid-game bind should not seed hidden enemy bases")
+		ok = false
+	_free_renderer(midgame_renderer)
 	return ok
 
 

@@ -912,6 +912,8 @@ func _reset_visibility_memory() -> void:
 func _seed_known_starting_base_snapshots() -> void:
 	if _state == null or _registry == null:
 		return
+	if _state.turn_index != 0:
+		return
 	for entity in _state.entities_sorted_by_id():
 		if not _is_completed_base(entity):
 			continue
