@@ -51,7 +51,7 @@ make test "GODOT=C:\Program Files\Godot_v4.6.1-stable_mono_win64\Godot_v4.6.1-st
 The M0 smoke runner covers the mechanical path that should exist before a human pass:
 
 - MVP map loads with two bases, four workers per player, starting resources, opening auto-mining, and opening fog.
-- Workers can gather from the MVP mineral patches and deposit at the canonical base.
+- Workers can gather from the MVP mineral patches while staying at the source.
 - A worker can build a barracks from gathered minerals.
 - A barracks can train a marine.
 - A nearby marine attack emits combat damage.
@@ -60,7 +60,7 @@ The M0 smoke runner covers the mechanical path that should exist before a human 
 ## Agent Smoke Notes
 
 - MVP mineral patches are zero-HP neutral resource sources. Gather validation must treat placed resource-source capacity as the usable-state check, not combat health.
-- The canonical base must carry the `deposit_sink` tag. Without it, workers fill cargo and then idle because there is nowhere valid to deposit.
+- MVP mineral patches are saturated at two workers each; gas geysers are saturated at three workers each and still require an owned refinery.
 
 ## Human Pass
 
@@ -69,7 +69,7 @@ The M0 smoke runner covers the mechanical path that should exist before a human 
 - Confirm the four starting workers are already assigned to nearby mineral
   patches.
 - Optionally reassign a worker with Gather, then resolve until minerals are
-  deposited.
+  credited.
 - Confirm the worker Gather button enters target-pick mode and the gather loop
   continues after resolve.
 - Issue Move or Target to a gathering worker and confirm it stops

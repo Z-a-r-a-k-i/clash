@@ -75,7 +75,7 @@ A turn proceeds as follows:
    - Move Only units skip their shot and use full movement. Units that fire and also move use their post-shot movement budget.
    - Movement resolves after attacks. Submitted move orders spend the unit's per-turn movement budget independently from combat.
    - The resolver does not advance hidden standing movement; clients submit any assisted follow-up move as normal turn input.
-   - End-of-turn effects then run: gather/deposit ticks, production progress, research progress, building completion, cooldowns, status effects, and win checks.
+   - End-of-turn effects then run: gather income ticks, production progress, research progress, building completion, cooldowns, status effects, and win checks.
 5. **Server: broadcast.** `ResolvedTurn { events[] }` goes to both clients.
 6. **Clients: animate.** Each client plays the events in order. Once animation finishes, request the next turn.
 

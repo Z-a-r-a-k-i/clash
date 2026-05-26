@@ -4,8 +4,10 @@ extends Resource
 
 # Per-entity runtime state for entities with a GatherDef capability
 # (workers). Tracks autonomous gathering: which resource source they're
-# assigned to, how much they're carrying, and whether they're currently
-# in the "deposit" phase of the gather loop.
+# assigned to, whether they're walking to it, and whether they're
+# currently gathering at it. Cargo fields and return/deposit phases remain
+# serialized for old in-memory test fixtures but are not used by the
+# current stationary gather flow.
 #
 # Resource (not RefCounted) so MatchState save/load via ResourceSaver
 # round-trips the gather phase cleanly. Fields are @export for that
@@ -16,6 +18,7 @@ enum Phase {
 	IDLE,
 	MOVING_TO_SOURCE,
 	GATHERING,
+	# Legacy phases from the old return-to-base loop.
 	MOVING_TO_BASE,
 	DEPOSITING,
 }

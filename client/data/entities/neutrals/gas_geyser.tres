@@ -7,6 +7,7 @@
 script = ExtResource("1_gu3yx")
 resource_type = "gas"
 requires_extractor = true
+max_gatherers = 3
 
 [resource]
 script = ExtResource("2_edocv")

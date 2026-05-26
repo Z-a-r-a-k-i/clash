@@ -229,26 +229,34 @@ static func _auto_start_workers_on_minerals(state: MatchState, registry: EntityR
 	var mineral_sources := _mineral_sources(state, registry)
 	if mineral_sources.is_empty():
 		return
+	var source_counts: Dictionary[int, int] = {}
 	for player in state.players:
 		if player == null:
 			continue
-		_auto_start_player_workers_on_minerals(state, registry, player.player_id, mineral_sources)
+		_auto_start_player_workers_on_minerals(
+			state, registry, player.player_id, mineral_sources, source_counts
+		)
 
 
 static func _auto_start_player_workers_on_minerals(
-	state: MatchState, registry: EntityRegistry, player_id: int, mineral_sources: Array[Entity]
+	state: MatchState,
+	registry: EntityRegistry,
+	player_id: int,
+	mineral_sources: Array[Entity],
+	source_counts: Dictionary[int, int]
 ) -> void:
-	var used_sources: Dictionary[int, bool] = {}
 	for worker in state.entities_sorted_by_id():
 		if worker == null or worker.owner_player_id != player_id or worker.current_hp <= 0:
 			continue
 		var worker_def: EntityDef = registry.get_by_id(worker.current_def_id)
 		if worker_def == null or worker_def.gather == null or worker.gather_state == null:
 			continue
-		var source := _nearest_source_for_worker(state, worker, mineral_sources, used_sources)
+		var source := _nearest_source_for_worker(
+			state, registry, worker, mineral_sources, source_counts
+		)
 		if source == null:
 			continue
-		used_sources[source.id] = true
+		source_counts[source.id] = source_counts.get(source.id, 0) + 1
 		_assign_worker_to_source(state, worker, source)
 
 
@@ -268,30 +276,37 @@ static func _mineral_sources(state: MatchState, registry: EntityRegistry) -> Arr
 
 
 static func _nearest_source_for_worker(
-	state: MatchState, worker: Entity, sources: Array[Entity], used_sources: Dictionary[int, bool]
+	state: MatchState,
+	registry: EntityRegistry,
+	worker: Entity,
+	sources: Array[Entity],
+	source_counts: Dictionary[int, int]
 ) -> Entity:
 	var worker_rect: Rect2i = state.tile_grid.entity_rect(worker.id)
-	var best_unused: Entity = null
-	var best_unused_distance := 2147483647
-	var best_any: Entity = null
-	var best_any_distance := 2147483647
+	var best: Entity = null
+	var best_distance := 2147483647
 	for source in sources:
 		if source == null:
+			continue
+		if not _source_has_auto_start_slot(registry, source, source_counts):
 			continue
 		var source_rect: Rect2i = state.tile_grid.entity_rect(source.id)
 		if source_rect.size == Vector2i.ZERO:
 			continue
 		var distance: int = TileGrid.distance_between_rects(worker_rect, source_rect)
-		if _is_better_auto_source(source, distance, best_any, best_any_distance):
-			best_any = source
-			best_any_distance = distance
-		if (
-			not used_sources.has(source.id)
-			and _is_better_auto_source(source, distance, best_unused, best_unused_distance)
-		):
-			best_unused = source
-			best_unused_distance = distance
-	return best_unused if best_unused != null else best_any
+		if _is_better_auto_source(source, distance, best, best_distance):
+			best = source
+			best_distance = distance
+	return best
+
+
+static func _source_has_auto_start_slot(
+	registry: EntityRegistry, source: Entity, source_counts: Dictionary[int, int]
+) -> bool:
+	var cap: int = GatherSystem.source_gatherer_cap(registry, source)
+	if cap <= 0:
+		return false
+	return source_counts.get(source.id, 0) < cap
 
 
 static func _is_better_auto_source(

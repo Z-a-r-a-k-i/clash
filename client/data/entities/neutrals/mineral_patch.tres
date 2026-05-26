@@ -6,6 +6,7 @@
 [sub_resource type="Resource" id="Resource_jto5k"]
 script = ExtResource("1_jto5k")
 capacity = 1500
+max_gatherers = 2
 
 [resource]
 script = ExtResource("2_tojot")

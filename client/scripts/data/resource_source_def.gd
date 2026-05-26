@@ -6,3 +6,6 @@ extends Resource
 @export var yield_per_worker_per_turn: int = 1
 @export var capacity: int = -1  # -1 = infinite
 @export var requires_extractor: bool = false
+@export var max_gatherers: int = 1:
+	set(value):
+		max_gatherers = max(0, value)
