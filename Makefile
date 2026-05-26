@@ -1,6 +1,7 @@
-.PHONY: help generate lint format test
+.PHONY: help generate lint format test export-balance
 
 GODOT ?= godot
+OUT ?= res://exports/balance_stats.csv
 
 ifeq ($(OS),Windows_NT)
 SHELL := pwsh.exe
@@ -16,6 +17,7 @@ help:
 	@echo "  lint       Lint all stacks (gd, proto)"
 	@echo "  format     Format all stacks"
 	@echo "  test       Run all tests (server-side tests added at M2)"
+	@echo "  export-balance  Export canonical game stats to CSV (OUT=... optional)"
 
 generate:
 ifeq ($(OS),Windows_NT)
@@ -54,6 +56,7 @@ ifeq ($(OS),Windows_NT)
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_renderer_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_dev_turn_input_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_dev_play_mode_headless.gd
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_balance_csv_export_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_m0_playtest_smoke_headless.gd
 else
 	@if ! command -v '$(GODOT)' >/dev/null 2>&1; then echo "Godot executable not found. Run: make test GODOT=/path/to/godot"; exit 1; fi
@@ -62,5 +65,15 @@ else
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_renderer_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_dev_turn_input_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_dev_play_mode_headless.gd
+	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_balance_csv_export_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_m0_playtest_smoke_headless.gd
+endif
+
+export-balance:
+ifeq ($(OS),Windows_NT)
+	@if (-not (Get-Command '$(GODOT)' -ErrorAction SilentlyContinue)) { Write-Error "Godot executable not found. Run: make export-balance GODOT='C:\path\to\Godot_v4.6.1-stable_mono_win64_console.exe'"; exit 1 }
+	@$(GODOT_HEADLESS) --script scripts/_dev/export_balance_csv.gd -- '$(OUT)'
+else
+	@if ! command -v '$(GODOT)' >/dev/null 2>&1; then echo "Godot executable not found. Run: make export-balance GODOT=/path/to/godot"; exit 1; fi
+	@'$(GODOT)' --headless --path client --script scripts/_dev/export_balance_csv.gd -- '$(OUT)'
 endif
