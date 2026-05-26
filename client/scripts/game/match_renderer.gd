@@ -50,7 +50,7 @@ const _CONSTRUCTION_PROGRESS_FILL := Color(0.2, 0.95, 0.45, 0.95)
 const _CONSTRUCTION_PROGRESS_PAUSED_FILL := Color(1.0, 0.58, 0.12, 0.96)
 const _CONSTRUCTION_PROGRESS_SIZE := Vector2(64.0, 8.0)
 const _FOG_OUT_OF_VISION_COLOR := Color(0.0, 0.0, 0.0, 0.22)
-const _DEV_PLAYABLE_ZOOM := 2.0
+const _DEV_PLAYABLE_ZOOM := 1.1
 const _MIN_CAMERA_ZOOM := 0.5
 const _MAX_CAMERA_ZOOM := 4.0
 const _BUILDING_MEMORY_ENTITY := "entity"
@@ -131,6 +131,7 @@ func bind_state(state: MatchState, registry: EntityRegistry) -> void:
 		_spawn_entity_view(entity, state)
 
 	_reset_visibility_memory()
+	_seed_known_starting_base_snapshots()
 	_refresh_all_visibility()
 	_rebuild_production_progress()
 	_rebuild_construction_progress()
@@ -908,6 +909,24 @@ func _reset_visibility_memory() -> void:
 		_seen_enemy_building_snapshots_by_player[player_id] = {}
 
 
+func _seed_known_starting_base_snapshots() -> void:
+	if _state == null or _registry == null:
+		return
+	for entity in _state.entities_sorted_by_id():
+		if not _is_completed_base(entity):
+			continue
+		var def := _def_for_entity(entity)
+		var snapshot := _building_snapshot(entity, _entity_rect_or_default(entity, _state, def))
+		if snapshot.is_empty():
+			continue
+		for player_id in _player_ids():
+			if player_id == entity.owner_player_id:
+				continue
+			var snapshots: Dictionary = _seen_enemy_building_snapshots_by_player.get(player_id, {})
+			snapshots[entity.id] = snapshot
+			_seen_enemy_building_snapshots_by_player[player_id] = snapshots
+
+
 func _refresh_all_visibility() -> void:
 	if _state == null or _registry == null or _state.tile_grid == null:
 		return
@@ -1138,6 +1157,18 @@ func _is_building(entity: Entity) -> bool:
 func _is_resource_source(entity: Entity) -> bool:
 	var def := _def_for_entity(entity)
 	return def != null and def.resource_source != null
+
+
+func _is_completed_base(entity: Entity) -> bool:
+	var def := _def_for_entity(entity)
+	return (
+		entity != null
+		and entity.owner_player_id >= 0
+		and entity.current_hp > 0
+		and not entity.is_constructing
+		and def != null
+		and def.id == "base"
+	)
 
 
 func _known_covering_refinery_id_for_gas_geyser(entity: Entity, player_id: int) -> int:

@@ -95,6 +95,10 @@ func _all_tests() -> Array:
 			_test_perspective_switch_changes_visible_entities
 		],
 		[
+			"match_renderer_initial_enemy_base_memory_seeded_once",
+			_test_initial_enemy_base_memory_seeded_once
+		],
+		[
 			"match_renderer_previously_seen_building_silhouette",
 			_test_previously_seen_building_silhouette
 		],
@@ -411,7 +415,7 @@ func _test_focuses_player_start_at_playable_zoom() -> bool:
 			)
 		)
 		ok = false
-	if camera.zoom.x < 1.5 or camera.zoom.x > 3.0:
+	if camera.zoom.x < 1.0 or camera.zoom.x > 3.0:
 		push_error("P0 focus zoom is %s, expected readable dev zoom" % str(camera.zoom))
 		ok = false
 	renderer.call("focus_player_start", 1)
@@ -1460,6 +1464,93 @@ func _test_perspective_switch_changes_visible_entities() -> bool:
 		ok = false
 	if renderer.call("perspective_player_id") != 1:
 		push_error("renderer did not retain P1 perspective")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_initial_enemy_base_memory_seeded_once() -> bool:
+	var registry := _renderer_registry()
+	var state_a := _make_renderer_state(
+		[
+			{
+				"def_id": "base",
+				"owner": 0,
+				"origin": Vector2i(1, 1),
+				"footprint": Vector2i(4, 4),
+				"id": 1,
+			},
+			{
+				"def_id": "base",
+				"owner": 1,
+				"origin": Vector2i(22, 22),
+				"footprint": Vector2i(4, 4),
+				"id": 2,
+			},
+		],
+		32,
+		32
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state_a, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var ok := true
+	if renderer.call("is_tile_currently_visible", 0, Vector2i(22, 22)):
+		push_error("setup: enemy starting base should be outside current P0 vision")
+		ok = false
+	if not renderer.call("is_entity_view_visible", 2):
+		push_error("enemy starting base should be remembered at match initialization")
+		ok = false
+	if not renderer.call("is_entity_view_silhouette", 2):
+		push_error("enemy starting base memory should render as a fog silhouette")
+		ok = false
+	if renderer.call("entity_id_at_tile", Vector2i(22, 22)) != -1:
+		push_error("seeded starting base memory should not be hit-testable")
+		ok = false
+
+	var state_b := _make_renderer_state(
+		[
+			{
+				"def_id": "base",
+				"owner": 0,
+				"origin": Vector2i(1, 1),
+				"footprint": Vector2i(4, 4),
+				"id": 1,
+			},
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(22, 22), "id": 3},
+		],
+		32,
+		32
+	)
+	renderer.render_step(state_b, [])
+	if renderer.call("is_entity_view_visible", 2):
+		push_error("scouting an empty starting-base location should clear the seeded memory")
+		ok = false
+
+	var state_c := _make_renderer_state(
+		[
+			{
+				"def_id": "base",
+				"owner": 0,
+				"origin": Vector2i(1, 1),
+				"footprint": Vector2i(4, 4),
+				"id": 1,
+			},
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 8), "id": 3},
+			{
+				"def_id": "base",
+				"owner": 1,
+				"origin": Vector2i(22, 1),
+				"footprint": Vector2i(4, 4),
+				"id": 4,
+			},
+		],
+		32,
+		32
+	)
+	renderer.render_step(state_c, [])
+	if renderer.call("is_entity_view_visible", 4):
+		push_error("hidden base added after initialization should not be auto-remembered")
 		ok = false
 	_free_renderer(renderer)
 	return ok
