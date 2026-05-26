@@ -225,17 +225,11 @@ func _all_tests() -> Array:
 		["build_off_grid_rejected", _test_build_off_grid_rejected],
 		["production_determinism_golden", _test_production_determinism_golden],
 		# Plan node 06 — combat data wiring.
-		["siege_tank_has_anti_heavy_modifier_data", _test_siege_tank_has_anti_heavy_modifier_data],
-		["helicopter_has_anti_light_modifier_data", _test_helicopter_has_anti_light_modifier_data],
+		["siege_tank_has_no_attack_modifiers_data", _test_siege_tank_has_no_attack_modifiers_data],
+		["helicopter_has_no_attack_modifiers_data", _test_helicopter_has_no_attack_modifiers_data],
 		["marine_has_no_attack_modifiers_data", _test_marine_has_no_attack_modifiers_data],
-		[
-			"siege_tank_anti_heavy_damage_at_data_values",
-			_test_siege_tank_anti_heavy_damage_at_data_values
-		],
-		[
-			"helicopter_anti_light_damage_at_data_values",
-			_test_helicopter_anti_light_damage_at_data_values
-		],
+		["siege_tank_damage_at_data_values", _test_siege_tank_damage_at_data_values],
+		["helicopter_damage_at_data_values", _test_helicopter_damage_at_data_values],
 		["registry_loads_from_data", _test_registry_loads_from_data],
 		[
 			"registry_resource_footprints_match_visual_scale",
@@ -269,6 +263,7 @@ func _all_tests() -> Array:
 		["map_baker_validation", _test_map_baker_validation],
 		["mvp_map_loads", _test_mvp_map_loads],
 		["mvp_map_simple_facing_bases", _test_mvp_map_simple_facing_bases],
+		["mvp_map_main_resource_layout", _test_mvp_map_main_resource_layout],
 		["mvp_map_is_mirror", _test_mvp_map_is_mirror],
 		["mvp_map_bake_parity", _test_mvp_map_bake_parity],
 		["golden_minerals_higher_yield", _test_golden_minerals_higher_yield],
@@ -286,8 +281,8 @@ func _all_tests() -> Array:
 		],
 		["ability_unsiege_delayed_transform", _test_ability_unsiege_delayed_transform],
 		[
-			"siege_tank_data_is_immobile_and_siege_requires_research",
-			_test_siege_tank_data_is_immobile_and_siege_requires_research
+			"siege_tank_data_is_immobile_and_siege_is_not_research_gated",
+			_test_siege_tank_data_is_immobile_and_siege_is_not_research_gated
 		],
 	]
 
@@ -3919,34 +3914,25 @@ func _test_build_cancel_via_worker_full_refund() -> bool:
 # ---------- Plan node 06 — combat data wiring ----------
 
 
-func _test_siege_tank_has_anti_heavy_modifier_data() -> bool:
-	# Smoke-test the .tres data: the merged registry must produce a
-	# siege_tank def with exactly one AttackModifier targeting "heavy"
-	# at 1.5x damage. Catches accidental data drift on the .tres files.
+func _test_siege_tank_has_no_attack_modifiers_data() -> bool:
+	# Balance CSV pass removed tag counters from the current roster.
 	var registry := _load_data_registry()
 	if registry == null:
 		return false
 	var def: EntityDef = registry.get_by_id("siege_tank")
 	if def == null or def.combat == null:
 		return false
-	if def.combat.attack_modifiers.size() != 1:
-		return false
-	var mod: AttackModifier = def.combat.attack_modifiers[0]
-	return mod != null and mod.target_tag == "heavy" and is_equal_approx(mod.damage_mult, 1.5)
+	return def.combat.attack_modifiers.is_empty()
 
 
-func _test_helicopter_has_anti_light_modifier_data() -> bool:
-	# Same shape as siege_tank, but for helicopter vs light.
+func _test_helicopter_has_no_attack_modifiers_data() -> bool:
 	var registry := _load_data_registry()
 	if registry == null:
 		return false
 	var def: EntityDef = registry.get_by_id("helicopter")
 	if def == null or def.combat == null:
 		return false
-	if def.combat.attack_modifiers.size() != 1:
-		return false
-	var mod: AttackModifier = def.combat.attack_modifiers[0]
-	return mod != null and mod.target_tag == "light" and is_equal_approx(mod.damage_mult, 1.5)
+	return def.combat.attack_modifiers.is_empty()
 
 
 func _test_marine_has_no_attack_modifiers_data() -> bool:
@@ -3961,10 +3947,8 @@ func _test_marine_has_no_attack_modifiers_data() -> bool:
 	return def.combat.attack_modifiers.is_empty()
 
 
-func _test_siege_tank_anti_heavy_damage_at_data_values() -> bool:
-	# Behavioral test using actual .tres values: siege_tank base damage
-	# is 15; with the +heavy 1.5x modifier, vs another siege_tank (heavy
-	# tag) deals round(15 * 1.5) = 23.
+func _test_siege_tank_damage_at_data_values() -> bool:
+	# Behavioral test using actual .tres values: siege_tank base damage is 40.
 	var registry := _load_data_registry()
 	if registry == null:
 		return false
@@ -3982,22 +3966,21 @@ func _test_siege_tank_anti_heavy_damage_at_data_values() -> bool:
 	var result := Resolver.resolve(state, _submit([atk]), _submit(), registry, null)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.target_id == target.id:
-			return ev.damage == 23
+			return ev.damage == 40
 	return false
 
 
-func _test_helicopter_anti_light_damage_at_data_values() -> bool:
-	# Behavioral test: helicopter base damage 12; vs light marine
-	# (light tag), round(12 * 1.5) = 18.
+func _test_helicopter_damage_at_data_values() -> bool:
+	# Behavioral test using actual .tres values: helicopter base damage is 25.
 	var registry := _load_data_registry()
 	if registry == null:
 		return false
 	var state := _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
 	var heli := _make_entity(state, "helicopter", 0, Vector2i(0, 5), 140, "flying")
-	var marine := _make_entity(state, "marine", 1, Vector2i(4, 5), 45, "ground")
+	var marine := _make_entity(state, "marine", 1, Vector2i(3, 5), 45, "ground")
 	state.tile_grid.place(heli.id, Rect2i(0, 5, 1, 1))
-	state.tile_grid.place(marine.id, Rect2i(4, 5, 1, 1))
+	state.tile_grid.place(marine.id, Rect2i(3, 5, 1, 1))
 
 	var atk := EntityOrder.new()
 	atk.type = EntityOrder.Type.ATTACK
@@ -4006,7 +3989,7 @@ func _test_helicopter_anti_light_damage_at_data_values() -> bool:
 	var result := Resolver.resolve(state, _submit([atk]), _submit(), registry, null)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.target_id == marine.id:
-			return ev.damage == 18
+			return ev.damage == 25
 	return false
 
 
@@ -4692,7 +4675,7 @@ func _ability_registry() -> EntityRegistry:
 		"marine",
 		Vector2i(1, 1),
 		["light", "biological", "ground"],
-		_combat_def(6, 5, ["ground", "flying"]),
+		_combat_def(18, 3, ["ground", "flying"]),
 		45,
 		4
 	)
@@ -4701,21 +4684,19 @@ func _ability_registry() -> EntityRegistry:
 		"tank",
 		Vector2i(2, 2),
 		["heavy", "mechanical", "ground"],
-		_combat_def(15, 7, ["ground"]),
-		150,
-		2
+		_combat_def(30, 3, ["ground"]),
+		175,
+		3
 	)
 	tank.abilities = _abilities_def([_transform_ability("siege_mode", "siege_tank", 1)])
-	tank.abilities.abilities[0].requires_research_id = "siege_mode_research"
 	var siege_tank: EntityDef = _def(
 		"siege_tank",
 		Vector2i(2, 2),
 		["heavy", "mechanical", "ground"],
-		_combat_def(15, 7, ["ground"]),
-		150
+		_combat_def(40, 6, ["ground"]),
+		175
 	)
 	siege_tank.abilities = _abilities_def([_transform_ability("unsiege_mode", "tank", 1)])
-	siege_tank.abilities.abilities[0].requires_research_id = "siege_mode_research"
 	var base: EntityDef = _def("base", Vector2i(4, 4), ["building", "ground"], null, 1500)
 	registry.entities = [marine, tank, siege_tank, base]
 	return registry
@@ -5191,16 +5172,16 @@ func _test_mvp_map_loads() -> bool:
 		push_error("[mvp_map_loads] expected 2 players")
 		return false
 	# Expected entity counts after the baker mirrors the left half.
-	# One base, four workers, eight minerals, and one geyser per player.
+	# One base, four workers, six minerals, and one geyser per player.
 	var counts := _entity_counts_by_def_id(loaded.state)
 	var expected := {
 		"base": 2,
 		"worker": 8,
-		"mineral_patch": 16,
+		"mineral_patch": 12,
 		"mineral_patch_gold": 0,
 		"gas_geyser": 2,
 	}
-	var expected_total := 28
+	var expected_total := 24
 	if loaded.state.entities.size() != expected_total:
 		push_error(
 			(
@@ -5267,18 +5248,18 @@ func _test_mvp_map_simple_facing_bases() -> bool:
 
 	var left_resources := _resource_rects_on_side(state, true)
 	var right_resources := _resource_rects_on_side(state, false)
-	if left_resources.size() != 9:
+	if left_resources.size() != 7:
 		push_error(
 			(
-				"[mvp_map_simple_facing_bases] expected 9 left-side resources, got %d"
+				"[mvp_map_simple_facing_bases] expected 7 left-side resources, got %d"
 				% left_resources.size()
 			)
 		)
 		ok = false
-	if right_resources.size() != 9:
+	if right_resources.size() != 7:
 		push_error(
 			(
-				"[mvp_map_simple_facing_bases] expected 9 right-side resources, got %d"
+				"[mvp_map_simple_facing_bases] expected 7 right-side resources, got %d"
 				% right_resources.size()
 			)
 		)
@@ -5302,6 +5283,54 @@ func _test_mvp_map_simple_facing_bases() -> bool:
 			)
 			ok = false
 	return ok
+
+
+func _test_mvp_map_main_resource_layout() -> bool:
+	var loaded := _load_mvp_map()
+	if loaded == null or loaded.state == null:
+		push_error("[mvp_map_main_resource_layout] failed to load mvp_map")
+		return false
+	var state: MatchState = loaded.state
+	var expected_minerals: Array[Vector2i] = [
+		Vector2i(8, 20),
+		Vector2i(9, 20),
+		Vector2i(10, 20),
+		Vector2i(8, 27),
+		Vector2i(9, 27),
+		Vector2i(10, 27),
+		Vector2i(39, 20),
+		Vector2i(40, 20),
+		Vector2i(41, 20),
+		Vector2i(39, 27),
+		Vector2i(40, 27),
+		Vector2i(41, 27),
+	]
+	var expected_geysers: Array[Vector2i] = [
+		Vector2i(6, 21),
+		Vector2i(42, 21),
+	]
+	return (
+		_expect_entity_origins(state, "mineral_patch", expected_minerals)
+		and _expect_entity_origins(state, "gas_geyser", expected_geysers)
+	)
+
+
+func _expect_entity_origins(state: MatchState, def_id: String, expected: Array[Vector2i]) -> bool:
+	var actual: Array[Vector2i] = []
+	for entity in state.entities:
+		if entity != null and entity.def_id == def_id:
+			actual.append(entity.origin)
+	actual.sort()
+	expected.sort()
+	if actual != expected:
+		push_error(
+			(
+				"[mvp_map_main_resource_layout] expected %s origins %s, got %s"
+				% [def_id, str(expected), str(actual)]
+			)
+		)
+		return false
+	return true
 
 
 func _find_entity_by_def_and_owner(
@@ -5500,7 +5529,7 @@ func _test_ability_stim_applies_cost_buff_cooldown_and_event() -> bool:
 	if buff.source_ability_id != "stim" or buff.turns_remaining != 2:
 		push_error("stim buff should remain for 2 turns after end-of-turn tick")
 		return false
-	if new_enemy.current_hp != 36:
+	if new_enemy.current_hp != 18:
 		push_error(
 			"same-turn attack should use stim damage; enemy HP got %d" % new_enemy.current_hp
 		)
@@ -5546,8 +5575,7 @@ func _test_ability_stim_rejects_low_hp() -> bool:
 func _test_ability_siege_delayed_transform_blocks_later_actions() -> bool:
 	var registry: EntityRegistry = _ability_registry()
 	var state: MatchState = _ability_state_with_bases()
-	state.get_player(0).unlocked_researches.append("siege_mode_research")
-	var tank: Entity = _make_entity(state, "tank", 0, Vector2i(5, 5), 150, "ground")
+	var tank: Entity = _make_entity(state, "tank", 0, Vector2i(5, 5), 175, "ground")
 	state.tile_grid.place(tank.id, Rect2i(5, 5, 2, 2))
 	var move: EntityOrder = EntityOrder.new()
 	move.type = EntityOrder.Type.MOVE
@@ -5583,8 +5611,7 @@ func _test_ability_siege_delayed_transform_blocks_later_actions() -> bool:
 func _test_ability_unsiege_delayed_transform() -> bool:
 	var registry: EntityRegistry = _ability_registry()
 	var state: MatchState = _ability_state_with_bases()
-	state.get_player(0).unlocked_researches.append("siege_mode_research")
-	var tank: Entity = _make_entity(state, "siege_tank", 0, Vector2i(5, 5), 150, "ground")
+	var tank: Entity = _make_entity(state, "siege_tank", 0, Vector2i(5, 5), 175, "ground")
 	state.tile_grid.place(tank.id, Rect2i(5, 5, 2, 2))
 
 	var result: ResolveResult = Resolver.resolve(
@@ -5599,7 +5626,7 @@ func _test_ability_unsiege_delayed_transform() -> bool:
 	)
 
 
-func _test_siege_tank_data_is_immobile_and_siege_requires_research() -> bool:
+func _test_siege_tank_data_is_immobile_and_siege_is_not_research_gated() -> bool:
 	var registry: EntityRegistry = _load_data_registry()
 	if registry == null:
 		push_error("registry should load entity data")
@@ -5621,14 +5648,29 @@ func _test_siege_tank_data_is_immobile_and_siege_requires_research() -> bool:
 	if siege == null:
 		push_error("tank should expose siege_mode ability data")
 		return false
-	if siege.requires_research_id != "siege_mode_research":
-		push_error("siege_mode should require siege_mode_research")
+	if siege.requires_research_id != "":
+		push_error("siege_mode should not require research")
 		return false
 	if siege_tank == null:
 		push_error("siege_tank data missing")
 		return false
 	if siege_tank.movement != null:
 		push_error("siege_tank should be immobile")
+		return false
+	if siege_tank.abilities == null or siege_tank.abilities.abilities.is_empty():
+		push_error("siege_tank should expose unsiege_mode ability data")
+		return false
+	var unsiege: AbilityDef = null
+	for item in siege_tank.abilities.abilities:
+		var ability: AbilityDef = item
+		if ability != null and ability.id == "unsiege_mode":
+			unsiege = ability
+			break
+	if unsiege == null:
+		push_error("siege_tank should expose unsiege_mode ability data")
+		return false
+	if unsiege.requires_research_id != "":
+		push_error("unsiege_mode should not require research")
 		return false
 	return true
 

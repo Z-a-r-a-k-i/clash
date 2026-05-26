@@ -15,7 +15,7 @@ built_by_tag = "worker"
 
 [sub_resource type="Resource" id="Resource_ss8hb"]
 script = ExtResource("2_ss8hb")
-max_hp = 1300
+max_hp = 800
 
 [sub_resource type="Resource" id="Resource_mpdhs"]
 script = ExtResource("3_mpdhs")
@@ -24,7 +24,7 @@ rally_offset = Vector2i(0, 3)
 
 [sub_resource type="Resource" id="Resource_5hqsw"]
 script = ExtResource("5_mrj36")
-sight_radius = 5
+sight_radius = 4
 
 [resource]
 script = ExtResource("4_5hqsw")

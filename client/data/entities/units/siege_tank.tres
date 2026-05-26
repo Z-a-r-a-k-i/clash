@@ -22,10 +22,9 @@ damage_mult = 1.5
 
 [sub_resource type="Resource" id="Resource_hxqc7"]
 script = ExtResource("5_4v1ei")
-damage = 15
-attack_range = 7
+damage = 40
+attack_range = 6
 target_layers = Array[String](["ground"])
-attack_modifiers = Array[ExtResource("4_atkmod")]([SubResource("Resource_atkmod_heavy")])
 
 [sub_resource type="Resource" id="Resource_construction"]
 script = ExtResource("6_constr")

@@ -16,14 +16,13 @@ damage_mult = 1.5
 
 [sub_resource type="Resource" id="Resource_s3tq7"]
 script = ExtResource("2_hhtxd")
-damage = 12
-attack_range = 6
+damage = 25
+attack_range = 3
 target_layers = Array[String](["ground", "flying"])
-attack_modifiers = Array[ExtResource("1_atkmod")]([SubResource("Resource_atkmod_light")])
 
 [sub_resource type="Resource" id="Resource_hhtxd"]
 script = ExtResource("3_ehlqm")
-build_time_turns = 12
+build_time_turns = 4
 mineral_cost = 150
 gas_cost = 100
 built_by_tag = "starport"
@@ -43,7 +42,7 @@ pop_cost = 3
 
 [sub_resource type="Resource" id="Resource_b3ltg"]
 script = ExtResource("8_x6yih")
-sight_radius = 3
+sight_radius = 4
 
 [resource]
 script = ExtResource("7_klna8")

@@ -13,7 +13,7 @@ extends SceneTree
 #   - P0 main base at (12, 22), mirrored to P1 at (34, 22).
 #   - Bases face each other across the center of the map.
 #   - Each player starts with 4 workers between the base and resources.
-#   - Each base has exactly 8 mineral patches + 1 geyser behind it, on
+#   - Each base has exactly 6 mineral patches + 1 geyser behind it, on
 #     the outside edge away from the opponent.
 #   - No natural, third, gold base, obstacle, or terrain feature yet.
 #
@@ -81,9 +81,9 @@ func _all_placements() -> Array[Dictionary]:
 	out.append({"name": "P0Worker_2", "def_id": "worker", "owner": 0, "tile": Vector2i(10, 21)})
 	out.append({"name": "P0Worker_3", "def_id": "worker", "owner": 0, "tile": Vector2i(9, 26)})
 	out.append({"name": "P0Worker_4", "def_id": "worker", "owner": 0, "tile": Vector2i(10, 26)})
-	# Main mineral cluster — 8 patches behind the base, split into two rows.
+	# Main mineral cluster — 6 patches behind the base, split into two rows.
 	# 1x1 footprint: rows at y=20 and y=27 keep starting workers adjacent.
-	for i in range(4):
+	for i in range(3):
 		(
 			out
 			. append(
@@ -91,11 +91,11 @@ func _all_placements() -> Array[Dictionary]:
 					"name": "P0MainMineral_top_%d" % i,
 					"def_id": "mineral_patch",
 					"owner": -1,
-					"tile": Vector2i(7 + i, 20),
+					"tile": Vector2i(8 + i, 20),
 				}
 			)
 		)
-	for i in range(4):
+	for i in range(3):
 		(
 			out
 			. append(
@@ -103,13 +103,13 @@ func _all_placements() -> Array[Dictionary]:
 					"name": "P0MainMineral_bot_%d" % i,
 					"def_id": "mineral_patch",
 					"owner": -1,
-					"tile": Vector2i(7 + i, 27),
+					"tile": Vector2i(8 + i, 27),
 				}
 			)
 		)
-	# Main geyser 2x2 at (6, 22) — behind the base, between mineral rows.
+	# Main geyser 2x2 at (6, 21) — behind the base, between mineral rows.
 	out.append(
-		{"name": "P0MainGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(6, 22)}
+		{"name": "P0MainGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(6, 21)}
 	)
 
 	return out
