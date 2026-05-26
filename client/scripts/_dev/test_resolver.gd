@@ -2261,22 +2261,22 @@ func _test_gather_order_distribution_sets_phase() -> bool:
 
 
 func _test_gather_stationary_minerals_credit_each_tick() -> bool:
-	var registry := _gather_registry(50, 1, 4)
-	var state := _state_with_grid(20, 20)
-	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	var registry: EntityRegistry = _gather_registry(50, 1, 4)
+	var state: MatchState = _state_with_grid(20, 20)
+	var worker: Entity = _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
 	worker.gather_state = GatherState.new()
 	worker.gather_state.phase = GatherState.Phase.GATHERING
 	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
-	var patch := _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
+	var patch: Entity = _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
 	patch.current_resource_amount = 100
 	state.tile_grid.place(patch.id, Rect2i(6, 5, 1, 1))
 	worker.gather_state.assigned_source_entity_id = patch.id
 	_add_opponent_keepalive_building(state, registry)
 
-	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
-	var p := result.new_state.get_player(0)
-	var new_worker := result.new_state.get_entity_by_id(worker.id)
-	var new_patch := result.new_state.get_entity_by_id(patch.id)
+	var result: ResolveResult = Resolver.resolve(state, _submit(), _submit(), registry, null)
+	var p: PlayerState = result.new_state.get_player(0)
+	var new_worker: Entity = result.new_state.get_entity_by_id(worker.id)
+	var new_patch: Entity = result.new_state.get_entity_by_id(patch.id)
 	if p == null or p.minerals != 1:
 		push_error("stationary mineral gather should credit 1 mineral immediately")
 		return false
@@ -2293,23 +2293,23 @@ func _test_gather_stationary_minerals_credit_each_tick() -> bool:
 
 
 func _test_gather_stationary_gas_credit_each_tick() -> bool:
-	var registry := _gather_registry(50, 1, 4)
-	var state := _state_with_grid(20, 20)
-	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	var registry: EntityRegistry = _gather_registry(50, 1, 4)
+	var state: MatchState = _state_with_grid(20, 20)
+	var worker: Entity = _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
 	worker.gather_state = GatherState.new()
 	worker.gather_state.phase = GatherState.Phase.GATHERING
 	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
-	var geyser := _make_entity(state, "geyser", -1, Vector2i(6, 5), 1000, "ground")
+	var geyser: Entity = _make_entity(state, "geyser", -1, Vector2i(6, 5), 1000, "ground")
 	geyser.current_resource_amount = -1
 	state.tile_grid.place(geyser.id, Rect2i(6, 5, 1, 1))
-	var refinery := _make_entity(state, "refinery", 0, Vector2i(6, 5), 750, "ground")
+	var refinery: Entity = _make_entity(state, "refinery", 0, Vector2i(6, 5), 750, "ground")
 	state.tile_grid.place_overlapping(refinery.id, Rect2i(6, 5, 1, 1), geyser.id)
 	worker.gather_state.assigned_source_entity_id = refinery.id
 	_add_opponent_keepalive_building(state, registry)
 
-	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
-	var p := result.new_state.get_player(0)
-	var new_worker := result.new_state.get_entity_by_id(worker.id)
+	var result: ResolveResult = Resolver.resolve(state, _submit(), _submit(), registry, null)
+	var p: PlayerState = result.new_state.get_player(0)
+	var new_worker: Entity = result.new_state.get_entity_by_id(worker.id)
 	if p == null or p.gas != 1:
 		push_error("stationary gas gather should credit 1 gas immediately")
 		return false
@@ -2323,27 +2323,27 @@ func _test_gather_stationary_gas_credit_each_tick() -> bool:
 
 
 func _test_gather_rejects_third_worker_on_minerals() -> bool:
-	var registry := _gather_registry(50, 1, 4)
-	var state := _state_with_grid(20, 20)
-	var patch := _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
+	var registry: EntityRegistry = _gather_registry(50, 1, 4)
+	var state: MatchState = _state_with_grid(20, 20)
+	var patch: Entity = _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
 	patch.current_resource_amount = 100
 	state.tile_grid.place(patch.id, Rect2i(6, 5, 1, 1))
-	var w1 := _make_gather_worker(state, 0, Vector2i(5, 5))
-	var w2 := _make_gather_worker(state, 0, Vector2i(6, 4))
-	var w3 := _make_gather_worker(state, 0, Vector2i(6, 6))
+	var w1: Entity = _make_gather_worker(state, 0, Vector2i(5, 5))
+	var w2: Entity = _make_gather_worker(state, 0, Vector2i(6, 4))
+	var w3: Entity = _make_gather_worker(state, 0, Vector2i(6, 6))
 	_add_opponent_keepalive_building(state, registry)
 
 	var orders: Array[EntityOrder] = []
 	orders.append(_gather_order(w1.id, patch.id))
 	orders.append(_gather_order(w2.id, patch.id))
 	orders.append(_gather_order(w3.id, patch.id))
-	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	var result: ResolveResult = Resolver.resolve(state, _submit(orders), _submit(), registry, null)
 	if not _has_rejection(result.events, w3.id, "source_saturated"):
 		push_error("third mineral worker should be rejected as source_saturated")
 		return false
-	var new_w1 := result.new_state.get_entity_by_id(w1.id)
-	var new_w2 := result.new_state.get_entity_by_id(w2.id)
-	var new_w3 := result.new_state.get_entity_by_id(w3.id)
+	var new_w1: Entity = result.new_state.get_entity_by_id(w1.id)
+	var new_w2: Entity = result.new_state.get_entity_by_id(w2.id)
+	var new_w3: Entity = result.new_state.get_entity_by_id(w3.id)
 	if new_w1.gather_state.phase != GatherState.Phase.GATHERING:
 		return false
 	if new_w2.gather_state.phase != GatherState.Phase.GATHERING:
@@ -2355,27 +2355,27 @@ func _test_gather_rejects_third_worker_on_minerals() -> bool:
 
 
 func _test_gather_rejects_fourth_worker_on_gas() -> bool:
-	var registry := _gather_registry(50, 1, 4)
-	var state := _state_with_grid(20, 20)
-	var geyser := _make_entity(state, "geyser", -1, Vector2i(8, 5), 1000, "ground")
+	var registry: EntityRegistry = _gather_registry(50, 1, 4)
+	var state: MatchState = _state_with_grid(20, 20)
+	var geyser: Entity = _make_entity(state, "geyser", -1, Vector2i(8, 5), 1000, "ground")
 	geyser.current_resource_amount = -1
 	state.tile_grid.place(geyser.id, Rect2i(8, 5, 1, 1))
-	var refinery := _make_entity(state, "refinery", 0, Vector2i(8, 5), 750, "ground")
+	var refinery: Entity = _make_entity(state, "refinery", 0, Vector2i(8, 5), 750, "ground")
 	state.tile_grid.place_overlapping(refinery.id, Rect2i(8, 5, 1, 1), geyser.id)
-	var w1 := _make_gather_worker(state, 0, Vector2i(7, 5))
-	var w2 := _make_gather_worker(state, 0, Vector2i(8, 4))
-	var w3 := _make_gather_worker(state, 0, Vector2i(8, 6))
-	var w4 := _make_gather_worker(state, 0, Vector2i(9, 5))
+	var w1: Entity = _make_gather_worker(state, 0, Vector2i(7, 5))
+	var w2: Entity = _make_gather_worker(state, 0, Vector2i(8, 4))
+	var w3: Entity = _make_gather_worker(state, 0, Vector2i(8, 6))
+	var w4: Entity = _make_gather_worker(state, 0, Vector2i(9, 5))
 	_add_opponent_keepalive_building(state, registry)
 
 	var orders: Array[EntityOrder] = []
-	for worker in [w1, w2, w3, w4]:
+	for worker: Entity in [w1, w2, w3, w4]:
 		orders.append(_gather_order(worker.id, refinery.id))
-	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	var result: ResolveResult = Resolver.resolve(state, _submit(orders), _submit(), registry, null)
 	if not _has_rejection(result.events, w4.id, "source_saturated"):
 		push_error("fourth gas worker should be rejected as source_saturated")
 		return false
-	var new_w4 := result.new_state.get_entity_by_id(w4.id)
+	var new_w4: Entity = result.new_state.get_entity_by_id(w4.id)
 	return (
 		new_w4.gather_state.phase == GatherState.Phase.IDLE
 		and new_w4.gather_state.assigned_source_entity_id == -1
@@ -2383,24 +2383,26 @@ func _test_gather_rejects_fourth_worker_on_gas() -> bool:
 
 
 func _test_gather_saturation_is_global_per_source() -> bool:
-	var registry := _gather_registry(50, 1, 4)
-	var state := _state_with_grid(20, 20)
-	var patch := _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
+	var registry: EntityRegistry = _gather_registry(50, 1, 4)
+	var state: MatchState = _state_with_grid(20, 20)
+	var patch: Entity = _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
 	patch.current_resource_amount = 100
 	state.tile_grid.place(patch.id, Rect2i(6, 5, 1, 1))
-	var p0_w1 := _make_gather_worker(state, 0, Vector2i(5, 5))
-	var p0_w2 := _make_gather_worker(state, 0, Vector2i(6, 4))
-	var p1_w1 := _make_gather_worker(state, 1, Vector2i(6, 6))
+	var p0_w1: Entity = _make_gather_worker(state, 0, Vector2i(5, 5))
+	var p0_w2: Entity = _make_gather_worker(state, 0, Vector2i(6, 4))
+	var p1_w1: Entity = _make_gather_worker(state, 1, Vector2i(6, 6))
 
 	var p0_orders: Array[EntityOrder] = []
 	p0_orders.append(_gather_order(p0_w1.id, patch.id))
 	p0_orders.append(_gather_order(p0_w2.id, patch.id))
 	var p1_orders: Array[EntityOrder] = [_gather_order(p1_w1.id, patch.id)]
-	var result := Resolver.resolve(state, _submit(p0_orders), _submit(p1_orders), registry, null)
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit(p0_orders), _submit(p1_orders), registry, null
+	)
 	if not _has_rejection(result.events, p1_w1.id, "source_saturated"):
 		push_error("source saturation should be global across players")
 		return false
-	var new_p1_w1 := result.new_state.get_entity_by_id(p1_w1.id)
+	var new_p1_w1: Entity = result.new_state.get_entity_by_id(p1_w1.id)
 	return (
 		new_p1_w1.gather_state.phase == GatherState.Phase.IDLE
 		and new_p1_w1.gather_state.assigned_source_entity_id == -1
@@ -2429,7 +2431,7 @@ func _test_gather_full_cycle_minerals() -> bool:
 	for _i in 30:
 		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
 		# Stop once enough income has been credited.
-		var p := result.new_state.get_player(0)
+		var p: PlayerState = result.new_state.get_player(0)
 		if p != null and p.minerals >= 5:
 			break
 	var p_final := result.new_state.get_player(0)
@@ -2454,7 +2456,7 @@ func _test_gather_worker_rate_multiplies_source_yield() -> bool:
 	_add_opponent_keepalive_building(state, registry)
 
 	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
-	var p := result.new_state.get_player(0)
+	var p: PlayerState = result.new_state.get_player(0)
 	var new_worker := result.new_state.get_entity_by_id(worker.id)
 	var new_patch := result.new_state.get_entity_by_id(patch.id)
 	if p == null or p.minerals != 4:
@@ -2632,11 +2634,11 @@ func _test_gather_does_not_need_deposit_sink() -> bool:
 	# Stationary gathering no longer needs an owned base/deposit sink.
 	var registry := _gather_registry(5, 1, 4)
 	var state := _state_with_grid(20, 20)
-	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	var worker: Entity = _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
 	worker.gather_state = GatherState.new()
 	worker.gather_state.phase = GatherState.Phase.GATHERING
 	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
-	var patch := _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
+	var patch: Entity = _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
 	patch.current_resource_amount = 100
 	state.tile_grid.place(patch.id, Rect2i(6, 5, 1, 1))
 	worker.gather_state.assigned_source_entity_id = patch.id
@@ -2644,7 +2646,7 @@ func _test_gather_does_not_need_deposit_sink() -> bool:
 
 	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
 	var w := result.new_state.get_entity_by_id(worker.id)
-	var p := result.new_state.get_player(0)
+	var p: PlayerState = result.new_state.get_player(0)
 	if p == null or p.minerals != 1:
 		return false
 	return w.gather_state.phase == GatherState.Phase.GATHERING
@@ -2657,28 +2659,30 @@ func _test_gather_worker_stays_at_source() -> bool:
 	var state := _state_with_grid(30, 30)
 	var far_base := _make_entity(state, "base", 0, Vector2i(20, 20), 1500, "ground")
 	state.tile_grid.place(far_base.id, Rect2i(20, 20, 4, 4))
-	var near_base := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
+	var near_base: Entity = _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
 	state.tile_grid.place(near_base.id, Rect2i(0, 0, 4, 4))
-	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
+	var worker: Entity = _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
 	worker.gather_state = GatherState.new()
 	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
-	var patch := _make_entity(state, "minpatch", -1, Vector2i(8, 5), 100, "ground")
+	var patch: Entity = _make_entity(state, "minpatch", -1, Vector2i(8, 5), 100, "ground")
 	patch.current_resource_amount = 100
 	state.tile_grid.place(patch.id, Rect2i(8, 5, 1, 1))
 	_add_opponent_keepalive_building(state, registry)
 
-	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
-	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	var orders: Array[EntityOrder] = OrderBuilder.fan_out_gather(
+		[worker.id] as Array[int], patch.id
+	)
+	var result: ResolveResult = Resolver.resolve(state, _submit(orders), _submit(), registry, null)
 	for _i in 5:
 		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
 	var w := result.new_state.get_entity_by_id(worker.id)
 	var w_rect := result.new_state.tile_grid.entity_rect(w.id)
-	var patch_rect := result.new_state.tile_grid.entity_rect(patch.id)
-	var p_final := result.new_state.get_player(0)
+	var patch_rect: Rect2i = result.new_state.tile_grid.entity_rect(patch.id)
+	var p_final: PlayerState = result.new_state.get_player(0)
 	if p_final == null or p_final.minerals <= 0:
 		push_error("stationary source test expected positive minerals")
 		return false
-	var distance := TileGrid.distance_between_rects(w_rect, patch_rect)
+	var distance: int = TileGrid.distance_between_rects(w_rect, patch_rect)
 	if distance > 1:
 		push_error(
 			(
@@ -4359,10 +4363,10 @@ func _test_scenario_loader_auto_starts_workers_on_minerals() -> bool:
 
 
 func _test_scenario_loader_auto_start_respects_mineral_saturation() -> bool:
-	var registry := _load_data_registry()
+	var registry: EntityRegistry = _load_data_registry()
 	if registry == null:
 		return false
-	var scenario := ScenarioDef.new()
+	var scenario: ScenarioDef = ScenarioDef.new()
 	scenario.map_width = 20
 	scenario.map_height = 20
 	scenario.auto_start_workers_on_minerals = true
@@ -4373,7 +4377,7 @@ func _test_scenario_loader_auto_start_respects_mineral_saturation() -> bool:
 		_scenario_placement("worker", 0, Vector2i(7, 9)),
 		_scenario_placement("mineral_patch", -1, Vector2i(5, 8)),
 	]
-	var loaded := ScenarioLoader.load(scenario, registry, null)
+	var loaded: LoadedScenario = ScenarioLoader.load(scenario, registry, null)
 	if loaded == null:
 		push_error("[scenario_loader_auto_start_respects_mineral_saturation] loader returned null")
 		return false
@@ -4387,9 +4391,9 @@ func _test_scenario_loader_auto_start_respects_mineral_saturation() -> bool:
 			"[scenario_loader_auto_start_respects_mineral_saturation] missing mineral source"
 		)
 		return false
-	var assigned := 0
-	var idle := 0
-	for entity in loaded.state.entities_sorted_by_id():
+	var assigned: int = 0
+	var idle: int = 0
+	for entity: Entity in loaded.state.entities_sorted_by_id():
 		if entity.def_id != "worker" or entity.owner_player_id != 0:
 			continue
 		if entity.gather_state == null:
@@ -4751,7 +4755,7 @@ func _ability_order(entity_id: int, ability_id: String) -> EntityOrder:
 
 
 func _gather_order(entity_id: int, target_entity_id: int) -> EntityOrder:
-	var order := EntityOrder.new()
+	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.GATHER
 	order.entity_id = entity_id
 	order.target_entity_id = target_entity_id
@@ -4791,7 +4795,7 @@ func _make_entity(
 
 
 func _make_gather_worker(state: MatchState, owner: int, origin: Vector2i) -> Entity:
-	var worker := _make_entity(state, "worker", owner, origin, 50, "ground")
+	var worker: Entity = _make_entity(state, "worker", owner, origin, 50, "ground")
 	worker.gather_state = GatherState.new()
 	state.tile_grid.place(worker.id, Rect2i(origin, Vector2i.ONE))
 	return worker

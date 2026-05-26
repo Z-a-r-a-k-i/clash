@@ -132,7 +132,7 @@ static func _distribute_one(
 					)
 				)
 				continue
-			var source := GatherSystem.resolve_source_for_worker(
+			var source: Entity = GatherSystem.resolve_source_for_worker(
 				state, registry, order.target_entity_id, entity.owner_player_id
 			)
 			if source == null:

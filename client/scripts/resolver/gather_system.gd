@@ -33,6 +33,7 @@ static func advance_move_phase(
 ) -> void:
 	if state.tile_grid == null:
 		return
+	var source_assignments: Dictionary[int, Array] = _source_assignments_by_source(state, registry)
 	for actor in state.entities_sorted_by_id():
 		if actor.current_hp <= 0:
 			continue
@@ -43,7 +44,7 @@ static func advance_move_phase(
 			continue
 		var phase := actor.gather_state.phase
 		if phase == GatherState.Phase.MOVING_TO_SOURCE:
-			_step_to_source(state, actor, registry, events)
+			_step_to_source(state, actor, registry, events, source_assignments)
 
 
 # Phase 3 hook — called per tick after movement.
@@ -51,6 +52,7 @@ static func advance_move_phase(
 static func advance_state_phase(
 	state: MatchState, registry: EntityRegistry, _tunables: Tunables, events: Array[ResolverEvent]
 ) -> void:
+	var source_assignments: Dictionary[int, Array] = _source_assignments_by_source(state, registry)
 	for actor in state.entities_sorted_by_id():
 		if actor.current_hp <= 0:
 			continue
@@ -58,23 +60,27 @@ static func advance_state_phase(
 			continue
 		var phase := actor.gather_state.phase
 		if phase == GatherState.Phase.GATHERING:
-			_tick_gather(state, actor, registry, events)
+			_tick_gather(state, actor, registry, events, source_assignments)
 
 
 # ---------- Phase 2: travel ----------
 
 
 static func _step_to_source(
-	state: MatchState, actor: Entity, registry: EntityRegistry, events: Array[ResolverEvent]
+	state: MatchState,
+	actor: Entity,
+	registry: EntityRegistry,
+	events: Array[ResolverEvent],
+	source_assignments: Dictionary[int, Array]
 ) -> void:
-	var source := _resolve_source(
+	var source: Entity = _resolve_source(
 		state, registry, actor.gather_state.assigned_source_entity_id, actor.owner_player_id
 	)
 	if source == null:
 		# Source destroyed / refinery missing — idle in place.
 		_clear_gather_assignment(actor)
 		return
-	if not _is_worker_within_source_cap(state, registry, actor, source):
+	if not _is_worker_within_source_cap(source_assignments, registry, actor, source):
 		_clear_gather_assignment(actor)
 		return
 	if _is_adjacent_to(state, actor, source):
@@ -95,15 +101,19 @@ static func _step_to_source(
 
 
 static func _tick_gather(
-	state: MatchState, actor: Entity, registry: EntityRegistry, events: Array[ResolverEvent]
+	state: MatchState,
+	actor: Entity,
+	registry: EntityRegistry,
+	events: Array[ResolverEvent],
+	source_assignments: Dictionary[int, Array]
 ) -> void:
-	var source := _resolve_source(
+	var source: Entity = _resolve_source(
 		state, registry, actor.gather_state.assigned_source_entity_id, actor.owner_player_id
 	)
 	if source == null:
 		_clear_gather_assignment(actor)
 		return
-	if not _is_worker_within_source_cap(state, registry, actor, source):
+	if not _is_worker_within_source_cap(source_assignments, registry, actor, source):
 		_clear_gather_assignment(actor)
 		return
 	# Range check — a fresh MOVE / nudged origin could leave the worker
@@ -140,7 +150,7 @@ static func _tick_gather(
 		return
 	if source.current_resource_amount > 0:
 		source.current_resource_amount -= actual_harvest
-	var player := state.get_player(actor.owner_player_id)
+	var player: PlayerState = state.get_player(actor.owner_player_id)
 	if player != null:
 		if rsd.resource_type == _SOURCE_TYPE_MINERALS:
 			player.minerals += actual_harvest
@@ -179,7 +189,8 @@ static func source_has_open_slot(
 	var cap: int = source_gatherer_cap(registry, source)
 	if cap <= 0:
 		return false
-	return _assigned_gatherer_count_for_source(state, registry, source.id, actor_id) < cap
+	var source_assignments: Dictionary[int, Array] = _source_assignments_by_source(state, registry)
+	return _assigned_gatherer_count_for_source(source_assignments, source.id, actor_id) < cap
 
 
 static func source_gatherer_cap(registry: EntityRegistry, source: Entity) -> int:
@@ -233,41 +244,52 @@ static func _resolve_source(
 	return null
 
 
-static func _assigned_gatherer_count_for_source(
-	state: MatchState, registry: EntityRegistry, source_id: int, excluded_actor_id: int = -1
-) -> int:
-	var count := 0
-	for worker in state.entities_sorted_by_id():
-		if worker == null or worker.id == excluded_actor_id or worker.current_hp <= 0:
-			continue
-		if worker.gather_state == null or worker.gather_state.phase == GatherState.Phase.IDLE:
-			continue
-		var assigned_source := _resolve_source(
-			state, registry, worker.gather_state.assigned_source_entity_id, worker.owner_player_id
-		)
-		if assigned_source != null and assigned_source.id == source_id:
-			count += 1
-	return count
-
-
-static func _is_worker_within_source_cap(
-	state: MatchState, registry: EntityRegistry, actor: Entity, source: Entity
-) -> bool:
-	var cap: int = source_gatherer_cap(registry, source)
-	if cap <= 0:
-		return false
-	var rank := 0
-	for worker in state.entities_sorted_by_id():
+static func _source_assignments_by_source(
+	state: MatchState, registry: EntityRegistry
+) -> Dictionary[int, Array]:
+	var assignments: Dictionary[int, Array] = {}
+	if state == null:
+		return assignments
+	for worker: Entity in state.entities_sorted_by_id():
 		if worker == null or worker.current_hp <= 0:
 			continue
 		if worker.gather_state == null or worker.gather_state.phase == GatherState.Phase.IDLE:
 			continue
-		var assigned_source := _resolve_source(
+		var assigned_source: Entity = _resolve_source(
 			state, registry, worker.gather_state.assigned_source_entity_id, worker.owner_player_id
 		)
-		if assigned_source == null or assigned_source.id != source.id:
+		if assigned_source == null:
 			continue
-		if worker.id == actor.id:
+		if not assignments.has(assigned_source.id):
+			assignments[assigned_source.id] = []
+		var worker_ids: Array = assignments[assigned_source.id]
+		worker_ids.append(worker.id)
+	return assignments
+
+
+static func _assigned_gatherer_count_for_source(
+	source_assignments: Dictionary[int, Array], source_id: int, excluded_actor_id: int = -1
+) -> int:
+	var worker_ids: Array = source_assignments.get(source_id, [])
+	var count: int = worker_ids.size()
+	if excluded_actor_id >= 0 and worker_ids.has(excluded_actor_id):
+		count -= 1
+	return count
+
+
+static func _is_worker_within_source_cap(
+	source_assignments: Dictionary[int, Array],
+	registry: EntityRegistry,
+	actor: Entity,
+	source: Entity
+) -> bool:
+	var cap: int = source_gatherer_cap(registry, source)
+	if cap <= 0:
+		return false
+	var rank: int = 0
+	var worker_ids: Array = source_assignments.get(source.id, [])
+	for worker_id: int in worker_ids:
+		if worker_id == actor.id:
 			return rank < cap
 		rank += 1
 	return false
