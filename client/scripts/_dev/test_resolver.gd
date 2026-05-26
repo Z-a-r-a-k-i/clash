@@ -2786,6 +2786,9 @@ func _test_fresh_move_cancels_gather_assignment() -> bool:
 	if w.gather_state.assigned_source_entity_id != -1:
 		push_error("fresh MOVE should clear previous mineral assignment")
 		return false
+	if w.gather_state.carrying_amount != 0 or w.gather_state.carrying_resource_type != "":
+		push_error("fresh MOVE should clear stale gather cargo")
+		return false
 	return w.persistent_order == null
 
 
@@ -3414,6 +3417,8 @@ func _test_build_distributes_creates_constructing_entity() -> bool:
 	worker.current_def_id = "worker"
 	worker.gather_state = GatherState.new()
 	worker.gather_state.assigned_source_entity_id = 99
+	worker.gather_state.carrying_amount = 3
+	worker.gather_state.carrying_resource_type = "minerals"
 	worker.gather_state.phase = GatherState.Phase.GATHERING
 	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
 
