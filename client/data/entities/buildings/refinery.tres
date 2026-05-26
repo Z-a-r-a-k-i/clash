@@ -18,7 +18,7 @@ max_hp = 500
 
 [sub_resource type="Resource" id="Resource_gati6"]
 script = ExtResource("4_vmnr7")
-sight_radius = 8
+sight_radius = 5
 
 [resource]
 script = ExtResource("3_gati6")
