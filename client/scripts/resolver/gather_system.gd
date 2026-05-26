@@ -253,7 +253,10 @@ static func _source_assignments_by_source(
 	for worker: Entity in state.entities_sorted_by_id():
 		if worker == null or worker.current_hp <= 0:
 			continue
-		if worker.gather_state == null or worker.gather_state.phase == GatherState.Phase.IDLE:
+		if worker.gather_state == null:
+			continue
+		var phase: int = worker.gather_state.phase
+		if phase != GatherState.Phase.MOVING_TO_SOURCE and phase != GatherState.Phase.GATHERING:
 			continue
 		var assigned_source: Entity = _resolve_source(
 			state, registry, worker.gather_state.assigned_source_entity_id, worker.owner_player_id

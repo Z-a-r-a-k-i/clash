@@ -2752,6 +2752,8 @@ func _test_fresh_move_cancels_gather_assignment() -> bool:
 	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
 	worker.gather_state = GatherState.new()
 	worker.gather_state.assigned_source_entity_id = 99
+	worker.gather_state.carrying_amount = 3
+	worker.gather_state.carrying_resource_type = "minerals"
 	worker.gather_state.phase = GatherState.Phase.GATHERING
 	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
 	var patch := _make_entity(state, "minpatch", -1, Vector2i(4, 5), 100, "ground")
@@ -3447,6 +3449,9 @@ func _test_build_distributes_creates_constructing_entity() -> bool:
 	if w.gather_state.assigned_source_entity_id != -1:
 		push_error("BUILD should clear the previous mineral assignment")
 		return false
+	if w.gather_state.carrying_amount != 0 or w.gather_state.carrying_resource_type != "":
+		push_error("BUILD should clear stale gather cargo")
+		return false
 	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_STARTED)
 
 
@@ -3941,6 +3946,11 @@ func _test_build_resume_via_new_worker() -> bool:
 	new_worker.origin = Vector2i(4, 5)
 	new_worker.current_hp = 50
 	new_worker.current_layer = "ground"
+	new_worker.gather_state = GatherState.new()
+	new_worker.gather_state.assigned_source_entity_id = 77
+	new_worker.gather_state.carrying_amount = 2
+	new_worker.gather_state.carrying_resource_type = "gas"
+	new_worker.gather_state.phase = GatherState.Phase.GATHERING
 	result.new_state.entities.append(new_worker)
 	result.new_state.tile_grid.place(new_worker.id, Rect2i(4, 5, 1, 1))
 	var minerals_before_resume: int = result.new_state.get_player(0).minerals
@@ -3959,6 +3969,17 @@ func _test_build_resume_via_new_worker() -> bool:
 	# emitted.
 	b = result.new_state.get_entity_by_id(building_id)
 	if b.construction_worker_id != new_worker.id:
+		return false
+	var resumed_worker: Entity = result.new_state.get_entity_by_id(new_worker.id)
+	if resumed_worker.gather_state == null:
+		return false
+	if (
+		resumed_worker.gather_state.phase != GatherState.Phase.IDLE
+		or resumed_worker.gather_state.assigned_source_entity_id != -1
+		or resumed_worker.gather_state.carrying_amount != 0
+		or resumed_worker.gather_state.carrying_resource_type != ""
+	):
+		push_error("BUILD resume should clear stale gather assignment and cargo")
 		return false
 	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_RESUMED)
 

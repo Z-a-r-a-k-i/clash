@@ -323,9 +323,7 @@ static func _handle_build_order(
 		_emit_order_rejected(order.entity_id, "tile_occupied", events)
 		return
 	worker.locked_to_building_id = building.id
-	if worker.gather_state != null:
-		worker.gather_state.phase = GatherState.Phase.IDLE
-		worker.gather_state.assigned_source_entity_id = -1
+	_interrupt_gather_assignment(worker)
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.BUILD_STARTED
 	ev.actor_id = worker.id
@@ -368,9 +366,7 @@ static func _handle_build_resume(
 				return
 	building.construction_worker_id = worker.id
 	worker.locked_to_building_id = building.id
-	if worker.gather_state != null:
-		worker.gather_state.phase = GatherState.Phase.IDLE
-		worker.gather_state.assigned_source_entity_id = -1
+	_interrupt_gather_assignment(worker)
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.BUILD_RESUMED
 	ev.actor_id = worker.id
