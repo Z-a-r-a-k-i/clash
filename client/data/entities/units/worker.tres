@@ -42,7 +42,7 @@ pop_cost = 1
 
 [sub_resource type="Resource" id="Resource_scf0o"]
 script = ExtResource("9_h6y0i")
-sight_radius = 5
+sight_radius = 3
 
 [resource]
 script = ExtResource("8_66mnt")
