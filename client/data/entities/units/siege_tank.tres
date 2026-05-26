@@ -3,7 +3,6 @@
 [ext_resource type="Script" uid="uid://b520b3b4w1skc" path="res://scripts/data/ability_def.gd" id="1_rw1mx"]
 [ext_resource type="Resource" uid="uid://w8ewc0ti8361" path="res://data/abilities/unsiege_mode.tres" id="2_hxqc7"]
 [ext_resource type="Script" uid="uid://dl3urbbllej16" path="res://scripts/data/abilities_def.gd" id="3_f2lhg"]
-[ext_resource type="Script" uid="uid://cxbe8iowpag5f" path="res://scripts/data/attack_modifier.gd" id="4_atkmod"]
 [ext_resource type="Script" uid="uid://voeakqpmilet" path="res://scripts/data/combat_def.gd" id="5_4v1ei"]
 [ext_resource type="Script" uid="uid://d2s53qcs5kvti" path="res://scripts/data/construction_def.gd" id="6_constr"]
 [ext_resource type="Script" uid="uid://cegrh6taqqbqv" path="res://scripts/data/health_def.gd" id="7_j7gj2"]
@@ -14,11 +13,6 @@
 [sub_resource type="Resource" id="Resource_rw1mx"]
 script = ExtResource("3_f2lhg")
 abilities = Array[ExtResource("1_rw1mx")]([ExtResource("2_hxqc7")])
-
-[sub_resource type="Resource" id="Resource_atkmod_heavy"]
-script = ExtResource("4_atkmod")
-target_tag = "heavy"
-damage_mult = 1.5
 
 [sub_resource type="Resource" id="Resource_hxqc7"]
 script = ExtResource("5_4v1ei")

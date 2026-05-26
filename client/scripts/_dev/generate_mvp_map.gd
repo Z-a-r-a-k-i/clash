@@ -83,7 +83,7 @@ func _all_placements() -> Array[Dictionary]:
 	out.append({"name": "P0Worker_4", "def_id": "worker", "owner": 0, "tile": Vector2i(10, 26)})
 	# Main mineral cluster — 6 patches behind the base, split into two rows.
 	# 1x1 footprint: rows at y=20 and y=27 keep starting workers adjacent.
-	for i in range(3):
+	for i in range(1, 4):
 		(
 			out
 			. append(
@@ -91,11 +91,11 @@ func _all_placements() -> Array[Dictionary]:
 					"name": "P0MainMineral_top_%d" % i,
 					"def_id": "mineral_patch",
 					"owner": -1,
-					"tile": Vector2i(8 + i, 20),
+					"tile": Vector2i(7 + i, 20),
 				}
 			)
 		)
-	for i in range(3):
+	for i in range(1, 4):
 		(
 			out
 			. append(
@@ -103,7 +103,7 @@ func _all_placements() -> Array[Dictionary]:
 					"name": "P0MainMineral_bot_%d" % i,
 					"def_id": "mineral_patch",
 					"owner": -1,
-					"tile": Vector2i(8 + i, 27),
+					"tile": Vector2i(7 + i, 27),
 				}
 			)
 		)
