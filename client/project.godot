@@ -23,8 +23,8 @@ AIGameBridge="*res://addons/godot_ai/runtime/ai_game_bridge.gd"
 
 window/size/viewport_width=1920.0
 window/size/viewport_height=1080.0
-window/stretch/mode="canvas_items"
-window/stretch/aspect="expand"
+window/stretch/mode="viewport"
+window/stretch/aspect="keep"
 
 [dotnet]
 

@@ -53,6 +53,9 @@ const _FOG_OUT_OF_VISION_COLOR := Color(0.0, 0.0, 0.0, 0.22)
 const _DEV_PLAYABLE_ZOOM := 1.1
 const _MIN_CAMERA_ZOOM := 0.5
 const _MAX_CAMERA_ZOOM := 4.0
+const _DEFAULT_LOGICAL_VIEWPORT_SIZE := Vector2(1920.0, 1080.0)
+const _VIEWPORT_WIDTH_SETTING := "display/window/size/viewport_width"
+const _VIEWPORT_HEIGHT_SETTING := "display/window/size/viewport_height"
 const _BUILDING_MEMORY_ENTITY := "entity"
 const _BUILDING_MEMORY_RECT := "rect"
 
@@ -733,11 +736,7 @@ func _fit_camera_to_state(state: MatchState) -> void:
 		max_tile.y = max(max_tile.y, entity.origin.y + fp.y)
 	var center_tile := Vector2((min_tile.x + max_tile.x) / 2.0, (min_tile.y + max_tile.y) / 2.0)
 	_camera.position = center_tile * _tile_size
-	var viewport_size := Vector2(1280, 720)
-	if is_inside_tree():
-		viewport_size = get_viewport_rect().size
-	if viewport_size.x <= 0 or viewport_size.y <= 0:
-		viewport_size = Vector2(1280, 720)
+	var viewport_size := _camera_fit_viewport_size()
 	var span_tiles_x: int = max_tile.x - min_tile.x + _CAMERA_MARGIN_TILES * 2
 	var span_tiles_y: int = max_tile.y - min_tile.y + _CAMERA_MARGIN_TILES * 2
 	var pixel_w: float = max(span_tiles_x, 1) * _tile_size
@@ -745,6 +744,18 @@ func _fit_camera_to_state(state: MatchState) -> void:
 	var zoom_x: float = viewport_size.x / pixel_w
 	var zoom_y: float = viewport_size.y / pixel_h
 	_set_camera_zoom(min(zoom_x, zoom_y))
+
+
+func _camera_fit_viewport_size() -> Vector2:
+	var width: float = float(
+		ProjectSettings.get_setting(_VIEWPORT_WIDTH_SETTING, _DEFAULT_LOGICAL_VIEWPORT_SIZE.x)
+	)
+	var height: float = float(
+		ProjectSettings.get_setting(_VIEWPORT_HEIGHT_SETTING, _DEFAULT_LOGICAL_VIEWPORT_SIZE.y)
+	)
+	if width <= 0.0 or height <= 0.0:
+		return _DEFAULT_LOGICAL_VIEWPORT_SIZE
+	return Vector2(width, height)
 
 
 func _set_camera_zoom(value: float) -> void:

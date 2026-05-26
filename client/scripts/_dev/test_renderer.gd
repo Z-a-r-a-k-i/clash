@@ -129,6 +129,14 @@ func _all_tests() -> Array:
 		],
 		["match_renderer_hidden_combat_events_do_not_leak", _test_hidden_combat_events_do_not_leak],
 		[
+			"project_uses_fixed_16_9_viewport_stretch",
+			_test_project_uses_fixed_16_9_viewport_stretch
+		],
+		[
+			"match_renderer_camera_fit_uses_logical_viewport_size",
+			_test_camera_fit_uses_logical_viewport_size
+		],
+		[
 			"match_renderer_focuses_player_start_at_playable_zoom",
 			_test_focuses_player_start_at_playable_zoom
 		],
@@ -1915,5 +1923,54 @@ func _test_hidden_combat_events_do_not_leak() -> bool:
 			"hidden combat should not append combat log text, got: %s" % renderer.combat_log_text()
 		)
 		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_project_uses_fixed_16_9_viewport_stretch() -> bool:
+	var ok := true
+	var width := int(ProjectSettings.get_setting("display/window/size/viewport_width", 0))
+	var height := int(ProjectSettings.get_setting("display/window/size/viewport_height", 0))
+	var mode := str(ProjectSettings.get_setting("display/window/stretch/mode", ""))
+	var aspect := str(ProjectSettings.get_setting("display/window/stretch/aspect", ""))
+	if width != 1920:
+		push_error("base viewport width should be 1920, got %d" % width)
+		ok = false
+	if height != 1080:
+		push_error("base viewport height should be 1080, got %d" % height)
+		ok = false
+	if mode != "viewport":
+		push_error("stretch mode should be viewport, got %s" % mode)
+		ok = false
+	if aspect != "keep":
+		push_error("stretch aspect should be keep, got %s" % aspect)
+		ok = false
+	return ok
+
+
+func _test_camera_fit_uses_logical_viewport_size() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[{"def_id": "base", "owner": 0, "origin": Vector2i(2, 2), "footprint": Vector2i(4, 4)}],
+		30,
+		30
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	var camera: Camera2D = renderer.get_node_or_null("Camera2D") as Camera2D
+	if camera == null:
+		push_error("renderer has no Camera2D")
+		_free_renderer(renderer)
+		return false
+	var expected_zoom := 1080.0 / float((30 + 3 * 2) * 32)
+	var ok := is_equal_approx(camera.zoom.x, expected_zoom)
+	if not ok:
+		push_error(
+			(
+				"camera auto-fit zoom should use 1920x1080 logical viewport size, "
+				+ "got %f and expected %f"
+			)
+			% [camera.zoom.x, expected_zoom]
+		)
 	_free_renderer(renderer)
 	return ok
