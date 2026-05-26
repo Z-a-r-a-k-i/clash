@@ -1967,10 +1967,12 @@ func _test_camera_fit_uses_logical_viewport_size() -> bool:
 	if not ok:
 		push_error(
 			(
-				"camera auto-fit zoom should use 1920x1080 logical viewport size, "
-				+ "got %f and expected %f"
+				(
+					"camera auto-fit zoom should use 1920x1080 logical viewport size, "
+					+ "got %f and expected %f"
+				)
+				% [camera.zoom.x, expected_zoom]
 			)
-			% [camera.zoom.x, expected_zoom]
 		)
 	_free_renderer(renderer)
 	return ok
