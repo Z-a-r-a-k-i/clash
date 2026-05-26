@@ -132,13 +132,22 @@ static func _distribute_one(
 					)
 				)
 				continue
+			var source := GatherSystem.resolve_source_for_worker(
+				state, registry, order.target_entity_id, entity.owner_player_id
+			)
+			if source == null:
+				_interrupt_gather_assignment(entity)
+				_emit_order_rejected(order.entity_id, "bad_gather_target", events)
+				continue
+			if not GatherSystem.source_has_open_slot(state, registry, source, entity.id):
+				_interrupt_gather_assignment(entity)
+				_emit_order_rejected(order.entity_id, "source_saturated", events)
+				continue
 			entity.gather_state.assigned_source_entity_id = order.target_entity_id
-			# A loaded worker must drop its existing cargo before starting
-			# the new cycle, otherwise switching to a different resource
-			# type would mis-credit the deposit (carrying_resource_type is
-			# overwritten in _tick_gather).
-			if entity.gather_state.carrying_amount > 0:
-				entity.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
+			entity.gather_state.carrying_amount = 0
+			entity.gather_state.carrying_resource_type = ""
+			if _is_adjacent_to(state, entity, source):
+				entity.gather_state.phase = GatherState.Phase.GATHERING
 			else:
 				entity.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
 			continue
@@ -161,6 +170,18 @@ static func _interrupt_gather_assignment(entity: Entity) -> void:
 		return
 	entity.gather_state.phase = GatherState.Phase.IDLE
 	entity.gather_state.assigned_source_entity_id = -1
+	entity.gather_state.carrying_amount = 0
+	entity.gather_state.carrying_resource_type = ""
+
+
+static func _is_adjacent_to(state: MatchState, a: Entity, b: Entity) -> bool:
+	if state == null or state.tile_grid == null:
+		return false
+	var ar: Rect2i = state.tile_grid.entity_rect(a.id)
+	var br: Rect2i = state.tile_grid.entity_rect(b.id)
+	if ar.size == Vector2i.ZERO or br.size == Vector2i.ZERO:
+		return false
+	return TileGrid.distance_between_rects(ar, br) <= 1
 
 
 static func _set_focus_target_from_chain(

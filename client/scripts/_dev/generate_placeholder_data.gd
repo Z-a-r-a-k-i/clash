@@ -275,6 +275,7 @@ func _gen_neutrals() -> int:
 	patch_source.yield_per_worker_per_turn = 1
 	patch_source.capacity = 1500
 	patch_source.requires_extractor = false
+	patch_source.max_gatherers = 2
 	patch.resource_source = patch_source
 	saved += int(_save(patch, "%s/entities/neutrals/mineral_patch.tres" % DATA_ROOT))
 
@@ -291,6 +292,7 @@ func _gen_neutrals() -> int:
 	gold_patch_source.yield_per_worker_per_turn = 2
 	gold_patch_source.capacity = 2400
 	gold_patch_source.requires_extractor = false
+	gold_patch_source.max_gatherers = 2
 	gold_patch.resource_source = gold_patch_source
 	saved += int(_save(gold_patch, "%s/entities/neutrals/mineral_patch_gold.tres" % DATA_ROOT))
 
@@ -305,6 +307,7 @@ func _gen_neutrals() -> int:
 	geyser_source.yield_per_worker_per_turn = 1
 	geyser_source.capacity = -1
 	geyser_source.requires_extractor = true
+	geyser_source.max_gatherers = 3
 	geyser.resource_source = geyser_source
 	saved += int(_save(geyser, "%s/entities/neutrals/gas_geyser.tres" % DATA_ROOT))
 

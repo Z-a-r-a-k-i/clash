@@ -13,8 +13,7 @@
 ; Workers at (5..8, 10) avoid the base. Geyser is 2x2 placed clear of
 ; everything else.
 ; Mineral patches and the geyser use owner_player_id = -1 (neutral) so
-; the resolver's owner-filtered logic (target validity, deposit-sink
-; lookups, etc.) treats them correctly.
+; the resolver's owner-filtered target validation treats them correctly.
 
 [sub_resource type="Resource" id="Resource_b0"]
 script = ExtResource("2_place")

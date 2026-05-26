@@ -20,7 +20,7 @@ extends RefCounted
 #        Phase 1: self-target abilities.
 #        Phase 2: every combat unit may fire once if it has a target in range.
 #        Phase 3: every unit's move action (+ gather travel).
-#        Phase 4: gather state ticks (yield/deposit).
+#        Phase 4: gather state ticks (direct resource credit).
 #   4. End-of-turn pass: cooldowns, buffs, production progress, is_hidden,
 #      win check.
 #
@@ -28,7 +28,7 @@ extends RefCounted
 # - resolver.gd          (this) — entry point + tick loop
 # - combat_system.gd     — attack resolution + target chains
 # - movement_system.gd   — submitted movement
-# - gather_system.gd     — worker FSM (move-to-source, gather, deposit)
+# - gather_system.gd     — worker FSM (move-to-source, gather at source)
 # - end_of_turn_system.gd — bookkeeping + win check
 # - _state_helpers.gd    — deep-copy + queue distribution
 
@@ -194,8 +194,8 @@ static func resolve(
 						working, entity, order, registry, tunables, events, move_only_budget
 					)
 
-			# Gather workers that are walking to a source or a deposit sink
-			# consume the same movement budget as explicit MOVE orders.
+			# Gather workers walking to a source consume the same movement
+			# budget as explicit MOVE orders.
 			GatherSystem.advance_move_phase(working, per_entity, tick, registry, tunables, events)
 
 			# Workers locked to an in-progress build also consume the same
@@ -204,8 +204,8 @@ static func resolve(
 				working, per_entity, tick, registry, tunables, events
 			)
 
-		# Phase 4 extension: gather workers at a source / sink tick yields
-		# and deposits.
+		# Phase 4 extension: gather workers at a source tick yields and
+		# direct resource credit.
 		GatherSystem.advance_state_phase(working, registry, tunables, events)
 
 	# 5. End-of-turn pass.

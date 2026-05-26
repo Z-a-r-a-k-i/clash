@@ -13,15 +13,15 @@ SC-shaped economy at MVP scope. Just enough to make tech and unit production fee
 
 Two resources, SC2-shaped:
 
-- **Minerals.** Mineral patches are placed in clusters at each base location. Each patch has a finite stockpile (or infinite for prototyping; flag for playtest). Gathered directly by a worker.
-- **Gas.** Each base location has one **gas geyser**. To extract, a player builds a **refinery** on top of the geyser, then assigns workers to gather from it. No refinery → no gas income from that geyser.
+- **Minerals.** Mineral patches are placed in clusters at each base location. Each patch has a finite stockpile (or infinite for prototyping; flag for playtest). Gathered directly by up to two workers.
+- **Gas.** Each base location has one **gas geyser**. To extract, a player builds a **refinery** on top of the geyser, then assigns up to three workers to gather from it. No refinery → no gas income from that geyser.
 
 Units, buildings, and research items each have a cost of `{ minerals, gas }` (either may be zero).
 
 ## Workers
 
 - Each player starts with a base + N workers (N tunable, default 4).
-- A worker assigned to a mineral patch or a refinery is **autonomous**: it gathers each turn, returns to the nearest base to deposit, and resumes — without per-turn re-issuing. This is the anti-overwhelm rule.
+- A worker assigned to a mineral patch or a refinery is **autonomous**: it moves beside the source, stays there, and credits resources each gather tick without per-turn re-issuing. This is the anti-overwhelm rule.
 - Workers can be reassigned manually (build, scout, fight). Reassignment cancels autonomy until the player puts them back on a patch or refinery.
 - Workers count toward the pop cap.
 
@@ -32,10 +32,10 @@ Units, buildings, and research items each have a cost of `{ minerals, gas }` (ei
 
 ## Open questions
 
-- Worker carry capacity / round-trip time: just a stat. Flag for playtest tuning.
+- Worker gather rate and per-source saturation caps are tunables. Current caps are 2 workers per mineral patch and 3 workers per gas geyser.
 - What happens when a mineral patch is depleted? Worker idles and surfaces a UI hint. Optional auto-reassign to nearest patch — defer.
 - Gas geyser depletion: same model as minerals (finite stockpile) or infinite for MVP simplicity? Default infinite at MVP, revisit on playtest.
-- Refinery destruction: when an enemy razes the refinery, the geyser stays but workers idle. Confirmed.
+- Refinery destruction: when an enemy razes the refinery, the geyser stays but gas workers idle. Confirmed.
 
 ## Done when
 
@@ -48,4 +48,4 @@ Units, buildings, and research items each have a cost of `{ minerals, gas }` (ei
 
 ## Artifacts
 
-- PR [#4](https://github.com/Z-a-r-a-k-i/clash/pull/4) — gather pipeline (workers, mineral patches, refinery on geyser, deposit sinks).
+- PR [#4](https://github.com/Z-a-r-a-k-i/clash/pull/4) — original gather pipeline (workers, mineral patches, refinery on geyser).

@@ -2,17 +2,16 @@ class_name GatherSystem
 extends RefCounted
 
 # Worker gather pipeline — drives the IDLE → MOVING_TO_SOURCE → GATHERING
-# → MOVING_TO_BASE → DEPOSITING → MOVING_TO_SOURCE loop on each entity
-# with a non-null `gather_state`. Per plan/m0/04 + the brainstorming
-# session: trip-cycle simulated, idle on invalidation, tag-driven sinks.
+# loop on each entity with a non-null `gather_state`. Workers stay beside
+# their assigned source and credit resources directly each gather tick.
 #
 # The resolver dispatches in two stages every tick:
 #  - advance_move_phase (Phase 2 of the resolver loop): MOVING_TO_SOURCE
-#    and MOVING_TO_BASE workers step toward their target one tile per
-#    tick; reaching the target advances the FSM phase.
+#    workers step toward their target one tile per tick; reaching the
+#    target advances the FSM phase.
 #  - advance_state_phase (after movement): GATHERING
-#    yields a tick of resources from the source; DEPOSITING is instant
-#    and credits the player's pool.
+#    yields a tick of resources from the source and credits the player's
+#    pool immediately.
 #
 # Refinery gating: a GATHER order targeting a refinery (`extractor` tag)
 # is translated to the underlying geyser. A geyser without a covering
@@ -45,13 +44,10 @@ static func advance_move_phase(
 		var phase := actor.gather_state.phase
 		if phase == GatherState.Phase.MOVING_TO_SOURCE:
 			_step_to_source(state, actor, registry, events)
-		elif phase == GatherState.Phase.MOVING_TO_BASE:
-			_step_to_base(state, actor, registry, events)
 
 
 # Phase 3 hook — called per tick after movement.
-# GATHERING yields to cargo + decrements source capacity; DEPOSITING is
-# instant and credits the player.
+# GATHERING yields resources directly and decrements source capacity.
 static func advance_state_phase(
 	state: MatchState, registry: EntityRegistry, _tunables: Tunables, events: Array[ResolverEvent]
 ) -> void:
@@ -63,8 +59,6 @@ static func advance_state_phase(
 		var phase := actor.gather_state.phase
 		if phase == GatherState.Phase.GATHERING:
 			_tick_gather(state, actor, registry, events)
-		elif phase == GatherState.Phase.DEPOSITING:
-			_tick_deposit(state, actor, registry, events)
 
 
 # ---------- Phase 2: travel ----------
@@ -78,7 +72,10 @@ static func _step_to_source(
 	)
 	if source == null:
 		# Source destroyed / refinery missing — idle in place.
-		actor.gather_state.phase = GatherState.Phase.IDLE
+		_clear_gather_assignment(actor)
+		return
+	if not _is_worker_within_source_cap(state, registry, actor, source):
+		_clear_gather_assignment(actor)
 		return
 	if _is_adjacent_to(state, actor, source):
 		actor.gather_state.phase = GatherState.Phase.GATHERING
@@ -94,27 +91,7 @@ static func _step_to_source(
 			actor.gather_state.phase = GatherState.Phase.GATHERING
 
 
-static func _step_to_base(
-	state: MatchState, actor: Entity, registry: EntityRegistry, events: Array[ResolverEvent]
-) -> void:
-	var sink := _nearest_deposit_sink(state, registry, actor)
-	if sink == null:
-		# No bases left — hold cargo, idle.
-		actor.gather_state.phase = GatherState.Phase.IDLE
-		return
-	if _is_adjacent_to(state, actor, sink):
-		actor.gather_state.phase = GatherState.Phase.DEPOSITING
-		return
-	if not _can_step(actor, registry):
-		return
-	var target_tile := _approach_tile_for(state, sink)
-	if MovementSystem.step_toward(state, actor, target_tile, events):
-		actor.moves_used_this_turn += 1
-		if _is_adjacent_to(state, actor, sink):
-			actor.gather_state.phase = GatherState.Phase.DEPOSITING
-
-
-# ---------- Phase 3: gather + deposit ticks ----------
+# ---------- Phase 3: gather ticks ----------
 
 
 static func _tick_gather(
@@ -124,67 +101,53 @@ static func _tick_gather(
 		state, registry, actor.gather_state.assigned_source_entity_id, actor.owner_player_id
 	)
 	if source == null:
-		# Source went away mid-cycle — head back if we have cargo, idle if not.
-		if actor.gather_state.carrying_amount > 0:
-			actor.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
-		else:
-			actor.gather_state.phase = GatherState.Phase.IDLE
+		_clear_gather_assignment(actor)
+		return
+	if not _is_worker_within_source_cap(state, registry, actor, source):
+		_clear_gather_assignment(actor)
 		return
 	# Range check — a fresh MOVE / nudged origin could leave the worker
 	# in GATHERING phase while no longer next to the source. Don't drain
 	# from afar; transition back into travel.
 	if not _is_adjacent_to(state, actor, source):
-		var carry_cap_now := _worker_carry_cap(actor, registry)
-		if actor.gather_state.carrying_amount >= carry_cap_now and carry_cap_now > 0:
-			actor.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
-		else:
-			actor.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
-		return
-	# Cargo full? Head back.
-	var carry_cap := _worker_carry_cap(actor, registry)
-	if actor.gather_state.carrying_amount >= carry_cap:
-		actor.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
+		actor.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
 		return
 	# Drain a tick from the source.
 	var source_def: EntityDef = (
 		registry.get_by_id(source.current_def_id) if registry != null else null
 	)
 	if source_def == null or source_def.resource_source == null:
-		actor.gather_state.phase = GatherState.Phase.IDLE
+		_clear_gather_assignment(actor)
 		return
 	var rsd: ResourceSourceDef = source_def.resource_source
 	var yield_amount: int = rsd.yield_per_worker_per_turn * _worker_gather_rate(actor, registry)
 	if yield_amount <= 0:
 		# A misconfigured source with zero yield would loop the worker in
-		# GATHERING forever. Bail out to MOVING_TO_BASE if we have cargo,
-		# otherwise IDLE.
-		if actor.gather_state.carrying_amount > 0:
-			actor.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
-		else:
-			actor.gather_state.phase = GatherState.Phase.IDLE
+		# GATHERING forever.
+		_clear_gather_assignment(actor)
 		return
-	# Already drained? Head home with whatever cargo we have.
+	# Already drained.
 	if source.current_resource_amount == 0:
-		if actor.gather_state.carrying_amount > 0:
-			actor.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
-		else:
-			actor.gather_state.phase = GatherState.Phase.IDLE
+		_clear_gather_assignment(actor)
 		return
-	# Compute the actual harvest before mutating anything: cap by carry
-	# space AND by source remaining (-1 = infinite). Doing it in one shot
-	# keeps the source from being over-drained when carry_cap is the
-	# binding constraint.
-	var carry_remaining := carry_cap - actor.gather_state.carrying_amount
-	var actual_harvest: int = min(yield_amount, carry_remaining)
+	# Compute the actual harvest before mutating anything: cap by source
+	# remaining (-1 = infinite).
+	var actual_harvest: int = yield_amount
 	if source.current_resource_amount > 0:
 		actual_harvest = min(actual_harvest, source.current_resource_amount)
 	if actual_harvest <= 0:
-		actor.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
+		_clear_gather_assignment(actor)
 		return
 	if source.current_resource_amount > 0:
 		source.current_resource_amount -= actual_harvest
-	actor.gather_state.carrying_amount += actual_harvest
-	actor.gather_state.carrying_resource_type = rsd.resource_type
+	var player := state.get_player(actor.owner_player_id)
+	if player != null:
+		if rsd.resource_type == _SOURCE_TYPE_MINERALS:
+			player.minerals += actual_harvest
+		elif rsd.resource_type == _SOURCE_TYPE_GAS:
+			player.gas += actual_harvest
+	actor.gather_state.carrying_amount = 0
+	actor.gather_state.carrying_resource_type = ""
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.WORKER_GATHERED
 	ev.actor_id = actor.id
@@ -197,50 +160,35 @@ static func _tick_gather(
 		dep.type = ResolverEvent.Type.RESOURCE_DEPLETED
 		dep.target_id = source.id
 		events.append(dep)
-		actor.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
+		_clear_gather_assignment(actor)
 		return
-	# Carrying full? Head back.
-	if actor.gather_state.carrying_amount >= carry_cap:
-		actor.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
-
-
-static func _tick_deposit(
-	state: MatchState, actor: Entity, registry: EntityRegistry, events: Array[ResolverEvent]
-) -> void:
-	var sink := _nearest_deposit_sink(state, registry, actor)
-	if sink == null or not _is_adjacent_to(state, actor, sink):
-		# Drifted out of range somehow; head back.
-		actor.gather_state.phase = GatherState.Phase.MOVING_TO_BASE
-		return
-	var amount := actor.gather_state.carrying_amount
-	var resource_type := actor.gather_state.carrying_resource_type
-	if amount > 0:
-		var player := state.get_player(actor.owner_player_id)
-		if player != null:
-			if resource_type == _SOURCE_TYPE_MINERALS:
-				player.minerals += amount
-			elif resource_type == _SOURCE_TYPE_GAS:
-				player.gas += amount
-		var ev := ResolverEvent.new()
-		ev.type = ResolverEvent.Type.WORKER_DEPOSITED
-		ev.actor_id = actor.id
-		ev.target_id = sink.id
-		ev.def_id = resource_type
-		ev.amount = amount
-		events.append(ev)
-	actor.gather_state.carrying_amount = 0
-	actor.gather_state.carrying_resource_type = ""
-	# Loop back to the assigned source if it's still valid; otherwise idle.
-	var source := _resolve_source(
-		state, registry, actor.gather_state.assigned_source_entity_id, actor.owner_player_id
-	)
-	if source != null:
-		actor.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
-	else:
-		actor.gather_state.phase = GatherState.Phase.IDLE
 
 
 # ---------- Helpers ----------
+
+
+static func resolve_source_for_worker(
+	state: MatchState, registry: EntityRegistry, target_entity_id: int, owner_id: int
+) -> Entity:
+	return _resolve_source(state, registry, target_entity_id, owner_id)
+
+
+static func source_has_open_slot(
+	state: MatchState, registry: EntityRegistry, source: Entity, actor_id: int = -1
+) -> bool:
+	var cap: int = source_gatherer_cap(registry, source)
+	if cap <= 0:
+		return false
+	return _assigned_gatherer_count_for_source(state, registry, source.id, actor_id) < cap
+
+
+static func source_gatherer_cap(registry: EntityRegistry, source: Entity) -> int:
+	if registry == null or source == null:
+		return 0
+	var def: EntityDef = registry.get_by_id(source.current_def_id)
+	if def == null or def.resource_source == null:
+		return 0
+	return max(0, def.resource_source.max_gatherers)
 
 
 # Resolve a target entity id to a usable resource source. Handles
@@ -283,6 +231,55 @@ static func _resolve_source(
 			return null
 		return _find_geyser_under(state, registry, target)
 	return null
+
+
+static func _assigned_gatherer_count_for_source(
+	state: MatchState, registry: EntityRegistry, source_id: int, excluded_actor_id: int = -1
+) -> int:
+	var count := 0
+	for worker in state.entities_sorted_by_id():
+		if worker == null or worker.id == excluded_actor_id or worker.current_hp <= 0:
+			continue
+		if worker.gather_state == null or worker.gather_state.phase == GatherState.Phase.IDLE:
+			continue
+		var assigned_source := _resolve_source(
+			state, registry, worker.gather_state.assigned_source_entity_id, worker.owner_player_id
+		)
+		if assigned_source != null and assigned_source.id == source_id:
+			count += 1
+	return count
+
+
+static func _is_worker_within_source_cap(
+	state: MatchState, registry: EntityRegistry, actor: Entity, source: Entity
+) -> bool:
+	var cap: int = source_gatherer_cap(registry, source)
+	if cap <= 0:
+		return false
+	var rank := 0
+	for worker in state.entities_sorted_by_id():
+		if worker == null or worker.current_hp <= 0:
+			continue
+		if worker.gather_state == null or worker.gather_state.phase == GatherState.Phase.IDLE:
+			continue
+		var assigned_source := _resolve_source(
+			state, registry, worker.gather_state.assigned_source_entity_id, worker.owner_player_id
+		)
+		if assigned_source == null or assigned_source.id != source.id:
+			continue
+		if worker.id == actor.id:
+			return rank < cap
+		rank += 1
+	return false
+
+
+static func _clear_gather_assignment(actor: Entity) -> void:
+	if actor == null or actor.gather_state == null:
+		return
+	actor.gather_state.phase = GatherState.Phase.IDLE
+	actor.gather_state.assigned_source_entity_id = -1
+	actor.gather_state.carrying_amount = 0
+	actor.gather_state.carrying_resource_type = ""
 
 
 # Look for an entity owned by `owner_id` at the same tile as `geyser`
@@ -337,38 +334,6 @@ static func _find_geyser_under(
 	return null
 
 
-# Nearest owned `deposit_sink` building. Ties broken by id (stable
-# iteration order from `entities_sorted_by_id`).
-static func _nearest_deposit_sink(
-	state: MatchState, registry: EntityRegistry, worker: Entity
-) -> Entity:
-	if state.tile_grid == null or registry == null:
-		return null
-	var best: Entity = null
-	var best_dist := -1
-	var worker_rect := state.tile_grid.entity_rect(worker.id)
-	if worker_rect.size == Vector2i.ZERO:
-		return null
-	for e in state.entities_sorted_by_id():
-		if e.id == worker.id or e.current_hp <= 0:
-			continue
-		if e.owner_player_id != worker.owner_player_id:
-			continue
-		var def: EntityDef = registry.get_by_id(e.current_def_id)
-		if def == null or not def.tags.has("deposit_sink"):
-			continue
-		var rect := state.tile_grid.entity_rect(e.id)
-		if rect.size == Vector2i.ZERO:
-			continue
-		var d := TileGrid.distance_between_rects(worker_rect, rect)
-		if d < 0:
-			continue
-		if best == null or d < best_dist:
-			best = e
-			best_dist = d
-	return best
-
-
 static func _is_adjacent_to(state: MatchState, a: Entity, b: Entity) -> bool:
 	if state.tile_grid == null:
 		return false
@@ -398,15 +363,6 @@ static func _can_step(actor: Entity, registry: EntityRegistry) -> bool:
 	if def == null or def.movement == null:
 		return false
 	return actor.moves_used_this_turn < def.movement.speed_tiles_per_turn
-
-
-static func _worker_carry_cap(actor: Entity, registry: EntityRegistry) -> int:
-	if registry == null:
-		return 0
-	var def: EntityDef = registry.get_by_id(actor.current_def_id)
-	if def == null or def.gather == null:
-		return 0
-	return def.gather.carry_amount
 
 
 static func _worker_gather_rate(actor: Entity, registry: EntityRegistry) -> int:
