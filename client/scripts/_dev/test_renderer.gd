@@ -47,6 +47,11 @@ func _all_tests() -> Array:
 		["match_renderer_renders_zero_hp_resource_sources", _test_renders_zero_hp_resource_sources],
 		["match_renderer_owner_modulate", _test_match_renderer_owner_modulate],
 		["match_renderer_uses_visuals_registry", _test_match_renderer_uses_visuals_registry],
+		[
+			"match_renderer_uses_mipmap_sprite_filtering",
+			_test_match_renderer_uses_mipmap_sprite_filtering
+		],
+		["entity_sprite_imports_generate_mipmaps", _test_entity_sprite_imports_generate_mipmaps],
 		# Chunk 4 — render_step events + reconciliation.
 		["match_renderer_step_reconciles_destroyed_entity", _test_step_reconciles_destroyed_entity],
 		["match_renderer_step_renders_attack_event", _test_step_renders_attack_event],
@@ -129,9 +134,18 @@ func _all_tests() -> Array:
 		],
 		["match_renderer_hidden_combat_events_do_not_leak", _test_hidden_combat_events_do_not_leak],
 		[
+			"project_uses_fixed_16_9_viewport_stretch",
+			_test_project_uses_fixed_16_9_viewport_stretch
+		],
+		[
+			"match_renderer_camera_fit_uses_logical_viewport_size",
+			_test_camera_fit_uses_logical_viewport_size
+		],
+		[
 			"match_renderer_focuses_player_start_at_playable_zoom",
 			_test_focuses_player_start_at_playable_zoom
 		],
+		["match_renderer_updates_zoom_debug_readout", _test_updates_zoom_debug_readout],
 		["match_renderer_camera_pan_and_zoom_helpers", _test_camera_pan_and_zoom_helpers],
 	]
 
@@ -342,6 +356,58 @@ func _test_match_renderer_uses_visuals_registry() -> bool:
 	return ok
 
 
+func _test_match_renderer_uses_mipmap_sprite_filtering() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(2, 2)},
+		],
+		10,
+		10
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state, registry)
+	var view: EntityView = renderer.get_entity_view(state.entities[0].id)
+	if view == null:
+		push_error("expected marine view")
+		_free_renderer(renderer)
+		return false
+	var sprite: Sprite2D = view.get_node_or_null("Sprite2D") as Sprite2D
+	if sprite == null:
+		push_error("expected marine Sprite2D")
+		_free_renderer(renderer)
+		return false
+	var ok: bool = sprite.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	if not ok:
+		push_error(
+			"entity sprites should use nearest mipmap filtering, got %d" % sprite.texture_filter
+		)
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_entity_sprite_imports_generate_mipmaps() -> bool:
+	var visuals: EntityVisuals = load("res://data/entity_visuals.tres") as EntityVisuals
+	if visuals == null:
+		push_error("could not load entity visuals")
+		return false
+	var ok: bool = true
+	for def_id: String in visuals.sprite_paths.keys():
+		var path: String = visuals.sprite_paths.get(def_id, "")
+		if path == "":
+			continue
+		var import_path: String = "%s.import" % path
+		var text: String = FileAccess.get_file_as_string(import_path)
+		if text == "":
+			push_error("could not read import metadata for %s at %s" % [def_id, import_path])
+			ok = false
+			continue
+		if text.find("mipmaps/generate=true") == -1:
+			push_error("%s sprite import should generate mipmaps: %s" % [def_id, import_path])
+			ok = false
+	return ok
+
+
 func _test_focuses_player_start_at_playable_zoom() -> bool:
 	var registry: EntityRegistry = _renderer_registry()
 	var state: MatchState = _make_renderer_state(
@@ -426,6 +492,38 @@ func _test_focuses_player_start_at_playable_zoom() -> bool:
 				% str(camera.position)
 			)
 		)
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_updates_zoom_debug_readout() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
+		[{"def_id": "base", "owner": 0, "origin": Vector2i(2, 2), "footprint": Vector2i(4, 4)}],
+		30,
+		30
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state, registry)
+	if not renderer.has_method("zoom_debug_text"):
+		push_error("renderer should expose zoom_debug_text for dev zoom calibration")
+		_free_renderer(renderer)
+		return false
+	var text_before: String = renderer.call("zoom_debug_text")
+	var ok: bool = true
+	var label: Label = renderer.get_node_or_null("HUD/ZoomDebug") as Label
+	if label == null or not label.visible:
+		push_error("zoom debug readout should create a visible HUD/ZoomDebug label")
+		ok = false
+	for required: String in ["Zoom", "Tile", "1x1", "2x2"]:
+		if text_before.find(required) == -1:
+			push_error("zoom debug readout should include %s, got: %s" % [required, text_before])
+			ok = false
+	renderer.call("zoom_camera", 2.0)
+	var text_after: String = renderer.call("zoom_debug_text")
+	if text_after == text_before:
+		push_error("zoom debug readout should update after zoom changes")
 		ok = false
 	_free_renderer(renderer)
 	return ok
@@ -1915,5 +2013,56 @@ func _test_hidden_combat_events_do_not_leak() -> bool:
 			"hidden combat should not append combat log text, got: %s" % renderer.combat_log_text()
 		)
 		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_project_uses_fixed_16_9_viewport_stretch() -> bool:
+	var ok: bool = true
+	var width: int = int(ProjectSettings.get_setting("display/window/size/viewport_width", 0))
+	var height: int = int(ProjectSettings.get_setting("display/window/size/viewport_height", 0))
+	var mode: String = str(ProjectSettings.get_setting("display/window/stretch/mode", ""))
+	var aspect: String = str(ProjectSettings.get_setting("display/window/stretch/aspect", ""))
+	if width != 1920:
+		push_error("base viewport width should be 1920, got %d" % width)
+		ok = false
+	if height != 1080:
+		push_error("base viewport height should be 1080, got %d" % height)
+		ok = false
+	if mode != "viewport":
+		push_error("stretch mode should be viewport, got %s" % mode)
+		ok = false
+	if aspect != "keep":
+		push_error("stretch aspect should be keep, got %s" % aspect)
+		ok = false
+	return ok
+
+
+func _test_camera_fit_uses_logical_viewport_size() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
+		[{"def_id": "base", "owner": 0, "origin": Vector2i(2, 2), "footprint": Vector2i(4, 4)}],
+		30,
+		30
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state, registry)
+	var camera: Camera2D = renderer.get_node_or_null("Camera2D") as Camera2D
+	if camera == null:
+		push_error("renderer has no Camera2D")
+		_free_renderer(renderer)
+		return false
+	var expected_zoom: float = 1080.0 / float((30 + 3 * 2) * 32)
+	var ok: bool = is_equal_approx(camera.zoom.x, expected_zoom)
+	if not ok:
+		push_error(
+			(
+				(
+					"camera auto-fit zoom should use 1920x1080 logical viewport size, "
+					+ "got %f and expected %f"
+				)
+				% [camera.zoom.x, expected_zoom]
+			)
+		)
 	_free_renderer(renderer)
 	return ok

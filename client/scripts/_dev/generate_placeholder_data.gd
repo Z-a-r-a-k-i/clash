@@ -68,7 +68,6 @@ func _gen_abilities() -> int:
 	siege.target_range = 0
 	siege.cooldown_turns = 0
 	siege.cast_time_turns = 1
-	siege.requires_research_id = "siege_mode_research"
 	var siege_effect := TransformEffect.new()
 	siege_effect.to_def_id = "siege_tank"
 	siege.effect = siege_effect
@@ -82,7 +81,6 @@ func _gen_abilities() -> int:
 	unsiege.target_range = 0
 	unsiege.cooldown_turns = 0
 	unsiege.cast_time_turns = 1
-	unsiege.requires_research_id = "siege_mode_research"
 	var unsiege_effect := TransformEffect.new()
 	unsiege_effect.to_def_id = "tank"
 	unsiege.effect = unsiege_effect
@@ -102,12 +100,12 @@ func _gen_units() -> int:
 	marine.display_name = "Marine"
 	marine.footprint = Vector2i(1, 1)
 	marine.tags = ["light", "biological", "ground"]
-	marine.health = _health(50)
-	marine.combat = _combat(6, 5, ["ground", "flying"], [])
+	marine.health = _health(45)
+	marine.combat = _combat(18, 3, ["ground", "flying"], [])
 	marine.movement = _movement(4, "ground")
-	marine.vision = _vision(7)
+	marine.vision = _vision(4)
 	marine.population = _pop_cost(1)
-	marine.construction = _construction(3, 50, 0, "barracks")
+	marine.construction = _construction(2, 100, 0, "barracks")
 	marine.abilities = _abilities([_ability_ref("stim")])
 	saved += int(_save(marine, "%s/entities/units/marine.tres" % DATA_ROOT))
 
@@ -117,12 +115,12 @@ func _gen_units() -> int:
 	tank.display_name = "Tank"
 	tank.footprint = Vector2i(2, 2)
 	tank.tags = ["heavy", "mechanical", "ground"]
-	tank.health = _health(150)
-	tank.combat = _combat(15, 7, ["ground"], [])
-	tank.movement = _movement(2, "ground")
-	tank.vision = _vision(8)
+	tank.health = _health(175)
+	tank.combat = _combat(30, 3, ["ground"], [])
+	tank.movement = _movement(3, "ground")
+	tank.vision = _vision(5)
 	tank.population = _pop_cost(3)
-	tank.construction = _construction(8, 150, 100, "factory")
+	tank.construction = _construction(4, 150, 125, "factory")
 	tank.abilities = _abilities([_ability_ref("siege_mode")])
 	saved += int(_save(tank, "%s/entities/units/tank.tres" % DATA_ROOT))
 
@@ -132,12 +130,12 @@ func _gen_units() -> int:
 	siege_tank.display_name = "Siege Tank"
 	siege_tank.footprint = Vector2i(2, 2)
 	siege_tank.tags = ["heavy", "mechanical", "ground"]
-	siege_tank.health = _health(150)
-	siege_tank.combat = _combat(30, 12, ["ground"], [])
+	siege_tank.health = _health(175)
+	siege_tank.combat = _combat(40, 6, ["ground"], [])
 	# No MovementDef — sieged tank can't move.
-	siege_tank.vision = _vision(10)
+	siege_tank.vision = _vision(5)
 	siege_tank.population = _pop_cost(3)
-	# Not built directly; transform target only.
+	siege_tank.construction = _construction(5, 150, 125, "factory")
 	siege_tank.abilities = _abilities([_ability_ref("unsiege_mode")])
 	saved += int(_save(siege_tank, "%s/entities/units/siege_tank.tres" % DATA_ROOT))
 
@@ -147,12 +145,12 @@ func _gen_units() -> int:
 	heli.display_name = "Helicopter"
 	heli.footprint = Vector2i(1, 1)
 	heli.tags = ["light", "mechanical", "flying"]
-	heli.health = _health(80)
-	heli.combat = _combat(10, 5, ["ground", "flying"], [])
-	heli.movement = _movement(6, "flying")
-	heli.vision = _vision(9)
-	heli.population = _pop_cost(4)
-	heli.construction = _construction(6, 100, 50, "starport")
+	heli.health = _health(140)
+	heli.combat = _combat(25, 3, ["ground", "flying"], [])
+	heli.movement = _movement(5, "flying")
+	heli.vision = _vision(4)
+	heli.population = _pop_cost(3)
+	heli.construction = _construction(4, 150, 100, "starport")
 	saved += int(_save(heli, "%s/entities/units/helicopter.tres" % DATA_ROOT))
 
 	# Worker — gathers, builds, weak combat.
@@ -162,12 +160,12 @@ func _gen_units() -> int:
 	worker.footprint = Vector2i(1, 1)
 	worker.tags = ["worker", "light", "biological", "ground"]
 	worker.health = _health(40)
-	worker.combat = _combat(2, 1, ["ground"], [])
-	worker.movement = _movement(3, "ground")
-	worker.vision = _vision(5)
+	worker.combat = _combat(10, 2, ["ground"], [])
+	worker.movement = _movement(2, "ground")
+	worker.vision = _vision(4)
 	worker.population = _pop_cost(1)
 	worker.construction = _construction(2, 50, 0, "base")
-	worker.gather = _gather(1, 5, ["minerals", "gas"])
+	worker.gather = _gather(10, 50, ["minerals", "gas"])
 	saved += int(_save(worker, "%s/entities/units/worker.tres" % DATA_ROOT))
 
 	return saved
@@ -184,10 +182,10 @@ func _gen_buildings() -> int:
 	base.display_name = "Base"
 	base.footprint = Vector2i(4, 4)
 	base.tags = ["building", "base", "structure", "ground"]
-	base.health = _health(1500)
-	base.vision = _vision(10)
-	base.population = _pop_provides(10)
-	base.construction = _construction(20, 400, 0, "worker")
+	base.health = _health(1000)
+	base.vision = _vision(5)
+	base.population = _pop_provides(15)
+	base.construction = _construction(5, 400, 0, "worker")
 	var base_prod := ProductionDef.new()
 	base_prod.produces = ["worker"]
 	base_prod.queue_capacity = 1
@@ -201,9 +199,9 @@ func _gen_buildings() -> int:
 	refinery.display_name = "Refinery"
 	refinery.footprint = Vector2i(2, 2)
 	refinery.tags = ["building", "refinery", "structure", "ground", "extractor"]
-	refinery.health = _health(750)
-	refinery.vision = _vision(8)
-	var refinery_construction := _construction(8, 75, 0, "worker")
+	refinery.health = _health(300)
+	refinery.vision = _vision(4)
+	var refinery_construction := _construction(3, 75, 0, "worker")
 	refinery_construction.requires_target_tag = "gas_geyser"
 	refinery.construction = refinery_construction
 	saved += int(_save(refinery, "%s/entities/buildings/refinery.tres" % DATA_ROOT))
@@ -214,9 +212,9 @@ func _gen_buildings() -> int:
 	barracks.display_name = "Barracks"
 	barracks.footprint = Vector2i(3, 3)
 	barracks.tags = ["building", "barracks", "structure", "ground"]
-	barracks.health = _health(1000)
-	barracks.vision = _vision(8)
-	barracks.construction = _construction(10, 150, 0, "worker")
+	barracks.health = _health(600)
+	barracks.vision = _vision(4)
+	barracks.construction = _construction(3, 150, 0, "worker")
 	var barracks_prod := ProductionDef.new()
 	barracks_prod.produces = ["marine"]
 	barracks_prod.queue_capacity = 1
@@ -230,13 +228,14 @@ func _gen_buildings() -> int:
 	factory.display_name = "Factory"
 	factory.footprint = Vector2i(3, 3)
 	factory.tags = ["building", "factory", "structure", "ground"]
-	factory.health = _health(1250)
-	factory.vision = _vision(8)
-	factory.construction = _construction(12, 200, 100, "worker")
+	factory.health = _health(800)
+	factory.vision = _vision(4)
+	factory.construction = _construction(4, 150, 100, "worker")
 	var factory_prod := ProductionDef.new()
-	factory_prod.produces = ["tank"]
+	factory_prod.produces = ["siege_tank"]
 	factory_prod.queue_capacity = 1
 	factory_prod.rally_offset = Vector2i(0, 3)
+	factory_prod.researches = ["siege_mode_research"]
 	factory.production = factory_prod
 	saved += int(_save(factory, "%s/entities/buildings/factory.tres" % DATA_ROOT))
 
@@ -246,9 +245,9 @@ func _gen_buildings() -> int:
 	starport.display_name = "Starport"
 	starport.footprint = Vector2i(3, 3)
 	starport.tags = ["building", "starport", "structure", "ground"]
-	starport.health = _health(1300)
-	starport.vision = _vision(8)
-	starport.construction = _construction(12, 150, 100, "worker")
+	starport.health = _health(800)
+	starport.vision = _vision(4)
+	starport.construction = _construction(5, 150, 100, "worker")
 	var starport_prod := ProductionDef.new()
 	starport_prod.produces = ["helicopter"]
 	starport_prod.queue_capacity = 1

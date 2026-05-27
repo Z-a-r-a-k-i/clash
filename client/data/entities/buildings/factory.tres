@@ -8,14 +8,14 @@
 
 [sub_resource type="Resource" id="Resource_teikm"]
 script = ExtResource("1_teikm")
-build_time_turns = 6
+build_time_turns = 4
 mineral_cost = 150
 gas_cost = 100
 built_by_tag = "worker"
 
 [sub_resource type="Resource" id="Resource_7sni7"]
 script = ExtResource("2_7sni7")
-max_hp = 1250
+max_hp = 800
 
 [sub_resource type="Resource" id="Resource_4m0gq"]
 script = ExtResource("3_4m0gq")
@@ -25,7 +25,7 @@ rally_offset = Vector2i(0, 3)
 
 [sub_resource type="Resource" id="Resource_7dg4b"]
 script = ExtResource("5_6vqm3")
-sight_radius = 5
+sight_radius = 4
 
 [resource]
 script = ExtResource("4_7dg4b")

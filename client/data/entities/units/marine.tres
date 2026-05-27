@@ -18,8 +18,8 @@ abilities = Array[ExtResource("1_8lhvr")]([ExtResource("2_fhr86")])
 
 [sub_resource type="Resource" id="Resource_fhr86"]
 script = ExtResource("5_gupk4")
-damage = 6
-attack_range = 5
+damage = 18
+attack_range = 3
 target_layers = Array[String](["ground", "flying"])
 
 [sub_resource type="Resource" id="Resource_5pl11"]
@@ -42,7 +42,7 @@ pop_cost = 1
 
 [sub_resource type="Resource" id="Resource_1yx6c"]
 script = ExtResource("11_io4my")
-sight_radius = 3
+sight_radius = 4
 
 [resource]
 script = ExtResource("10_3nnfw")

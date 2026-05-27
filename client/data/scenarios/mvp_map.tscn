@@ -38,11 +38,6 @@ def_id = "worker"
 owner_player_id = 0
 tile_position = Vector2i(10, 26)
 
-[node name="P0MainMineral_top_0" type="Node2D" parent="Placements" unique_id=1987221035]
-script = ExtResource("2_jxci3")
-def_id = "mineral_patch"
-tile_position = Vector2i(7, 20)
-
 [node name="P0MainMineral_top_1" type="Node2D" parent="Placements" unique_id=485864370]
 script = ExtResource("2_jxci3")
 def_id = "mineral_patch"
@@ -57,11 +52,6 @@ tile_position = Vector2i(9, 20)
 script = ExtResource("2_jxci3")
 def_id = "mineral_patch"
 tile_position = Vector2i(10, 20)
-
-[node name="P0MainMineral_bot_0" type="Node2D" parent="Placements" unique_id=1546892221]
-script = ExtResource("2_jxci3")
-def_id = "mineral_patch"
-tile_position = Vector2i(7, 27)
 
 [node name="P0MainMineral_bot_1" type="Node2D" parent="Placements" unique_id=2028800259]
 script = ExtResource("2_jxci3")
@@ -81,4 +71,4 @@ tile_position = Vector2i(10, 27)
 [node name="P0MainGeyser" type="Node2D" parent="Placements" unique_id=1118236713]
 script = ExtResource("2_jxci3")
 def_id = "gas_geyser"
-tile_position = Vector2i(6, 22)
+tile_position = Vector2i(6, 21)

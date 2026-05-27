@@ -90,6 +90,7 @@ func _all_tests() -> Array:
 		["csv_header_is_stable", _test_csv_header_is_stable],
 		["known_rows_exist", _test_known_rows_exist],
 		["nested_values_are_exported", _test_nested_values_are_exported],
+		["balance_adjustments_are_exported", _test_balance_adjustments_are_exported],
 		["missing_capabilities_are_empty", _test_missing_capabilities_are_empty],
 	]
 
@@ -136,7 +137,7 @@ func _test_nested_values_are_exported() -> bool:
 	ok = _expect_cell(marine, "ability_ids", "stim") and ok
 
 	var siege_tank := _row_by_id("siege_tank")
-	ok = _expect_cell(siege_tank, "combat_attack_modifiers", "heavy:1.5") and ok
+	ok = _expect_cell(siege_tank, "combat_attack_modifiers", "") and ok
 
 	var base := _row_by_id("base")
 	ok = _expect_cell(base, "production_produces", "worker") and ok
@@ -172,6 +173,44 @@ func _test_nested_values_are_exported() -> bool:
 	ok = _expect_cell(stim, "effect_duration_turns", "3") and ok
 	ok = _expect_cell(stim, "effect_damage_mult", "1.5") and ok
 	ok = _expect_cell(stim, "effect_speed_mult", "1.5") and ok
+	return ok
+
+
+func _test_balance_adjustments_are_exported() -> bool:
+	if not _ensure_csv_loaded():
+		return false
+	var ok := true
+
+	var marine := _row_by_id("marine")
+	ok = _expect_cell(marine, "health_max_hp", "45") and ok
+	ok = _expect_cell(marine, "combat_damage", "18") and ok
+	ok = _expect_cell(marine, "combat_attack_range", "3") and ok
+	ok = _expect_cell(marine, "vision_sight_radius", "4") and ok
+
+	var tank := _row_by_id("tank")
+	ok = _expect_cell(tank, "health_max_hp", "175") and ok
+	ok = _expect_cell(tank, "combat_damage", "30") and ok
+	ok = _expect_cell(tank, "combat_attack_range", "3") and ok
+	ok = _expect_cell(tank, "movement_speed", "3") and ok
+	ok = _expect_cell(tank, "construction_gas_cost", "125") and ok
+
+	var siege_tank := _row_by_id("siege_tank")
+	ok = _expect_cell(siege_tank, "combat_damage", "40") and ok
+	ok = _expect_cell(siege_tank, "combat_attack_range", "6") and ok
+	ok = _expect_cell(siege_tank, "combat_attack_modifiers", "") and ok
+
+	var helicopter := _row_by_id("helicopter")
+	ok = _expect_cell(helicopter, "combat_damage", "25") and ok
+	ok = _expect_cell(helicopter, "combat_attack_range", "3") and ok
+	ok = _expect_cell(helicopter, "vision_sight_radius", "4") and ok
+	ok = _expect_cell(helicopter, "combat_attack_modifiers", "") and ok
+
+	var siege_mode := _row_by_id("siege_mode")
+	ok = _expect_cell(siege_mode, "ability_requires_research_id", "") and ok
+
+	var unsiege_mode := _row_by_id("unsiege_mode")
+	ok = _expect_cell(unsiege_mode, "ability_requires_research_id", "") and ok
+
 	return ok
 
 

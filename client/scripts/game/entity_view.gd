@@ -70,6 +70,7 @@ func update_from_state(
 	position = Vector2(center_x, center_y)
 
 	if _sprite != null:
+		_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
 		_sprite.texture = sprite_texture
 		_sprite.modulate = _current_modulate()
 		# Scale the sprite so it covers the placement rect in world pixels.
