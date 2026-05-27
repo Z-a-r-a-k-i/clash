@@ -411,7 +411,7 @@ func _resolve_internal_nodes() -> void:
 	if _zoom_debug == null:
 		_zoom_debug = get_node_or_null("HUD/ZoomDebug") as Label
 	if _zoom_debug == null:
-		var hud := get_node_or_null("HUD") as CanvasLayer
+		var hud: CanvasLayer = get_node_or_null("HUD") as CanvasLayer
 		if hud != null:
 			_zoom_debug = Label.new()
 			_zoom_debug.name = _ZOOM_DEBUG_NODE_NAME
