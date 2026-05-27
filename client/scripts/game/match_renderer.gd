@@ -58,6 +58,10 @@ const _VIEWPORT_WIDTH_SETTING := "display/window/size/viewport_width"
 const _VIEWPORT_HEIGHT_SETTING := "display/window/size/viewport_height"
 const _BUILDING_MEMORY_ENTITY := "entity"
 const _BUILDING_MEMORY_RECT := "rect"
+const _ZOOM_DEBUG_NODE_NAME := "ZoomDebug"
+const _ZOOM_DEBUG_POSITION := Vector2(12.0, 12.0)
+const _ZOOM_DEBUG_SIZE := Vector2(360.0, 72.0)
+const _ZOOM_DEBUG_FONT_SIZE := 18
 
 # Hit flash applied to the target sprite for ~150 ms when ENTITY_DAMAGED
 # fires. Quick pulse to white-ish gives a readable "got hit" cue without
@@ -89,6 +93,7 @@ var _visibility_by_player: Dictionary = {}
 var _seen_tiles_by_player: Dictionary = {}
 var _seen_enemy_building_snapshots_by_player: Dictionary = {}
 var _event_visible_entity_ids: Dictionary[int, bool] = {}
+var _zoom_debug_text: String = ""
 
 @onready var _entities_root: Node2D = $Entities
 @onready var _terrain: TileMapLayer = $Terrain
@@ -104,6 +109,7 @@ var _production_progress_root: Node2D = get_node_or_null("Overlays/ProductionPro
 )
 @onready var _damage_labels_root: Node2D = $Overlays/DamageLabels
 @onready var _combat_log: RichTextLabel = $HUD/CombatLog
+@onready var _zoom_debug: Label = get_node_or_null("HUD/ZoomDebug") as Label
 
 
 # Initial bind: take a freshly-loaded MatchState and populate the scene
@@ -198,6 +204,10 @@ func combat_log_text() -> String:
 
 func combat_log_line_count() -> int:
 	return _combat_log_lines.size()
+
+
+func zoom_debug_text() -> String:
+	return _zoom_debug_text
 
 
 func world_to_tile(world_position: Vector2) -> Vector2i:
@@ -398,6 +408,21 @@ func _resolve_internal_nodes() -> void:
 		_damage_labels_root = get_node_or_null("Overlays/DamageLabels") as Node2D
 	if _combat_log == null:
 		_combat_log = get_node_or_null("HUD/CombatLog") as RichTextLabel
+	if _zoom_debug == null:
+		_zoom_debug = get_node_or_null("HUD/ZoomDebug") as Label
+	if _zoom_debug == null:
+		var hud := get_node_or_null("HUD") as CanvasLayer
+		if hud != null:
+			_zoom_debug = Label.new()
+			_zoom_debug.name = _ZOOM_DEBUG_NODE_NAME
+			_zoom_debug.position = _ZOOM_DEBUG_POSITION
+			_zoom_debug.size = _ZOOM_DEBUG_SIZE
+			_zoom_debug.add_theme_font_size_override("font_size", _ZOOM_DEBUG_FONT_SIZE)
+			_zoom_debug.add_theme_color_override("font_color", Color(0.92, 0.94, 1.0, 1.0))
+			_zoom_debug.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
+			_zoom_debug.add_theme_constant_override("shadow_offset_x", 1)
+			_zoom_debug.add_theme_constant_override("shadow_offset_y", 1)
+			hud.add_child(_zoom_debug)
 
 
 func _clear_existing_views() -> void:
@@ -763,6 +788,25 @@ func _set_camera_zoom(value: float) -> void:
 		return
 	var zoom: float = clampf(value, _MIN_CAMERA_ZOOM, _MAX_CAMERA_ZOOM)
 	_camera.zoom = Vector2.ONE * zoom
+	_update_zoom_debug_readout()
+
+
+func _update_zoom_debug_readout() -> void:
+	if _camera == null:
+		_zoom_debug_text = ""
+		return
+	var tile_px: float = float(_tile_size) * _camera.zoom.x
+	_zoom_debug_text = (
+		"Zoom %.2fx\nTile %.1f logical px\n1x1 %.1f px | 2x2 %.1f px"
+		% [
+			_camera.zoom.x,
+			tile_px,
+			tile_px,
+			tile_px * 2.0,
+		]
+	)
+	if _zoom_debug != null:
+		_zoom_debug.text = _zoom_debug_text
 
 
 func _player_world_bounds(player_id: int) -> Rect2:
