@@ -57,7 +57,8 @@ static func find_path(
 	var came_from: Dictionary = {}
 	var reached: Dictionary = {start_key: start}
 	var closed: Dictionary = {}
-	open.append(
+	_heap_push_open(
+		open,
 		_node(
 			start,
 			0,
@@ -76,8 +77,7 @@ static func find_path(
 	var best_cost: int = 0
 
 	while not open.is_empty():
-		open.sort_custom(_node_less)
-		var current_node: Dictionary = open.pop_front()
+		var current_node: Dictionary = _heap_pop_open(open)
 		var current: Vector2i = current_node["origin"]
 		var current_key: String = _key(current)
 		if closed.has(current_key):
@@ -127,7 +127,7 @@ static func find_path(
 			var m: int = _manhattan_distance(
 				next, footprint, target_origin, goal_rect, exact_origin
 			)
-			open.append(_node(next, tentative_cost, h, m))
+			_heap_push_open(open, _node(next, tentative_cost, h, m))
 
 	if best_origin == start:
 		return out
@@ -246,6 +246,46 @@ static func _node_less(a: Dictionary, b: Dictionary) -> bool:
 	return ao.x < bo.x
 
 
+static func _heap_push_open(open: Array[Dictionary], item: Dictionary) -> void:
+	open.append(item)
+	var child: int = open.size() - 1
+	while child > 0:
+		var parent: int = int(floor(float(child - 1) * 0.5))
+		if not _node_less(open[child], open[parent]):
+			return
+		var parent_node: Dictionary = open[parent]
+		open[parent] = open[child]
+		open[child] = parent_node
+		child = parent
+
+
+static func _heap_pop_open(open: Array[Dictionary]) -> Dictionary:
+	var root: Dictionary = open[0]
+	var last: Dictionary = open.pop_back()
+	if not open.is_empty():
+		open[0] = last
+		_heap_sift_down_open(open, 0)
+	return root
+
+
+static func _heap_sift_down_open(open: Array[Dictionary], start_index: int) -> void:
+	var parent: int = start_index
+	while true:
+		var left: int = parent * 2 + 1
+		var right: int = left + 1
+		var best: int = parent
+		if left < open.size() and _node_less(open[left], open[best]):
+			best = left
+		if right < open.size() and _node_less(open[right], open[best]):
+			best = right
+		if best == parent:
+			return
+		var parent_node: Dictionary = open[parent]
+		open[parent] = open[best]
+		open[best] = parent_node
+		parent = best
+
+
 static func _heuristic(
 	origin: Vector2i,
 	footprint: Vector2i,
@@ -253,12 +293,20 @@ static func _heuristic(
 	goal_rect: Rect2i,
 	exact_origin: bool
 ) -> int:
-	if exact_origin:
-		return max(abs(origin.x - target_origin.x), abs(origin.y - target_origin.y))
-	return TileGrid.distance_between_rects(Rect2i(origin, footprint), goal_rect)
+	return _chebyshev_to_goal(origin, footprint, target_origin, goal_rect, exact_origin)
 
 
 static func _goal_distance(
+	origin: Vector2i,
+	footprint: Vector2i,
+	target_origin: Vector2i,
+	goal_rect: Rect2i,
+	exact_origin: bool
+) -> int:
+	return _chebyshev_to_goal(origin, footprint, target_origin, goal_rect, exact_origin)
+
+
+static func _chebyshev_to_goal(
 	origin: Vector2i,
 	footprint: Vector2i,
 	target_origin: Vector2i,

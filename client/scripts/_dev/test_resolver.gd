@@ -776,21 +776,21 @@ func _test_multi_tile_move_collision() -> bool:
 
 
 func _test_move_routes_around_static_blocker() -> bool:
-	var registry := _movable_registry(4)
-	var state := _state_with_grid(8, 4)
-	var actor := _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
-	var blocker := _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
+	var registry: EntityRegistry = _movable_registry(4)
+	var state: MatchState = _state_with_grid(8, 4)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var blocker: Entity = _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
 	state.tile_grid.place(blocker.id, Rect2i(2, 1, 1, 1))
 
-	var result := Resolver.resolve(
+	var result: ResolveResult = Resolver.resolve(
 		state,
 		_submit([_move_order(actor.id, EntityOrder.Type.MOVE, Vector2i(5, 1))]),
 		_submit(),
 		registry,
 		null
 	)
-	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
 	if new_actor.origin != Vector2i(5, 1):
 		push_error("mover should route around the static blocker, got %s" % str(new_actor.origin))
 		return false
@@ -806,14 +806,14 @@ func _test_move_routes_around_static_blocker() -> bool:
 
 
 func _test_moving_unit_pass_through() -> bool:
-	var registry := _movable_registry(1)
-	var state := _state_with_grid(6, 3)
-	var rear := _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
-	var front := _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
+	var registry: EntityRegistry = _movable_registry(1)
+	var state: MatchState = _state_with_grid(6, 3)
+	var rear: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var front: Entity = _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
 	state.tile_grid.place(rear.id, Rect2i(1, 1, 1, 1))
 	state.tile_grid.place(front.id, Rect2i(2, 1, 1, 1))
 
-	var result := (
+	var result: ResolveResult = (
 		Resolver
 		. resolve(
 			state,
@@ -831,20 +831,20 @@ func _test_moving_unit_pass_through() -> bool:
 			null
 		)
 	)
-	var new_rear := result.new_state.get_entity_by_id(rear.id)
-	var new_front := result.new_state.get_entity_by_id(front.id)
+	var new_rear: Entity = result.new_state.get_entity_by_id(rear.id)
+	var new_front: Entity = result.new_state.get_entity_by_id(front.id)
 	return new_rear.origin == Vector2i(2, 1) and new_front.origin == Vector2i(3, 1)
 
 
 func _test_simultaneous_swap() -> bool:
-	var registry := _movable_registry(1)
-	var state := _state_with_grid(5, 3)
-	var left := _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
-	var right := _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
+	var registry: EntityRegistry = _movable_registry(1)
+	var state: MatchState = _state_with_grid(5, 3)
+	var left: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var right: Entity = _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
 	state.tile_grid.place(left.id, Rect2i(1, 1, 1, 1))
 	state.tile_grid.place(right.id, Rect2i(2, 1, 1, 1))
 
-	var result := (
+	var result: ResolveResult = (
 		Resolver
 		. resolve(
 			state,
@@ -862,20 +862,20 @@ func _test_simultaneous_swap() -> bool:
 			null
 		)
 	)
-	var new_left := result.new_state.get_entity_by_id(left.id)
-	var new_right := result.new_state.get_entity_by_id(right.id)
+	var new_left: Entity = result.new_state.get_entity_by_id(left.id)
+	var new_right: Entity = result.new_state.get_entity_by_id(right.id)
 	return new_left.origin == Vector2i(2, 1) and new_right.origin == Vector2i(1, 1)
 
 
 func _test_equidistant_same_target_tie_stops() -> bool:
-	var registry := _movable_registry(1)
-	var state := _state_with_grid(7, 3)
-	var left := _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
-	var right := _make_entity(state, "marine", 0, Vector2i(4, 1), 50, "ground")
+	var registry: EntityRegistry = _movable_registry(1)
+	var state: MatchState = _state_with_grid(7, 3)
+	var left: Entity = _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
+	var right: Entity = _make_entity(state, "marine", 0, Vector2i(4, 1), 50, "ground")
 	state.tile_grid.place(left.id, Rect2i(2, 1, 1, 1))
 	state.tile_grid.place(right.id, Rect2i(4, 1, 1, 1))
 
-	var result := (
+	var result: ResolveResult = (
 		Resolver
 		. resolve(
 			state,
@@ -893,28 +893,28 @@ func _test_equidistant_same_target_tie_stops() -> bool:
 			null
 		)
 	)
-	var new_left := result.new_state.get_entity_by_id(left.id)
-	var new_right := result.new_state.get_entity_by_id(right.id)
+	var new_left: Entity = result.new_state.get_entity_by_id(left.id)
+	var new_right: Entity = result.new_state.get_entity_by_id(right.id)
 	return new_left.origin == Vector2i(2, 1) and new_right.origin == Vector2i(4, 1)
 
 
 func _test_movement_respects_impassable_terrain_tags() -> bool:
-	var registry := _movable_registry(2)
+	var registry: EntityRegistry = _movable_registry(2)
 	var def: EntityDef = registry.get_by_id("marine")
 	def.movement.impassable_terrain_tags = ["water"]
-	var state := _state_with_grid(6, 3)
+	var state: MatchState = _state_with_grid(6, 3)
 	state.tile_grid.set_tile_terrain_tags(Vector2i(2, 1), ["water"])
-	var actor := _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
 
-	var result := Resolver.resolve(
+	var result: ResolveResult = Resolver.resolve(
 		state,
 		_submit([_move_order(actor.id, EntityOrder.Type.MOVE, Vector2i(3, 1))]),
 		_submit(),
 		registry,
 		null
 	)
-	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
 	if new_actor.origin != Vector2i(3, 1):
 		push_error("mover should route around impassable terrain, got %s" % str(new_actor.origin))
 		return false
@@ -930,21 +930,21 @@ func _test_movement_respects_impassable_terrain_tags() -> bool:
 
 
 func _test_blocked_target_uses_closest_reachable() -> bool:
-	var registry := _movable_registry(6)
-	var state := _state_with_grid(8, 3)
-	var actor := _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
-	var blocker := _make_entity(state, "marine", 0, Vector2i(5, 1), 50, "ground")
+	var registry: EntityRegistry = _movable_registry(6)
+	var state: MatchState = _state_with_grid(8, 3)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var blocker: Entity = _make_entity(state, "marine", 0, Vector2i(5, 1), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
 	state.tile_grid.place(blocker.id, Rect2i(5, 1, 1, 1))
 
-	var result := Resolver.resolve(
+	var result: ResolveResult = Resolver.resolve(
 		state,
 		_submit([_move_order(actor.id, EntityOrder.Type.MOVE, Vector2i(5, 1))]),
 		_submit(),
 		registry,
 		null
 	)
-	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
 	if new_actor.origin != Vector2i(4, 1):
 		push_error(
 			"blocked target should stop at closest reachable origin, got %s" % str(new_actor.origin)
@@ -954,63 +954,63 @@ func _test_blocked_target_uses_closest_reachable() -> bool:
 
 
 func _test_movement_respects_pathable_terrain_tags() -> bool:
-	var registry := _movable_registry(2)
+	var registry: EntityRegistry = _movable_registry(2)
 	var def: EntityDef = registry.get_by_id("marine")
 	def.movement.pathable_terrain_tags = ["road"]
-	var state := _state_with_grid(5, 3)
+	var state: MatchState = _state_with_grid(5, 3)
 	state.tile_grid.set_tile_terrain_tags(Vector2i(2, 1), ["road"])
 	state.tile_grid.set_tile_terrain_tags(Vector2i(3, 1), ["road"])
-	var actor := _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
 
-	var result := Resolver.resolve(
+	var result: ResolveResult = Resolver.resolve(
 		state,
 		_submit([_move_order(actor.id, EntityOrder.Type.MOVE, Vector2i(3, 1))]),
 		_submit(),
 		registry,
 		null
 	)
-	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
 	return new_actor.origin == Vector2i(3, 1)
 
 
 func _test_flying_ignores_ground_blockers() -> bool:
-	var registry := EntityRegistry.new()
-	var ground := _def_with_movement("ground_unit", Vector2i.ONE, ["ground"], 50, 0)
-	var flyer := _def_with_movement("flyer", Vector2i.ONE, ["flying"], 50, 1)
+	var registry: EntityRegistry = EntityRegistry.new()
+	var ground: EntityDef = _def_with_movement("ground_unit", Vector2i.ONE, ["ground"], 50, 0)
+	var flyer: EntityDef = _def_with_movement("flyer", Vector2i.ONE, ["flying"], 50, 1)
 	flyer.movement.default_layer = "flying"
 	registry.entities = [ground, flyer]
-	var state := _state_with_grid(5, 3)
-	var actor := _make_entity(state, "flyer", 0, Vector2i(1, 1), 50, "flying")
-	var blocker := _make_entity(state, "ground_unit", 0, Vector2i(2, 1), 50, "ground")
+	var state: MatchState = _state_with_grid(5, 3)
+	var actor: Entity = _make_entity(state, "flyer", 0, Vector2i(1, 1), 50, "flying")
+	var blocker: Entity = _make_entity(state, "ground_unit", 0, Vector2i(2, 1), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
 	state.tile_grid.place(blocker.id, Rect2i(2, 1, 1, 1))
 
-	var result := Resolver.resolve(
+	var result: ResolveResult = Resolver.resolve(
 		state,
 		_submit([_move_order(actor.id, EntityOrder.Type.MOVE, Vector2i(3, 1))]),
 		_submit(),
 		registry,
 		null
 	)
-	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	var new_blocker := result.new_state.get_entity_by_id(blocker.id)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	var new_blocker: Entity = result.new_state.get_entity_by_id(blocker.id)
 	return new_actor.origin == Vector2i(2, 1) and new_blocker.origin == Vector2i(2, 1)
 
 
 func _test_ground_and_flying_movers_can_share_destination() -> bool:
-	var registry := EntityRegistry.new()
-	var ground := _def_with_movement("ground_unit", Vector2i.ONE, ["ground"], 50, 1)
-	var flyer := _def_with_movement("flyer", Vector2i.ONE, ["flying"], 50, 1)
+	var registry: EntityRegistry = EntityRegistry.new()
+	var ground: EntityDef = _def_with_movement("ground_unit", Vector2i.ONE, ["ground"], 50, 1)
+	var flyer: EntityDef = _def_with_movement("flyer", Vector2i.ONE, ["flying"], 50, 1)
 	flyer.movement.default_layer = "flying"
 	registry.entities = [ground, flyer]
-	var state := _state_with_grid(5, 3)
-	var ground_actor := _make_entity(state, "ground_unit", 0, Vector2i(1, 1), 50, "ground")
-	var flyer_actor := _make_entity(state, "flyer", 0, Vector2i(3, 1), 50, "flying")
+	var state: MatchState = _state_with_grid(5, 3)
+	var ground_actor: Entity = _make_entity(state, "ground_unit", 0, Vector2i(1, 1), 50, "ground")
+	var flyer_actor: Entity = _make_entity(state, "flyer", 0, Vector2i(3, 1), 50, "flying")
 	state.tile_grid.place(ground_actor.id, Rect2i(1, 1, 1, 1))
 	state.tile_grid.place(flyer_actor.id, Rect2i(3, 1, 1, 1))
 
-	var result := (
+	var result: ResolveResult = (
 		Resolver
 		. resolve(
 			state,
@@ -1028,48 +1028,54 @@ func _test_ground_and_flying_movers_can_share_destination() -> bool:
 			null
 		)
 	)
-	var new_ground := result.new_state.get_entity_by_id(ground_actor.id)
-	var new_flyer := result.new_state.get_entity_by_id(flyer_actor.id)
+	var new_ground: Entity = result.new_state.get_entity_by_id(ground_actor.id)
+	var new_flyer: Entity = result.new_state.get_entity_by_id(flyer_actor.id)
 	return new_ground.origin == Vector2i(2, 1) and new_flyer.origin == Vector2i(2, 1)
 
 
 func _test_flying_blocker_blocks_flying() -> bool:
-	var registry := EntityRegistry.new()
-	var flyer := _def_with_movement("flyer", Vector2i.ONE, ["flying"], 50, 1)
+	var registry: EntityRegistry = EntityRegistry.new()
+	var flyer: EntityDef = _def_with_movement("flyer", Vector2i.ONE, ["flying"], 50, 1)
 	flyer.movement.default_layer = "flying"
 	registry.entities = [flyer]
-	var state := _state_with_grid(5, 3)
-	var actor := _make_entity(state, "flyer", 0, Vector2i(1, 1), 50, "flying")
-	var blocker := _make_entity(state, "flyer", 0, Vector2i(2, 1), 50, "flying")
+	var state: MatchState = _state_with_grid(5, 3)
+	var actor: Entity = _make_entity(state, "flyer", 0, Vector2i(1, 1), 50, "flying")
+	var blocker: Entity = _make_entity(state, "flyer", 0, Vector2i(2, 1), 50, "flying")
 	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
 	state.tile_grid.place(blocker.id, Rect2i(2, 1, 1, 1))
 
-	var result := Resolver.resolve(
+	var result: ResolveResult = Resolver.resolve(
 		state,
 		_submit([_move_order(actor.id, EntityOrder.Type.MOVE, Vector2i(3, 1))]),
 		_submit(),
 		registry,
 		null
 	)
-	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
 	return new_actor.origin != Vector2i(2, 1)
 
 
 func _test_failed_mover_remains_blocker() -> bool:
-	var registry := _movable_registry(1)
-	var state := _state_with_grid(5, 3)
-	var rear := _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
-	var stuck := _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
-	var blocker := _make_entity(state, "marine", 0, Vector2i(3, 1), 50, "ground")
+	var registry: EntityRegistry = _movable_registry(1)
+	var state: MatchState = _state_with_grid(5, 3)
+	var rear: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var stuck: Entity = _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
+	var blocker: Entity = _make_entity(state, "marine", 0, Vector2i(3, 1), 50, "ground")
 	state.tile_grid.place(rear.id, Rect2i(1, 1, 1, 1))
 	state.tile_grid.place(stuck.id, Rect2i(2, 1, 1, 1))
 	state.tile_grid.place(blocker.id, Rect2i(3, 1, 1, 1))
-	for tile in [Vector2i(3, 0), Vector2i(3, 2), Vector2i(2, 0), Vector2i(2, 2)]:
+	var blocked_tiles: Array[Vector2i] = [
+		Vector2i(3, 0),
+		Vector2i(3, 2),
+		Vector2i(2, 0),
+		Vector2i(2, 2),
+	]
+	for tile: Vector2i in blocked_tiles:
 		state.tile_grid.set_tile_terrain_tags(tile, ["blocked"])
 	var def: EntityDef = registry.get_by_id("marine")
 	def.movement.impassable_terrain_tags = ["blocked"]
 
-	var result := (
+	var result: ResolveResult = (
 		Resolver
 		. resolve(
 			state,
@@ -1087,42 +1093,42 @@ func _test_failed_mover_remains_blocker() -> bool:
 			null
 		)
 	)
-	var new_rear := result.new_state.get_entity_by_id(rear.id)
-	var new_stuck := result.new_state.get_entity_by_id(stuck.id)
+	var new_rear: Entity = result.new_state.get_entity_by_id(rear.id)
+	var new_stuck: Entity = result.new_state.get_entity_by_id(stuck.id)
 	return new_rear.origin == Vector2i(1, 1) and new_stuck.origin == Vector2i(2, 1)
 
 
 func _test_gather_travel_worker_is_passable() -> bool:
-	var registry := _gather_registry(5, 1, 1)
-	var state := _state_with_grid(7, 3)
-	var marine := _make_entity(state, "worker", 0, Vector2i(1, 1), 50, "ground")
+	var registry: EntityRegistry = _gather_registry(5, 1, 1)
+	var state: MatchState = _state_with_grid(7, 3)
+	var marine: Entity = _make_entity(state, "worker", 0, Vector2i(1, 1), 50, "ground")
 	marine.gather_state = GatherState.new()
-	var worker := _make_gather_worker(state, 0, Vector2i(2, 1))
-	var patch := _make_entity(state, "minpatch", -1, Vector2i(4, 1), 0, "ground")
+	var worker: Entity = _make_gather_worker(state, 0, Vector2i(2, 1))
+	var patch: Entity = _make_entity(state, "minpatch", -1, Vector2i(4, 1), 0, "ground")
 	patch.current_resource_amount = 100
 	state.tile_grid.place(marine.id, Rect2i(1, 1, 1, 1))
 	state.tile_grid.place(patch.id, Rect2i(4, 1, 1, 1))
 	worker.gather_state.assigned_source_entity_id = patch.id
 	worker.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
 
-	var result := Resolver.resolve(
+	var result: ResolveResult = Resolver.resolve(
 		state,
 		_submit([_move_order(marine.id, EntityOrder.Type.MOVE, Vector2i(2, 1))]),
 		_submit(),
 		registry,
 		null
 	)
-	var new_marine := result.new_state.get_entity_by_id(marine.id)
-	var new_worker := result.new_state.get_entity_by_id(worker.id)
+	var new_marine: Entity = result.new_state.get_entity_by_id(marine.id)
+	var new_worker: Entity = result.new_state.get_entity_by_id(worker.id)
 	return new_marine.origin == Vector2i(2, 1) and new_worker.origin == Vector2i(3, 1)
 
 
 func _test_construction_travel_worker_is_passable() -> bool:
-	var registry := _build_registry()
-	var state := _state_with_grid(8, 5)
-	var marine := _make_entity(state, "worker", 0, Vector2i(1, 1), 50, "ground")
-	var worker := _make_entity(state, "worker", 0, Vector2i(2, 1), 50, "ground")
-	var building := _make_entity(state, "barracks", 0, Vector2i(4, 1), 1000, "ground")
+	var registry: EntityRegistry = _build_registry()
+	var state: MatchState = _state_with_grid(8, 5)
+	var marine: Entity = _make_entity(state, "worker", 0, Vector2i(1, 1), 50, "ground")
+	var worker: Entity = _make_entity(state, "worker", 0, Vector2i(2, 1), 50, "ground")
+	var building: Entity = _make_entity(state, "barracks", 0, Vector2i(4, 1), 1000, "ground")
 	building.is_constructing = true
 	building.construction_worker_id = worker.id
 	worker.locked_to_building_id = building.id
@@ -1130,15 +1136,15 @@ func _test_construction_travel_worker_is_passable() -> bool:
 	state.tile_grid.place(worker.id, Rect2i(2, 1, 1, 1))
 	state.tile_grid.place(building.id, Rect2i(4, 1, 3, 3))
 
-	var result := Resolver.resolve(
+	var result: ResolveResult = Resolver.resolve(
 		state,
 		_submit([_move_order(marine.id, EntityOrder.Type.MOVE, Vector2i(2, 1))]),
 		_submit(),
 		registry,
 		null
 	)
-	var new_marine := result.new_state.get_entity_by_id(marine.id)
-	var new_worker := result.new_state.get_entity_by_id(worker.id)
+	var new_marine: Entity = result.new_state.get_entity_by_id(marine.id)
+	var new_worker: Entity = result.new_state.get_entity_by_id(worker.id)
 	return new_marine.origin == Vector2i(2, 1) and new_worker.origin == Vector2i(3, 1)
 
 

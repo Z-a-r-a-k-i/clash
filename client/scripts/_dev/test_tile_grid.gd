@@ -167,9 +167,15 @@ func _test_move_batch_allows_swaps() -> bool:
 	if not g.call("move_batch", moves):
 		push_error("move_batch should allow two entities to swap origins atomically")
 		return false
-	return (
-		g.entity_rect(1).position == Vector2i(2, 1) and g.entity_rect(2).position == Vector2i(1, 1)
+	var ok: bool = (
+		g.entity_rect(1).position == Vector2i(2, 1)
+		and g.entity_rect(2).position == Vector2i(1, 1)
+		and g.entity_at(Vector2i(2, 1)) == 1
+		and g.entity_at(Vector2i(1, 1)) == 2
 	)
+	if not ok:
+		push_error("move_batch swap should update entity rects and tile occupancy")
+	return ok
 
 
 # ---------- Distance / adjacency ----------
