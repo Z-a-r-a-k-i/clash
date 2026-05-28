@@ -789,8 +789,6 @@ func _can_continue_move_assist(entity: Entity, order: EntityOrder) -> bool:
 		return false
 	if entity.ability_cast != null:
 		return false
-	if entity.gather_state != null and entity.gather_state.phase != GatherState.Phase.IDLE:
-		return false
 	return true
 
 

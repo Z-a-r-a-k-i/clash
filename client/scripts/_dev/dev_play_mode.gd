@@ -704,7 +704,7 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	if entity_id < 0 or _loaded == null or _loaded.state == null:
 		return out
-	var sequence_index := 1
+	var sequence_index: int = 1
 	for queued in _queued_orders_for_entity(entity_id):
 		var queued_preview: Dictionary = _preview_for_order(queued)
 		if not queued_preview.is_empty():

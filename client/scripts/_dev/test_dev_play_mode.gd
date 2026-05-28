@@ -470,7 +470,7 @@ func _test_command_card_shows_costs() -> bool:
 				"Stim Pack button should show mineral cost and research time: %s" % stim_button.text
 			)
 			ok = false
-		var repeat_toggle := _find_check_box_with_substring(card, "Repeat Train")
+		var repeat_toggle: CheckBox = _find_check_box_with_substring(card, "Repeat Train")
 		if repeat_toggle == null or not repeat_toggle.visible:
 			push_error("training producer command card should show Repeat Train")
 			ok = false
@@ -716,7 +716,7 @@ func _test_queue_toggle_routes_future_orders() -> bool:
 		push_error("expected command card")
 		_free_mode(mode)
 		return false
-	var queue_toggle := _find_check_box_with_substring(card, "Queue")
+	var queue_toggle: CheckBox = _find_check_box_with_substring(card, "Queue")
 	if queue_toggle == null:
 		push_error("command card should expose a Queue toggle")
 		_free_mode(mode)
@@ -735,7 +735,7 @@ func _test_queue_toggle_routes_future_orders() -> bool:
 		_free_mode(mode)
 		return false
 	var renderer: MatchRenderer = mode.renderer()
-	var ok := true
+	var ok: bool = true
 	if mode.input_model().submit_for_player(0).orders.size() != 1:
 		push_error("Queue mode should keep one current order")
 		ok = false
