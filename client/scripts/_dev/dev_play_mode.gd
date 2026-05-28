@@ -7,6 +7,7 @@ const REGISTRY_PATH := "res://data/entity_registry.tres"
 const TUNABLES_PATH := "res://data/tunables.tres"
 const DEV_TURN_INPUT_SCRIPT := preload("res://scripts/game/dev_turn_input.gd")
 const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
+const PATHFINDING_SCRIPT := preload("res://scripts/resolver/pathfinding_system.gd")
 const PENDING_NONE := ""
 const PENDING_MOVE := "move"
 const PENDING_MOVE_ONLY := "move_only"
@@ -807,11 +808,9 @@ func _preview_for_order(order: EntityOrder) -> Dictionary:
 				)
 			elif _attack_target_for_entity(order.entity_id) >= 0:
 				kind = "Shoot + Move"
-			return {"entity_id": order.entity_id, "kind": kind, "target_tile": order.target_tile}
+			return _move_preview(order, kind)
 		EntityOrder.Type.MOVE_ONLY:
-			return {
-				"entity_id": order.entity_id, "kind": "Move Only", "target_tile": order.target_tile
-			}
+			return _move_preview(order, "Move Only")
 		EntityOrder.Type.ATTACK:
 			var target_id := -1
 			if not order.target_priority_chain.is_empty():
@@ -838,6 +837,110 @@ func _preview_for_order(order: EntityOrder) -> Dictionary:
 			return {"entity_id": order.entity_id, "kind": "Ability", "def_id": order.def_id}
 		_:
 			return {}
+
+
+func _move_preview(order: EntityOrder, kind: String) -> Dictionary:
+	var preview: Dictionary = {
+		"entity_id": order.entity_id,
+		"kind": kind,
+		"target_tile": order.target_tile,
+	}
+	var actor: Entity = _loaded.state.get_entity_by_id(order.entity_id) if _loaded != null else null
+	if actor == null or _loaded.registry == null:
+		return preview
+	var options: Dictionary = {
+		PATHFINDING_SCRIPT.OPTION_KNOWN_ENTITY_IDS:
+		_preview_known_entity_ids(actor.owner_player_id),
+		PATHFINDING_SCRIPT.OPTION_PASSABLE_ENTITY_IDS: _preview_passable_entity_ids(),
+	}
+	var path: Array[Vector2i] = PATHFINDING_SCRIPT.find_path(
+		_loaded.state, actor, order.target_tile, _loaded.registry, options
+	)
+	if not path.is_empty():
+		preview["path"] = path
+	return preview
+
+
+func _preview_known_entity_ids(player_id: int) -> Dictionary:
+	var known: Dictionary = {}
+	if _loaded == null or _loaded.state == null:
+		return known
+	for entity in _loaded.state.entities_sorted_by_id():
+		if entity == null:
+			continue
+		if entity.owner_player_id == player_id or entity.owner_player_id < 0:
+			known[entity.id] = true
+			continue
+		if _renderer != null and _renderer.is_entity_view_visible(entity.id):
+			known[entity.id] = true
+	return known
+
+
+func _preview_passable_entity_ids() -> Dictionary:
+	var passable: Dictionary = {}
+	if _loaded == null or _loaded.state == null:
+		return passable
+	var submit: SubmitTurn = _input.submit_for_player(_input.active_player_id())
+	for order in submit.orders:
+		if order == null:
+			continue
+		if _is_preview_explicit_mover(order):
+			passable[order.entity_id] = true
+	for entity in _loaded.state.entities_sorted_by_id():
+		if entity == null or entity.current_hp <= 0:
+			continue
+		if _is_preview_gather_travel(entity):
+			passable[entity.id] = true
+		if _is_preview_construction_travel(entity):
+			passable[entity.id] = true
+	return passable
+
+
+func _is_preview_explicit_mover(order: EntityOrder) -> bool:
+	if order.type != EntityOrder.Type.MOVE and order.type != EntityOrder.Type.MOVE_ONLY:
+		return false
+	var actor: Entity = _loaded.state.get_entity_by_id(order.entity_id)
+	if not _can_preview_spend_movement(actor):
+		return false
+	if actor.ability_cast != null:
+		return false
+	if order.type == EntityOrder.Type.MOVE and _will_halt_on_sight(actor.id):
+		return false
+	return actor.origin != order.target_tile
+
+
+func _is_preview_gather_travel(entity: Entity) -> bool:
+	return (
+		entity.gather_state != null
+		and entity.gather_state.phase == GatherState.Phase.MOVING_TO_SOURCE
+		and _can_preview_spend_movement(entity)
+	)
+
+
+func _is_preview_construction_travel(entity: Entity) -> bool:
+	if entity.locked_to_building_id < 0 or not _can_preview_spend_movement(entity):
+		return false
+	var building: Entity = _loaded.state.get_entity_by_id(entity.locked_to_building_id)
+	if building == null or building.current_hp <= 0 or not building.is_constructing:
+		return false
+	return not _are_entities_adjacent(entity, building)
+
+
+func _can_preview_spend_movement(entity: Entity) -> bool:
+	if entity == null or entity.current_hp <= 0 or _loaded == null or _loaded.registry == null:
+		return false
+	var movement: MovementDef = PATHFINDING_SCRIPT.movement_def_for_entity(entity, _loaded.registry)
+	return movement != null and entity.moves_used_this_turn < movement.speed_tiles_per_turn
+
+
+func _are_entities_adjacent(a: Entity, b: Entity) -> bool:
+	if _loaded == null or _loaded.state == null or _loaded.state.tile_grid == null:
+		return false
+	var a_rect: Rect2i = _loaded.state.tile_grid.entity_rect(a.id)
+	var b_rect: Rect2i = _loaded.state.tile_grid.entity_rect(b.id)
+	if a_rect.size == Vector2i.ZERO or b_rect.size == Vector2i.ZERO:
+		return false
+	return TileGrid.distance_between_rects(a_rect, b_rect) <= 1
 
 
 func _attack_target_for_entity(entity_id: int) -> int:

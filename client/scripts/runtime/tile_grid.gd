@@ -97,6 +97,17 @@ func is_rect_clear(rect: Rect2i, ignore_entity_id: int = -1) -> bool:
 	return true
 
 
+func is_rect_clear_ignoring(rect: Rect2i, ignore_entity_ids: Dictionary) -> bool:
+	if not is_rect_in_bounds(rect):
+		return false
+	for x in range(rect.position.x, rect.position.x + rect.size.x):
+		for y in range(rect.position.y, rect.position.y + rect.size.y):
+			var occupant: int = _occupancy.get(Vector2i(x, y), -1)
+			if occupant != -1 and not ignore_entity_ids.has(occupant):
+				return false
+	return true
+
+
 func entity_rect(entity_id: int) -> Rect2i:
 	# Returns the entity's rect, or an empty rect (size == 0) if not placed.
 	return _entity_rects.get(entity_id, Rect2i())
@@ -210,6 +221,58 @@ func move(entity_id: int, new_origin: Vector2i) -> bool:
 		for y in range(target.position.y, target.position.y + target.size.y):
 			_occupancy[Vector2i(x, y)] = entity_id
 	_entity_rects[entity_id] = target
+	return true
+
+
+func move_batch(entity_origins: Dictionary, allow_overlaps: bool = false) -> bool:
+	# Atomically move many entities. This removes sequential bias from
+	# swaps/simultaneous movement: all current rects are considered vacated
+	# before any target rect is committed.
+	var moving_ids: Dictionary = {}
+	var target_rects: Dictionary = {}
+	var ids: Array[int] = []
+	for key in entity_origins.keys():
+		var entity_id := int(key)
+		if not _entity_rects.has(entity_id):
+			return false
+		var current: Rect2i = _entity_rects[entity_id]
+		var target := Rect2i(entity_origins[key], current.size)
+		if not is_rect_in_bounds(target):
+			return false
+		moving_ids[entity_id] = true
+		target_rects[entity_id] = target
+		ids.append(entity_id)
+	ids.sort()
+
+	if not allow_overlaps:
+		for i in range(ids.size()):
+			var a_id: int = ids[i]
+			var a_rect: Rect2i = target_rects[a_id]
+			for j in range(i + 1, ids.size()):
+				var b_id: int = ids[j]
+				var b_rect: Rect2i = target_rects[b_id]
+				if a_rect.intersects(b_rect):
+					return false
+			if not is_rect_clear_ignoring(a_rect, moving_ids):
+				return false
+
+	for entity_id in ids:
+		var current_rect: Rect2i = _entity_rects[entity_id]
+		for x in range(current_rect.position.x, current_rect.position.x + current_rect.size.x):
+			for y in range(current_rect.position.y, current_rect.position.y + current_rect.size.y):
+				var tile := Vector2i(x, y)
+				if _occupancy.get(tile, -1) == entity_id:
+					_occupancy.erase(tile)
+
+	for entity_id in ids:
+		var target_rect: Rect2i = target_rects[entity_id]
+		_entity_rects[entity_id] = target_rect
+		for x in range(target_rect.position.x, target_rect.position.x + target_rect.size.x):
+			for y in range(target_rect.position.y, target_rect.position.y + target_rect.size.y):
+				var tile := Vector2i(x, y)
+				if allow_overlaps and _occupancy.has(tile):
+					continue
+				_occupancy[tile] = entity_id
 	return true
 
 

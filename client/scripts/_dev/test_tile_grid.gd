@@ -16,33 +16,15 @@ extends Node
 func _enter_tree() -> void:
 	if not Engine.is_editor_hint():
 		return
+	_run_all()
+
+
+func _run_all() -> int:
 	var passed := 0
 	var failed := 0
 	var fail_names: Array[String] = []
 
-	for test_pair in [
-		["place_in_bounds", _test_place_in_bounds],
-		["place_out_of_bounds_rejected", _test_place_out_of_bounds_rejected],
-		["place_overlap_rejected", _test_place_overlap_rejected],
-		["place_double_rejected", _test_place_double_rejected],
-		["entity_at_after_place", _test_entity_at_after_place],
-		["entity_rect_after_place", _test_entity_rect_after_place],
-		["remove", _test_remove],
-		["remove_unknown_returns_false", _test_remove_unknown],
-		["move_to_clear", _test_move_to_clear],
-		["move_to_blocked_rejected", _test_move_to_blocked_rejected],
-		["move_does_not_self_collide", _test_move_does_not_self_collide],
-		["distance_overlap_zero", _test_distance_overlap_zero],
-		["distance_adjacent_diagonal_one", _test_distance_adjacent_diagonal],
-		["distance_adjacent_orthogonal_one", _test_distance_adjacent_orthogonal],
-		["distance_one_tile_gap_two", _test_distance_one_tile_gap],
-		["distance_far", _test_distance_far],
-		["adjacency_diagonal", _test_adjacency_diagonal],
-		["adjacency_orthogonal", _test_adjacency_orthogonal],
-		["adjacency_one_tile_gap_false", _test_adjacency_one_tile_gap],
-		["terrain_tags_round_trip", _test_terrain_tags],
-		["all_placed_entity_ids_sorted", _test_iter_sorted],
-	]:
+	for test_pair in _all_tests():
 		var test_name: String = test_pair[0]
 		var fn: Callable = test_pair[1]
 		var ok: bool = fn.call()
@@ -55,6 +37,34 @@ func _enter_tree() -> void:
 	print("[test_tile_grid] %d passed, %d failed" % [passed, failed])
 	for test_name in fail_names:
 		push_error("  failed: %s" % test_name)
+	return failed
+
+
+func _all_tests() -> Array:
+	return [
+		["place_in_bounds", _test_place_in_bounds],
+		["place_out_of_bounds_rejected", _test_place_out_of_bounds_rejected],
+		["place_overlap_rejected", _test_place_overlap_rejected],
+		["place_double_rejected", _test_place_double_rejected],
+		["entity_at_after_place", _test_entity_at_after_place],
+		["entity_rect_after_place", _test_entity_rect_after_place],
+		["remove", _test_remove],
+		["remove_unknown_returns_false", _test_remove_unknown],
+		["move_to_clear", _test_move_to_clear],
+		["move_to_blocked_rejected", _test_move_to_blocked_rejected],
+		["move_does_not_self_collide", _test_move_does_not_self_collide],
+		["move_batch_allows_swaps", _test_move_batch_allows_swaps],
+		["distance_overlap_zero", _test_distance_overlap_zero],
+		["distance_adjacent_diagonal_one", _test_distance_adjacent_diagonal],
+		["distance_adjacent_orthogonal_one", _test_distance_adjacent_orthogonal],
+		["distance_one_tile_gap_two", _test_distance_one_tile_gap],
+		["distance_far", _test_distance_far],
+		["adjacency_diagonal", _test_adjacency_diagonal],
+		["adjacency_orthogonal", _test_adjacency_orthogonal],
+		["adjacency_one_tile_gap_false", _test_adjacency_one_tile_gap],
+		["terrain_tags_round_trip", _test_terrain_tags],
+		["all_placed_entity_ids_sorted", _test_iter_sorted],
+	]
 
 
 # ---------- Placement / bounds / overlap ----------
@@ -141,6 +151,25 @@ func _test_move_does_not_self_collide() -> bool:
 	if not g.move(1, Vector2i(6, 5)):
 		return false
 	return g.entity_at(Vector2i(7, 6)) == 1 and g.entity_at(Vector2i(5, 5)) == -1
+
+
+func _test_move_batch_allows_swaps() -> bool:
+	var g := TileGrid.new(5, 5)
+	g.place(1, Rect2i(1, 1, 1, 1))
+	g.place(2, Rect2i(2, 1, 1, 1))
+	if not g.has_method("move_batch"):
+		push_error("TileGrid should expose move_batch for simultaneous movement commits")
+		return false
+	var moves: Dictionary = {
+		1: Vector2i(2, 1),
+		2: Vector2i(1, 1),
+	}
+	if not g.call("move_batch", moves):
+		push_error("move_batch should allow two entities to swap origins atomically")
+		return false
+	return (
+		g.entity_rect(1).position == Vector2i(2, 1) and g.entity_rect(2).position == Vector2i(1, 1)
+	)
 
 
 # ---------- Distance / adjacency ----------

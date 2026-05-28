@@ -79,6 +79,7 @@ func _all_tests() -> Array:
 		["match_renderer_input_highlights", _test_input_highlights],
 		["match_renderer_build_placement_preview", _test_build_placement_preview],
 		["match_renderer_action_previews", _test_action_previews],
+		["match_renderer_action_preview_polyline_path", _test_action_preview_polyline_path],
 		["match_renderer_unit_training_progress", _test_unit_training_progress],
 		[
 			"match_renderer_owned_construction_progress_visuals",
@@ -1475,6 +1476,43 @@ func _test_action_previews() -> bool:
 	if renderer.call("action_preview_count") != 0:
 		push_error("bind_state should clear stale action previews")
 		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_action_preview_polyline_path() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+		],
+		10,
+		10
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	if not renderer.has_method("action_preview_line_point_count"):
+		push_error("renderer should expose action_preview_line_point_count for path previews")
+		_free_renderer(renderer)
+		return false
+	(
+		renderer
+		. call(
+			"set_action_previews",
+			[
+				{
+					"entity_id": 1,
+					"kind": "Move Only",
+					"target_tile": Vector2i(4, 3),
+					"path": [Vector2i(2, 1), Vector2i(3, 2), Vector2i(4, 3)],
+				},
+			]
+		)
+	)
+	var points: int = renderer.call("action_preview_line_point_count", 0)
+	var ok: bool = points == 4
+	if not ok:
+		push_error("path preview should draw start plus 3 path points, got %d" % points)
 	_free_renderer(renderer)
 	return ok
 

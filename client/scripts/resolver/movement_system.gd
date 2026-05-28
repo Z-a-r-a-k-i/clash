@@ -11,9 +11,8 @@ extends RefCounted
 # tiles in one turn, accumulated across all ticks. Tracked via
 # Entity.moves_used_this_turn (reset at end-of-turn).
 #
-# Pathfinding: M0 ships a Chebyshev one-step heuristic. If the diagonal
-# step toward the target collides, fall back to axis-aligned. No A* yet —
-# that's a future plan-node concern when terrain features arrive.
+const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
+const _PATHFINDING := preload("res://scripts/resolver/pathfinding_system.gd")
 
 
 static func resolve_move(
@@ -43,6 +42,83 @@ static func resolve_move(
 		actor.moves_used_this_turn += 1
 
 
+static func resolve_movement_substep(
+	state: MatchState,
+	per_entity: Dictionary,
+	tick: int,
+	registry: EntityRegistry,
+	_tunables: Tunables,
+	events: Array[ResolverEvent],
+	fired_entity_ids: Dictionary,
+	halted_entity_ids: Dictionary,
+	sorted_entities: Array[Entity]
+) -> void:
+	if state == null or state.tile_grid == null or registry == null:
+		return
+	var intents: Array[Dictionary] = _movement_intents(
+		state, per_entity, tick, registry, fired_entity_ids, halted_entity_ids, sorted_entities
+	)
+	if intents.is_empty():
+		return
+	var passable_entity_ids: Dictionary = {}
+	for intent in intents:
+		var intent_entity_id: int = intent.get("entity_id", -1)
+		if intent_entity_id >= 0:
+			passable_entity_ids[intent_entity_id] = true
+
+	var proposals: Array[Dictionary] = []
+	for intent in intents:
+		var actor: Entity = intent.get("actor") as Entity
+		if actor == null:
+			continue
+		var target_origin: Vector2i = intent.get("target_origin", actor.origin)
+		var options: Dictionary = {
+			_PATHFINDING.OPTION_PASSABLE_ENTITY_IDS: passable_entity_ids,
+			_PATHFINDING.OPTION_EXACT_ORIGIN: intent.get("exact_origin", true),
+			_PATHFINDING.OPTION_GOAL_RANGE: intent.get("goal_range", 0),
+		}
+		if intent.has("goal_rect"):
+			options[_PATHFINDING.OPTION_GOAL_RECT] = intent["goal_rect"]
+		var path: Array[Vector2i] = _PATHFINDING.find_path(
+			state, actor, target_origin, registry, options
+		)
+		if path.is_empty():
+			continue
+		var next_origin: Vector2i = path[0]
+		if next_origin == actor.origin:
+			continue
+		var footprint: Vector2i = _PATHFINDING.entity_footprint(state, actor, registry)
+		(
+			proposals
+			. append(
+				{
+					"entity_id": actor.id,
+					"actor": actor,
+					"from_origin": actor.origin,
+					"to_origin": next_origin,
+					"target_rect": Rect2i(next_origin, footprint),
+					"layer": _PATHFINDING.layer_for_entity(actor, registry),
+					"path_distance": path.size(),
+					"intent": intent,
+				}
+			)
+		)
+	if proposals.is_empty():
+		return
+
+	var winners: Array[Dictionary] = _winning_proposals(state, proposals, registry)
+	if winners.is_empty():
+		return
+	var moves: Dictionary = {}
+	for proposal in winners:
+		moves[proposal.get("entity_id", -1)] = proposal.get("to_origin", Vector2i.ZERO)
+	if not state.tile_grid.move_batch(moves, true):
+		return
+	winners.sort_custom(_proposal_id_less)
+	for proposal in winners:
+		_commit_proposal(state, proposal, events)
+
+
 # ---------- Internals ----------
 
 
@@ -54,6 +130,318 @@ static func has_fresh_order_at(per_entity: Dictionary, entity_id: int, tick: int
 		return false
 	var order: EntityOrder = queue[tick]
 	return order != null
+
+
+static func _movement_intents(
+	state: MatchState,
+	per_entity: Dictionary,
+	tick: int,
+	registry: EntityRegistry,
+	fired_entity_ids: Dictionary,
+	halted_entity_ids: Dictionary,
+	sorted_entities: Array[Entity]
+) -> Array[Dictionary]:
+	var intents: Array[Dictionary] = []
+	var source_assignments: Dictionary[int, Array] = GatherSystem._source_assignments_by_source(
+		state, registry
+	)
+	for actor in sorted_entities:
+		if actor == null or actor.current_hp <= 0:
+			continue
+		if _ABILITY_SYSTEM.is_casting(actor):
+			continue
+		var order: EntityOrder = _action_at(per_entity, actor.id, tick)
+		var explicit_intent: Dictionary = _explicit_move_intent(
+			actor, order, registry, fired_entity_ids, halted_entity_ids
+		)
+		if not explicit_intent.is_empty():
+			intents.append(explicit_intent)
+			continue
+		if order != null:
+			continue
+		var gather_intent: Dictionary = _gather_move_intent(
+			state, actor, registry, source_assignments
+		)
+		if not gather_intent.is_empty():
+			intents.append(gather_intent)
+			continue
+		var construction_intent: Dictionary = _construction_move_intent(state, actor, registry)
+		if not construction_intent.is_empty():
+			intents.append(construction_intent)
+	return intents
+
+
+static func _explicit_move_intent(
+	actor: Entity,
+	order: EntityOrder,
+	registry: EntityRegistry,
+	fired_entity_ids: Dictionary,
+	halted_entity_ids: Dictionary
+) -> Dictionary:
+	if order == null:
+		return {}
+	if order.type != EntityOrder.Type.MOVE and order.type != EntityOrder.Type.MOVE_ONLY:
+		return {}
+	if order.type == EntityOrder.Type.MOVE and halted_entity_ids.has(actor.id):
+		return {}
+	var move_only: bool = order.type == EntityOrder.Type.MOVE_ONLY
+	var budget: int = movement_budget_for_entity(
+		actor, registry, fired_entity_ids.has(actor.id), move_only
+	)
+	if not _can_spend_movement(actor, budget):
+		return {}
+	if actor.origin == order.target_tile:
+		return {}
+	return {
+		"kind": "move",
+		"entity_id": actor.id,
+		"actor": actor,
+		"target_origin": order.target_tile,
+		"exact_origin": true,
+		"goal_range": 0,
+	}
+
+
+static func _gather_move_intent(
+	state: MatchState,
+	actor: Entity,
+	registry: EntityRegistry,
+	source_assignments: Dictionary[int, Array]
+) -> Dictionary:
+	if actor.gather_state == null:
+		return {}
+	if actor.gather_state.phase != GatherState.Phase.MOVING_TO_SOURCE:
+		return {}
+	if not _can_spend_movement(actor, movement_speed_for_entity(actor, registry)):
+		return {}
+	var source: Entity = GatherSystem._resolve_source(
+		state, registry, actor.gather_state.assigned_source_entity_id, actor.owner_player_id
+	)
+	if source == null:
+		GatherSystem._clear_gather_assignment(actor)
+		return {}
+	if not GatherSystem._is_worker_within_source_cap(source_assignments, registry, actor, source):
+		GatherSystem._clear_gather_assignment(actor)
+		return {}
+	if GatherSystem._is_adjacent_to(state, actor, source):
+		actor.gather_state.phase = GatherState.Phase.GATHERING
+		return {}
+	var source_rect: Rect2i = state.tile_grid.entity_rect(source.id)
+	if source_rect.size.x <= 0 or source_rect.size.y <= 0:
+		return {}
+	return {
+		"kind": "gather",
+		"entity_id": actor.id,
+		"actor": actor,
+		"target_origin": source_rect.position,
+		"target_entity_id": source.id,
+		"goal_rect": source_rect,
+		"goal_range": 1,
+		"exact_origin": false,
+	}
+
+
+static func _construction_move_intent(
+	state: MatchState, actor: Entity, registry: EntityRegistry
+) -> Dictionary:
+	if actor.locked_to_building_id < 0:
+		return {}
+	if not _can_spend_movement(actor, movement_speed_for_entity(actor, registry)):
+		return {}
+	var building: Entity = state.get_entity_by_id(actor.locked_to_building_id)
+	if building == null or building.current_hp <= 0:
+		actor.locked_to_building_id = -1
+		return {}
+	if not building.is_constructing:
+		actor.locked_to_building_id = -1
+		return {}
+	if ConstructionSystem._is_adjacent_to(state, actor, building):
+		return {}
+	var building_rect: Rect2i = state.tile_grid.entity_rect(building.id)
+	if building_rect.size.x <= 0 or building_rect.size.y <= 0:
+		return {}
+	return {
+		"kind": "construction",
+		"entity_id": actor.id,
+		"actor": actor,
+		"target_origin": building_rect.position,
+		"target_entity_id": building.id,
+		"goal_rect": building_rect,
+		"goal_range": 1,
+		"exact_origin": false,
+	}
+
+
+static func _winning_proposals(
+	state: MatchState, proposals: Array[Dictionary], registry: EntityRegistry
+) -> Array[Dictionary]:
+	var remaining: Dictionary = {}
+	for proposal in proposals:
+		var entity_id: int = proposal.get("entity_id", -1)
+		if entity_id >= 0:
+			remaining[entity_id] = proposal
+	var changed := true
+	while changed:
+		changed = false
+		var blocked: Dictionary = _target_conflict_losers(remaining)
+		var moving_ids: Dictionary = {}
+		for entity_id in remaining.keys():
+			if not blocked.has(entity_id):
+				moving_ids[entity_id] = true
+		for entity_id in remaining.keys():
+			if blocked.has(entity_id):
+				continue
+			var proposal: Dictionary = remaining[entity_id]
+			if _target_blocked_by_non_mover(state, proposal, registry, moving_ids):
+				blocked[entity_id] = true
+		if not blocked.is_empty():
+			for entity_id in blocked.keys():
+				remaining.erase(entity_id)
+			changed = true
+	var winners: Array[Dictionary] = []
+	var ids: Array[int] = []
+	for entity_id in remaining.keys():
+		ids.append(int(entity_id))
+	ids.sort()
+	for entity_id in ids:
+		winners.append(remaining[entity_id])
+	return winners
+
+
+static func _target_conflict_losers(remaining: Dictionary) -> Dictionary:
+	var losers: Dictionary = {}
+	var ids: Array[int] = []
+	for entity_id in remaining.keys():
+		ids.append(int(entity_id))
+	ids.sort()
+	var visited: Dictionary = {}
+	for start_id in ids:
+		if visited.has(start_id):
+			continue
+		var component: Array[int] = _proposal_conflict_component(start_id, remaining)
+		for entity_id in component:
+			visited[entity_id] = true
+		if component.size() <= 1:
+			continue
+		var min_distance := 0
+		var min_ids: Array[int] = []
+		for entity_id in component:
+			var proposal: Dictionary = remaining[entity_id]
+			var distance: int = proposal.get("path_distance", 0)
+			if min_ids.is_empty() or distance < min_distance:
+				min_distance = distance
+				min_ids = [entity_id]
+			elif distance == min_distance:
+				min_ids.append(entity_id)
+		if min_ids.size() == 1:
+			var winner_id: int = min_ids[0]
+			for entity_id in component:
+				if entity_id != winner_id:
+					losers[entity_id] = true
+		else:
+			for entity_id in component:
+				losers[entity_id] = true
+	return losers
+
+
+static func _proposal_conflict_component(start_id: int, remaining: Dictionary) -> Array[int]:
+	var component: Array[int] = []
+	var queue: Array[int] = [start_id]
+	var seen: Dictionary = {start_id: true}
+	while not queue.is_empty():
+		var current_id: int = queue.pop_front()
+		component.append(current_id)
+		var current: Dictionary = remaining[current_id]
+		var current_rect: Rect2i = current.get("target_rect", Rect2i())
+		for other_id in remaining.keys():
+			var candidate_id := int(other_id)
+			if seen.has(candidate_id):
+				continue
+			var other: Dictionary = remaining[candidate_id]
+			var other_rect: Rect2i = other.get("target_rect", Rect2i())
+			if (
+				current.get("layer", "ground") == other.get("layer", "ground")
+				and current_rect.intersects(other_rect)
+			):
+				seen[candidate_id] = true
+				queue.append(candidate_id)
+	component.sort()
+	return component
+
+
+static func _target_blocked_by_non_mover(
+	state: MatchState, proposal: Dictionary, registry: EntityRegistry, moving_ids: Dictionary
+) -> bool:
+	var actor: Entity = proposal.get("actor") as Entity
+	if actor == null:
+		return true
+	var target_rect: Rect2i = proposal.get("target_rect", Rect2i())
+	var actor_layer: String = _PATHFINDING.layer_for_entity(actor, registry)
+	for entity in state.entities_sorted_by_id():
+		if entity == null or entity.id == actor.id:
+			continue
+		if moving_ids.has(entity.id):
+			continue
+		if not _is_spatial_blocker(entity, registry):
+			continue
+		if _PATHFINDING.layer_for_entity(entity, registry) != actor_layer:
+			continue
+		var other_rect: Rect2i = state.tile_grid.entity_rect(entity.id)
+		if other_rect.size.x <= 0 or other_rect.size.y <= 0:
+			continue
+		if other_rect.intersects(target_rect):
+			return true
+	return false
+
+
+static func _commit_proposal(
+	state: MatchState, proposal: Dictionary, events: Array[ResolverEvent]
+) -> void:
+	var actor: Entity = proposal.get("actor") as Entity
+	if actor == null:
+		return
+	var from_origin: Vector2i = proposal.get("from_origin", actor.origin)
+	var to_origin: Vector2i = proposal.get("to_origin", actor.origin)
+	actor.origin = to_origin
+	actor.moves_used_this_turn += 1
+	var ev := ResolverEvent.new()
+	ev.type = ResolverEvent.Type.ENTITY_MOVED
+	ev.actor_id = actor.id
+	ev.from_origin = from_origin
+	ev.to_origin = to_origin
+	events.append(ev)
+
+	var intent: Dictionary = proposal.get("intent", {})
+	var kind: String = intent.get("kind", "")
+	if kind == "gather":
+		var source: Entity = state.get_entity_by_id(intent.get("target_entity_id", -1))
+		if source != null and GatherSystem._is_adjacent_to(state, actor, source):
+			actor.gather_state.phase = GatherState.Phase.GATHERING
+	elif kind == "construction":
+		var building: Entity = state.get_entity_by_id(intent.get("target_entity_id", -1))
+		if building == null or building.current_hp <= 0 or not building.is_constructing:
+			actor.locked_to_building_id = -1
+
+
+static func _action_at(per_entity: Dictionary, entity_id: int, tick: int) -> EntityOrder:
+	if not per_entity.has(entity_id):
+		return null
+	var queue: Array = per_entity[entity_id]
+	if tick < 0 or tick >= queue.size():
+		return null
+	return queue[tick]
+
+
+static func _can_spend_movement(actor: Entity, movement_budget: int) -> bool:
+	return movement_budget > 0 and actor.moves_used_this_turn < movement_budget
+
+
+static func _is_spatial_blocker(entity: Entity, registry: EntityRegistry) -> bool:
+	return _PATHFINDING._is_spatial_blocker(entity, registry)
+
+
+static func _proposal_id_less(a: Dictionary, b: Dictionary) -> bool:
+	return int(a.get("entity_id", -1)) < int(b.get("entity_id", -1))
 
 
 # Try to advance one tile toward `target_tile`. Returns true on success.

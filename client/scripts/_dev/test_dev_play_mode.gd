@@ -854,6 +854,16 @@ func _test_requeues_unfinished_move_after_resolve() -> bool:
 		push_error("expected long-range move to queue")
 		_free_mode(mode)
 		return false
+	var renderer: MatchRenderer = mode.renderer()
+	if renderer == null or not renderer.has_method("action_preview_line_point_count"):
+		push_error("renderer should expose path preview point counts")
+		_free_mode(mode)
+		return false
+	var preview_points_before: int = renderer.call("action_preview_line_point_count", 0)
+	if preview_points_before <= 2:
+		push_error("long-range move preview should draw a path polyline before resolve")
+		_free_mode(mode)
+		return false
 	if not mode.resolve_turn():
 		push_error("expected resolve to succeed")
 		_free_mode(mode)
@@ -871,9 +881,15 @@ func _test_requeues_unfinished_move_after_resolve() -> bool:
 	)
 	if not ok:
 		push_error("requeued move should preserve type, actor, and target")
-	var renderer: MatchRenderer = mode.renderer()
 	if renderer != null and renderer.action_preview_count() != 1:
 		push_error("requeued move should remain visible as an action preview")
+		ok = false
+	var preview_points_after: int = renderer.call("action_preview_line_point_count", 0)
+	if preview_points_after <= 2:
+		push_error("requeued move preview should still draw a path polyline")
+		ok = false
+	elif preview_points_after >= preview_points_before:
+		push_error("requeued move preview should recompute from the post-resolve origin")
 		ok = false
 	_free_mode(mode)
 	return ok

@@ -310,6 +310,19 @@ func action_preview_count() -> int:
 	return _action_previews_root.get_child_count()
 
 
+func action_preview_line_point_count(preview_index: int) -> int:
+	if _action_previews_root == null:
+		return 0
+	if preview_index < 0 or preview_index >= _action_previews_root.get_child_count():
+		return 0
+	var group: Node = _action_previews_root.get_child(preview_index)
+	for child in group.get_children():
+		var line: Line2D = child as Line2D
+		if line != null:
+			return line.points.size()
+	return 0
+
+
 func production_progress_count() -> int:
 	if _production_progress_root == null:
 		return 0
@@ -642,8 +655,17 @@ func _render_action_preview(preview: Dictionary) -> void:
 		start = _tile_center(start_tile)
 	var target: Vector2 = start
 	var has_target := false
+	var line_points: PackedVector2Array = []
+	var path: Array = preview.get("path", [])
+	if not path.is_empty():
+		line_points.append(start)
+		for item in path:
+			var path_tile: Vector2i = item
+			line_points.append(_tile_center(path_tile))
+		target = line_points[line_points.size() - 1]
+		has_target = true
 	var target_entity_id: int = preview.get("target_entity_id", -1)
-	if target_entity_id >= 0:
+	if not has_target and target_entity_id >= 0:
 		var target_view: EntityView = _views_by_id.get(target_entity_id)
 		if target_view != null and target_view.visible:
 			target = target_view.position
@@ -653,10 +675,12 @@ func _render_action_preview(preview: Dictionary) -> void:
 		target = _tile_center(target_tile)
 		has_target = true
 	if has_target:
+		if line_points.is_empty():
+			line_points = PackedVector2Array([start, target])
 		var line := Line2D.new()
 		line.default_color = preview_color
 		line.width = _ACTION_PREVIEW_LINE_WIDTH
-		line.points = PackedVector2Array([start, target])
+		line.points = line_points
 		group.add_child(line)
 		group.add_child(_target_marker(target, preview_color))
 	var label := Label.new()

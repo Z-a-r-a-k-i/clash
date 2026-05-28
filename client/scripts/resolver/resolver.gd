@@ -171,37 +171,16 @@ static func resolve(
 		# that budget. `moves_used_this_turn` still caps each entity, so
 		# this upper bound is safe for mixed-speed rosters.
 		for _substep in _max_live_movement_speed(working, registry):
-			for entity in sorted_entities:
-				if _ABILITY_SYSTEM.is_casting(entity):
-					continue
-				var order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
-				if order == null:
-					continue
-				if order.type == EntityOrder.Type.MOVE:
-					if halted_entity_ids.has(entity.id):
-						continue
-					var move_budget := MovementSystem.movement_budget_for_entity(
-						entity, registry, fired_entity_ids.has(entity.id), false
-					)
-					MovementSystem.resolve_move(
-						working, entity, order, registry, tunables, events, move_budget
-					)
-				elif order.type == EntityOrder.Type.MOVE_ONLY:
-					var move_only_budget := MovementSystem.movement_budget_for_entity(
-						entity, registry, false, true
-					)
-					MovementSystem.resolve_move(
-						working, entity, order, registry, tunables, events, move_only_budget
-					)
-
-			# Gather workers walking to a source consume the same movement
-			# budget as explicit MOVE orders.
-			GatherSystem.advance_move_phase(working, per_entity, tick, registry, tunables, events)
-
-			# Workers locked to an in-progress build also consume the same
-			# movement budget while walking toward the building's rect.
-			ConstructionSystem.advance_move_phase(
-				working, per_entity, tick, registry, tunables, events
+			MovementSystem.resolve_movement_substep(
+				working,
+				per_entity,
+				tick,
+				registry,
+				tunables,
+				events,
+				fired_entity_ids,
+				halted_entity_ids,
+				sorted_entities
 			)
 
 		# Phase 4 extension: gather workers at a source tick yields and
