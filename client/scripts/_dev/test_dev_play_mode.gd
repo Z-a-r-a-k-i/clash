@@ -69,6 +69,10 @@ func _all_tests() -> Array:
 			_test_selected_and_friendly_action_previews
 		],
 		[
+			"dev_play_mode_queue_toggle_routes_future_orders",
+			_test_queue_toggle_routes_future_orders
+		],
+		[
 			"dev_play_mode_pending_build_updates_placement_preview",
 			_test_pending_build_updates_placement_preview
 		],
@@ -466,6 +470,16 @@ func _test_command_card_shows_costs() -> bool:
 				"Stim Pack button should show mineral cost and research time: %s" % stim_button.text
 			)
 			ok = false
+		var repeat_toggle := _find_check_box_with_substring(card, "Repeat Train")
+		if repeat_toggle == null or not repeat_toggle.visible:
+			push_error("training producer command card should show Repeat Train")
+			ok = false
+		else:
+			repeat_toggle.emit_signal("toggled", true)
+			var barracks: Entity = mode.current_state().get_entity_by_id(barracks_id)
+			if barracks == null or not barracks.production_state.repeat_train_enabled:
+				push_error("Repeat Train toggle should update selected producer state")
+				ok = false
 
 	_free_mode(mode)
 	return ok
@@ -617,17 +631,8 @@ func _test_hud_resources_and_readable_queue() -> bool:
 	elif not mode.issue_move_selected(Vector2i(13, 22)):
 		push_error("expected worker move to queue")
 		ok = false
-	elif (
-		queue_label != null
-		and (
-			not queue_label.visible
-			or queue_label.text != "Queued this turn: 1 action"
-			or queue_label.text.find("P0=") != -1
-		)
-	):
-		push_error(
-			"queued-order label should be active-player readable, got: %s" % queue_label.text
-		)
+	elif queue_label != null and queue_label.visible:
+		push_error("queued-order count label should stay hidden; previews are the primary queue UX")
 		ok = false
 	_free_mode(mode)
 	return ok
@@ -690,6 +695,72 @@ func _test_selected_and_friendly_action_previews() -> bool:
 		return false
 	_free_mode(mode)
 	return true
+
+
+func _test_queue_toggle_routes_future_orders() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	if worker_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected to select a P0 worker")
+		_free_mode(mode)
+		return false
+	var card: Control = mode.command_card()
+	if card == null:
+		push_error("expected command card")
+		_free_mode(mode)
+		return false
+	var queue_toggle := _find_check_box_with_substring(card, "Queue")
+	if queue_toggle == null:
+		push_error("command card should expose a Queue toggle")
+		_free_mode(mode)
+		return false
+	queue_toggle.emit_signal("toggled", true)
+	if not mode.input_model().queue_mode_enabled():
+		push_error("Queue toggle should enable input queue mode")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(13, 22)):
+		push_error("expected first queued move")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(13, 25)):
+		push_error("expected second queued move to become future order")
+		_free_mode(mode)
+		return false
+	var renderer: MatchRenderer = mode.renderer()
+	var ok := true
+	if mode.input_model().submit_for_player(0).orders.size() != 1:
+		push_error("Queue mode should keep one current order")
+		ok = false
+	if mode.input_model().future_order_count_for_entity(worker_id) != 1:
+		push_error("Queue mode should append a future order")
+		ok = false
+	if renderer != null and renderer.action_preview_count() != 2:
+		push_error("selected previews should include current and future orders")
+		ok = false
+	mode.set_active_player_id(1)
+	if mode.input_model().queue_mode_enabled():
+		push_error("Queue mode should reset when switching active player")
+		ok = false
+	mode.set_queue_mode_enabled(true)
+	if not mode.input_model().queue_mode_enabled():
+		push_error("test setup should re-enable queue mode")
+		ok = false
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		push_error("scenario reload should succeed")
+		ok = false
+	elif mode.input_model().queue_mode_enabled():
+		push_error("Queue mode should reset on scenario reload")
+		ok = false
+	_free_mode(mode)
+	return ok
 
 
 func _test_pending_build_updates_placement_preview() -> bool:
@@ -1257,6 +1328,20 @@ func _find_button_with_substring(root: Node, needle: String) -> Button:
 			return button
 	for child in root.get_children():
 		var found: Button = _find_button_with_substring(child, needle)
+		if found != null:
+			return found
+	return null
+
+
+func _find_check_box_with_substring(root: Node, needle: String) -> CheckBox:
+	if root == null:
+		return null
+	if root is CheckBox:
+		var check_box: CheckBox = root as CheckBox
+		if check_box.text.find(needle) != -1:
+			return check_box
+	for child in root.get_children():
+		var found: CheckBox = _find_check_box_with_substring(child, needle)
 		if found != null:
 			return found
 	return null

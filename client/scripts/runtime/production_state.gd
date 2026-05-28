@@ -41,6 +41,8 @@ const KIND_RESEARCH := "research"
 
 @export var active: Dictionary = {}
 @export var queue: Array[Dictionary] = []
+@export var repeat_train_enabled: bool = false
+@export var repeat_train_def_id: String = ""
 
 
 func clone() -> ProductionState:
@@ -49,4 +51,6 @@ func clone() -> ProductionState:
 	c.queue = []
 	for item in queue:
 		c.queue.append(item.duplicate())
+	c.repeat_train_enabled = repeat_train_enabled
+	c.repeat_train_def_id = repeat_train_def_id
 	return c

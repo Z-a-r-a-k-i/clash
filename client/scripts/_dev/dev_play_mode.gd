@@ -59,6 +59,7 @@ func load_scenario_path(path: String) -> bool:
 		push_error("DevPlayMode: ScenarioLoader returned null.")
 		return false
 	_clear_pending_command()
+	_input.set_queue_mode_enabled(false)
 	_ensure_renderer()
 	if _renderer == null:
 		return false
@@ -96,6 +97,11 @@ func pending_command_kind() -> String:
 func set_show_all_friendly_action_previews(enabled: bool) -> void:
 	_show_all_friendly_action_previews = enabled
 	_refresh_action_previews()
+
+
+func set_queue_mode_enabled(enabled: bool) -> void:
+	_input.set_queue_mode_enabled(enabled)
+	_update_hud()
 
 
 func set_active_player_id(player_id: int) -> void:
@@ -176,6 +182,12 @@ func issue_research_selected(def_id: String) -> bool:
 
 func issue_ability_selected(ability_id: String) -> bool:
 	var ok: bool = _input.issue_ability(ability_id)
+	_update_hud()
+	return ok
+
+
+func issue_repeat_train_selected(enabled: bool) -> bool:
+	var ok: bool = _input.issue_repeat_train_toggle(enabled)
 	_update_hud()
 	return ok
 
@@ -332,8 +344,9 @@ func resolve_turn() -> bool:
 		_renderer.render_step(result.new_state, result.events)
 		_renderer.clear_input_highlights()
 	_input.bind_context(_loaded.state, _loaded.registry)
-	_input.clear_submissions(false)
+	_input.clear_submissions(false, false)
 	_input.queue_move_assists_for_next_turn()
+	_input.promote_future_orders_for_next_turn()
 	_update_hud("Resolved turn %d." % _loaded.state.turn_index)
 	return true
 
@@ -524,6 +537,8 @@ func _build_hud() -> void:
 	_command_card.connect("research_requested", Callable(self, "issue_research_selected"))
 	_command_card.connect("ability_requested", Callable(self, "issue_ability_selected"))
 	_command_card.connect("cancel_requested", Callable(self, "issue_cancel_selected"))
+	_command_card.connect("queue_mode_toggled", Callable(self, "set_queue_mode_enabled"))
+	_command_card.connect("repeat_train_toggled", Callable(self, "issue_repeat_train_selected"))
 	root.add_child(_command_card)
 	_update_hud()
 
@@ -566,9 +581,8 @@ func _update_hud(override_status: String = "") -> void:
 				% [player.minerals, player.gas, player.pop_used, player.pop_cap]
 			)
 	if _queue_label != null:
-		var queued: int = _input.queued_order_count(_input.active_player_id())
-		_queue_label.visible = queued > 0
-		_queue_label.text = ("Queued this turn: %d action%s" % [queued, "" if queued == 1 else "s"])
+		_queue_label.visible = false
+		_queue_label.text = ""
 	if _status_label != null:
 		var status_message: String = _input.status_message()
 		if override_status != "":
@@ -654,7 +668,10 @@ func _refresh_command_card() -> void:
 		_entity_options(_input.train_option_ids()),
 		_research_options(_input.research_option_ids()),
 		_ability_options(_input.ability_option_ids()),
-		_input.can_issue_cancel()
+		_input.can_issue_cancel(),
+		_input.queue_mode_enabled(),
+		_input.can_issue_repeat_train_toggle(),
+		_input.selected_repeat_train_enabled()
 	)
 
 
@@ -687,10 +704,21 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	if entity_id < 0 or _loaded == null or _loaded.state == null:
 		return out
+	var sequence_index := 1
 	for queued in _queued_orders_for_entity(entity_id):
 		var queued_preview: Dictionary = _preview_for_order(queued)
 		if not queued_preview.is_empty():
+			queued_preview["sequence_index"] = sequence_index
+			queued_preview["future"] = false
 			out.append(queued_preview)
+			sequence_index += 1
+	for future in _future_orders_for_entity(entity_id):
+		var future_preview: Dictionary = _preview_for_order(future)
+		if not future_preview.is_empty():
+			future_preview["sequence_index"] = sequence_index
+			future_preview["future"] = true
+			out.append(future_preview)
+			sequence_index += 1
 	if not out.is_empty():
 		return out
 	var entity: Entity = _loaded.state.get_entity_by_id(entity_id)
@@ -743,6 +771,13 @@ func _queued_orders_for_entity(entity_id: int) -> Array[EntityOrder]:
 		if order != null and order.entity_id == entity_id:
 			out.append(order)
 	return out
+
+
+func _future_orders_for_entity(entity_id: int) -> Array[EntityOrder]:
+	if _input == null or not _input.has_method("future_orders_for_entity"):
+		var empty: Array[EntityOrder] = []
+		return empty
+	return _input.future_orders_for_entity(entity_id)
 
 
 func _preview_for_order(order: EntityOrder) -> Dictionary:

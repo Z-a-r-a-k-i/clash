@@ -625,6 +625,14 @@ func _render_action_preview(preview: Dictionary) -> void:
 		return
 	var group := Node2D.new()
 	group.name = "ActionPreview_%d" % actor_id
+	var preview_color: Color = _ACTION_PREVIEW_COLOR
+	if preview.get("future", false):
+		preview_color = Color(
+			_ACTION_PREVIEW_COLOR.r,
+			_ACTION_PREVIEW_COLOR.g,
+			_ACTION_PREVIEW_COLOR.b,
+			_ACTION_PREVIEW_COLOR.a * 0.62
+		)
 	var start: Vector2 = actor_view.position
 	var target: Vector2 = start
 	var has_target := false
@@ -640,11 +648,11 @@ func _render_action_preview(preview: Dictionary) -> void:
 		has_target = true
 	if has_target:
 		var line := Line2D.new()
-		line.default_color = _ACTION_PREVIEW_COLOR
+		line.default_color = preview_color
 		line.width = _ACTION_PREVIEW_LINE_WIDTH
 		line.points = PackedVector2Array([start, target])
 		group.add_child(line)
-		group.add_child(_target_marker(target))
+		group.add_child(_target_marker(target, preview_color))
 	var label := Label.new()
 	label.text = _preview_label(preview)
 	label.modulate = _ACTION_PREVIEW_TEXT_COLOR
@@ -658,9 +666,9 @@ func _render_action_preview(preview: Dictionary) -> void:
 	_action_previews_root.add_child(group)
 
 
-func _target_marker(marker_position: Vector2) -> Polygon2D:
+func _target_marker(marker_position: Vector2, color: Color = _ACTION_PREVIEW_COLOR) -> Polygon2D:
 	var marker := Polygon2D.new()
-	marker.color = _ACTION_PREVIEW_COLOR
+	marker.color = color
 	var radius := 7.0
 	marker.polygon = PackedVector2Array(
 		[
@@ -676,9 +684,15 @@ func _target_marker(marker_position: Vector2) -> Polygon2D:
 func _preview_label(preview: Dictionary) -> String:
 	var kind: String = preview.get("kind", "Action")
 	var def_id: String = preview.get("def_id", "")
+	var sequence_index: int = preview.get("sequence_index", 0)
+	var prefix := ""
+	if sequence_index > 0:
+		prefix = "%d. " % sequence_index
+		if preview.get("future", false):
+			prefix = "%d> " % sequence_index
 	if def_id != "":
-		return "%s %s" % [kind, def_id]
-	return kind
+		return "%s%s %s" % [prefix, kind, def_id]
+	return "%s%s" % [prefix, kind]
 
 
 func _tile_center(tile: Vector2i) -> Vector2:
