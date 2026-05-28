@@ -532,8 +532,8 @@ func _test_rejects_occupied_target_build_preview() -> bool:
 	if message.find("occupied") == -1:
 		push_error("occupied target preview should explain occupancy, got: %s" % message)
 		ok = false
-	if input.issue_build("refinery", Vector2i(6, 9)):
-		push_error("refinery BUILD should reject an already occupied geyser")
+	if input.issue_build("refinery", Vector2i(6, 9), 10):
+		push_error("targeted refinery BUILD should reject an already occupied geyser")
 		ok = false
 	if input.submit_for_player(0).orders.size() != 0:
 		push_error("rejected refinery BUILD should not append an order")

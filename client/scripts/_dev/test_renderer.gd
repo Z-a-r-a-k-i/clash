@@ -1317,17 +1317,17 @@ func _test_input_highlights() -> bool:
 
 
 func _test_build_placement_preview() -> bool:
-	var registry := _renderer_registry()
-	var state := _make_renderer_state(
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
 		[
 			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
 		],
 		12,
 		12
 	)
-	var renderer := _make_renderer()
+	var renderer: MatchRenderer = _make_renderer()
 	renderer.bind_state(state, registry)
-	for method in [
+	for method: String in [
 		"set_build_placement_preview",
 		"clear_build_placement_preview",
 		"build_placement_preview_count",

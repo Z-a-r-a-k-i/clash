@@ -214,15 +214,14 @@ func issue_build(def_id: String, target_tile: Vector2i, target_entity_id: int = 
 	if not _state.tile_grid.is_rect_in_bounds(rect):
 		_status_message = "BUILD target is outside the map."
 		return false
-	if target_entity_id < 0:
-		var preview: Dictionary = build_placement_preview(def_id, target_tile)
-		var preview_valid: bool = preview.get("valid", false)
-		if not preview_valid:
-			var preview_message: String = preview.get("message", "BUILD needs a valid placement.")
-			_status_message = preview_message
-			return false
-		var preview_origin: Vector2i = preview.get("origin", build_tile)
-		build_tile = preview_origin
+	var preview: Dictionary = build_placement_preview(def_id, target_tile)
+	var preview_valid: bool = preview.get("valid", false)
+	if not preview_valid:
+		var preview_message: String = preview.get("message", "BUILD needs a valid placement.")
+		_status_message = preview_message
+		return false
+	var preview_origin: Vector2i = preview.get("origin", build_tile)
+	build_tile = preview_origin
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.BUILD
 	order.entity_id = actor.id
