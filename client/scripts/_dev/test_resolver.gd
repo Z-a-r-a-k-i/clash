@@ -5567,8 +5567,8 @@ func _test_mvp_map_main_resource_layout() -> bool:
 		Vector2i(41, 27),
 	]
 	var expected_geysers: Array[Vector2i] = [
-		Vector2i(6, 21),
-		Vector2i(42, 21),
+		Vector2i(6, 23),
+		Vector2i(42, 23),
 	]
 	return (
 		_expect_entity_origins(state, "mineral_patch", expected_minerals)

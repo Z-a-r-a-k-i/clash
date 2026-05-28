@@ -107,9 +107,9 @@ func _all_placements() -> Array[Dictionary]:
 				}
 			)
 		)
-	# Main geyser 2x2 at (6, 21) — behind the base, between mineral rows.
+	# Main geyser 2x2 at (6, 23) — behind the base, centered between mineral rows.
 	out.append(
-		{"name": "P0MainGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(6, 21)}
+		{"name": "P0MainGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(6, 23)}
 	)
 
 	return out

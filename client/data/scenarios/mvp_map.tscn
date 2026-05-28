@@ -71,4 +71,4 @@ tile_position = Vector2i(10, 27)
 [node name="P0MainGeyser" type="Node2D" parent="Placements" unique_id=1118236713]
 script = ExtResource("2_jxci3")
 def_id = "gas_geyser"
-tile_position = Vector2i(6, 21)
+tile_position = Vector2i(6, 23)
