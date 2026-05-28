@@ -69,6 +69,10 @@ func _all_tests() -> Array:
 			_test_selected_and_friendly_action_previews
 		],
 		[
+			"dev_play_mode_pending_build_updates_placement_preview",
+			_test_pending_build_updates_placement_preview
+		],
+		[
 			"dev_play_mode_requeues_unfinished_move_after_resolve",
 			_test_requeues_unfinished_move_after_resolve
 		],
@@ -686,6 +690,62 @@ func _test_selected_and_friendly_action_previews() -> bool:
 		return false
 	_free_mode(mode)
 	return true
+
+
+func _test_pending_build_updates_placement_preview() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var player: PlayerState = mode.current_state().get_player(0)
+	player.minerals = 10000
+	player.gas = 10000
+	player.pop_cap = 200
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	if worker_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected to select a P0 worker on mvp_map")
+		_free_mode(mode)
+		return false
+	var renderer: MatchRenderer = mode.renderer()
+	if renderer == null or not renderer.has_method("build_placement_preview_count"):
+		push_error("renderer should expose build placement preview count")
+		_free_mode(mode)
+		return false
+	mode.begin_build("barracks")
+	if mode.pending_command_kind() != "build":
+		push_error("begin_build should enter pending build mode")
+		_free_mode(mode)
+		return false
+	mode.call("_set_hover_tile", Vector2i(12, 2))
+	var ok: bool = true
+	if renderer.call("build_placement_preview_count") != 1:
+		push_error("pending BUILD hover should create a placement preview")
+		ok = false
+	mode.cancel_pending_command()
+	if renderer.call("build_placement_preview_count") != 0:
+		push_error("cancel_pending_command should clear placement preview")
+		ok = false
+	mode.begin_build("barracks")
+	mode.call("_set_hover_tile", Vector2i(12, 2))
+	if renderer.call("build_placement_preview_count") != 1:
+		push_error("second pending BUILD hover should recreate placement preview")
+		ok = false
+	if not mode.confirm_pending_at_tile(Vector2i(12, 2)):
+		push_error("confirming valid pending BUILD should queue the order")
+		ok = false
+	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if orders.is_empty() or orders[0].target_tile != Vector2i(11, 1):
+		push_error("pending BUILD should queue the centered origin shown by the preview")
+		ok = false
+	if renderer.call("build_placement_preview_count") != 0:
+		push_error("successful pending BUILD confirm should clear placement preview")
+		ok = false
+	_free_mode(mode)
+	return ok
 
 
 func _test_requeues_unfinished_move_after_resolve() -> bool:

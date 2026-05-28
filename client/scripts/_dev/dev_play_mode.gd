@@ -58,6 +58,7 @@ func load_scenario_path(path: String) -> bool:
 	if _loaded == null:
 		push_error("DevPlayMode: ScenarioLoader returned null.")
 		return false
+	_clear_pending_command()
 	_ensure_renderer()
 	if _renderer == null:
 		return false
@@ -110,6 +111,7 @@ func set_active_player_id(player_id: int) -> void:
 func select_entity_id(entity_id: int) -> bool:
 	var ok: bool = _input.select_entity(entity_id)
 	if _renderer != null:
+		_clear_build_placement_preview()
 		if ok:
 			_renderer.set_selected_entity_id(entity_id)
 		else:
@@ -207,6 +209,7 @@ func begin_move() -> void:
 	if not _input.can_issue_move():
 		_update_hud("Select a movable unit before Attack and Move.")
 		return
+	_clear_build_placement_preview()
 	_pending_command = PENDING_MOVE
 	_pending_build_def_id = ""
 	_update_hud("Click a target tile for Attack and Move.")
@@ -216,6 +219,7 @@ func begin_move_only() -> void:
 	if not _input.can_issue_move_only():
 		_update_hud("Select a movable unit before MOVE ONLY.")
 		return
+	_clear_build_placement_preview()
 	_pending_command = PENDING_MOVE_ONLY
 	_pending_build_def_id = ""
 	_update_hud("Click a target tile for MOVE ONLY. Unit will not shoot this turn.")
@@ -225,12 +229,14 @@ func begin_target() -> void:
 	if not _input.can_issue_attack_target():
 		_update_hud("Select a combat unit before TARGET.")
 		return
+	_clear_build_placement_preview()
 	_pending_command = PENDING_TARGET
 	_pending_build_def_id = ""
 	_update_hud("Click an enemy for TARGET.")
 
 
 func begin_build(def_id: String) -> void:
+	_clear_build_placement_preview()
 	if not _input.build_option_ids().has(def_id):
 		_update_hud("Selected entity cannot BUILD %s." % def_id)
 		return
@@ -353,7 +359,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_renderer.pan_camera_by_screen_delta(motion.relative)
 			return
 		var hover_tile: Vector2i = _renderer.world_to_tile(_event_world_position(motion))
-		_renderer.set_hover_tile(hover_tile)
+		_set_hover_tile(hover_tile)
 	elif event is InputEventMouseButton:
 		var button: InputEventMouseButton = event as InputEventMouseButton
 		if button.button_index == MOUSE_BUTTON_WHEEL_UP and button.pressed:
@@ -422,6 +428,16 @@ func _reset_left_empty_drag() -> void:
 	_left_empty_drag_moved = false
 	_left_empty_drag_start = Vector2.ZERO
 	_is_panning_camera = false
+
+
+func _set_hover_tile(tile: Vector2i) -> void:
+	if _renderer == null:
+		return
+	_renderer.set_hover_tile(tile)
+	if _pending_command == PENDING_BUILD:
+		_refresh_build_placement_preview(tile)
+	else:
+		_clear_build_placement_preview()
 
 
 func _build_hud() -> void:
@@ -593,15 +609,33 @@ func _is_gather_target(entity: Entity) -> bool:
 func _clear_pending_command() -> void:
 	_pending_command = PENDING_NONE
 	_pending_build_def_id = ""
+	_clear_build_placement_preview()
 
 
 func begin_gather() -> void:
 	if not _input.can_issue_gather():
 		_update_hud("Select a worker before GATHER.")
 		return
+	_clear_build_placement_preview()
 	_pending_command = PENDING_GATHER
 	_pending_build_def_id = ""
 	_update_hud("Click a mineral patch or refinery to GATHER.")
+
+
+func _refresh_build_placement_preview(tile: Vector2i) -> void:
+	if _renderer == null or not _renderer.has_method("set_build_placement_preview"):
+		return
+	if _pending_command != PENDING_BUILD or _pending_build_def_id == "":
+		_clear_build_placement_preview()
+		return
+	var preview: Dictionary = _input.build_placement_preview(_pending_build_def_id, tile)
+	_renderer.call("set_build_placement_preview", preview)
+
+
+func _clear_build_placement_preview() -> void:
+	if _renderer == null or not _renderer.has_method("clear_build_placement_preview"):
+		return
+	_renderer.call("clear_build_placement_preview")
 
 
 func _refresh_command_card() -> void:

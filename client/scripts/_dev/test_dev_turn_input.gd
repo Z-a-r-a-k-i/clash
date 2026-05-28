@@ -56,6 +56,11 @@ func _all_tests() -> Array:
 			"dev_input_snaps_refinery_build_to_geyser_origin",
 			_test_snaps_refinery_build_to_geyser_origin
 		],
+		["dev_input_reports_build_placement_preview", _test_build_placement_preview],
+		[
+			"dev_input_rejects_occupied_target_build_preview",
+			_test_rejects_occupied_target_build_preview
+		],
 		[
 			"dev_input_rejects_unaffordable_build_without_queue",
 			_test_rejects_unaffordable_build_without_queue
@@ -386,7 +391,7 @@ func _test_queues_build_train_research() -> bool:
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(1)
-	if not input.issue_build("barracks", Vector2i(5, 5)):
+	if not input.issue_build("barracks", Vector2i(6, 6)):
 		push_error("expected worker to queue BUILD barracks")
 		return false
 	var build_order: EntityOrder = input.submit_for_player(0).orders[0]
@@ -397,7 +402,7 @@ func _test_queues_build_train_research() -> bool:
 		push_error("BUILD should target worker #1 and barracks")
 		return false
 	if build_order.target_tile != Vector2i(5, 5) or build_order.target_entity_id != -1:
-		push_error("BUILD should carry target tile and no resume target")
+		push_error("BUILD should carry centered target tile and no resume target")
 		return false
 	input.select_entity(6)
 	if not input.issue_train("marine"):
@@ -444,6 +449,98 @@ func _test_snaps_refinery_build_to_geyser_origin() -> bool:
 	return true
 
 
+func _test_build_placement_preview() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	if not input.has_method("build_placement_preview"):
+		push_error("DevTurnInput should expose build_placement_preview")
+		return false
+	var setup: Dictionary = _make_input_setup()
+	setup.state.get_player(0).minerals = 200
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	var clear_preview: Dictionary = input.build_placement_preview("barracks", Vector2i(6, 6))
+	var ok: bool = true
+	if not clear_preview.get("valid", false):
+		push_error("clear barracks placement should preview as valid: %s" % clear_preview)
+		ok = false
+	if clear_preview.get("origin", Vector2i.ZERO) != Vector2i(5, 5):
+		push_error("barracks preview should center the 3x3 footprint on the clicked tile")
+		ok = false
+	if clear_preview.get("footprint", Vector2i.ZERO) != Vector2i(3, 3):
+		push_error("barracks preview should report a 3x3 footprint")
+		ok = false
+	var occupied_preview: Dictionary = input.build_placement_preview("barracks", Vector2i(8, 4))
+	if occupied_preview.get("valid", true):
+		push_error("occupied barracks placement should preview as invalid")
+		ok = false
+	var occupied_message: String = occupied_preview.get("message", "")
+	if occupied_message.find("occupied") == -1:
+		push_error("occupied preview should explain occupancy, got: %s" % occupied_message)
+		ok = false
+	var refinery_preview: Dictionary = input.build_placement_preview("refinery", Vector2i(6, 9))
+	if not refinery_preview.get("valid", false):
+		push_error(
+			"refinery preview inside geyser footprint should be valid: %s" % refinery_preview
+		)
+		ok = false
+	if refinery_preview.get("origin", Vector2i.ZERO) != Vector2i(5, 8):
+		push_error(
+			(
+				"refinery preview should snap to geyser origin, got %s"
+				% str(refinery_preview.get("origin", Vector2i.ZERO))
+			)
+		)
+		ok = false
+	if refinery_preview.get("footprint", Vector2i.ZERO) != Vector2i(2, 2):
+		push_error("refinery preview should report the geyser/refinery 2x2 footprint")
+		ok = false
+	return ok
+
+
+func _test_rejects_occupied_target_build_preview() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	setup.state.get_player(0).minerals = 200
+	var existing_refinery: Entity = Entity.new()
+	existing_refinery.id = 11
+	existing_refinery.def_id = "refinery"
+	existing_refinery.current_def_id = "refinery"
+	existing_refinery.owner_player_id = 0
+	existing_refinery.origin = Vector2i(5, 8)
+	existing_refinery.current_hp = 750
+	setup.state.entities.append(existing_refinery)
+	setup.state.next_entity_id = max(setup.state.next_entity_id, existing_refinery.id + 1)
+	if not setup.state.tile_grid.place_overlapping(
+		existing_refinery.id, Rect2i(Vector2i(5, 8), Vector2i(2, 2)), 10
+	):
+		push_error("test setup should place an existing refinery over the geyser")
+		return false
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	var preview: Dictionary = input.build_placement_preview("refinery", Vector2i(6, 9))
+	var ok: bool = true
+	if preview.get("valid", true):
+		push_error("refinery preview should be invalid when the geyser already has a refinery")
+		ok = false
+	var message: String = preview.get("message", "")
+	if message.find("occupied") == -1:
+		push_error("occupied target preview should explain occupancy, got: %s" % message)
+		ok = false
+	if input.issue_build("refinery", Vector2i(6, 9), 10):
+		push_error("targeted refinery BUILD should reject an already occupied geyser")
+		ok = false
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("rejected refinery BUILD should not append an order")
+		ok = false
+	return ok
+
+
 func _test_rejects_unaffordable_build_without_queue() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
@@ -453,7 +550,7 @@ func _test_rejects_unaffordable_build_without_queue() -> bool:
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(1)
-	if input.issue_build("barracks", Vector2i(5, 5)):
+	if input.issue_build("barracks", Vector2i(6, 6)):
 		push_error("unaffordable BUILD should be rejected before queueing")
 		return false
 	if input.submit_for_player(0).orders.size() != 0:

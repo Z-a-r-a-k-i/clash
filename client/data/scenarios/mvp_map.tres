@@ -8,13 +8,13 @@
 script = ExtResource("1_eymoo")
 def_id = "gas_geyser"
 owner_player_id = -1
-origin = Vector2i(6, 21)
+origin = Vector2i(6, 23)
 
 [sub_resource type="Resource" id="Resource_wbfpq"]
 script = ExtResource("1_eymoo")
 def_id = "gas_geyser"
 owner_player_id = -1
-origin = Vector2i(42, 21)
+origin = Vector2i(42, 23)
 
 [sub_resource type="Resource" id="Resource_i4adm"]
 script = ExtResource("1_eymoo")

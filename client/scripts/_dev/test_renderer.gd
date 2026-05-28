@@ -76,6 +76,7 @@ func _all_tests() -> Array:
 		["match_renderer_match_ended_draw_event_logged", _test_match_ended_draw_event_logged],
 		["match_renderer_world_tile_hit_testing", _test_world_tile_hit_testing],
 		["match_renderer_input_highlights", _test_input_highlights],
+		["match_renderer_build_placement_preview", _test_build_placement_preview],
 		["match_renderer_action_previews", _test_action_previews],
 		["match_renderer_unit_training_progress", _test_unit_training_progress],
 		[
@@ -1313,6 +1314,70 @@ func _test_input_highlights() -> bool:
 		return false
 	_free_renderer(renderer)
 	return true
+
+
+func _test_build_placement_preview() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+		],
+		12,
+		12
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state, registry)
+	for method: String in [
+		"set_build_placement_preview",
+		"clear_build_placement_preview",
+		"build_placement_preview_count",
+	]:
+		if not renderer.has_method(method):
+			push_error("renderer should expose %s" % method)
+			_free_renderer(renderer)
+			return false
+	renderer.call("set_hover_tile", Vector2i(2, 2))
+	(
+		renderer
+		. call(
+			"set_build_placement_preview",
+			{
+				"origin": Vector2i(4, 4),
+				"footprint": Vector2i(3, 3),
+				"rect": Rect2i(Vector2i(4, 4), Vector2i(3, 3)),
+				"valid": true,
+			}
+		)
+	)
+	var ok: bool = true
+	if renderer.call("build_placement_preview_count") != 1:
+		push_error("set_build_placement_preview should create exactly one overlay group")
+		ok = false
+	if renderer.call("input_highlight_count") != 1:
+		push_error("build placement preview should keep the normal hover highlight intact")
+		ok = false
+	renderer.call("clear_input_highlights")
+	if renderer.call("build_placement_preview_count") != 0:
+		push_error("clear_input_highlights should clear build placement preview")
+		ok = false
+	(
+		renderer
+		. call(
+			"set_build_placement_preview",
+			{
+				"origin": Vector2i(4, 4),
+				"footprint": Vector2i(3, 3),
+				"rect": Rect2i(Vector2i(4, 4), Vector2i(3, 3)),
+				"valid": false,
+			}
+		)
+	)
+	renderer.bind_state(state, registry)
+	if renderer.call("build_placement_preview_count") != 0:
+		push_error("bind_state should clear stale build placement preview")
+		ok = false
+	_free_renderer(renderer)
+	return ok
 
 
 func _test_action_previews() -> bool:

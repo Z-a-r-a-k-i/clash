@@ -214,15 +214,14 @@ func issue_build(def_id: String, target_tile: Vector2i, target_entity_id: int = 
 	if not _state.tile_grid.is_rect_in_bounds(rect):
 		_status_message = "BUILD target is outside the map."
 		return false
-	if target_entity_id < 0:
-		var affordability_message := _build_affordability_message(def_id)
-		if affordability_message != "":
-			_status_message = affordability_message
-			return false
-		var placement_message := _build_placement_message(build_def, rect)
-		if placement_message != "":
-			_status_message = placement_message
-			return false
+	var preview: Dictionary = build_placement_preview(def_id, target_tile)
+	var preview_valid: bool = preview.get("valid", false)
+	if not preview_valid:
+		var preview_message: String = preview.get("message", "BUILD needs a valid placement.")
+		_status_message = preview_message
+		return false
+	var preview_origin: Vector2i = preview.get("origin", build_tile)
+	build_tile = preview_origin
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.BUILD
 	order.entity_id = actor.id
@@ -422,6 +421,49 @@ func can_issue_cancel() -> bool:
 
 func can_afford_build(def_id: String) -> bool:
 	return _build_affordability_message(def_id) == ""
+
+
+func build_placement_preview(def_id: String, clicked_tile: Vector2i) -> Dictionary:
+	var out: Dictionary = {
+		"def_id": def_id,
+		"origin": clicked_tile,
+		"footprint": Vector2i.ONE,
+		"rect": Rect2i(clicked_tile, Vector2i.ONE),
+		"valid": false,
+		"message": "",
+	}
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		out["message"] = "Select a builder before issuing BUILD."
+		return out
+	if _state == null or _state.tile_grid == null:
+		out["message"] = "BUILD needs a loaded map."
+		return out
+	var build_def: EntityDef = _registry.get_by_id(def_id) if _registry != null else null
+	var footprint: Vector2i = build_def.footprint if build_def != null else Vector2i.ONE
+	if footprint == Vector2i.ZERO:
+		footprint = Vector2i.ONE
+	var build_tile: Vector2i = _normalized_build_tile(build_def, clicked_tile)
+	var rect: Rect2i = Rect2i(build_tile, footprint)
+	out["origin"] = build_tile
+	out["footprint"] = footprint
+	out["rect"] = rect
+	if not build_option_ids().has(def_id):
+		out["message"] = "%s cannot build '%s'." % [_def_id_for_entity(actor), def_id]
+		return out
+	if not _state.tile_grid.is_rect_in_bounds(rect):
+		out["message"] = "BUILD target is outside the map."
+		return out
+	var affordability_message := _build_affordability_message(def_id)
+	if affordability_message != "":
+		out["message"] = affordability_message
+		return out
+	var placement_message := _build_placement_message(build_def, rect)
+	if placement_message != "":
+		out["message"] = placement_message
+		return out
+	out["valid"] = true
+	return out
 
 
 func build_option_ids() -> Array[String]:
@@ -785,9 +827,27 @@ func _build_placement_message(def: EntityDef, rect: Rect2i) -> String:
 		var target_rect: Rect2i = _state.tile_grid.entity_rect(target_id)
 		if target_rect.position != rect.position or target_rect.size != rect.size:
 			return "BUILD target must match the %s footprint." % require_tag
+		var overlap_message: String = _target_overlap_message(rect, target_id)
+		if overlap_message != "":
+			return overlap_message
 		return ""
 	if not _state.tile_grid.is_rect_clear(rect):
 		return "BUILD target is occupied."
+	return ""
+
+
+func _target_overlap_message(rect: Rect2i, allow_overlap_id: int) -> String:
+	for x in range(rect.position.x, rect.position.x + rect.size.x):
+		for y in range(rect.position.y, rect.position.y + rect.size.y):
+			var occupant_id: int = _state.tile_grid.entity_at(Vector2i(x, y))
+			if occupant_id != -1 and occupant_id != allow_overlap_id:
+				return "BUILD target is occupied."
+	for existing_id: int in _state.tile_grid.all_placed_entity_ids():
+		if existing_id == allow_overlap_id:
+			continue
+		var existing_rect: Rect2i = _state.tile_grid.entity_rect(existing_id)
+		if existing_rect.intersects(rect):
+			return "BUILD target is occupied."
 	return ""
 
 
@@ -796,7 +856,13 @@ func _normalized_build_tile(def: EntityDef, clicked_tile: Vector2i) -> Vector2i:
 		return clicked_tile
 	var require_tag: String = def.construction.requires_target_tag
 	if require_tag == "":
-		return clicked_tile
+		var footprint: Vector2i = def.footprint
+		if footprint == Vector2i.ZERO:
+			footprint = Vector2i.ONE
+		return (
+			clicked_tile
+			- Vector2i(floori(float(footprint.x) * 0.5), floori(float(footprint.y) * 0.5))
+		)
 	var target_id: int = _find_target_at_tile(clicked_tile, require_tag)
 	if target_id < 0:
 		return clicked_tile

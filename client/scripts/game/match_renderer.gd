@@ -38,6 +38,11 @@ const _DESTRUCTION_FADE_SECONDS := 0.5
 const _COMBAT_LOG_MAX_LINES := 50
 const _SELECTED_HIGHLIGHT_COLOR := Color(0.1, 0.85, 1.0, 0.32)
 const _HOVER_HIGHLIGHT_COLOR := Color(1.0, 1.0, 1.0, 0.22)
+const _BUILD_PLACEMENT_VALID_COLOR := Color(0.0, 0.88, 0.72, 0.30)
+const _BUILD_PLACEMENT_INVALID_COLOR := Color(1.0, 0.08, 0.08, 0.30)
+const _BUILD_PLACEMENT_GRID_ALPHA := 0.72
+const _BUILD_PLACEMENT_BORDER_WIDTH := 2.0
+const _BUILD_PLACEMENT_GRID_WIDTH := 1.0
 const _ACTION_PREVIEW_COLOR := Color(0.2, 0.95, 0.9, 0.86)
 const _ACTION_PREVIEW_TEXT_COLOR := Color(0.95, 1.0, 1.0, 1.0)
 const _ACTION_PREVIEW_LINE_WIDTH := 3.0
@@ -101,6 +106,9 @@ var _zoom_debug_text: String = ""
 @onready var _fog_root: Node2D = $Overlays/Fog
 @onready var _attack_lines_root: Node2D = $Overlays/AttackLines
 @onready var _input_highlights_root: Node2D = $Overlays/Highlights
+@onready var _build_placement_preview_root: Node2D = (
+	get_node_or_null("Overlays/BuildPlacementPreview") as Node2D
+)
 @onready var _action_previews_root: Node2D = get_node_or_null("Overlays/ActionPreviews") as Node2D
 @onready
 var _production_progress_root: Node2D = get_node_or_null("Overlays/ProductionProgress") as Node2D
@@ -251,12 +259,37 @@ func clear_input_highlights() -> void:
 	_selected_entity_id = -1
 	_has_hover_tile = false
 	_clear_input_highlight_nodes()
+	_clear_build_placement_preview_nodes()
 
 
 func input_highlight_count() -> int:
 	if _input_highlights_root == null:
 		return 0
 	return _input_highlights_root.get_child_count()
+
+
+func set_build_placement_preview(preview: Dictionary) -> void:
+	_resolve_internal_nodes()
+	_clear_build_placement_preview_nodes()
+	if _build_placement_preview_root == null or preview.is_empty():
+		return
+	var origin: Vector2i = preview.get("origin", Vector2i.ZERO)
+	var footprint: Vector2i = preview.get("footprint", Vector2i.ONE)
+	var rect: Rect2i = preview.get("rect", Rect2i(origin, footprint))
+	if rect.size.x <= 0 or rect.size.y <= 0:
+		return
+	var valid: bool = preview.get("valid", false)
+	_build_placement_preview_root.add_child(_build_placement_preview_group(rect, valid))
+
+
+func clear_build_placement_preview() -> void:
+	_clear_build_placement_preview_nodes()
+
+
+func build_placement_preview_count() -> int:
+	if _build_placement_preview_root == null:
+		return 0
+	return _build_placement_preview_root.get_child_count()
 
 
 func set_action_previews(previews: Array) -> void:
@@ -386,6 +419,12 @@ func _resolve_internal_nodes() -> void:
 			_input_highlights_root = Node2D.new()
 			_input_highlights_root.name = "Highlights"
 			overlays.add_child(_input_highlights_root)
+	if _build_placement_preview_root == null:
+		var overlays := get_node_or_null("Overlays") as Node2D
+		if overlays != null:
+			_build_placement_preview_root = Node2D.new()
+			_build_placement_preview_root.name = "BuildPlacementPreview"
+			overlays.add_child(_build_placement_preview_root)
 	if _action_previews_root == null:
 		var overlays := get_node_or_null("Overlays") as Node2D
 		if overlays != null:
@@ -445,6 +484,7 @@ func _clear_overlay_roots() -> void:
 	for root in [
 		_fog_root,
 		_attack_lines_root,
+		_build_placement_preview_root,
 		_action_previews_root,
 		_production_progress_root,
 		_construction_progress_root,
@@ -470,6 +510,14 @@ func _clear_action_preview_nodes() -> void:
 		return
 	for child in _action_previews_root.get_children():
 		_action_previews_root.remove_child(child)
+		child.queue_free()
+
+
+func _clear_build_placement_preview_nodes() -> void:
+	if _build_placement_preview_root == null:
+		return
+	for child in _build_placement_preview_root.get_children():
+		_build_placement_preview_root.remove_child(child)
 		child.queue_free()
 
 
@@ -522,6 +570,52 @@ func _highlight_polygon(rect: Rect2i, color: Color) -> Polygon2D:
 		]
 	)
 	return poly
+
+
+func _build_placement_preview_group(rect: Rect2i, valid: bool) -> Node2D:
+	var group := Node2D.new()
+	group.name = "BuildPlacementPreview"
+	var fill_color: Color = (
+		_BUILD_PLACEMENT_VALID_COLOR if valid else _BUILD_PLACEMENT_INVALID_COLOR
+	)
+	var line_color := Color(fill_color.r, fill_color.g, fill_color.b, _BUILD_PLACEMENT_GRID_ALPHA)
+	var x0: float = rect.position.x * _tile_size
+	var y0: float = rect.position.y * _tile_size
+	var x1: float = (rect.position.x + rect.size.x) * _tile_size
+	var y1: float = (rect.position.y + rect.size.y) * _tile_size
+	group.add_child(_highlight_polygon(rect, fill_color))
+	var border := Line2D.new()
+	border.default_color = line_color
+	border.width = _BUILD_PLACEMENT_BORDER_WIDTH
+	border.points = PackedVector2Array(
+		[
+			Vector2(x0, y0),
+			Vector2(x1, y0),
+			Vector2(x1, y1),
+			Vector2(x0, y1),
+			Vector2(x0, y0),
+		]
+	)
+	group.add_child(border)
+	for x in range(rect.position.x + 1, rect.position.x + rect.size.x):
+		var x_px: float = x * _tile_size
+		group.add_child(
+			_build_placement_grid_line(Vector2(x_px, y0), Vector2(x_px, y1), line_color)
+		)
+	for y in range(rect.position.y + 1, rect.position.y + rect.size.y):
+		var y_px: float = y * _tile_size
+		group.add_child(
+			_build_placement_grid_line(Vector2(x0, y_px), Vector2(x1, y_px), line_color)
+		)
+	return group
+
+
+func _build_placement_grid_line(start: Vector2, finish: Vector2, color: Color) -> Line2D:
+	var line := Line2D.new()
+	line.default_color = color
+	line.width = _BUILD_PLACEMENT_GRID_WIDTH
+	line.points = PackedVector2Array([start, finish])
+	return line
 
 
 func _render_action_preview(preview: Dictionary) -> void:
