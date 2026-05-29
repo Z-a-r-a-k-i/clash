@@ -84,7 +84,10 @@ func _all_tests() -> Array:
 		["dev_play_mode_pending_target_targets_enemy", _test_pending_target_targets_enemy],
 		["dev_play_mode_left_drag_pans_camera", _test_left_drag_pans_camera],
 		["dev_play_mode_hud_anchors_away_from_start_area", _test_hud_anchors_away_from_start_area],
-		["dev_play_mode_focuses_active_player_on_switch", _test_focuses_active_player_on_switch],
+		[
+			"dev_play_mode_switching_player_keeps_camera_bounded",
+			_test_switching_player_keeps_camera_bounded
+		],
 		["dev_play_mode_hud_omits_resolution_button", _test_hud_omits_resolution_button],
 	]
 
@@ -1091,8 +1094,8 @@ func _test_left_drag_pans_camera() -> bool:
 		return false
 	var original_position: Vector2 = camera.position
 	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, Vector2(8.0, 8.0)))
-	mode.call("_unhandled_input", _mouse_motion(Vector2(96.0, 0.0), MOUSE_BUTTON_MASK_LEFT))
-	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, Vector2(104.0, 8.0)))
+	mode.call("_unhandled_input", _mouse_motion(Vector2(0.0, 96.0), MOUSE_BUTTON_MASK_LEFT))
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, Vector2(8.0, 104.0)))
 	var ok := true
 	if camera.position == original_position:
 		push_error("left-dragging empty map space should pan the camera")
@@ -1138,7 +1141,7 @@ func _test_hud_anchors_away_from_start_area() -> bool:
 	return ok
 
 
-func _test_focuses_active_player_on_switch() -> bool:
+func _test_switching_player_keeps_camera_bounded() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
 		return false
@@ -1160,22 +1163,48 @@ func _test_focuses_active_player_on_switch() -> bool:
 		push_error("renderer has no Camera2D")
 		_free_mode(mode)
 		return false
-	var p0_position: Vector2 = camera.position
+	var ok: bool = _camera_visible_rect_inside_state(
+		camera, mode.current_state(), "P0 player focus"
+	)
 	mode.set_active_player_id(1)
-	var p1_position: Vector2 = camera.position
-	var ok := true
-	if p0_position.distance_to(p1_position) < 128.0:
-		push_error(
-			(
-				"switching player should refocus camera; positions were %s and %s"
-				% [str(p0_position), str(p1_position)]
-			)
-		)
-		ok = false
+	ok = _camera_visible_rect_inside_state(camera, mode.current_state(), "P1 player focus") and ok
 	if renderer.call("perspective_player_id") != 1:
 		push_error("switching player should still update renderer perspective")
 		ok = false
 	_free_mode(mode)
+	return ok
+
+
+func _camera_visible_rect_inside_state(
+	camera: Camera2D, state: MatchState, context: String
+) -> bool:
+	if state == null or state.tile_grid == null:
+		push_error("camera bounds check requires a loaded tile grid")
+		return false
+	var viewport_size: Vector2 = Vector2(
+		float(ProjectSettings.get_setting("display/window/size/viewport_width", 1920.0)),
+		float(ProjectSettings.get_setting("display/window/size/viewport_height", 1080.0))
+	)
+	var safe_zoom: float = maxf(camera.zoom.x, 0.01)
+	var visible_size: Vector2 = viewport_size / safe_zoom
+	var visible: Rect2 = Rect2(camera.position - visible_size * 0.5, visible_size)
+	var map_bounds: Rect2 = Rect2(
+		Vector2.ZERO, Vector2(state.tile_grid.width * 32.0, state.tile_grid.height * 32.0)
+	)
+	var epsilon: float = 0.01
+	var ok: bool = (
+		visible.position.x >= map_bounds.position.x - epsilon
+		and visible.position.y >= map_bounds.position.y - epsilon
+		and visible.end.x <= map_bounds.end.x + epsilon
+		and visible.end.y <= map_bounds.end.y + epsilon
+	)
+	if not ok:
+		push_error(
+			(
+				"camera visible rect escaped map after %s: visible=%s map=%s zoom=%s"
+				% [context, str(visible), str(map_bounds), str(camera.zoom)]
+			)
+		)
 	return ok
 
 

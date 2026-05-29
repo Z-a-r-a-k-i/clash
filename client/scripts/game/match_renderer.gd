@@ -13,7 +13,9 @@ const DEFAULT_VISUALS_PATH := "res://data/entity_visuals.tres"
 const DEFAULT_TUNABLES_PATH := "res://data/tunables.tres"
 const VISION_SYSTEM_SCRIPT := preload("res://scripts/runtime/vision_system.gd")
 
-# Camera margin in tiles around the map bounds when auto-fitting.
+# Camera margin in tiles for auto-fit candidates. Final camera bounds still
+# clamp to the playable map, so margin is discarded when it would reveal
+# outside the map.
 const _CAMERA_MARGIN_TILES := 3
 
 # Terrain fallback color for chunk-3. Plan-07b3 (perspective + fog) replaces
@@ -358,6 +360,7 @@ func pan_camera_by_screen_delta(delta: Vector2) -> void:
 		return
 	var safe_zoom: float = maxf(_camera.zoom.x, 0.01)
 	_camera.position -= delta / safe_zoom
+	_clamp_camera_to_map_bounds()
 
 
 func is_entity_view_visible(entity_id: int) -> bool:
@@ -894,9 +897,45 @@ func _camera_fit_viewport_size() -> Vector2:
 func _set_camera_zoom(value: float) -> void:
 	if _camera == null:
 		return
-	var zoom: float = clampf(value, _MIN_CAMERA_ZOOM, _MAX_CAMERA_ZOOM)
+	var zoom: float = clampf(value, _camera_min_zoom_for_map(), _MAX_CAMERA_ZOOM)
 	_camera.zoom = Vector2.ONE * zoom
+	_clamp_camera_to_map_bounds()
 	_update_zoom_debug_readout()
+
+
+func _camera_min_zoom_for_map() -> float:
+	var min_zoom: float = _MIN_CAMERA_ZOOM
+	var map_bounds: Rect2 = _map_world_bounds()
+	if map_bounds.size.x <= 0.0 or map_bounds.size.y <= 0.0:
+		return _MIN_CAMERA_ZOOM
+	var viewport_size: Vector2 = _camera_fit_viewport_size()
+	min_zoom = maxf(min_zoom, viewport_size.x / map_bounds.size.x)
+	min_zoom = maxf(min_zoom, viewport_size.y / map_bounds.size.y)
+	return minf(min_zoom, _MAX_CAMERA_ZOOM)
+
+
+func _clamp_camera_to_map_bounds() -> void:
+	if _camera == null:
+		return
+	var map_bounds: Rect2 = _map_world_bounds()
+	if map_bounds.size.x <= 0.0 or map_bounds.size.y <= 0.0:
+		return
+	var safe_zoom: float = maxf(_camera.zoom.x, 0.01)
+	var visible_size: Vector2 = _camera_fit_viewport_size() / safe_zoom
+	var clamped_position: Vector2 = _camera.position
+	if visible_size.x >= map_bounds.size.x:
+		clamped_position.x = map_bounds.get_center().x
+	else:
+		var min_x: float = map_bounds.position.x + visible_size.x * 0.5
+		var max_x: float = map_bounds.end.x - visible_size.x * 0.5
+		clamped_position.x = clampf(clamped_position.x, min_x, max_x)
+	if visible_size.y >= map_bounds.size.y:
+		clamped_position.y = map_bounds.get_center().y
+	else:
+		var min_y: float = map_bounds.position.y + visible_size.y * 0.5
+		var max_y: float = map_bounds.end.y - visible_size.y * 0.5
+		clamped_position.y = clampf(clamped_position.y, min_y, max_y)
+	_camera.position = clamped_position
 
 
 func _update_zoom_debug_readout() -> void:

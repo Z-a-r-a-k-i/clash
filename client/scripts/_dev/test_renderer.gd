@@ -142,6 +142,7 @@ func _all_tests() -> Array:
 			"match_renderer_camera_fit_uses_logical_viewport_size",
 			_test_camera_fit_uses_logical_viewport_size
 		],
+		["match_renderer_camera_clamps_to_map_bounds", _test_camera_clamps_to_map_bounds],
 		[
 			"match_renderer_focuses_player_start_at_playable_zoom",
 			_test_focuses_player_start_at_playable_zoom
@@ -416,50 +417,50 @@ func _test_focuses_player_start_at_playable_zoom() -> bool:
 			{
 				"def_id": "base",
 				"owner": 0,
-				"origin": Vector2i(2, 20),
+				"origin": Vector2i(35, 40),
 				"footprint": Vector2i(4, 4),
 				"id": 1
 			},
-			{"def_id": "worker", "owner": 0, "origin": Vector2i(7, 20), "id": 2},
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(40, 40), "id": 2},
 			{
 				"def_id": "mineral_patch",
 				"owner": -1,
-				"origin": Vector2i(10, 18),
+				"origin": Vector2i(43, 38),
 				"footprint": Vector2i(1, 1),
 				"id": 5
 			},
 			{
 				"def_id": "gas_geyser",
 				"owner": -1,
-				"origin": Vector2i(12, 22),
+				"origin": Vector2i(45, 42),
 				"footprint": Vector2i(2, 2),
 				"id": 6
 			},
 			{
 				"def_id": "base",
 				"owner": 1,
-				"origin": Vector2i(24, 2),
+				"origin": Vector2i(94, 42),
 				"footprint": Vector2i(4, 4),
 				"id": 3
 			},
-			{"def_id": "worker", "owner": 1, "origin": Vector2i(23, 7), "id": 4},
+			{"def_id": "worker", "owner": 1, "origin": Vector2i(93, 47), "id": 4},
 			{
 				"def_id": "mineral_patch",
 				"owner": -1,
-				"origin": Vector2i(20, 4),
+				"origin": Vector2i(90, 44),
 				"footprint": Vector2i(1, 1),
 				"id": 7
 			},
 			{
 				"def_id": "gas_geyser",
 				"owner": -1,
-				"origin": Vector2i(18, 4),
+				"origin": Vector2i(88, 44),
 				"footprint": Vector2i(2, 2),
 				"id": 8
 			},
 		],
-		30,
-		30
+		140,
+		100
 	)
 	var renderer: MatchRenderer = _make_renderer()
 	renderer.bind_state(state, registry)
@@ -474,7 +475,7 @@ func _test_focuses_player_start_at_playable_zoom() -> bool:
 		_free_renderer(renderer)
 		return false
 	var ok: bool = true
-	if camera.position.distance_to(Vector2(8.5, 21.5) * 32.0) > 64.0:
+	if camera.position.distance_to(Vector2(41.5, 41.5) * 32.0) > 64.0:
 		push_error(
 			(
 				"P0 focus camera position is %s, expected base + resource cluster"
@@ -486,7 +487,7 @@ func _test_focuses_player_start_at_playable_zoom() -> bool:
 		push_error("P0 focus zoom is %s, expected readable dev zoom" % str(camera.zoom))
 		ok = false
 	renderer.call("focus_player_start", 1)
-	if camera.position.distance_to(Vector2(23.0, 5.0) * 32.0) > 48.0:
+	if camera.position.distance_to(Vector2(93.0, 45.0) * 32.0) > 48.0:
 		push_error(
 			(
 				"P1 focus camera position is %s, expected base + resource cluster"
@@ -674,6 +675,34 @@ func _renderer_registry() -> EntityRegistry:
 
 static func _approximately_equal(a: Vector2, b: Vector2) -> bool:
 	return absf(a.x - b.x) < 0.5 and absf(a.y - b.y) < 0.5
+
+
+func _camera_visible_rect_inside_map(camera: Camera2D, state: MatchState, context: String) -> bool:
+	var viewport_size: Vector2 = Vector2(
+		float(ProjectSettings.get_setting("display/window/size/viewport_width", 1920.0)),
+		float(ProjectSettings.get_setting("display/window/size/viewport_height", 1080.0))
+	)
+	var safe_zoom: float = maxf(camera.zoom.x, 0.01)
+	var visible_size: Vector2 = viewport_size / safe_zoom
+	var visible: Rect2 = Rect2(camera.position - visible_size * 0.5, visible_size)
+	var map_bounds: Rect2 = Rect2(
+		Vector2.ZERO, Vector2(state.tile_grid.width * 32.0, state.tile_grid.height * 32.0)
+	)
+	var epsilon: float = 0.01
+	var ok: bool = (
+		visible.position.x >= map_bounds.position.x - epsilon
+		and visible.position.y >= map_bounds.position.y - epsilon
+		and visible.end.x <= map_bounds.end.x + epsilon
+		and visible.end.y <= map_bounds.end.y + epsilon
+	)
+	if not ok:
+		push_error(
+			(
+				"camera visible rect escaped map after %s: visible=%s map=%s zoom=%s"
+				% [context, str(visible), str(map_bounds), str(camera.zoom)]
+			)
+		)
+	return ok
 
 
 static func _modulate_of(view: EntityView) -> Color:
@@ -2117,17 +2146,48 @@ func _test_camera_fit_uses_logical_viewport_size() -> bool:
 		push_error("renderer has no Camera2D")
 		_free_renderer(renderer)
 		return false
-	var expected_zoom: float = 1080.0 / float((30 + 3 * 2) * 32)
+	var expected_fit_zoom: float = 1080.0 / float((30 + 3 * 2) * 32)
+	var expected_bounds_zoom: float = 1920.0 / float(30 * 32)
+	var expected_zoom: float = maxf(expected_fit_zoom, expected_bounds_zoom)
 	var ok: bool = is_equal_approx(camera.zoom.x, expected_zoom)
 	if not ok:
 		push_error(
 			(
 				(
-					"camera auto-fit zoom should use 1920x1080 logical viewport size, "
+					"camera auto-fit zoom should use 1920x1080 logical viewport bounds, "
 					+ "got %f and expected %f"
 				)
 				% [camera.zoom.x, expected_zoom]
 			)
 		)
+	ok = _camera_visible_rect_inside_map(camera, state, "auto-fit") and ok
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_camera_clamps_to_map_bounds() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var map_tiles: Vector2i = Vector2i(30, 30)
+	var state: MatchState = _make_renderer_state(
+		[{"def_id": "base", "owner": 0, "origin": Vector2i(2, 2), "footprint": Vector2i(4, 4)}],
+		map_tiles.x,
+		map_tiles.y
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state, registry)
+	var camera: Camera2D = renderer.get_node_or_null("Camera2D") as Camera2D
+	if camera == null:
+		push_error("renderer has no Camera2D")
+		_free_renderer(renderer)
+		return false
+	var ok: bool = _camera_visible_rect_inside_map(camera, state, "initial fit")
+	renderer.call("focus_player_start", 0)
+	ok = _camera_visible_rect_inside_map(camera, state, "player start focus") and ok
+	renderer.call("pan_camera_by_screen_delta", Vector2(100000.0, 100000.0))
+	ok = _camera_visible_rect_inside_map(camera, state, "top-left pan") and ok
+	renderer.call("pan_camera_by_screen_delta", Vector2(-100000.0, -100000.0))
+	ok = _camera_visible_rect_inside_map(camera, state, "bottom-right pan") and ok
+	renderer.call("zoom_camera", 0.01)
+	ok = _camera_visible_rect_inside_map(camera, state, "max zoom-out") and ok
 	_free_renderer(renderer)
 	return ok
