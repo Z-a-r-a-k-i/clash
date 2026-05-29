@@ -69,7 +69,19 @@ func _all_tests() -> Array:
 			"dev_play_mode_selected_and_friendly_action_previews",
 			_test_selected_and_friendly_action_previews
 		],
+		[
+			"dev_play_mode_gather_and_build_previews_route_around_blockers",
+			_test_gather_and_build_previews_route_around_blockers
+		],
 		["dev_play_mode_shift_click_routes_future_orders", _test_shift_click_routes_future_orders],
+		[
+			"dev_play_mode_shift_click_routes_future_gather_and_build_orders",
+			_test_shift_click_routes_future_gather_and_build_orders
+		],
+		[
+			"dev_play_mode_halt_on_sight_move_preview_does_not_route",
+			_test_halt_on_sight_move_preview_does_not_route
+		],
 		[
 			"dev_play_mode_pending_build_updates_placement_preview",
 			_test_pending_build_updates_placement_preview
@@ -77,6 +89,10 @@ func _all_tests() -> Array:
 		[
 			"dev_play_mode_requeues_unfinished_move_after_resolve",
 			_test_requeues_unfinished_move_after_resolve
+		],
+		[
+			"dev_play_mode_tied_same_target_move_completes_for_future_queue",
+			_test_tied_same_target_move_completes_for_future_queue
 		],
 		["dev_play_mode_routes_command_card_orders", _test_routes_command_card_orders],
 		["dev_play_mode_pending_target_targets_enemy", _test_pending_target_targets_enemy],
@@ -698,6 +714,61 @@ func _test_selected_and_friendly_action_previews() -> bool:
 	return true
 
 
+func _test_gather_and_build_previews_route_around_blockers() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	var gather_target_id: int = _add_runtime_entity(
+		mode.current_state(), "mineral_patch", -1, Vector2i(17, 23)
+	)
+	var renderer: MatchRenderer = mode.renderer()
+	if worker_id < 0 or gather_target_id < 0 or renderer == null:
+		push_error("expected worker, injected mineral patch, and renderer for preview test")
+		_free_mode(mode)
+		return false
+	renderer.bind_state(mode.current_state(), _load_registry())
+	if not mode.select_entity_id(worker_id) or not mode.issue_gather_selected(gather_target_id):
+		push_error("expected cross-base GATHER preview to queue")
+		_free_mode(mode)
+		return false
+	var ok := true
+	if renderer.action_preview_line_point_count(0) <= 2:
+		push_error("GATHER preview should draw a routed path, not a straight fallback line")
+		ok = false
+
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		push_error("expected scenario reload before BUILD preview")
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	mode.current_state().get_player(0).minerals = 10000
+	mode.current_state().get_player(0).gas = 10000
+	worker_id = _find_entity_id(mode.current_state(), "worker", 0)
+	renderer = mode.renderer()
+	if worker_id < 0 or renderer == null:
+		push_error("expected worker and renderer after scenario reload")
+		_free_mode(mode)
+		return false
+	if (
+		not mode.select_entity_id(worker_id)
+		or not mode.issue_build_selected("barracks", Vector2i(18, 23))
+	):
+		push_error("expected cross-base BUILD preview to queue")
+		_free_mode(mode)
+		return false
+	if renderer.action_preview_line_point_count(0) <= 2:
+		push_error("BUILD preview should draw a routed path, not a straight fallback line")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
 func _test_shift_click_routes_future_orders() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -780,6 +851,106 @@ func _test_shift_click_routes_future_orders() -> bool:
 	return ok
 
 
+func _test_shift_click_routes_future_gather_and_build_orders() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	var ok: bool = true
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	var gather_target_id: int = _add_runtime_entity(
+		mode.current_state(), "mineral_patch", -1, Vector2i(17, 23)
+	)
+	if worker_id < 0 or gather_target_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected worker and mineral patch for future gather preview")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(13, 22)):
+		push_error("expected first queued move before future gather")
+		ok = false
+	if not mode.issue_gather_selected(gather_target_id, true):
+		push_error("expected Shift-click gather to become future order")
+		ok = false
+	var renderer: MatchRenderer = mode.renderer()
+	var expected_start: Vector2 = Vector2(13.5, 22.5) * 32.0
+	if ok and not _action_preview_starts_near(renderer, 1, expected_start):
+		push_error("future gather preview should start at previous move destination")
+		ok = false
+
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		push_error("expected scenario reload before future build preview")
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	mode.current_state().get_player(0).minerals = 10000
+	mode.current_state().get_player(0).gas = 10000
+	worker_id = _find_entity_id(mode.current_state(), "worker", 0)
+	if worker_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected worker for future build preview")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(13, 22)):
+		push_error("expected first queued move before future build")
+		ok = false
+	if not mode.issue_build_selected("barracks", Vector2i(18, 23), true):
+		push_error("expected Shift-click build to become future order")
+		ok = false
+	renderer = mode.renderer()
+	if ok and not _action_preview_starts_near(renderer, 1, expected_start):
+		push_error("future build preview should start at previous move destination")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_halt_on_sight_move_preview_does_not_route() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var state: MatchState = mode.current_state()
+	var marine_id: int = _find_entity_id(state, "marine", 0)
+	var actor: Entity = state.get_entity_by_id(marine_id) if state != null else null
+	var renderer: MatchRenderer = mode.renderer()
+	if actor == null or state.tile_grid == null or renderer == null:
+		push_error("expected marine actor and renderer for halt preview test")
+		_free_mode(mode)
+		return false
+	var enemy_id: int = -1
+	for delta in [Vector2i(0, 1), Vector2i(1, 0), Vector2i(0, -1), Vector2i(-1, 0)]:
+		var enemy_origin: Vector2i = actor.origin + delta
+		enemy_id = _add_runtime_entity(state, "marine", 1, enemy_origin)
+		if enemy_id >= 0:
+			break
+	if enemy_id < 0:
+		push_error("expected to place enemy beside actor for halt preview test")
+		_free_mode(mode)
+		return false
+	actor.halt_on_sight = true
+	renderer.bind_state(state, _load_registry())
+	if (
+		not mode.select_entity_id(actor.id)
+		or not mode.issue_move_selected(actor.origin + Vector2i(6, 0))
+	):
+		push_error("expected halted marine MOVE preview to queue")
+		_free_mode(mode)
+		return false
+	var point_count: int = renderer.call("action_preview_line_point_count", 0)
+	_free_mode(mode)
+	if point_count > 2:
+		push_error("halt-on-sight MOVE preview should not draw a routed movement path")
+		return false
+	return true
+
+
 func _test_pending_build_updates_placement_preview() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -854,6 +1025,16 @@ func _test_requeues_unfinished_move_after_resolve() -> bool:
 		push_error("expected long-range move to queue")
 		_free_mode(mode)
 		return false
+	var renderer: MatchRenderer = mode.renderer()
+	if renderer == null or not renderer.has_method("action_preview_line_point_count"):
+		push_error("renderer should expose path preview point counts")
+		_free_mode(mode)
+		return false
+	var preview_points_before: int = renderer.call("action_preview_line_point_count", 0)
+	if preview_points_before <= 2:
+		push_error("long-range move preview should draw a path polyline before resolve")
+		_free_mode(mode)
+		return false
 	if not mode.resolve_turn():
 		push_error("expected resolve to succeed")
 		_free_mode(mode)
@@ -871,10 +1052,86 @@ func _test_requeues_unfinished_move_after_resolve() -> bool:
 	)
 	if not ok:
 		push_error("requeued move should preserve type, actor, and target")
-	var renderer: MatchRenderer = mode.renderer()
 	if renderer != null and renderer.action_preview_count() != 1:
 		push_error("requeued move should remain visible as an action preview")
 		ok = false
+	var preview_points_after: int = renderer.call("action_preview_line_point_count", 0)
+	if preview_points_after <= 2:
+		push_error("requeued move preview should still draw a path polyline")
+		ok = false
+	elif preview_points_after >= preview_points_before:
+		push_error("requeued move preview should recompute from the post-resolve origin")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_tied_same_target_move_completes_for_future_queue() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var marines: Array[int] = _find_entity_ids(mode.current_state(), "marine", 0)
+	if marines.size() < 2:
+		push_error("expected at least two P0 marines")
+		_free_mode(mode)
+		return false
+	var left_id: int = marines[0]
+	var right_id: int = marines[2] if marines.size() > 2 else marines[1]
+	if not mode.select_entity_id(left_id):
+		push_error("expected to select first marine")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(6, 11)):
+		push_error("expected first contested move to queue")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(8, 10), true):
+		push_error("expected first future move to queue")
+		_free_mode(mode)
+		return false
+	if not mode.select_entity_id(right_id):
+		push_error("expected to select second marine")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(6, 11)):
+		push_error("expected second contested move to queue")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(8, 12), true):
+		push_error("expected second future move to queue")
+		_free_mode(mode)
+		return false
+	if not mode.resolve_turn():
+		push_error("expected resolve to succeed")
+		_free_mode(mode)
+		return false
+	var left_after: Entity = mode.current_state().get_entity_by_id(left_id)
+	var right_after: Entity = mode.current_state().get_entity_by_id(right_id)
+	var ok := true
+	if left_after.origin != Vector2i(5, 10) or right_after.origin != Vector2i(5, 12):
+		push_error(
+			(
+				"tied movers should stop before the contested target, got %s and %s"
+				% [str(left_after.origin), str(right_after.origin)]
+			)
+		)
+		ok = false
+	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if orders.size() != 2:
+		push_error(
+			"future orders should promote after tied move completion, got %d" % orders.size()
+		)
+		ok = false
+	else:
+		if not _expect_order(orders[0], EntityOrder.Type.MOVE, left_id, Vector2i(8, 10)):
+			ok = false
+		if not _expect_order(orders[1], EntityOrder.Type.MOVE, right_id, Vector2i(8, 12)):
+			ok = false
 	_free_mode(mode)
 	return ok
 
@@ -1355,6 +1612,27 @@ func _add_runtime_entity(state: MatchState, def_id: String, owner: int, origin: 
 	return entity.id
 
 
+func _action_preview_starts_near(
+	renderer: MatchRenderer, preview_index: int, expected_start: Vector2
+) -> bool:
+	if renderer == null:
+		return false
+	var preview_root: Node2D = renderer.get_node_or_null("Overlays/ActionPreviews") as Node2D
+	if preview_root == null or preview_index < 0 or preview_index >= preview_root.get_child_count():
+		return false
+	var preview_group: Node = preview_root.get_child(preview_index)
+	var preview_line: Line2D = (
+		preview_group.get_child(0) as Line2D
+		if preview_group != null and preview_group.get_child_count() > 0
+		else null
+	)
+	return (
+		preview_line != null
+		and preview_line.points.size() >= 2
+		and preview_line.points[0].distance_to(expected_start) <= 0.5
+	)
+
+
 func _command_card_ids(card: Control, method_name: String) -> Array[String]:
 	var out: Array[String] = []
 	var raw: Array = card.call(method_name)
@@ -1362,6 +1640,17 @@ func _command_card_ids(card: Control, method_name: String) -> Array[String]:
 		var id: String = item
 		out.append(id)
 	return out
+
+
+func _expect_order(
+	order: EntityOrder, expected_type: EntityOrder.Type, entity_id: int, target_tile: Vector2i
+) -> bool:
+	return (
+		order != null
+		and order.type == expected_type
+		and order.entity_id == entity_id
+		and order.target_tile == target_tile
+	)
 
 
 func _find_label_with_substring(root: Node, needle: String) -> Label:

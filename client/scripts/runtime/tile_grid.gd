@@ -24,7 +24,8 @@ extends Resource
 @export var width: int = 0
 @export var height: int = 0
 
-# Internal occupancy: Vector2i tile -> int entity_id. Tiles with no entry are clear.
+# Internal occupancy: Vector2i tile -> int entity_id or Array[int] entity_ids.
+# Tiles with no entry are clear.
 # @export_storage so saves round-trip the placement state without
 # cluttering the Inspector with a raw dict.
 @export_storage var _occupancy: Dictionary = {}
@@ -79,8 +80,17 @@ func is_rect_in_bounds(rect: Rect2i) -> bool:
 
 
 func entity_at(tile: Vector2i) -> int:
-	# Returns the entity id occupying this tile, or -1 if clear / out of bounds.
-	return _occupancy.get(tile, -1)
+	# Returns the first deterministic occupant, or -1 if clear / out of bounds.
+	# Use entities_at() for target selection on tiles that may contain overlaps.
+	var occupants: Array[int] = entities_at(tile)
+	return occupants[0] if not occupants.is_empty() else -1
+
+
+func entities_at(tile: Vector2i) -> Array[int]:
+	# Returns all entity ids occupying this tile in deterministic order.
+	var occupants: Array[int] = _occupants_at(tile)
+	occupants.sort()
+	return occupants
 
 
 func is_rect_clear(rect: Rect2i, ignore_entity_id: int = -1) -> bool:
@@ -91,9 +101,20 @@ func is_rect_clear(rect: Rect2i, ignore_entity_id: int = -1) -> bool:
 		return false
 	for x in range(rect.position.x, rect.position.x + rect.size.x):
 		for y in range(rect.position.y, rect.position.y + rect.size.y):
-			var occupant: int = _occupancy.get(Vector2i(x, y), -1)
-			if occupant != -1 and occupant != ignore_entity_id:
-				return false
+			for occupant in _occupants_at(Vector2i(x, y)):
+				if occupant != ignore_entity_id:
+					return false
+	return true
+
+
+func is_rect_clear_ignoring(rect: Rect2i, ignore_entity_ids: Dictionary) -> bool:
+	if not is_rect_in_bounds(rect):
+		return false
+	for x in range(rect.position.x, rect.position.x + rect.size.x):
+		for y in range(rect.position.y, rect.position.y + rect.size.y):
+			for occupant in _occupants_at(Vector2i(x, y)):
+				if not ignore_entity_ids.has(occupant):
+					return false
 	return true
 
 
@@ -117,7 +138,7 @@ func place(entity_id: int, rect: Rect2i) -> bool:
 		return false
 	for x in range(rect.position.x, rect.position.x + rect.size.x):
 		for y in range(rect.position.y, rect.position.y + rect.size.y):
-			_occupancy[Vector2i(x, y)] = entity_id
+			_add_occupant(Vector2i(x, y), entity_id)
 	_entity_rects[entity_id] = rect
 	return true
 
@@ -145,9 +166,9 @@ func place_overlapping(entity_id: int, rect: Rect2i, allow_overlap_id: int) -> b
 	var occupants: Dictionary = {}
 	for x in range(rect.position.x, rect.position.x + rect.size.x):
 		for y in range(rect.position.y, rect.position.y + rect.size.y):
-			var occ: int = _occupancy.get(Vector2i(x, y), -1)
-			if occ != -1 and occ != allow_overlap_id:
-				occupants[occ] = true
+			for occ in _occupants_at(Vector2i(x, y)):
+				if occ != allow_overlap_id:
+					occupants[occ] = true
 	if not occupants.is_empty():
 		# A non-allowed occupant blocks the placement.
 		return false
@@ -181,9 +202,7 @@ func remove(entity_id: int) -> bool:
 	var rect: Rect2i = _entity_rects[entity_id]
 	for x in range(rect.position.x, rect.position.x + rect.size.x):
 		for y in range(rect.position.y, rect.position.y + rect.size.y):
-			var tile := Vector2i(x, y)
-			if _occupancy.get(tile, -1) == entity_id:
-				_occupancy.erase(tile)
+			_remove_occupant(Vector2i(x, y), entity_id)
 	_entity_rects.erase(entity_id)
 	return true
 
@@ -202,15 +221,101 @@ func move(entity_id: int, new_origin: Vector2i) -> bool:
 	# Clear only tiles we actually own (see remove() rationale).
 	for x in range(current.position.x, current.position.x + current.size.x):
 		for y in range(current.position.y, current.position.y + current.size.y):
-			var tile := Vector2i(x, y)
-			if _occupancy.get(tile, -1) == entity_id:
-				_occupancy.erase(tile)
+			_remove_occupant(Vector2i(x, y), entity_id)
 	# Mark new tiles.
 	for x in range(target.position.x, target.position.x + target.size.x):
 		for y in range(target.position.y, target.position.y + target.size.y):
-			_occupancy[Vector2i(x, y)] = entity_id
+			_add_occupant(Vector2i(x, y), entity_id)
 	_entity_rects[entity_id] = target
 	return true
+
+
+func move_batch(entity_origins: Dictionary, allow_overlaps: bool = false) -> bool:
+	# Atomically move many entities. This removes sequential bias from
+	# swaps/simultaneous movement: all current rects are considered vacated
+	# before any target rect is committed.
+	var moving_ids: Dictionary = {}
+	var target_rects: Dictionary = {}
+	var ids: Array[int] = []
+	for key in entity_origins.keys():
+		var entity_id := int(key)
+		if not _entity_rects.has(entity_id):
+			return false
+		var current: Rect2i = _entity_rects[entity_id]
+		var target := Rect2i(entity_origins[key], current.size)
+		if not is_rect_in_bounds(target):
+			return false
+		moving_ids[entity_id] = true
+		target_rects[entity_id] = target
+		ids.append(entity_id)
+	ids.sort()
+
+	if not allow_overlaps:
+		for i in range(ids.size()):
+			var a_id: int = ids[i]
+			var a_rect: Rect2i = target_rects[a_id]
+			for j in range(i + 1, ids.size()):
+				var b_id: int = ids[j]
+				var b_rect: Rect2i = target_rects[b_id]
+				if a_rect.intersects(b_rect):
+					return false
+			if not is_rect_clear_ignoring(a_rect, moving_ids):
+				return false
+
+	for entity_id in ids:
+		var current_rect: Rect2i = _entity_rects[entity_id]
+		for x in range(current_rect.position.x, current_rect.position.x + current_rect.size.x):
+			for y in range(current_rect.position.y, current_rect.position.y + current_rect.size.y):
+				_remove_occupant(Vector2i(x, y), entity_id)
+
+	for entity_id in ids:
+		var target_rect: Rect2i = target_rects[entity_id]
+		_entity_rects[entity_id] = target_rect
+		for x in range(target_rect.position.x, target_rect.position.x + target_rect.size.x):
+			for y in range(target_rect.position.y, target_rect.position.y + target_rect.size.y):
+				_add_occupant(Vector2i(x, y), entity_id, allow_overlaps)
+	return true
+
+
+func _occupants_at(tile: Vector2i) -> Array[int]:
+	var out: Array[int] = []
+	var stored: Variant = _occupancy.get(tile, -1)
+	if stored is Array:
+		for item in stored:
+			var entity_id: int = int(item)
+			if entity_id >= 0 and not out.has(entity_id):
+				out.append(entity_id)
+	elif int(stored) >= 0:
+		out.append(int(stored))
+	return out
+
+
+func _add_occupant(tile: Vector2i, entity_id: int, allow_multiple: bool = false) -> void:
+	var occupants: Array[int] = _occupants_at(tile)
+	if occupants.has(entity_id):
+		return
+	if occupants.is_empty():
+		_occupancy[tile] = entity_id
+		return
+	if not allow_multiple:
+		return
+	occupants.append(entity_id)
+	occupants.sort()
+	_occupancy[tile] = occupants
+
+
+func _remove_occupant(tile: Vector2i, entity_id: int) -> void:
+	var occupants: Array[int] = _occupants_at(tile)
+	if not occupants.has(entity_id):
+		return
+	occupants.erase(entity_id)
+	if occupants.is_empty():
+		_occupancy.erase(tile)
+	elif occupants.size() == 1:
+		_occupancy[tile] = occupants[0]
+	else:
+		occupants.sort()
+		_occupancy[tile] = occupants
 
 
 # ---------- Terrain ----------

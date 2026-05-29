@@ -357,6 +357,14 @@ func queue_move_assists_for_next_turn() -> void:
 		_append_order_to_submit(submit, order)
 
 
+func apply_resolve_events(events: Array[ResolverEvent]) -> void:
+	for event in events:
+		if event == null:
+			continue
+		if event.type == ResolverEvent.Type.MOVE_COMPLETED:
+			_clear_move_assist(event.actor_id)
+
+
 func promote_future_orders_for_next_turn() -> void:
 	_prune_future_orders()
 	var ids: Array[int] = []
@@ -1039,9 +1047,9 @@ func _build_placement_message(def: EntityDef, rect: Rect2i) -> String:
 func _target_overlap_message(rect: Rect2i, allow_overlap_id: int) -> String:
 	for x in range(rect.position.x, rect.position.x + rect.size.x):
 		for y in range(rect.position.y, rect.position.y + rect.size.y):
-			var occupant_id: int = _state.tile_grid.entity_at(Vector2i(x, y))
-			if occupant_id != -1 and occupant_id != allow_overlap_id:
-				return "BUILD target is occupied."
+			for occupant_id in _state.tile_grid.entities_at(Vector2i(x, y)):
+				if occupant_id != allow_overlap_id:
+					return "BUILD target is occupied."
 	for existing_id: int in _state.tile_grid.all_placed_entity_ids():
 		if existing_id == allow_overlap_id:
 			continue
@@ -1077,36 +1085,35 @@ func _find_target_at_tile(tile: Vector2i, tag: String) -> int:
 		return -1
 	if not _state.tile_grid.is_in_bounds(tile):
 		return -1
-	var occupant_id: int = _state.tile_grid.entity_at(tile)
-	if occupant_id < 0:
+	var matching_ids: Array[int] = []
+	for occupant_id in _state.tile_grid.entities_at(tile):
+		if _entity_has_tag(occupant_id, tag):
+			matching_ids.append(occupant_id)
+	if matching_ids.size() != 1:
 		return -1
-	var occupant: Entity = _state.get_entity_by_id(occupant_id)
-	if occupant == null:
-		return -1
-	var occupant_def: EntityDef = _registry.get_by_id(_def_id_for_entity(occupant))
-	if occupant_def == null or not occupant_def.tags.has(tag):
-		return -1
-	return occupant.id
+	return matching_ids[0]
 
 
 func _find_overlap_target(rect: Rect2i, tag: String) -> int:
 	if _state == null or _state.tile_grid == null or _registry == null:
 		return -1
-	var occupants: Array[int] = []
+	var matching_ids: Array[int] = []
 	for x in range(rect.position.x, rect.position.x + rect.size.x):
 		for y in range(rect.position.y, rect.position.y + rect.size.y):
-			var occupant_id := _state.tile_grid.entity_at(Vector2i(x, y))
-			if occupant_id != -1 and not occupants.has(occupant_id):
-				occupants.append(occupant_id)
-	if occupants.size() != 1:
+			for occupant_id in _state.tile_grid.entities_at(Vector2i(x, y)):
+				if _entity_has_tag(occupant_id, tag) and not matching_ids.has(occupant_id):
+					matching_ids.append(occupant_id)
+	if matching_ids.size() != 1:
 		return -1
-	var occupant: Entity = _state.get_entity_by_id(occupants[0])
+	return matching_ids[0]
+
+
+func _entity_has_tag(entity_id: int, tag: String) -> bool:
+	var occupant: Entity = _state.get_entity_by_id(entity_id)
 	if occupant == null:
-		return -1
+		return false
 	var occupant_def: EntityDef = _registry.get_by_id(_def_id_for_entity(occupant))
-	if occupant_def == null or not occupant_def.tags.has(tag):
-		return -1
-	return occupant.id
+	return occupant_def != null and occupant_def.tags.has(tag)
 
 
 func _player_has_research_in_progress(owner_player_id: int, research_id: String) -> bool:

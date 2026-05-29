@@ -17,6 +17,7 @@ const _SMOKE_SCENARIO_PATH := "res://data/scenarios/smoke_minimal.tres"
 const _MVP_MAP_TSCN_PATH := "res://data/scenarios/mvp_map.tscn"
 const _MVP_MAP_TRES_PATH := "res://data/scenarios/mvp_map.tres"
 const _TEST_KEEPALIVE_DEF_ID := "__test_keepalive_building"
+const _PATHFINDING := preload("res://scripts/resolver/pathfinding_system.gd")
 
 
 func _enter_tree() -> void:
@@ -63,6 +64,34 @@ func _all_tests() -> Array:
 		# Chunk 4 — movement system.
 		["move_emits_event", _test_move_emits_event],
 		["multi_tile_move_collision", _test_multi_tile_move_collision],
+		["move_routes_around_static_blocker", _test_move_routes_around_static_blocker],
+		["moving_unit_pass_through", _test_moving_unit_pass_through],
+		["simultaneous_swap", _test_simultaneous_swap],
+		["transitive_conflict_keeps_survivor", _test_transitive_conflict_keeps_survivor],
+		[
+			"equal_distance_chain_keeps_non_overlapping_survivors",
+			_test_equal_distance_chain_keeps_non_overlapping_survivors
+		],
+		["equidistant_same_target_tie_stops", _test_equidistant_same_target_tie_stops],
+		[
+			"pathfinding_goal_range_distances_ignore_satisfied_range",
+			_test_pathfinding_goal_range_distances_ignore_satisfied_range
+		],
+		[
+			"movement_respects_impassable_terrain_tags",
+			_test_movement_respects_impassable_terrain_tags
+		],
+		["blocked_target_uses_closest_reachable", _test_blocked_target_uses_closest_reachable],
+		["movement_respects_pathable_terrain_tags", _test_movement_respects_pathable_terrain_tags],
+		["flying_ignores_ground_blockers", _test_flying_ignores_ground_blockers],
+		[
+			"ground_and_flying_movers_can_share_destination",
+			_test_ground_and_flying_movers_can_share_destination
+		],
+		["flying_blocker_blocks_flying", _test_flying_blocker_blocks_flying],
+		["failed_mover_remains_blocker", _test_failed_mover_remains_blocker],
+		["gather_travel_worker_is_passable", _test_gather_travel_worker_is_passable],
+		["construction_travel_worker_is_passable", _test_construction_travel_worker_is_passable],
 		[
 			"stale_persistent_order_does_not_move_without_submission",
 			_test_stale_persistent_order_does_not_move_without_submission
@@ -108,6 +137,10 @@ func _all_tests() -> Array:
 		[
 			"halt_on_sight_blocks_move_when_enemy_visible",
 			_test_halt_on_sight_blocks_move_when_enemy_visible
+		],
+		[
+			"halt_on_sight_rechecks_between_movement_substeps",
+			_test_halt_on_sight_rechecks_between_movement_substeps
 		],
 		["latest_move_like_intent_wins", _test_latest_move_like_intent_wins],
 		["idle_unit_auto_attacks_enemy_in_range", _test_idle_unit_auto_attacks_enemy_in_range],
@@ -712,7 +745,7 @@ func _test_overkill_batch_damage_before_destroy() -> bool:
 
 
 func _test_move_emits_event() -> bool:
-	# Marine with speed 4 moves 1 tile in 1 tick. Expect ENTITY_MOVED.
+	# Marine with speed 4 reaches a one-tile MOVE target. Expect movement and completion events.
 	var registry := _movable_registry(4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
@@ -721,20 +754,23 @@ func _test_move_emits_event() -> bool:
 	var move := EntityOrder.new()
 	move.type = EntityOrder.Type.MOVE
 	move.entity_id = actor.id
-	move.target_tile = Vector2i(8, 5)
+	move.target_tile = Vector2i(6, 5)
 	var queue_a: Array[EntityOrder] = [move]
 
 	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
+	var moved: bool = false
+	var completed: bool = false
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
-			return ev.from_origin == Vector2i(5, 5) and ev.to_origin == Vector2i(6, 5)
-	return false
+			moved = ev.from_origin == Vector2i(5, 5) and ev.to_origin == Vector2i(6, 5)
+		if ev.type == ResolverEvent.Type.MOVE_COMPLETED and ev.actor_id == actor.id:
+			completed = ev.from_origin == Vector2i(6, 5) and ev.to_origin == Vector2i(6, 5)
+	return moved and completed
 
 
 func _test_multi_tile_move_collision() -> bool:
-	# 2x2 mover at (1,1)-(2,2). 2x2 blocker at (3,1)-(4,2). Movement system
-	# tries diagonal-first then axis-aligned: every candidate first-step rect
-	# overlaps the blocker's footprint, so no ENTITY_MOVED event is emitted.
+	# 2x2 mover at (1,1)-(2,2). 2x2 blocker at (3,1)-(4,2). A* may route
+	# around the blocker, but the committed footprint must never overlap it.
 	var registry := _tank_registry(2)
 	var state := _state_with_grid(10, 10)
 	var mover := _make_entity(state, "tank", 0, Vector2i(1, 1), 150, "ground")
@@ -750,10 +786,485 @@ func _test_multi_tile_move_collision() -> bool:
 	var result := Resolver.resolve(
 		state, _submit([move] as Array[EntityOrder]), _submit([]), registry, null
 	)
+	var new_mover := result.new_state.get_entity_by_id(mover.id)
+	var new_blocker := result.new_state.get_entity_by_id(blocker.id)
+	var mover_rect: Rect2i = result.new_state.tile_grid.entity_rect(new_mover.id)
+	var blocker_rect: Rect2i = result.new_state.tile_grid.entity_rect(new_blocker.id)
+	return new_mover.origin != mover.origin and not mover_rect.intersects(blocker_rect)
+
+
+func _test_move_routes_around_static_blocker() -> bool:
+	var registry: EntityRegistry = _movable_registry(4)
+	var state: MatchState = _state_with_grid(8, 4)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var blocker: Entity = _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(blocker.id, Rect2i(2, 1, 1, 1))
+
+	var result: ResolveResult = Resolver.resolve(
+		state,
+		_submit([_move_order(actor.id, EntityOrder.Type.MOVE, Vector2i(5, 1))]),
+		_submit(),
+		registry,
+		null
+	)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	if new_actor.origin != Vector2i(5, 1):
+		push_error("mover should route around the static blocker, got %s" % str(new_actor.origin))
+		return false
 	for ev in result.events:
-		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == mover.id:
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_MOVED
+			and ev.actor_id == actor.id
+			and ev.to_origin == blocker.origin
+		):
+			push_error("mover should not step through a static blocker")
 			return false
 	return true
+
+
+func _test_moving_unit_pass_through() -> bool:
+	var registry: EntityRegistry = _movable_registry(1)
+	var state: MatchState = _state_with_grid(6, 3)
+	var rear: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var front: Entity = _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
+	state.tile_grid.place(rear.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(front.id, Rect2i(2, 1, 1, 1))
+
+	var result: ResolveResult = (
+		Resolver
+		. resolve(
+			state,
+			_submit(
+				(
+					[
+						_move_order(rear.id, EntityOrder.Type.MOVE, Vector2i(3, 1)),
+						_move_order(front.id, EntityOrder.Type.MOVE, Vector2i(4, 1)),
+					]
+					as Array[EntityOrder]
+				)
+			),
+			_submit(),
+			registry,
+			null
+		)
+	)
+	var new_rear: Entity = result.new_state.get_entity_by_id(rear.id)
+	var new_front: Entity = result.new_state.get_entity_by_id(front.id)
+	return new_rear.origin == Vector2i(2, 1) and new_front.origin == Vector2i(3, 1)
+
+
+func _test_simultaneous_swap() -> bool:
+	var registry: EntityRegistry = _movable_registry(1)
+	var state: MatchState = _state_with_grid(5, 3)
+	var left: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var right: Entity = _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
+	state.tile_grid.place(left.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(right.id, Rect2i(2, 1, 1, 1))
+
+	var result: ResolveResult = (
+		Resolver
+		. resolve(
+			state,
+			_submit(
+				(
+					[
+						_move_order(left.id, EntityOrder.Type.MOVE, Vector2i(2, 1)),
+						_move_order(right.id, EntityOrder.Type.MOVE, Vector2i(1, 1)),
+					]
+					as Array[EntityOrder]
+				)
+			),
+			_submit(),
+			registry,
+			null
+		)
+	)
+	var new_left: Entity = result.new_state.get_entity_by_id(left.id)
+	var new_right: Entity = result.new_state.get_entity_by_id(right.id)
+	return new_left.origin == Vector2i(2, 1) and new_right.origin == Vector2i(1, 1)
+
+
+func _test_transitive_conflict_keeps_survivor() -> bool:
+	var registry: EntityRegistry = EntityRegistry.new()
+	var wide: EntityDef = _def_with_movement("wide", Vector2i(2, 1), ["ground"], 50, 1)
+	registry.entities = [wide]
+	var state: MatchState = _state_with_grid(8, 4)
+	var closest: Entity = _make_entity(state, "wide", 0, Vector2i(2, 1), 50, "ground")
+	var bridge: Entity = _make_entity(state, "wide", 0, Vector2i(4, 2), 50, "ground")
+	var survivor: Entity = _make_entity(state, "wide", 0, Vector2i(5, 0), 50, "ground")
+	state.tile_grid.place(closest.id, Rect2i(Vector2i(2, 1), Vector2i(2, 1)))
+	state.tile_grid.place(bridge.id, Rect2i(Vector2i(4, 2), Vector2i(2, 1)))
+	state.tile_grid.place(survivor.id, Rect2i(Vector2i(5, 0), Vector2i(2, 1)))
+
+	var orders: Array[EntityOrder] = [
+		_move_order(closest.id, EntityOrder.Type.MOVE, Vector2i(3, 1)),
+		_move_order(bridge.id, EntityOrder.Type.MOVE, Vector2i(4, 0)),
+		_move_order(survivor.id, EntityOrder.Type.MOVE, Vector2i(5, 2)),
+	]
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit(orders), _submit([]), registry, null
+	)
+	var new_closest: Entity = result.new_state.get_entity_by_id(closest.id)
+	var new_bridge: Entity = result.new_state.get_entity_by_id(bridge.id)
+	var new_survivor: Entity = result.new_state.get_entity_by_id(survivor.id)
+	if new_closest.origin != Vector2i(3, 1):
+		push_error("closest mover should win its direct conflict, got %s" % new_closest.origin)
+		return false
+	if new_bridge.origin != Vector2i(4, 2):
+		push_error("bridge mover should lose the direct conflict, got %s" % new_bridge.origin)
+		return false
+	if new_survivor.origin != Vector2i(5, 1):
+		push_error(
+			"non-overlapping transitive mover should still advance, got %s" % new_survivor.origin
+		)
+		return false
+	return true
+
+
+func _test_equal_distance_chain_keeps_non_overlapping_survivors() -> bool:
+	var registry: EntityRegistry = EntityRegistry.new()
+	var wide: EntityDef = _def_with_movement("wide", Vector2i(2, 1), ["ground"], 50, 1)
+	registry.entities = [wide]
+	var state: MatchState = _state_with_grid(8, 4)
+	var left: Entity = _make_entity(state, "wide", 0, Vector2i(2, 1), 50, "ground")
+	var bridge: Entity = _make_entity(state, "wide", 0, Vector2i(4, 2), 50, "ground")
+	var right: Entity = _make_entity(state, "wide", 0, Vector2i(5, 0), 50, "ground")
+	state.tile_grid.place(left.id, Rect2i(Vector2i(2, 1), Vector2i(2, 1)))
+	state.tile_grid.place(bridge.id, Rect2i(Vector2i(4, 2), Vector2i(2, 1)))
+	state.tile_grid.place(right.id, Rect2i(Vector2i(5, 0), Vector2i(2, 1)))
+
+	var orders: Array[EntityOrder] = [
+		_move_order(left.id, EntityOrder.Type.MOVE, Vector2i(3, 1)),
+		_move_order(bridge.id, EntityOrder.Type.MOVE, Vector2i(4, 1)),
+		_move_order(right.id, EntityOrder.Type.MOVE, Vector2i(5, 1)),
+	]
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit(orders), _submit([]), registry, null
+	)
+	var new_left: Entity = result.new_state.get_entity_by_id(left.id)
+	var new_bridge: Entity = result.new_state.get_entity_by_id(bridge.id)
+	var new_right: Entity = result.new_state.get_entity_by_id(right.id)
+	if new_left.origin != Vector2i(3, 1):
+		push_error("left non-overlapping tie survivor should advance, got %s" % new_left.origin)
+		return false
+	if new_bridge.origin != Vector2i(4, 2):
+		push_error("bridge tie mover should stop, got %s" % new_bridge.origin)
+		return false
+	if new_right.origin != Vector2i(5, 1):
+		push_error("right non-overlapping tie survivor should advance, got %s" % new_right.origin)
+		return false
+	return true
+
+
+func _test_equidistant_same_target_tie_stops() -> bool:
+	var registry: EntityRegistry = _movable_registry(1)
+	var state: MatchState = _state_with_grid(7, 3)
+	var left: Entity = _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
+	var right: Entity = _make_entity(state, "marine", 0, Vector2i(4, 1), 50, "ground")
+	state.tile_grid.place(left.id, Rect2i(2, 1, 1, 1))
+	state.tile_grid.place(right.id, Rect2i(4, 1, 1, 1))
+
+	var result: ResolveResult = (
+		Resolver
+		. resolve(
+			state,
+			_submit(
+				(
+					[
+						_move_order(left.id, EntityOrder.Type.MOVE, Vector2i(3, 1)),
+						_move_order(right.id, EntityOrder.Type.MOVE, Vector2i(3, 1)),
+					]
+					as Array[EntityOrder]
+				)
+			),
+			_submit(),
+			registry,
+			null
+		)
+	)
+	var new_left: Entity = result.new_state.get_entity_by_id(left.id)
+	var new_right: Entity = result.new_state.get_entity_by_id(right.id)
+	var completed_ids: Array[int] = []
+	for ev in result.events:
+		if ev.type != ResolverEvent.Type.MOVE_COMPLETED:
+			continue
+		if ev.to_origin != Vector2i(3, 1):
+			push_error("MOVE_COMPLETED should point at the contested target")
+			return false
+		completed_ids.append(ev.actor_id)
+	completed_ids.sort()
+	return (
+		new_left.origin == Vector2i(2, 1)
+		and new_right.origin == Vector2i(4, 1)
+		and completed_ids == [left.id, right.id]
+	)
+
+
+func _test_pathfinding_goal_range_distances_ignore_satisfied_range() -> bool:
+	var footprint: Vector2i = Vector2i.ONE
+	var target_origin: Vector2i = Vector2i(5, 1)
+	var goal_rect: Rect2i = Rect2i(target_origin, Vector2i.ONE)
+	var at_range: int = _PATHFINDING._goal_distance(
+		Vector2i(4, 1), footprint, target_origin, goal_rect, 1, false
+	)
+	var outside_range: int = _PATHFINDING._goal_distance(
+		Vector2i(3, 1), footprint, target_origin, goal_rect, 1, false
+	)
+	var manhattan_at_range: int = _PATHFINDING._manhattan_distance(
+		Vector2i(4, 1), footprint, target_origin, goal_rect, 1, false
+	)
+	return at_range == 0 and outside_range == 1 and manhattan_at_range == 0
+
+
+func _test_movement_respects_impassable_terrain_tags() -> bool:
+	var registry: EntityRegistry = _movable_registry(2)
+	var def: EntityDef = registry.get_by_id("marine")
+	def.movement.impassable_terrain_tags = ["water"]
+	var state: MatchState = _state_with_grid(6, 3)
+	state.tile_grid.set_tile_terrain_tags(Vector2i(2, 1), ["water"])
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
+
+	var result: ResolveResult = Resolver.resolve(
+		state,
+		_submit([_move_order(actor.id, EntityOrder.Type.MOVE, Vector2i(3, 1))]),
+		_submit(),
+		registry,
+		null
+	)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	if new_actor.origin != Vector2i(3, 1):
+		push_error("mover should route around impassable terrain, got %s" % str(new_actor.origin))
+		return false
+	for ev in result.events:
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_MOVED
+			and ev.actor_id == actor.id
+			and ev.to_origin == Vector2i(2, 1)
+		):
+			push_error("mover should not step onto impassable terrain")
+			return false
+	return true
+
+
+func _test_blocked_target_uses_closest_reachable() -> bool:
+	var registry: EntityRegistry = _movable_registry(6)
+	var state: MatchState = _state_with_grid(8, 3)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var blocker: Entity = _make_entity(state, "marine", 0, Vector2i(5, 1), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(blocker.id, Rect2i(5, 1, 1, 1))
+
+	var result: ResolveResult = Resolver.resolve(
+		state,
+		_submit([_move_order(actor.id, EntityOrder.Type.MOVE, Vector2i(5, 1))]),
+		_submit(),
+		registry,
+		null
+	)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	if new_actor.origin != Vector2i(4, 1):
+		push_error(
+			"blocked target should stop at closest reachable origin, got %s" % str(new_actor.origin)
+		)
+		return false
+	return true
+
+
+func _test_movement_respects_pathable_terrain_tags() -> bool:
+	var registry: EntityRegistry = _movable_registry(2)
+	var def: EntityDef = registry.get_by_id("marine")
+	def.movement.pathable_terrain_tags = ["road"]
+	var state: MatchState = _state_with_grid(5, 3)
+	state.tile_grid.set_tile_terrain_tags(Vector2i(2, 1), ["road"])
+	state.tile_grid.set_tile_terrain_tags(Vector2i(3, 1), ["road"])
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
+
+	var result: ResolveResult = Resolver.resolve(
+		state,
+		_submit([_move_order(actor.id, EntityOrder.Type.MOVE, Vector2i(3, 1))]),
+		_submit(),
+		registry,
+		null
+	)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	return new_actor.origin == Vector2i(3, 1)
+
+
+func _test_flying_ignores_ground_blockers() -> bool:
+	var registry: EntityRegistry = EntityRegistry.new()
+	var ground: EntityDef = _def_with_movement("ground_unit", Vector2i.ONE, ["ground"], 50, 0)
+	var flyer: EntityDef = _def_with_movement("flyer", Vector2i.ONE, ["flying"], 50, 1)
+	flyer.movement.default_layer = "flying"
+	registry.entities = [ground, flyer]
+	var state: MatchState = _state_with_grid(5, 3)
+	var actor: Entity = _make_entity(state, "flyer", 0, Vector2i(1, 1), 50, "flying")
+	var blocker: Entity = _make_entity(state, "ground_unit", 0, Vector2i(2, 1), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(blocker.id, Rect2i(2, 1, 1, 1))
+
+	var result: ResolveResult = Resolver.resolve(
+		state,
+		_submit([_move_order(actor.id, EntityOrder.Type.MOVE, Vector2i(3, 1))]),
+		_submit(),
+		registry,
+		null
+	)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	var new_blocker: Entity = result.new_state.get_entity_by_id(blocker.id)
+	return new_actor.origin == Vector2i(2, 1) and new_blocker.origin == Vector2i(2, 1)
+
+
+func _test_ground_and_flying_movers_can_share_destination() -> bool:
+	var registry: EntityRegistry = EntityRegistry.new()
+	var ground: EntityDef = _def_with_movement("ground_unit", Vector2i.ONE, ["ground"], 50, 1)
+	var flyer: EntityDef = _def_with_movement("flyer", Vector2i.ONE, ["flying"], 50, 1)
+	flyer.movement.default_layer = "flying"
+	registry.entities = [ground, flyer]
+	var state: MatchState = _state_with_grid(5, 3)
+	var ground_actor: Entity = _make_entity(state, "ground_unit", 0, Vector2i(1, 1), 50, "ground")
+	var flyer_actor: Entity = _make_entity(state, "flyer", 0, Vector2i(3, 1), 50, "flying")
+	state.tile_grid.place(ground_actor.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(flyer_actor.id, Rect2i(3, 1, 1, 1))
+
+	var result: ResolveResult = (
+		Resolver
+		. resolve(
+			state,
+			_submit(
+				(
+					[
+						_move_order(ground_actor.id, EntityOrder.Type.MOVE, Vector2i(2, 1)),
+						_move_order(flyer_actor.id, EntityOrder.Type.MOVE, Vector2i(2, 1)),
+					]
+					as Array[EntityOrder]
+				)
+			),
+			_submit(),
+			registry,
+			null
+		)
+	)
+	var new_ground: Entity = result.new_state.get_entity_by_id(ground_actor.id)
+	var new_flyer: Entity = result.new_state.get_entity_by_id(flyer_actor.id)
+	return new_ground.origin == Vector2i(2, 1) and new_flyer.origin == Vector2i(2, 1)
+
+
+func _test_flying_blocker_blocks_flying() -> bool:
+	var registry: EntityRegistry = EntityRegistry.new()
+	var flyer: EntityDef = _def_with_movement("flyer", Vector2i.ONE, ["flying"], 50, 1)
+	flyer.movement.default_layer = "flying"
+	registry.entities = [flyer]
+	var state: MatchState = _state_with_grid(5, 3)
+	var actor: Entity = _make_entity(state, "flyer", 0, Vector2i(1, 1), 50, "flying")
+	var blocker: Entity = _make_entity(state, "flyer", 0, Vector2i(2, 1), 50, "flying")
+	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(blocker.id, Rect2i(2, 1, 1, 1))
+
+	var result: ResolveResult = Resolver.resolve(
+		state,
+		_submit([_move_order(actor.id, EntityOrder.Type.MOVE, Vector2i(3, 1))]),
+		_submit(),
+		registry,
+		null
+	)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	return new_actor.origin != Vector2i(2, 1)
+
+
+func _test_failed_mover_remains_blocker() -> bool:
+	var registry: EntityRegistry = _movable_registry(1)
+	var state: MatchState = _state_with_grid(5, 3)
+	var rear: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var stuck: Entity = _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
+	var blocker: Entity = _make_entity(state, "marine", 0, Vector2i(3, 1), 50, "ground")
+	state.tile_grid.place(rear.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(stuck.id, Rect2i(2, 1, 1, 1))
+	state.tile_grid.place(blocker.id, Rect2i(3, 1, 1, 1))
+	var blocked_tiles: Array[Vector2i] = [
+		Vector2i(3, 0),
+		Vector2i(3, 2),
+		Vector2i(2, 0),
+		Vector2i(2, 2),
+	]
+	for tile: Vector2i in blocked_tiles:
+		state.tile_grid.set_tile_terrain_tags(tile, ["blocked"])
+	var def: EntityDef = registry.get_by_id("marine")
+	def.movement.impassable_terrain_tags = ["blocked"]
+
+	var result: ResolveResult = (
+		Resolver
+		. resolve(
+			state,
+			_submit(
+				(
+					[
+						_move_order(rear.id, EntityOrder.Type.MOVE, Vector2i(2, 1)),
+						_move_order(stuck.id, EntityOrder.Type.MOVE, Vector2i(4, 1)),
+					]
+					as Array[EntityOrder]
+				)
+			),
+			_submit(),
+			registry,
+			null
+		)
+	)
+	var new_rear: Entity = result.new_state.get_entity_by_id(rear.id)
+	var new_stuck: Entity = result.new_state.get_entity_by_id(stuck.id)
+	return new_rear.origin == Vector2i(1, 1) and new_stuck.origin == Vector2i(2, 1)
+
+
+func _test_gather_travel_worker_is_passable() -> bool:
+	var registry: EntityRegistry = _gather_registry(5, 1, 1)
+	var state: MatchState = _state_with_grid(7, 3)
+	var marine: Entity = _make_entity(state, "worker", 0, Vector2i(1, 1), 50, "ground")
+	marine.gather_state = GatherState.new()
+	var worker: Entity = _make_gather_worker(state, 0, Vector2i(2, 1))
+	var patch: Entity = _make_entity(state, "minpatch", -1, Vector2i(4, 1), 0, "ground")
+	patch.current_resource_amount = 100
+	state.tile_grid.place(marine.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(patch.id, Rect2i(4, 1, 1, 1))
+	worker.gather_state.assigned_source_entity_id = patch.id
+	worker.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
+
+	var result: ResolveResult = Resolver.resolve(
+		state,
+		_submit([_move_order(marine.id, EntityOrder.Type.MOVE, Vector2i(2, 1))]),
+		_submit(),
+		registry,
+		null
+	)
+	var new_marine: Entity = result.new_state.get_entity_by_id(marine.id)
+	var new_worker: Entity = result.new_state.get_entity_by_id(worker.id)
+	return new_marine.origin == Vector2i(2, 1) and new_worker.origin == Vector2i(3, 1)
+
+
+func _test_construction_travel_worker_is_passable() -> bool:
+	var registry: EntityRegistry = _build_registry()
+	var state: MatchState = _state_with_grid(8, 5)
+	var marine: Entity = _make_entity(state, "worker", 0, Vector2i(1, 1), 50, "ground")
+	var worker: Entity = _make_entity(state, "worker", 0, Vector2i(2, 1), 50, "ground")
+	var building: Entity = _make_entity(state, "barracks", 0, Vector2i(4, 1), 1000, "ground")
+	building.is_constructing = true
+	building.construction_worker_id = worker.id
+	worker.locked_to_building_id = building.id
+	state.tile_grid.place(marine.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(worker.id, Rect2i(2, 1, 1, 1))
+	state.tile_grid.place(building.id, Rect2i(4, 1, 3, 3))
+
+	var result: ResolveResult = Resolver.resolve(
+		state,
+		_submit([_move_order(marine.id, EntityOrder.Type.MOVE, Vector2i(2, 1))]),
+		_submit(),
+		registry,
+		null
+	)
+	var new_marine: Entity = result.new_state.get_entity_by_id(marine.id)
+	var new_worker: Entity = result.new_state.get_entity_by_id(worker.id)
+	return new_marine.origin == Vector2i(2, 1) and new_worker.origin == Vector2i(3, 1)
 
 
 func _test_stale_persistent_order_does_not_move_without_submission() -> bool:
@@ -1246,6 +1757,41 @@ func _test_halt_on_sight_blocks_move_when_enemy_visible() -> bool:
 			actor_shot = true
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
 	return actor_shot and new_actor.origin == Vector2i(5, 5)
+
+
+func _test_halt_on_sight_rechecks_between_movement_substeps() -> bool:
+	var registry: EntityRegistry = EntityRegistry.new()
+	var marine: EntityDef = _def_with_movement_combat(
+		"marine", Vector2i(1, 1), ["light", "ground"], _combat_def(1, 1, ["ground"]), 50, 4
+	)
+	marine.vision = _vision_def(2)
+	registry.entities = [marine]
+	var state: MatchState = _state_with_grid(10, 3)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	actor.halt_on_sight = true
+	var enemy: Entity = _make_entity(state, "marine", 1, Vector2i(4, 1), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(4, 1, 1, 1))
+
+	var move: EntityOrder = EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(8, 1)
+
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit([]), registry, null
+	)
+	var moved_steps: int = 0
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			moved_steps += 1
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	if new_actor.origin != Vector2i(2, 1):
+		push_error(
+			"halt-on-sight should stop after enemy becomes visible, got %s" % new_actor.origin
+		)
+		return false
+	return moved_steps == 1
 
 
 func _test_latest_move_like_intent_wins() -> bool:
@@ -3833,6 +4379,7 @@ func _test_build_refinery_on_geyser_overlap_allowed() -> bool:
 	var worker := _make_entity(state, "worker", 0, Vector2i(9, 5), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(9, 5, 1, 1))
 	var geyser := _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
+	geyser.current_def_id = ""
 	geyser.current_resource_amount = -1
 	state.tile_grid.place(geyser.id, Rect2i(10, 5, 2, 2))
 
@@ -4870,6 +5417,14 @@ func _gather_order(entity_id: int, target_entity_id: int) -> EntityOrder:
 	order.type = EntityOrder.Type.GATHER
 	order.entity_id = entity_id
 	order.target_entity_id = target_entity_id
+	return order
+
+
+func _move_order(entity_id: int, type: EntityOrder.Type, target_tile: Vector2i) -> EntityOrder:
+	var order: EntityOrder = EntityOrder.new()
+	order.type = type
+	order.entity_id = entity_id
+	order.target_tile = target_tile
 	return order
 
 
