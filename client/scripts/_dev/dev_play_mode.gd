@@ -14,6 +14,13 @@ const PENDING_MOVE_ONLY := "move_only"
 const PENDING_TARGET := "target"
 const PENDING_BUILD := "build"
 const PENDING_GATHER := "gather"
+const CONTEXT_NONE := "none"
+const CONTEXT_MOVE_ONLY := "move_only"
+const CONTEXT_TARGET_CHASE := "target_chase"
+const CONTEXT_GATHER := "gather"
+const CONTEXT_RALLY_MOVE := "rally_move"
+const CONTEXT_RALLY_GATHER := "rally_gather"
+const CONTEXT_INVALID := "invalid"
 const HUD_MARGIN := 12.0
 const HUD_WIDTH := 440.0
 const HUD_HEIGHT := 560.0
@@ -69,6 +76,7 @@ func load_scenario_path(path: String) -> bool:
 	_renderer.focus_player_start(_input.active_player_id())
 	_input.bind_context(_loaded.state, _loaded.registry)
 	_input.clear_submissions()
+	_reset_context_cursor()
 	_update_hud()
 	return true
 
@@ -107,6 +115,7 @@ func set_active_player_id(player_id: int) -> void:
 		_renderer.set_perspective_player_id(player_id)
 		_renderer.focus_player_start(player_id)
 		_renderer.clear_input_highlights()
+	_reset_context_cursor()
 	_update_hud()
 
 
@@ -118,6 +127,8 @@ func select_entity_id(entity_id: int) -> bool:
 			_renderer.set_selected_entity_id(entity_id)
 		else:
 			_renderer.clear_input_highlights()
+	if not ok:
+		_reset_context_cursor()
 	_update_hud()
 	return ok
 
@@ -152,10 +163,30 @@ func issue_attack_target_selected(target_entity_id: int) -> bool:
 	return ok
 
 
+func issue_target_chase_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
+	_input.set_queue_modifier_active(queue_requested)
+	var ok: bool = _input.issue_target_chase(target_entity_id)
+	_input.set_queue_modifier_active(false)
+	_update_hud()
+	return ok
+
+
 func issue_gather_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_gather(target_entity_id)
 	_input.set_queue_modifier_active(false)
+	_update_hud()
+	return ok
+
+
+func issue_rally_move_selected(tile: Vector2i) -> bool:
+	var ok: bool = _input.issue_rally_move(tile)
+	_update_hud()
+	return ok
+
+
+func issue_rally_gather_selected(target_entity_id: int) -> bool:
+	var ok: bool = _input.issue_rally_gather(target_entity_id)
 	_update_hud()
 	return ok
 
@@ -205,22 +236,74 @@ func issue_cancel_selected(cancel_index: int = -1) -> bool:
 
 
 func issue_context_at_tile(tile: Vector2i, queue_requested: bool = false) -> bool:
+	var context: Dictionary = context_action_at_tile(tile)
+	var action: String = context.get("action", CONTEXT_NONE)
+	if action == CONTEXT_MOVE_ONLY:
+		return issue_move_only_selected(tile, queue_requested)
+	if action == CONTEXT_TARGET_CHASE:
+		return issue_target_chase_selected(context.get("target_entity_id", -1), queue_requested)
+	if action == CONTEXT_GATHER:
+		return issue_gather_selected(context.get("target_entity_id", -1), queue_requested)
+	if action == CONTEXT_RALLY_MOVE:
+		return issue_rally_move_selected(tile)
+	if action == CONTEXT_RALLY_GATHER:
+		return issue_rally_gather_selected(context.get("target_entity_id", -1))
+	var message: String = context.get("message", "")
+	if message != "":
+		_update_hud(message)
+	return false
+
+
+func context_action_at_tile(tile: Vector2i) -> Dictionary:
+	if _pending_command != PENDING_NONE:
+		return _context_result(CONTEXT_NONE, Input.CURSOR_ARROW, "")
 	if _loaded == null or _loaded.state == null or _loaded.state.tile_grid == null:
-		return false
-	var target_id: int = (
-		_renderer.entity_id_at_tile(tile)
-		if _renderer != null
-		else _loaded.state.tile_grid.entity_at(tile)
-	)
+		return _context_result(CONTEXT_NONE, Input.CURSOR_ARROW, "")
+	if not _loaded.state.tile_grid.is_in_bounds(tile):
+		return _context_result(CONTEXT_NONE, Input.CURSOR_ARROW, "")
+	if _selected_entity() == null:
+		return _context_result(CONTEXT_NONE, Input.CURSOR_ARROW, "")
+	var target_id: int = _entity_id_at_tile(tile)
 	if target_id >= 0:
 		var target: Entity = _loaded.state.get_entity_by_id(target_id)
-		if target != null and target.owner_player_id >= 0:
-			if target.owner_player_id != _input.active_player_id():
-				return issue_attack_target_selected(target_id)
-			return false
-		if _is_gather_target(target):
-			return issue_gather_selected(target_id, queue_requested)
-	return issue_move_selected(tile, queue_requested)
+		if target == null:
+			return _context_result(CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Invalid target.")
+		if _is_enemy_target(target):
+			if _input.can_issue_target_chase():
+				return _context_result(
+					CONTEXT_TARGET_CHASE, Input.CURSOR_CROSS, "", {"target_entity_id": target_id}
+				)
+			return _context_result(
+				CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Selected entity cannot chase targets."
+			)
+		if _is_resource_context_target(target):
+			if _selected_can_gather_from(target_id):
+				return _context_result(
+					CONTEXT_GATHER, Input.CURSOR_POINTING_HAND, "", {"target_entity_id": target_id}
+				)
+			if _selected_can_rally_gather_to(target_id):
+				return _context_result(
+					CONTEXT_RALLY_GATHER,
+					Input.CURSOR_POINTING_HAND,
+					"",
+					{"target_entity_id": target_id}
+				)
+			return _context_result(
+				CONTEXT_INVALID,
+				Input.CURSOR_FORBIDDEN,
+				"That resource target is not valid for the selected entity."
+			)
+		return _context_result(CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Target tile is occupied.")
+	if _input.can_issue_rally_move():
+		return _context_result(CONTEXT_RALLY_MOVE, Input.CURSOR_MOVE, "")
+	if _input.can_issue_move_only():
+		return _context_result(CONTEXT_MOVE_ONLY, Input.CURSOR_MOVE, "")
+	return _context_result(CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Selected entity cannot move.")
+
+
+func context_cursor_shape_at_tile(tile: Vector2i) -> int:
+	var context: Dictionary = context_action_at_tile(tile)
+	return context.get("cursor_shape", Input.CURSOR_ARROW)
 
 
 func begin_move() -> void:
@@ -230,6 +313,7 @@ func begin_move() -> void:
 	_clear_build_placement_preview()
 	_pending_command = PENDING_MOVE
 	_pending_build_def_id = ""
+	_reset_context_cursor()
 	_update_hud("Click a target tile for Attack and Move.")
 
 
@@ -240,6 +324,7 @@ func begin_move_only() -> void:
 	_clear_build_placement_preview()
 	_pending_command = PENDING_MOVE_ONLY
 	_pending_build_def_id = ""
+	_reset_context_cursor()
 	_update_hud("Click a target tile for MOVE ONLY. Unit will not shoot this turn.")
 
 
@@ -250,6 +335,7 @@ func begin_target() -> void:
 	_clear_build_placement_preview()
 	_pending_command = PENDING_TARGET
 	_pending_build_def_id = ""
+	_reset_context_cursor()
 	_update_hud("Click an enemy for TARGET.")
 
 
@@ -260,6 +346,7 @@ func begin_build(def_id: String) -> void:
 		return
 	_pending_command = PENDING_BUILD
 	_pending_build_def_id = def_id
+	_reset_context_cursor()
 	_update_hud("Click a placement tile for BUILD %s." % def_id)
 
 
@@ -309,8 +396,7 @@ func confirm_pending_at_tile(tile: Vector2i, queue_requested: bool = false) -> b
 			if _renderer != null
 			else _loaded.state.tile_grid.entity_at(tile)
 		)
-		var target: Entity = _loaded.state.get_entity_by_id(target_id)
-		if not _is_gather_target(target):
+		if not _selected_can_gather_from(target_id):
 			_update_hud("Click a mineral patch or refinery to GATHER.")
 			return false
 		var gather_ok: bool = issue_gather_selected(target_id, queue_requested)
@@ -325,6 +411,7 @@ func cancel_pending_command() -> void:
 	if _pending_command == PENDING_NONE:
 		return
 	_clear_pending_command()
+	_reset_context_cursor()
 	_update_hud("Pending command cancelled.")
 
 
@@ -352,8 +439,10 @@ func resolve_turn() -> bool:
 	_input.bind_context(_loaded.state, _loaded.registry)
 	_input.clear_submissions(false, false)
 	_input.apply_resolve_events(result.events)
+	_input.queue_rally_orders_for_train_completed(result.events)
 	_input.queue_move_assists_for_next_turn()
 	_input.promote_future_orders_for_next_turn()
+	_reset_context_cursor()
 	_update_hud("Resolved turn %d." % _loaded.state.turn_index)
 	return true
 
@@ -396,6 +485,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				if not _left_empty_drag_moved:
 					_input.clear_selection()
 					_renderer.clear_input_highlights()
+					_reset_context_cursor()
 					_update_hud("Selection cleared.")
 				_reset_left_empty_drag()
 				return
@@ -419,6 +509,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				cancel_pending_command()
 				return
 			issue_context_at_tile(tile, button.shift_pressed)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_MOUSE_EXIT:
+		_reset_context_cursor()
 
 
 func _ensure_renderer() -> void:
@@ -456,8 +551,10 @@ func _set_hover_tile(tile: Vector2i) -> void:
 	_renderer.set_hover_tile(tile)
 	if _pending_command == PENDING_BUILD:
 		_refresh_build_placement_preview(tile)
+		_reset_context_cursor()
 	else:
 		_clear_build_placement_preview()
+		_update_context_cursor_for_tile(tile)
 
 
 func _build_hud() -> void:
@@ -616,20 +713,108 @@ func _update_hud(override_status: String = "") -> void:
 	_refresh_action_previews()
 
 
-func _is_gather_target(entity: Entity) -> bool:
+func _context_result(
+	action: String, cursor_shape: int, message: String, extra: Dictionary = {}
+) -> Dictionary:
+	var out: Dictionary = {"action": action, "cursor_shape": cursor_shape, "message": message}
+	for key in extra:
+		out[key] = extra[key]
+	return out
+
+
+func _update_context_cursor_for_tile(tile: Vector2i) -> void:
+	if _pending_command != PENDING_NONE:
+		_reset_context_cursor()
+		return
+	var shape: int = context_cursor_shape_at_tile(tile)
+	Input.set_default_cursor_shape(shape)
+
+
+func _reset_context_cursor() -> void:
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+
+
+func _selected_entity() -> Entity:
+	if _loaded == null or _loaded.state == null:
+		return null
+	var entity_id: int = _input.selected_entity_id()
+	if entity_id < 0:
+		return null
+	return _loaded.state.get_entity_by_id(entity_id)
+
+
+func _entity_id_at_tile(tile: Vector2i) -> int:
+	if _loaded == null or _loaded.state == null or _loaded.state.tile_grid == null:
+		return -1
+	if not _loaded.state.tile_grid.is_in_bounds(tile):
+		return -1
+	if _renderer != null:
+		return _renderer.entity_id_at_tile(tile)
+	return _loaded.state.tile_grid.entity_at(tile)
+
+
+func _is_enemy_target(entity: Entity) -> bool:
+	return (
+		entity != null
+		and entity.current_hp > 0
+		and entity.owner_player_id >= 0
+		and entity.owner_player_id != _input.active_player_id()
+	)
+
+
+func _selected_can_gather_from(target_entity_id: int) -> bool:
+	if not _input.can_issue_gather():
+		return false
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		return false
+	var target: Entity = _loaded.state.get_entity_by_id(target_entity_id)
+	if not _is_resource_context_target(target):
+		return false
+	return (
+		GatherSystem.resolve_source_for_worker(
+			_loaded.state, _loaded.registry, target_entity_id, actor.owner_player_id
+		)
+		!= null
+	)
+
+
+func _selected_can_rally_gather_to(target_entity_id: int) -> bool:
+	if not _input.can_issue_rally_gather():
+		return false
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		return false
+	var target: Entity = _loaded.state.get_entity_by_id(target_entity_id)
+	if not _is_resource_context_target(target):
+		return false
+	return (
+		GatherSystem.resolve_source_for_worker(
+			_loaded.state, _loaded.registry, target_entity_id, actor.owner_player_id
+		)
+		!= null
+	)
+
+
+func _is_resource_context_target(entity: Entity) -> bool:
 	if entity == null or _loaded == null or _loaded.registry == null:
 		return false
 	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
 	var def: EntityDef = _loaded.registry.get_by_id(def_id)
 	if def == null:
 		return false
-	return def.resource_source != null or def.tags.has("refinery")
+	return def.resource_source != null or def.tags.has("refinery") or def.tags.has("extractor")
+
+
+func _is_gather_target(entity: Entity) -> bool:
+	return _is_resource_context_target(entity)
 
 
 func _clear_pending_command() -> void:
 	_pending_command = PENDING_NONE
 	_pending_build_def_id = ""
 	_clear_build_placement_preview()
+	_reset_context_cursor()
 
 
 func begin_gather() -> void:
@@ -639,6 +824,7 @@ func begin_gather() -> void:
 	_clear_build_placement_preview()
 	_pending_command = PENDING_GATHER
 	_pending_build_def_id = ""
+	_reset_context_cursor()
 	_update_hud("Click a mineral patch or refinery to GATHER.")
 
 
@@ -732,6 +918,9 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 				planned_tile = _preview_planned_tile_value(future_preview, planned_tile)
 				has_planned_tile = true
 			sequence_index += 1
+	var rally_preview: Dictionary = _rally_preview_for_entity(entity_id)
+	if not rally_preview.is_empty():
+		out.append(rally_preview)
 	if not out.is_empty():
 		return out
 	var entity: Entity = _loaded.state.get_entity_by_id(entity_id)
@@ -777,6 +966,28 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 	return out
 
 
+func _rally_preview_for_entity(entity_id: int) -> Dictionary:
+	if entity_id < 0 or _loaded == null or _loaded.state == null:
+		return {}
+	var entity: Entity = _loaded.state.get_entity_by_id(entity_id)
+	if entity == null or entity.production_state == null:
+		return {}
+	var mode: String = entity.production_state.rally_mode
+	if mode == ProductionState.RALLY_MODE_MOVE:
+		return {
+			"entity_id": entity.id,
+			"kind": "Rally",
+			"target_tile": entity.production_state.rally_target_tile,
+		}
+	if mode == ProductionState.RALLY_MODE_GATHER:
+		return {
+			"entity_id": entity.id,
+			"kind": "Rally Gather",
+			"target_entity_id": entity.production_state.rally_target_entity_id,
+		}
+	return {}
+
+
 func _queued_orders_for_entity(entity_id: int) -> Array[EntityOrder]:
 	var out: Array[EntityOrder] = []
 	var submit: SubmitTurn = _input.submit_for_player(_input.active_player_id())
@@ -802,7 +1013,7 @@ func _preview_for_order(
 	match order.type:
 		EntityOrder.Type.MOVE:
 			var kind: String = "Attack and Move"
-			if _will_halt_on_sight(order.entity_id):
+			if _will_halt_on_sight(order.entity_id) and order.target_priority_chain.is_empty():
 				kind = (
 					"Shoot + Hold" if _attack_target_for_entity(order.entity_id) >= 0 else "Halted"
 				)
@@ -866,17 +1077,61 @@ func _move_preview(
 	var actor: Entity = _loaded.state.get_entity_by_id(order.entity_id) if _loaded != null else null
 	if actor == null or _loaded.registry == null:
 		return preview
+	var goal: Dictionary = _move_preview_goal(order, actor)
+	var target_origin: Vector2i = goal.get("target_origin", order.target_tile)
+	preview["target_tile"] = target_origin
+	if goal.has("target_entity_id"):
+		preview["target_entity_id"] = goal["target_entity_id"]
 	var start_origin: Vector2i = start_tile if has_start_tile else actor.origin
-	if not _should_preview_move_path(order, actor, start_origin):
+	if not _should_preview_move_path(order, actor, start_origin, target_origin):
 		return preview
 	var path_actor: Entity = _preview_actor_at(actor, start_tile, has_start_tile)
 	var options: Dictionary = _path_preview_options(actor.owner_player_id)
+	if goal.has("goal_rect"):
+		options[PATHFINDING_SCRIPT.OPTION_GOAL_RECT] = goal["goal_rect"]
+		options[PATHFINDING_SCRIPT.OPTION_GOAL_RANGE] = goal.get("goal_range", 0)
+		options[PATHFINDING_SCRIPT.OPTION_EXACT_ORIGIN] = goal.get("exact_origin", true)
 	var path: Array[Vector2i] = PATHFINDING_SCRIPT.find_path(
-		_loaded.state, path_actor, order.target_tile, _loaded.registry, options
+		_loaded.state, path_actor, target_origin, _loaded.registry, options
 	)
 	if not path.is_empty():
 		preview["path"] = path
 	return preview
+
+
+func _move_preview_goal(order: EntityOrder, actor: Entity) -> Dictionary:
+	var fallback: Dictionary = {
+		"target_origin": order.target_tile,
+		"exact_origin": true,
+		"goal_range": 0,
+	}
+	if (
+		order == null
+		or actor == null
+		or order.type != EntityOrder.Type.MOVE
+		or order.target_priority_chain.is_empty()
+		or _loaded == null
+		or _loaded.state == null
+		or _loaded.state.tile_grid == null
+	):
+		return fallback
+	for target_id in order.target_priority_chain:
+		var target: Entity = _loaded.state.get_entity_by_id(target_id)
+		if target == null or target.current_hp <= 0:
+			continue
+		if target.owner_player_id < 0 or target.owner_player_id == actor.owner_player_id:
+			continue
+		var target_rect: Rect2i = _entity_rect(target)
+		if target_rect.size == Vector2i.ZERO:
+			target_rect = Rect2i(target.origin, Vector2i.ONE)
+		return {
+			"target_origin": target_rect.position,
+			"target_entity_id": target.id,
+			"goal_rect": target_rect,
+			"exact_origin": false,
+			"goal_range": 1,
+		}
+	return fallback
 
 
 func _gather_preview(
@@ -953,16 +1208,22 @@ func _preview_actor_at(actor: Entity, start_tile: Vector2i, has_start_tile: bool
 	return preview_actor
 
 
-func _should_preview_move_path(order: EntityOrder, actor: Entity, start_origin: Vector2i) -> bool:
+func _should_preview_move_path(
+	order: EntityOrder, actor: Entity, start_origin: Vector2i, target_origin: Vector2i
+) -> bool:
 	if order == null or actor == null:
 		return false
 	if not _can_preview_spend_movement(actor):
 		return false
 	if actor.ability_cast != null:
 		return false
-	if order.type == EntityOrder.Type.MOVE and _will_halt_on_sight(actor.id):
+	if (
+		order.type == EntityOrder.Type.MOVE
+		and _will_halt_on_sight(actor.id)
+		and order.target_priority_chain.is_empty()
+	):
 		return false
-	return start_origin != order.target_tile
+	return start_origin != target_origin
 
 
 func _preview_keeps_planned_tile(preview: Dictionary, has_planned_tile: bool) -> bool:
@@ -1107,7 +1368,11 @@ func _can_preview_attack(entity: Entity) -> bool:
 		return false
 	if entity.gather_state != null and entity.gather_state.phase != GatherState.Phase.IDLE:
 		return false
-	if entity.locked_to_building_id >= 0 or entity.is_constructing:
+	if (
+		ConstructionSystem.has_pending_build(entity)
+		or entity.locked_to_building_id >= 0
+		or entity.is_constructing
+	):
 		return false
 	return true
 

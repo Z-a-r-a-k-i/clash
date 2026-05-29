@@ -48,9 +48,9 @@ extends Resource
 @export var current_resource_amount: int = -1
 
 # Construction lifecycle (plan node 05). Buildings only.
-# `is_constructing` is set to true at BUILD distribution and cleared on
-# completion. While true, the building blocks pathing and is vulnerable
-# but doesn't function (no production / no pop_provides).
+# `is_constructing` is set to true when the worker reaches the build site
+# and cleared on completion. While true, the building blocks pathing and
+# is vulnerable but doesn't function (no production / no pop_provides).
 @export var is_constructing: bool = false
 # Turns until completion. -1 = N/A (not under construction).
 @export var construction_turns_remaining: int = -1
@@ -63,6 +63,12 @@ extends Resource
 # new MOVE / ATTACK / GATHER orders — it's committed to constructing the
 # referenced building.
 @export var locked_to_building_id: int = -1
+# Pending worker-side build commitment before the building entity exists.
+# Resources are paid when BUILD distributes, but the site is spawned only
+# once the worker reaches adjacency and starts construction.
+@export var pending_build_def_id: String = ""
+@export var pending_build_target_tile: Vector2i = Vector2i.ZERO
+@export var pending_build_target_entity_id: int = -1
 
 # Optional capability-paired state — null unless def has the matching capability.
 @export var production_state: ProductionState
@@ -105,6 +111,9 @@ func clone() -> Entity:
 	c.construction_turns_remaining = construction_turns_remaining
 	c.construction_worker_id = construction_worker_id
 	c.locked_to_building_id = locked_to_building_id
+	c.pending_build_def_id = pending_build_def_id
+	c.pending_build_target_tile = pending_build_target_tile
+	c.pending_build_target_entity_id = pending_build_target_entity_id
 
 	if production_state != null:
 		c.production_state = production_state.clone()

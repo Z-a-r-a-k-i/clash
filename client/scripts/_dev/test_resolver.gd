@@ -143,6 +143,11 @@ func _all_tests() -> Array:
 			_test_halt_on_sight_rechecks_between_movement_substeps
 		],
 		["latest_move_like_intent_wins", _test_latest_move_like_intent_wins],
+		[
+			"move_with_target_chain_chases_live_target",
+			_test_move_with_target_chain_chases_live_target
+		],
+		["target_chase_ignores_halt_on_sight", _test_target_chase_ignores_halt_on_sight],
 		["idle_unit_auto_attacks_enemy_in_range", _test_idle_unit_auto_attacks_enemy_in_range],
 		# Chunk 5 — end-of-turn system.
 		["cooldowns_decrement", _test_cooldowns_decrement],
@@ -240,9 +245,10 @@ func _all_tests() -> Array:
 		],
 		["research_stalls_on_funds", _test_research_stalls_on_funds],
 		[
-			"build_distributes_creates_constructing_entity",
-			_test_build_distributes_creates_constructing_entity
+			"build_adjacent_worker_starts_constructing_entity",
+			_test_build_adjacent_worker_starts_constructing_entity
 		],
+		["build_far_worker_delays_site_creation", _test_build_far_worker_delays_site_creation],
 		["build_worker_walks_to_site", _test_build_worker_walks_to_site],
 		[
 			"build_progress_only_while_worker_adjacent",
@@ -262,9 +268,14 @@ func _all_tests() -> Array:
 			_test_build_constructing_building_dies_no_refund
 		],
 		["build_cancel_via_worker_full_refund", _test_build_cancel_via_worker_full_refund],
+		["build_cancel_pending_full_refund", _test_build_cancel_pending_full_refund],
 		[
 			"build_refinery_on_geyser_overlap_allowed",
 			_test_build_refinery_on_geyser_overlap_allowed
+		],
+		[
+			"build_far_refinery_worker_walks_to_geyser",
+			_test_build_far_refinery_worker_walks_to_geyser
 		],
 		["build_refinery_double_target_rejected", _test_build_refinery_double_target_rejected],
 		["build_target_tile_occupied_rejected", _test_build_target_tile_occupied_rejected],
@@ -1816,6 +1827,63 @@ func _test_latest_move_like_intent_wins() -> bool:
 	return new_actor.origin == Vector2i(5, 9) and new_actor.persistent_order == null
 
 
+func _test_move_with_target_chain_chases_live_target() -> bool:
+	var registry := _combat_mover_registry(6, 3, 2)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var target := _make_entity(state, "marine", 1, Vector2i(9, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(target.id, Rect2i(9, 5, 1, 1))
+
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(6, 5)
+	move.target_priority_chain = [target.id]
+
+	var result := Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit([]), registry, null
+	)
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return (
+		new_actor.focus_target_entity_id == target.id
+		and new_actor.origin == Vector2i(7, 5)
+		and actor.focus_target_entity_id == -1
+		and actor.origin == Vector2i(5, 5)
+	)
+
+
+func _test_target_chase_ignores_halt_on_sight() -> bool:
+	var registry := EntityRegistry.new()
+	var marine := _def_with_movement_combat(
+		"marine", Vector2i(1, 1), ["light", "ground"], _combat_def(6, 1, ["ground"]), 50, 2
+	)
+	marine.vision = _vision_def(8)
+	registry.entities = [marine]
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	actor.halt_on_sight = true
+	var target := _make_entity(state, "marine", 1, Vector2i(9, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(target.id, Rect2i(9, 5, 1, 1))
+
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(5, 5)
+	move.target_priority_chain = [target.id]
+
+	var result := Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit([]), registry, null
+	)
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
+			push_error("target chase setup should keep the target out of attack range")
+			return false
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return new_actor.focus_target_entity_id == target.id and new_actor.origin == Vector2i(7, 5)
+
+
 func _test_idle_unit_auto_attacks_enemy_in_range() -> bool:
 	var registry := _combat_mover_registry(6, 3, 4)
 	var state := _state_with_grid(20, 20)
@@ -2177,6 +2245,12 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 		if ea.construction_worker_id != eb.construction_worker_id:
 			return false
 		if ea.locked_to_building_id != eb.locked_to_building_id:
+			return false
+		if ea.pending_build_def_id != eb.pending_build_def_id:
+			return false
+		if ea.pending_build_target_tile != eb.pending_build_target_tile:
+			return false
+		if ea.pending_build_target_entity_id != eb.pending_build_target_entity_id:
 			return false
 		if (ea.production_state == null) != (eb.production_state == null):
 			return false
@@ -4047,15 +4121,14 @@ func _test_repeat_training_stalls_and_resumes() -> bool:
 	return b.production_state.active.get(ProductionState.KEY_DEF_ID, "") == "marine"
 
 
-func _test_build_distributes_creates_constructing_entity() -> bool:
-	# BUILD order at distribution → new building entity exists with
-	# is_constructing=true, full HP, on tile_grid; cost deducted; worker
-	# locked; BUILD_STARTED emitted.
+func _test_build_adjacent_worker_starts_constructing_entity() -> bool:
+	# BUILD from an adjacent worker creates the building entity immediately
+	# and ticks the first construction progress at end-of-turn.
 	var registry := _build_registry()
 	var state := _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
 	state.players[0].minerals = 500
-	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	var worker := _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
 	worker.def_id = "worker"
 	worker.current_def_id = "worker"
 	worker.gather_state = GatherState.new()
@@ -4063,7 +4136,7 @@ func _test_build_distributes_creates_constructing_entity() -> bool:
 	worker.gather_state.carrying_amount = 3
 	worker.gather_state.carrying_resource_type = "minerals"
 	worker.gather_state.phase = GatherState.Phase.GATHERING
-	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
 
 	var build_order := EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
@@ -4087,9 +4160,15 @@ func _test_build_distributes_creates_constructing_entity() -> bool:
 		return false
 	if found_building.current_hp != 1000:
 		return false
+	if found_building.construction_turns_remaining != 3:
+		push_error("adjacent BUILD should tick first construction progress on the build turn")
+		return false
 	# Worker should be locked to the building.
 	var w := result.new_state.get_entity_by_id(worker.id)
 	if w.locked_to_building_id != found_building.id:
+		return false
+	if ConstructionSystem.has_pending_build(w):
+		push_error("adjacent BUILD should not leave a pending build commitment")
 		return false
 	if w.gather_state == null or w.gather_state.phase != GatherState.Phase.IDLE:
 		push_error("BUILD should interrupt active gathering")
@@ -4100,7 +4179,52 @@ func _test_build_distributes_creates_constructing_entity() -> bool:
 	if w.gather_state.carrying_amount != 0 or w.gather_state.carrying_resource_type != "":
 		push_error("BUILD should clear stale gather cargo")
 		return false
-	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_STARTED)
+	return (
+		_has_event_of_type(result.events, ResolverEvent.Type.BUILD_STARTED)
+		and _has_event_of_type(result.events, ResolverEvent.Type.BUILD_PROGRESSED)
+	)
+
+
+func _test_build_far_worker_delays_site_creation() -> bool:
+	# A far worker reserves the build and starts walking, but no building
+	# entity or BUILD_STARTED event exists until the worker reaches adjacency.
+	var registry := _build_registry()
+	var state := _state_with_grid(30, 30)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
+	_add_player_keepalive_building(state, registry, 0)
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(10, 10)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	if result.new_state.get_player(0).minerals != 350:
+		return false
+	if _has_event_of_type(result.events, ResolverEvent.Type.BUILD_STARTED):
+		push_error("far BUILD should not emit BUILD_STARTED before the worker reaches the site")
+		return false
+	for e in result.new_state.entities:
+		if e != null and e.def_id == "barracks":
+			push_error("far BUILD should not create a building entity before adjacency")
+			return false
+	var w := result.new_state.get_entity_by_id(worker.id)
+	if w == null:
+		return false
+	if w.locked_to_building_id != -1:
+		return false
+	if w.pending_build_def_id != "barracks":
+		return false
+	if w.pending_build_target_tile != Vector2i(10, 10):
+		return false
+	if w.pending_build_target_entity_id != -1:
+		return false
+	return w.origin == Vector2i(4, 4)
 
 
 func _test_build_worker_walks_to_site() -> bool:
@@ -4112,6 +4236,7 @@ func _test_build_worker_walks_to_site() -> bool:
 	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
 	_add_opponent_keepalive_building(state, registry)
+	_add_player_keepalive_building(state, registry, 0)
 
 	var build_order := EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
@@ -4119,27 +4244,36 @@ func _test_build_worker_walks_to_site() -> bool:
 	build_order.def_id = "barracks"
 	build_order.target_tile = Vector2i(10, 10)
 	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	if _has_event_of_type(result.events, ResolverEvent.Type.BUILD_STARTED):
+		push_error("far BUILD should not start before the worker reaches adjacency")
+		return false
 	# Worker speed is 4; barracks rect at (10,10,3,3); distance from (0,0)
 	# rect to that rect is max(10-0, 10-0) = 10. So walk takes ~10/4 = 3
 	# turns to be adjacent. Run 6 turns to be safe.
 	var building_id: int = -1
-	for ev in result.events:
-		if ev.type == ResolverEvent.Type.BUILD_STARTED:
-			building_id = ev.target_id
 	for _i in 6:
 		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		for ev in result.events:
+			if ev.type == ResolverEvent.Type.BUILD_STARTED:
+				building_id = ev.target_id
+		if building_id >= 0:
+			break
+	if building_id < 0:
+		push_error("pending BUILD should start once the worker reaches adjacency")
+		return false
 	var w := result.new_state.get_entity_by_id(worker.id)
 	var b := result.new_state.get_entity_by_id(building_id)
+	if w == null or b == null:
+		return false
 	var w_rect := result.new_state.tile_grid.entity_rect(w.id)
 	var b_rect := result.new_state.tile_grid.entity_rect(b.id)
 	return TileGrid.distance_between_rects(w_rect, b_rect) <= 1
 
 
 func _test_build_progress_only_while_worker_adjacent() -> bool:
-	# Worker far from site → construction_turns_remaining doesn't
-	# decrement until worker arrives. While walking, no BUILD_PROGRESSED
-	# fires; once adjacent, ticks resume. The construction_worker_id link
-	# is preserved across the walk so progress picks up automatically.
+	# Worker far from site → no building exists and no BUILD_PROGRESSED
+	# fires while walking. Once adjacent, the building is created and the
+	# first progress tick happens on that same turn.
 	var registry := _build_registry()
 	var state := _state_with_grid(40, 40)
 	state.players = [_player(0), _player(1)]
@@ -4147,6 +4281,7 @@ func _test_build_progress_only_while_worker_adjacent() -> bool:
 	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
 	_add_opponent_keepalive_building(state, registry)
+	_add_player_keepalive_building(state, registry, 0)
 
 	var build_order := EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
@@ -4154,34 +4289,38 @@ func _test_build_progress_only_while_worker_adjacent() -> bool:
 	build_order.def_id = "barracks"
 	build_order.target_tile = Vector2i(20, 20)
 	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
-	var building_id: int = -1
-	for ev in result.events:
-		if ev.type == ResolverEvent.Type.BUILD_STARTED:
-			building_id = ev.target_id
-	# T0 EOT: worker not adjacent → no progress event.
-	var b0 := result.new_state.get_entity_by_id(building_id)
+	if _has_event_of_type(result.events, ResolverEvent.Type.BUILD_STARTED):
+		return false
 	if _has_event_of_type(result.events, ResolverEvent.Type.BUILD_PROGRESSED):
 		return false
-	# Worker link preserved while walking.
-	if b0.construction_worker_id != worker.id:
+	for e in result.new_state.entities:
+		if e != null and e.def_id == "barracks":
+			return false
+	var w0 := result.new_state.get_entity_by_id(worker.id)
+	if w0 == null or w0.pending_build_def_id != "barracks":
 		return false
-	# Run until adjacency + at least one progress tick.
-	var initial_remaining := b0.construction_turns_remaining
-	var saw_progress := false
+	# Run until adjacency + the first progress tick.
 	for _i in 15:
 		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		var building_id := -1
+		for ev in result.events:
+			if ev.type == ResolverEvent.Type.BUILD_STARTED:
+				building_id = ev.target_id
+		if building_id < 0:
+			continue
 		var b := result.new_state.get_entity_by_id(building_id)
-		if b == null:
+		if b == null or b.construction_worker_id != worker.id:
 			return false
-		if b.construction_turns_remaining < initial_remaining:
-			saw_progress = true
-			break
-	return saw_progress
+		return (
+			_has_event_of_type(result.events, ResolverEvent.Type.BUILD_PROGRESSED)
+			and b.construction_turns_remaining == 3
+		)
+	return false
 
 
 func _test_construction_worker_travel_uses_full_speed_budget() -> bool:
-	# A locked construction worker should spend its full speed budget while
-	# walking to the building site during the BUILD submission turn.
+	# A pending construction worker should spend its full speed budget
+	# while walking to the building site during the BUILD submission turn.
 	var registry := _build_registry()
 	var state := _state_with_grid(30, 30)
 	state.players = [_player(0), _player(1)]
@@ -4203,7 +4342,12 @@ func _test_construction_worker_travel_uses_full_speed_budget() -> bool:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == worker.id:
 			move_count += 1
 	var w := result.new_state.get_entity_by_id(worker.id)
-	return move_count == 4 and w.origin == Vector2i(4, 4)
+	return (
+		move_count == 4
+		and w.origin == Vector2i(4, 4)
+		and w.locked_to_building_id == -1
+		and w.pending_build_def_id == "barracks"
+	)
 
 
 func _test_build_completes_applies_pop_provides() -> bool:
@@ -4250,15 +4394,20 @@ func _test_build_locked_worker_rejects_new_orders() -> bool:
 	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
 	_add_opponent_keepalive_building(state, registry)
+	_add_player_keepalive_building(state, registry, 0)
 
 	var build_order := EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
 	build_order.entity_id = worker.id
 	build_order.def_id = "barracks"
-	build_order.target_tile = Vector2i(5, 5)
+	build_order.target_tile = Vector2i(10, 10)
 	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	var pending_worker := result.new_state.get_entity_by_id(worker.id)
+	if pending_worker == null or pending_worker.pending_build_def_id != "barracks":
+		push_error("setup expected worker to still be pending construction")
+		return false
 
-	# Now submit a MOVE on the locked worker.
+	# Now submit a MOVE on the build-committed worker.
 	var move := EntityOrder.new()
 	move.type = EntityOrder.Type.MOVE
 	move.entity_id = worker.id
@@ -4273,7 +4422,7 @@ func _test_build_locked_worker_rejects_new_orders() -> bool:
 	# ORDER_REJECTED was emitted.
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ORDER_REJECTED and ev.def_id == "worker_locked":
-			return w.locked_to_building_id >= 0
+			return w.pending_build_def_id == "barracks"
 	return false
 
 
@@ -4380,6 +4529,7 @@ func _test_build_refinery_on_geyser_overlap_allowed() -> bool:
 	state.tile_grid.place(worker.id, Rect2i(9, 5, 1, 1))
 	var geyser := _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
 	geyser.current_def_id = ""
+	geyser.current_hp = 0
 	geyser.current_resource_amount = -1
 	state.tile_grid.place(geyser.id, Rect2i(10, 5, 2, 2))
 
@@ -4414,6 +4564,56 @@ func _test_build_refinery_on_geyser_overlap_allowed() -> bool:
 	# Refinery and geyser have the same footprint so the refinery replaces
 	# the whole geyser visually and spatially.
 	return refinery_rect.size == geyser_rect.size
+
+
+func _test_build_far_refinery_worker_walks_to_geyser() -> bool:
+	# A refinery build issued from travel range should move the worker to
+	# the geyser, create the overlapping build site, and tick first progress.
+	var registry := _gather_registry(5, 1, 4)
+	var geyser_def: EntityDef = registry.get_by_id("geyser")
+	var refinery_def: EntityDef = registry.get_by_id("refinery")
+	geyser_def.footprint = Vector2i(2, 2)
+	refinery_def.footprint = Vector2i(2, 2)
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(6, 5), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(6, 5, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
+	_add_player_keepalive_building(state, registry, 0)
+	var geyser := _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
+	geyser.current_def_id = ""
+	geyser.current_hp = 0
+	geyser.current_resource_amount = -1
+	state.tile_grid.place(geyser.id, Rect2i(10, 5, 2, 2))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "refinery"
+	build_order.target_tile = Vector2i(11, 6)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	var refinery_id: int = -1
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.BUILD_STARTED:
+			refinery_id = ev.target_id
+	if refinery_id < 0:
+		push_error("far refinery BUILD should start once the worker reaches geyser adjacency")
+		return false
+	var built_refinery := result.new_state.get_entity_by_id(refinery_id)
+	var moved_worker := result.new_state.get_entity_by_id(worker.id)
+	if built_refinery == null or moved_worker == null:
+		return false
+	var worker_rect: Rect2i = result.new_state.tile_grid.entity_rect(moved_worker.id)
+	var refinery_rect: Rect2i = result.new_state.tile_grid.entity_rect(refinery_id)
+	var geyser_rect: Rect2i = result.new_state.tile_grid.entity_rect(geyser.id)
+	return (
+		built_refinery.origin == Vector2i(10, 5)
+		and refinery_rect == geyser_rect
+		and TileGrid.distance_between_rects(worker_rect, refinery_rect) <= 1
+		and _has_event_of_type(result.events, ResolverEvent.Type.BUILD_PROGRESSED)
+	)
 
 
 func _test_build_refinery_double_target_rejected() -> bool:
@@ -4741,6 +4941,47 @@ func _test_build_cancel_via_worker_full_refund() -> bool:
 	var w := result.new_state.get_entity_by_id(worker.id)
 	if w.locked_to_building_id != -1:
 		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_CANCELLED)
+
+
+func _test_build_cancel_pending_full_refund() -> bool:
+	# CANCEL(worker, -1) before the worker reaches the site refunds the
+	# reserved cost and clears the pending build without creating a site.
+	var registry := _build_registry()
+	var state := _state_with_grid(30, 30)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(0, 0), 50, "ground")
+	state.tile_grid.place(worker.id, Rect2i(0, 0, 1, 1))
+	_add_opponent_keepalive_building(state, registry)
+	_add_player_keepalive_building(state, registry, 0)
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(10, 10)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	if result.new_state.get_player(0).minerals != 350:
+		return false
+	var pending_worker := result.new_state.get_entity_by_id(worker.id)
+	if pending_worker == null or pending_worker.pending_build_def_id != "barracks":
+		return false
+
+	var cancel := EntityOrder.new()
+	cancel.type = EntityOrder.Type.CANCEL
+	cancel.entity_id = worker.id
+	cancel.cancel_index = -1
+	result = Resolver.resolve(result.new_state, _submit([cancel]), _submit(), registry, null)
+
+	if result.new_state.get_player(0).minerals != 500:
+		return false
+	var w := result.new_state.get_entity_by_id(worker.id)
+	if w == null or ConstructionSystem.has_pending_build(w) or w.locked_to_building_id != -1:
+		return false
+	for e in result.new_state.entities:
+		if e != null and e.def_id == "barracks":
+			return false
 	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_CANCELLED)
 
 
@@ -5285,6 +5526,14 @@ func _test_match_state_save_load_roundtrip() -> bool:
 	ext.construction_worker_id = worker.id
 	worker.locked_to_building_id = ext.id
 
+	# Entity 5: a worker committed to a pending build whose site has not
+	# spawned yet.
+	var pending_worker := _make_entity(state, "worker", 0, Vector2i(1, 10), 50, "ground")
+	state.tile_grid.place(pending_worker.id, Rect2i(1, 10, 1, 1))
+	pending_worker.pending_build_def_id = "barracks"
+	pending_worker.pending_build_target_tile = Vector2i(10, 10)
+	pending_worker.pending_build_target_entity_id = -1
+
 	# Save -> load with a registry alongside.
 	var registry := _load_data_registry()
 	if registry == null:
@@ -5468,6 +5717,12 @@ func _make_gather_worker(state: MatchState, owner: int, origin: Vector2i) -> Ent
 
 
 func _add_opponent_keepalive_building(state: MatchState, registry: EntityRegistry) -> Entity:
+	return _add_player_keepalive_building(state, registry, 1)
+
+
+func _add_player_keepalive_building(
+	state: MatchState, registry: EntityRegistry, owner_id: int
+) -> Entity:
 	var invalid_inputs: Array[String] = []
 	if state == null:
 		invalid_inputs.append("state")
@@ -5504,7 +5759,9 @@ func _add_opponent_keepalive_building(state: MatchState, registry: EntityRegistr
 			var rect: Rect2i = Rect2i(origin, Vector2i.ONE)
 			if not state.tile_grid.is_rect_clear(rect):
 				continue
-			var entity: Entity = _make_entity(state, _TEST_KEEPALIVE_DEF_ID, 1, origin, 1, "ground")
+			var entity: Entity = _make_entity(
+				state, _TEST_KEEPALIVE_DEF_ID, owner_id, origin, 1, "ground"
+			)
 			if state.tile_grid.place(entity.id, rect):
 				return entity
 			state.entities.erase(entity)

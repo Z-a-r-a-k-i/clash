@@ -38,6 +38,7 @@ func _all_tests() -> Array:
 		["dev_play_mode_loads_scenario_and_binds_renderer", _test_loads_scenario],
 		["dev_play_mode_queues_and_resolves_turn", _test_queues_and_resolves_turn],
 		["dev_play_mode_routes_context_actions", _test_routes_context_actions],
+		["dev_play_mode_context_cursor_classifier", _test_context_cursor_classifier],
 		[
 			"dev_play_mode_switches_input_and_render_perspective",
 			_test_switches_input_and_render_perspective
@@ -61,9 +62,15 @@ func _all_tests() -> Array:
 			_test_worker_gather_command_targets_resource
 		],
 		[
+			"dev_play_mode_right_click_gather_rejects_raw_gas",
+			_test_right_click_gather_rejects_raw_gas
+		],
+		["dev_play_mode_producer_right_click_sets_rally", _test_producer_right_click_sets_rally],
+		[
 			"dev_play_mode_affordable_build_interrupts_auto_gather",
 			_test_affordable_build_interrupts_auto_gather
 		],
+		["dev_play_mode_mvp_worker_builds_refinery", _test_mvp_worker_builds_refinery],
 		["dev_play_mode_hud_resources_and_readable_queue", _test_hud_resources_and_readable_queue],
 		[
 			"dev_play_mode_selected_and_friendly_action_previews",
@@ -81,6 +88,10 @@ func _all_tests() -> Array:
 		[
 			"dev_play_mode_halt_on_sight_move_preview_does_not_route",
 			_test_halt_on_sight_move_preview_does_not_route
+		],
+		[
+			"dev_play_mode_target_chase_preview_tracks_live_target",
+			_test_target_chase_preview_tracks_live_target
 		],
 		[
 			"dev_play_mode_pending_build_updates_placement_preview",
@@ -177,32 +188,90 @@ func _test_routes_context_actions() -> bool:
 	mode.select_entity_id(1)
 	mode.renderer().set_perspective_player_id(1)
 	if not mode.issue_context_at_tile(Vector2i(13, 10)):
-		push_error("right-clicking visible enemy-occupied tile should set target intent")
+		push_error("right-clicking visible enemy-occupied tile should queue target chase")
 		_free_mode(mode)
 		return false
 	var marine: Entity = mode.current_state().get_entity_by_id(1)
-	if marine == null or marine.focus_target_entity_id != 4:
-		push_error("context enemy action should immediately set target focus on #4")
+	if marine == null or marine.focus_target_entity_id != -1:
+		push_error("context enemy action should not mutate focus before resolve")
 		_free_mode(mode)
 		return false
-	if mode.pending_order_count(0) != 0:
-		push_error("context enemy target should not queue a turn order")
+	var target_chase_orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if target_chase_orders.size() != 1:
+		push_error("context enemy target should queue one atomic order")
+		_free_mode(mode)
+		return false
+	var target_chase: EntityOrder = target_chase_orders[0]
+	if (
+		target_chase.type != EntityOrder.Type.MOVE
+		or target_chase.target_priority_chain != ([4] as Array[int])
+		or target_chase.target_tile != Vector2i(13, 10)
+	):
+		push_error("context enemy action should queue MOVE with target chain for #4")
 		_free_mode(mode)
 		return false
 	mode.input_model().clear_submissions()
 	mode.set_active_player_id(0)
 	mode.select_entity_id(1)
 	if not mode.issue_context_at_tile(Vector2i(9, 10)):
-		push_error("right-clicking empty tile should queue MOVE")
+		push_error("right-clicking empty tile should queue MOVE_ONLY")
 		_free_mode(mode)
 		return false
 	var move_order: EntityOrder = mode.input_model().submit_for_player(0).orders[0]
-	if move_order.type != EntityOrder.Type.MOVE or move_order.target_tile != Vector2i(9, 10):
-		push_error("context empty-tile action should be MOVE to (9, 10)")
+	if move_order.type != EntityOrder.Type.MOVE_ONLY or move_order.target_tile != Vector2i(9, 10):
+		push_error("context empty-tile action should be MOVE_ONLY to (9, 10)")
 		_free_mode(mode)
 		return false
 	_free_mode(mode)
 	return true
+
+
+func _test_context_cursor_classifier() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	mode.select_entity_id(1)
+	mode.renderer().set_perspective_player_id(1)
+	var enemy_context: Dictionary = mode.context_action_at_tile(Vector2i(13, 10))
+	var ok := true
+	if (
+		enemy_context.get("action", "") != "target_chase"
+		or enemy_context.get("cursor_shape", -1) != Input.CURSOR_CROSS
+	):
+		push_error("enemy hover should classify as target chase with cross cursor")
+		ok = false
+	var empty_context: Dictionary = mode.context_action_at_tile(Vector2i(9, 10))
+	if (
+		empty_context.get("action", "") != "move_only"
+		or empty_context.get("cursor_shape", -1) != Input.CURSOR_MOVE
+	):
+		push_error("empty hover should classify as move-only with move cursor")
+		ok = false
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	var mineral_id: int = _find_entity_id_any_hp(mode.current_state(), "mineral_patch", -1)
+	if worker_id < 0 or mineral_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected worker and mineral for gather cursor classifier")
+		_free_mode(mode)
+		return false
+	var mineral: Entity = mode.current_state().get_entity_by_id(mineral_id)
+	var gather_context: Dictionary = mode.context_action_at_tile(mineral.origin)
+	if (
+		gather_context.get("action", "") != "gather"
+		or gather_context.get("cursor_shape", -1) != Input.CURSOR_POINTING_HAND
+	):
+		push_error("resource hover should classify as gather with pointing-hand cursor")
+		ok = false
+	_free_mode(mode)
+	return ok
 
 
 func _test_switches_input_and_render_perspective() -> bool:
@@ -547,6 +616,99 @@ func _test_worker_gather_command_targets_resource() -> bool:
 	return ok
 
 
+func _test_right_click_gather_rejects_raw_gas() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	if worker_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected worker for raw-gas context test")
+		_free_mode(mode)
+		return false
+	var worker: Entity = mode.current_state().get_entity_by_id(worker_id)
+	var gas_origin: Vector2i = _find_clear_rect_origin_near(
+		mode.current_state(), worker.origin, Vector2i(2, 2)
+	)
+	var gas_id: int = _add_runtime_entity(mode.current_state(), "gas_geyser", -1, gas_origin)
+	if gas_id < 0:
+		push_error("expected to add raw gas geyser to MVP map")
+		_free_mode(mode)
+		return false
+	mode.current_state().get_entity_by_id(gas_id).current_resource_amount = 1000
+	mode.renderer().bind_state(mode.current_state(), _load_registry())
+	mode.renderer().set_perspective_player_id(0)
+	var context: Dictionary = mode.context_action_at_tile(gas_origin)
+	var ok := true
+	if (
+		context.get("action", "") != "invalid"
+		or context.get("cursor_shape", -1) != Input.CURSOR_FORBIDDEN
+	):
+		push_error("raw gas without owned refinery should classify as invalid")
+		ok = false
+	if mode.issue_context_at_tile(gas_origin):
+		push_error("right-click raw gas without owned refinery should be rejected")
+		ok = false
+	if mode.input_model().submit_for_player(0).orders.size() != 0:
+		push_error("rejected raw-gas context action should not fall back to movement")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_producer_right_click_sets_rally() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var base_id: int = _find_entity_id(mode.current_state(), "base", 0)
+	var mineral_id: int = _find_entity_id_any_hp(mode.current_state(), "mineral_patch", -1)
+	if base_id < 0 or mineral_id < 0 or not mode.select_entity_id(base_id):
+		push_error("expected base producer and mineral target")
+		_free_mode(mode)
+		return false
+	var rally_tile: Vector2i = _find_clear_rect_origin_near(
+		mode.current_state(), mode.current_state().get_entity_by_id(base_id).origin, Vector2i.ONE
+	)
+	var ok := true
+	if not mode.issue_context_at_tile(rally_tile):
+		push_error("producer right-click empty tile should set move rally")
+		ok = false
+	var base: Entity = mode.current_state().get_entity_by_id(base_id)
+	if (
+		base == null
+		or base.production_state == null
+		or base.production_state.rally_mode != ProductionState.RALLY_MODE_MOVE
+		or base.production_state.rally_target_tile != rally_tile
+	):
+		push_error("producer move rally state was not stored")
+		ok = false
+	var renderer: MatchRenderer = mode.renderer()
+	if renderer != null and renderer.action_preview_count() < 1:
+		push_error("selected producer rally should render an action preview")
+		ok = false
+	var mineral: Entity = mode.current_state().get_entity_by_id(mineral_id)
+	if not mode.issue_context_at_tile(mineral.origin):
+		push_error("producer right-click resource should set gather rally")
+		ok = false
+	if (
+		base.production_state.rally_mode != ProductionState.RALLY_MODE_GATHER
+		or base.production_state.rally_target_entity_id != mineral_id
+	):
+		push_error("producer gather rally state was not stored")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
 func _test_affordable_build_interrupts_auto_gather() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -584,8 +746,14 @@ func _test_affordable_build_interrupts_auto_gather() -> bool:
 		_free_mode(mode)
 		return false
 	var worker_after: Entity = mode.current_state().get_entity_by_id(worker_id)
-	if worker_after == null or worker_after.locked_to_building_id < 0:
-		push_error("BUILD should lock the worker to the new building")
+	if (
+		worker_after == null
+		or (
+			worker_after.locked_to_building_id < 0
+			and not ConstructionSystem.has_pending_build(worker_after)
+		)
+	):
+		push_error("BUILD should commit the worker to construction")
 		_free_mode(mode)
 		return false
 	if (
@@ -599,13 +767,116 @@ func _test_affordable_build_interrupts_auto_gather() -> bool:
 		push_error("BUILD should clear the prior mineral assignment")
 		_free_mode(mode)
 		return false
-	var building: Entity = mode.current_state().get_entity_by_id(worker_after.locked_to_building_id)
-	if building == null or building.def_id != "barracks" or not building.is_constructing:
-		push_error("BUILD should create a constructing barracks")
+	if worker_after.locked_to_building_id >= 0:
+		var building: Entity = mode.current_state().get_entity_by_id(
+			worker_after.locked_to_building_id
+		)
+		if building == null or building.def_id != "barracks" or not building.is_constructing:
+			push_error("adjacent BUILD should create a constructing barracks")
+			_free_mode(mode)
+			return false
+	elif worker_after.pending_build_def_id != "barracks":
+		push_error("far BUILD should remain pending until the worker reaches the site")
 		_free_mode(mode)
 		return false
 	_free_mode(mode)
 	return true
+
+
+func _test_mvp_worker_builds_refinery() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var player: PlayerState = mode.current_state().get_player(0)
+	player.minerals = 10000
+	player.gas = 10000
+	player.pop_cap = 200
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	if worker_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected to select a P0 worker on mvp_map")
+		_free_mode(mode)
+		return false
+	mode.begin_build("refinery")
+	if mode.pending_command_kind() != "build":
+		push_error("refinery should enter pending BUILD mode for the selected worker")
+		_free_mode(mode)
+		return false
+	if not mode.confirm_pending_at_tile(Vector2i(6, 23)):
+		push_error("expected refinery BUILD to queue on the P0 geyser")
+		_free_mode(mode)
+		return false
+	var queued_orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if queued_orders.size() != 1:
+		push_error("expected one queued refinery BUILD order, got %d" % queued_orders.size())
+		_free_mode(mode)
+		return false
+	var queued_order: EntityOrder = queued_orders[0]
+	if (
+		queued_order.type != EntityOrder.Type.BUILD
+		or queued_order.def_id != "refinery"
+		or queued_order.target_tile != Vector2i(6, 23)
+		or queued_order.target_entity_id != -1
+	):
+		push_error("unexpected queued refinery BUILD order: %s" % str(queued_order))
+		_free_mode(mode)
+		return false
+	if not mode.resolve_turn():
+		push_error("expected resolve_turn to succeed after refinery BUILD")
+		_free_mode(mode)
+		return false
+	var refinery_id: int = _find_entity_id(mode.current_state(), "refinery", 0)
+	var refinery: Entity = mode.current_state().get_entity_by_id(refinery_id)
+	var worker: Entity = mode.current_state().get_entity_by_id(worker_id)
+	var geyser_id: int = _find_entity_id(mode.current_state(), "gas_geyser", -1)
+	if geyser_id < 0:
+		geyser_id = _find_entity_id_any_hp(mode.current_state(), "gas_geyser", -1)
+	var geyser: Entity = mode.current_state().get_entity_by_id(geyser_id)
+	if refinery == null:
+		var worker_summary := "missing worker"
+		if worker != null:
+			worker_summary = (
+				"origin=%s pending=%s pending_tile=%s locked=%d"
+				% [
+					str(worker.origin),
+					worker.pending_build_def_id,
+					str(worker.pending_build_target_tile),
+					worker.locked_to_building_id,
+				]
+			)
+		push_error(
+			(
+				"refinery BUILD should create a constructing refinery on the geyser; worker %s"
+				% worker_summary
+			)
+		)
+		_free_mode(mode)
+		return false
+	if worker == null or geyser == null:
+		_free_mode(mode)
+		return false
+	var refinery_rect: Rect2i = mode.current_state().tile_grid.entity_rect(refinery.id)
+	var geyser_rect: Rect2i = mode.current_state().tile_grid.entity_rect(geyser.id)
+	var worker_rect: Rect2i = mode.current_state().tile_grid.entity_rect(worker.id)
+	var ok: bool = true
+	if not refinery.is_constructing:
+		push_error("refinery should be under construction immediately after the worker arrives")
+		ok = false
+	if refinery.construction_worker_id != worker.id or worker.locked_to_building_id != refinery.id:
+		push_error("worker should be locked to the started refinery")
+		ok = false
+	if refinery_rect != geyser_rect:
+		push_error("refinery rect should overlap the geyser rect")
+		ok = false
+	if TileGrid.distance_between_rects(worker_rect, refinery_rect) > 1:
+		push_error("worker should be adjacent to the refinery after starting construction")
+		ok = false
+	_free_mode(mode)
+	return ok
 
 
 func _test_hud_resources_and_readable_queue() -> bool:
@@ -949,6 +1220,66 @@ func _test_halt_on_sight_move_preview_does_not_route() -> bool:
 		push_error("halt-on-sight MOVE preview should not draw a routed movement path")
 		return false
 	return true
+
+
+func _test_target_chase_preview_tracks_live_target() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var state: MatchState = mode.current_state()
+	var actor_id: int = _find_entity_id(state, "marine", 0)
+	var target_id: int = _find_entity_id(state, "siege_tank", 1)
+	var actor: Entity = state.get_entity_by_id(actor_id) if state != null else null
+	var target: Entity = state.get_entity_by_id(target_id) if state != null else null
+	var renderer: MatchRenderer = mode.renderer()
+	if actor == null or target == null or state.tile_grid == null or renderer == null:
+		push_error("expected opposing marines and renderer for target-chase preview test")
+		_free_mode(mode)
+		return false
+	actor.halt_on_sight = true
+	if not mode.select_entity_id(actor.id) or not mode.issue_target_chase_selected(target.id):
+		push_error("expected target chase order to queue")
+		_free_mode(mode)
+		return false
+	var stale_target_tile: Vector2i = target.origin
+	var live_target_tile: Vector2i = stale_target_tile + Vector2i(0, 4)
+	if not state.tile_grid.is_rect_clear(Rect2i(live_target_tile, Vector2i.ONE)):
+		live_target_tile = _find_clear_rect_origin_near(state, live_target_tile, Vector2i.ONE)
+	if not state.tile_grid.move(target.id, live_target_tile):
+		push_error("expected target move setup to succeed")
+		_free_mode(mode)
+		return false
+	target.origin = live_target_tile
+	renderer.bind_state(state, _load_registry())
+	mode.call("_update_hud")
+	var stale_target_center: Vector2 = _tile_center_px(stale_target_tile)
+	var live_target_center: Vector2 = _tile_center_px(live_target_tile)
+	var preview_root: Node2D = renderer.get_node_or_null("Overlays/ActionPreviews") as Node2D
+	var preview_group: Node = preview_root.get_child(0) if preview_root != null else null
+	var preview_line: Line2D = (
+		preview_group.get_child(0) as Line2D
+		if preview_group != null and preview_group.get_child_count() > 0
+		else null
+	)
+	if preview_line == null or preview_line.points.size() < 2:
+		push_error("target chase preview should draw a routed path")
+		_free_mode(mode)
+		return false
+	var end_point: Vector2 = preview_line.points[preview_line.points.size() - 1]
+	var ok: bool = true
+	if end_point.distance_to(stale_target_center) <= 0.5:
+		push_error("target chase preview should not end at the stale fallback target tile")
+		ok = false
+	if end_point.distance_to(live_target_center) >= end_point.distance_to(stale_target_center):
+		push_error("target chase preview should route toward the live target tile")
+		ok = false
+	_free_mode(mode)
+	return ok
 
 
 func _test_pending_build_updates_placement_preview() -> bool:
@@ -1586,6 +1917,23 @@ func _find_entity_ids(state: MatchState, def_id: String, owner: int) -> Array[in
 	return out
 
 
+func _find_clear_rect_origin_near(
+	state: MatchState, near_tile: Vector2i, footprint: Vector2i
+) -> Vector2i:
+	if state == null or state.tile_grid == null:
+		return Vector2i.ZERO
+	for radius in range(1, 20):
+		for dx in range(-radius, radius + 1):
+			for dy in range(-radius, radius + 1):
+				if abs(dx) != radius and abs(dy) != radius:
+					continue
+				var origin := near_tile + Vector2i(dx, dy)
+				var rect := Rect2i(origin, footprint)
+				if state.tile_grid.is_rect_in_bounds(rect) and state.tile_grid.is_rect_clear(rect):
+					return origin
+	return Vector2i.ZERO
+
+
 func _add_runtime_entity(state: MatchState, def_id: String, owner: int, origin: Vector2i) -> int:
 	if state == null or state.tile_grid == null:
 		return -1
@@ -1606,6 +1954,10 @@ func _add_runtime_entity(state: MatchState, def_id: String, owner: int, origin: 
 			entity.current_hp = def.health.max_hp
 		if def.production != null:
 			entity.production_state = ProductionState.new()
+		if def.gather != null:
+			entity.gather_state = GatherState.new()
+		if def.resource_source != null:
+			entity.current_resource_amount = def.resource_source.capacity
 	if not state.tile_grid.place(entity.id, Rect2i(origin, footprint)):
 		return -1
 	state.entities.append(entity)
@@ -1631,6 +1983,10 @@ func _action_preview_starts_near(
 		and preview_line.points.size() >= 2
 		and preview_line.points[0].distance_to(expected_start) <= 0.5
 	)
+
+
+func _tile_center_px(tile: Vector2i) -> Vector2:
+	return Vector2(tile.x + 0.5, tile.y + 0.5) * _test_tile_size()
 
 
 func _command_card_ids(card: Control, method_name: String) -> Array[String]:
