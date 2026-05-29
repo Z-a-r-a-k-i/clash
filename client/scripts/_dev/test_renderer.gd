@@ -1434,6 +1434,7 @@ func _test_action_previews() -> bool:
 				{
 					"entity_id": 1,
 					"kind": "Gather",
+					"start_tile": Vector2i(3, 1),
 					"target_entity_id": 2,
 					"target_tile": Vector2i(6, 1),
 				},
@@ -1443,6 +1444,23 @@ func _test_action_previews() -> bool:
 	var ok := true
 	if renderer.call("action_preview_count") != 1:
 		push_error("expected one action preview after set_action_previews")
+		ok = false
+	var preview_root: Node2D = renderer.get_node_or_null("Overlays/ActionPreviews") as Node2D
+	var preview_group: Node = (
+		preview_root.get_child(0)
+		if preview_root != null and preview_root.get_child_count() > 0
+		else null
+	)
+	var preview_line: Line2D = (
+		preview_group.get_child(0) as Line2D if preview_group != null else null
+	)
+	var expected_start: Vector2 = Vector2(3.5, 1.5) * 32.0
+	if (
+		preview_line == null
+		or preview_line.points.size() < 2
+		or preview_line.points[0].distance_to(expected_start) > 0.5
+	):
+		push_error("action preview should draw from start_tile, got %s" % str(preview_line))
 		ok = false
 	renderer.bind_state(state, registry)
 	if renderer.call("action_preview_count") != 0:

@@ -705,19 +705,31 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 	if entity_id < 0 or _loaded == null or _loaded.state == null:
 		return out
 	var sequence_index: int = 1
+	var has_planned_tile: bool = false
+	var planned_tile: Vector2i = Vector2i.ZERO
 	for queued in _queued_orders_for_entity(entity_id):
 		var queued_preview: Dictionary = _preview_for_order(queued)
 		if not queued_preview.is_empty():
+			if has_planned_tile:
+				queued_preview["start_tile"] = planned_tile
 			queued_preview["sequence_index"] = sequence_index
 			queued_preview["future"] = false
 			out.append(queued_preview)
+			if queued_preview.has("target_tile"):
+				planned_tile = queued_preview.get("target_tile", planned_tile)
+				has_planned_tile = true
 			sequence_index += 1
 	for future in _future_orders_for_entity(entity_id):
 		var future_preview: Dictionary = _preview_for_order(future)
 		if not future_preview.is_empty():
+			if has_planned_tile:
+				future_preview["start_tile"] = planned_tile
 			future_preview["sequence_index"] = sequence_index
 			future_preview["future"] = true
 			out.append(future_preview)
+			if future_preview.has("target_tile"):
+				planned_tile = future_preview.get("target_tile", planned_tile)
+				has_planned_tile = true
 			sequence_index += 1
 	if not out.is_empty():
 		return out

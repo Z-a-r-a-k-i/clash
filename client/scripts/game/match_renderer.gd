@@ -637,6 +637,9 @@ func _render_action_preview(preview: Dictionary) -> void:
 			_ACTION_PREVIEW_COLOR.a * 0.62
 		)
 	var start: Vector2 = actor_view.position
+	if preview.has("start_tile"):
+		var start_tile: Vector2i = preview.get("start_tile", Vector2i.ZERO)
+		start = _tile_center(start_tile)
 	var target: Vector2 = start
 	var has_target := false
 	var target_entity_id: int = preview.get("target_entity_id", -1)

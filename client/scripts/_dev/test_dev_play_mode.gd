@@ -748,6 +748,25 @@ func _test_queue_toggle_routes_future_orders() -> bool:
 	if renderer != null and renderer.action_preview_count() != 2:
 		push_error("selected previews should include current and future orders")
 		ok = false
+	elif renderer != null:
+		var preview_root: Node2D = renderer.get_node_or_null("Overlays/ActionPreviews") as Node2D
+		var future_preview: Node = preview_root.get_child(1) if preview_root != null else null
+		var future_line: Line2D = (
+			future_preview.get_child(0) as Line2D if future_preview != null else null
+		)
+		var expected_future_start: Vector2 = Vector2(13.5, 22.5) * 32.0
+		if (
+			future_line == null
+			or future_line.points.size() < 2
+			or future_line.points[0].distance_to(expected_future_start) > 0.5
+		):
+			push_error(
+				(
+					"future queued move preview should start at previous move destination, got %s"
+					% str(future_line)
+				)
+			)
+			ok = false
 	mode.set_active_player_id(1)
 	if mode.input_model().queue_mode_enabled():
 		push_error("Queue mode should reset when switching active player")
