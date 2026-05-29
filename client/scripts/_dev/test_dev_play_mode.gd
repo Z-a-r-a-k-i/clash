@@ -69,6 +69,10 @@ func _all_tests() -> Array:
 			"dev_play_mode_selected_and_friendly_action_previews",
 			_test_selected_and_friendly_action_previews
 		],
+		[
+			"dev_play_mode_gather_and_build_previews_route_around_blockers",
+			_test_gather_and_build_previews_route_around_blockers
+		],
 		["dev_play_mode_shift_click_routes_future_orders", _test_shift_click_routes_future_orders],
 		[
 			"dev_play_mode_pending_build_updates_placement_preview",
@@ -700,6 +704,61 @@ func _test_selected_and_friendly_action_previews() -> bool:
 		return false
 	_free_mode(mode)
 	return true
+
+
+func _test_gather_and_build_previews_route_around_blockers() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	var gather_target_id: int = _add_runtime_entity(
+		mode.current_state(), "mineral_patch", -1, Vector2i(17, 23)
+	)
+	var renderer: MatchRenderer = mode.renderer()
+	if worker_id < 0 or gather_target_id < 0 or renderer == null:
+		push_error("expected worker, injected mineral patch, and renderer for preview test")
+		_free_mode(mode)
+		return false
+	renderer.bind_state(mode.current_state(), _load_registry())
+	if not mode.select_entity_id(worker_id) or not mode.issue_gather_selected(gather_target_id):
+		push_error("expected cross-base GATHER preview to queue")
+		_free_mode(mode)
+		return false
+	var ok := true
+	if renderer.action_preview_line_point_count(0) <= 2:
+		push_error("GATHER preview should draw a routed path, not a straight fallback line")
+		ok = false
+
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		push_error("expected scenario reload before BUILD preview")
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	mode.current_state().get_player(0).minerals = 10000
+	mode.current_state().get_player(0).gas = 10000
+	worker_id = _find_entity_id(mode.current_state(), "worker", 0)
+	renderer = mode.renderer()
+	if worker_id < 0 or renderer == null:
+		push_error("expected worker and renderer after scenario reload")
+		_free_mode(mode)
+		return false
+	if (
+		not mode.select_entity_id(worker_id)
+		or not mode.issue_build_selected("barracks", Vector2i(18, 23))
+	):
+		push_error("expected cross-base BUILD preview to queue")
+		_free_mode(mode)
+		return false
+	if renderer.action_preview_line_point_count(0) <= 2:
+		push_error("BUILD preview should draw a routed path, not a straight fallback line")
+		ok = false
+	_free_mode(mode)
+	return ok
 
 
 func _test_shift_click_routes_future_orders() -> bool:

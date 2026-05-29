@@ -818,18 +818,9 @@ func _preview_for_order(order: EntityOrder) -> Dictionary:
 				target_id = order.target_priority_chain[0]
 			return {"entity_id": order.entity_id, "kind": "Target", "target_entity_id": target_id}
 		EntityOrder.Type.GATHER:
-			return {
-				"entity_id": order.entity_id,
-				"kind": "Gather",
-				"target_entity_id": order.target_entity_id,
-			}
+			return _gather_preview(order)
 		EntityOrder.Type.BUILD:
-			return {
-				"entity_id": order.entity_id,
-				"kind": "Build",
-				"target_tile": order.target_tile,
-				"def_id": order.def_id,
-			}
+			return _build_preview(order)
 		EntityOrder.Type.TRAIN:
 			return {"entity_id": order.entity_id, "kind": "Train", "def_id": order.def_id}
 		EntityOrder.Type.RESEARCH:
@@ -849,17 +840,74 @@ func _move_preview(order: EntityOrder, kind: String) -> Dictionary:
 	var actor: Entity = _loaded.state.get_entity_by_id(order.entity_id) if _loaded != null else null
 	if actor == null or _loaded.registry == null:
 		return preview
-	var options: Dictionary = {
-		PATHFINDING_SCRIPT.OPTION_KNOWN_ENTITY_IDS:
-		_preview_known_entity_ids(actor.owner_player_id),
-		PATHFINDING_SCRIPT.OPTION_PASSABLE_ENTITY_IDS: _preview_passable_entity_ids(),
-	}
+	var options: Dictionary = _path_preview_options(actor.owner_player_id)
 	var path: Array[Vector2i] = PATHFINDING_SCRIPT.find_path(
 		_loaded.state, actor, order.target_tile, _loaded.registry, options
 	)
 	if not path.is_empty():
 		preview["path"] = path
 	return preview
+
+
+func _gather_preview(order: EntityOrder) -> Dictionary:
+	var preview: Dictionary = {
+		"entity_id": order.entity_id,
+		"kind": "Gather",
+		"target_entity_id": order.target_entity_id,
+	}
+	var actor: Entity = _loaded.state.get_entity_by_id(order.entity_id) if _loaded != null else null
+	var target: Entity = (
+		_loaded.state.get_entity_by_id(order.target_entity_id) if _loaded != null else null
+	)
+	if actor == null or target == null or _loaded.registry == null:
+		return preview
+	var target_rect: Rect2i = _entity_rect(target)
+	if target_rect.size == Vector2i.ZERO:
+		return preview
+	var options: Dictionary = _path_preview_options(actor.owner_player_id)
+	options[PATHFINDING_SCRIPT.OPTION_GOAL_RECT] = target_rect
+	options[PATHFINDING_SCRIPT.OPTION_GOAL_RANGE] = 1
+	options[PATHFINDING_SCRIPT.OPTION_EXACT_ORIGIN] = false
+	var path: Array[Vector2i] = PATHFINDING_SCRIPT.find_path(
+		_loaded.state, actor, target_rect.position, _loaded.registry, options
+	)
+	if not path.is_empty():
+		preview["path"] = path
+	return preview
+
+
+func _build_preview(order: EntityOrder) -> Dictionary:
+	var preview: Dictionary = {
+		"entity_id": order.entity_id,
+		"kind": "Build",
+		"target_tile": order.target_tile,
+		"def_id": order.def_id,
+	}
+	var actor: Entity = _loaded.state.get_entity_by_id(order.entity_id) if _loaded != null else null
+	if actor == null or _loaded.registry == null:
+		return preview
+	var def: EntityDef = _loaded.registry.get_by_id(order.def_id)
+	var footprint: Vector2i = def.footprint if def != null else Vector2i.ONE
+	if footprint == Vector2i.ZERO:
+		footprint = Vector2i.ONE
+	var build_rect := Rect2i(order.target_tile, footprint)
+	var options: Dictionary = _path_preview_options(actor.owner_player_id)
+	options[PATHFINDING_SCRIPT.OPTION_GOAL_RECT] = build_rect
+	options[PATHFINDING_SCRIPT.OPTION_GOAL_RANGE] = 1
+	options[PATHFINDING_SCRIPT.OPTION_EXACT_ORIGIN] = false
+	var path: Array[Vector2i] = PATHFINDING_SCRIPT.find_path(
+		_loaded.state, actor, order.target_tile, _loaded.registry, options
+	)
+	if not path.is_empty():
+		preview["path"] = path
+	return preview
+
+
+func _path_preview_options(player_id: int) -> Dictionary:
+	return {
+		PATHFINDING_SCRIPT.OPTION_KNOWN_ENTITY_IDS: _preview_known_entity_ids(player_id),
+		PATHFINDING_SCRIPT.OPTION_PASSABLE_ENTITY_IDS: _preview_passable_entity_ids(),
+	}
 
 
 func _preview_known_entity_ids(player_id: int) -> Dictionary:
