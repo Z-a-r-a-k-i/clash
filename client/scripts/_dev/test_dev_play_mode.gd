@@ -856,7 +856,7 @@ func _test_shift_click_routes_future_gather_and_build_orders() -> bool:
 	if mode == null:
 		return false
 	add_child(mode)
-	var ok := true
+	var ok: bool = true
 	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
 		_free_mode(mode)
 		return false
@@ -876,7 +876,7 @@ func _test_shift_click_routes_future_gather_and_build_orders() -> bool:
 		push_error("expected Shift-click gather to become future order")
 		ok = false
 	var renderer: MatchRenderer = mode.renderer()
-	var expected_start := Vector2(13.5, 22.5) * 32.0
+	var expected_start: Vector2 = Vector2(13.5, 22.5) * 32.0
 	if ok and not _action_preview_starts_near(renderer, 1, expected_start):
 		push_error("future gather preview should start at previous move destination")
 		ok = false
@@ -924,7 +924,7 @@ func _test_halt_on_sight_move_preview_does_not_route() -> bool:
 		push_error("expected marine actor and renderer for halt preview test")
 		_free_mode(mode)
 		return false
-	var enemy_id := -1
+	var enemy_id: int = -1
 	for delta in [Vector2i(0, 1), Vector2i(1, 0), Vector2i(0, -1), Vector2i(-1, 0)]:
 		var enemy_origin: Vector2i = actor.origin + delta
 		enemy_id = _add_runtime_entity(state, "marine", 1, enemy_origin)

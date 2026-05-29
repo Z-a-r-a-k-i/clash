@@ -183,7 +183,7 @@ func _test_move_batch_allows_swaps() -> bool:
 
 
 func _test_move_batch_preserves_overlapping_occupants() -> bool:
-	var g := TileGrid.new(5, 5)
+	var g: TileGrid = TileGrid.new(5, 5)
 	g.place(1, Rect2i(1, 1, 1, 1))
 	g.place(2, Rect2i(2, 1, 1, 1))
 	if not g.has_method("entities_at"):

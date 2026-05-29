@@ -281,7 +281,7 @@ func _occupants_at(tile: Vector2i) -> Array[int]:
 	var stored: Variant = _occupancy.get(tile, -1)
 	if stored is Array:
 		for item in stored:
-			var entity_id := int(item)
+			var entity_id: int = int(item)
 			if entity_id >= 0 and not out.has(entity_id):
 				out.append(entity_id)
 	elif int(stored) >= 0:

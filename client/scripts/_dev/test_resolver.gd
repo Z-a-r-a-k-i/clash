@@ -753,8 +753,8 @@ func _test_move_emits_event() -> bool:
 	var queue_a: Array[EntityOrder] = [move]
 
 	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
-	var moved := false
-	var completed := false
+	var moved: bool = false
+	var completed: bool = false
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
 			moved = ev.from_origin == Vector2i(5, 5) and ev.to_origin == Vector2i(6, 5)
@@ -925,9 +925,9 @@ func _test_equidistant_same_target_tie_stops() -> bool:
 
 
 func _test_pathfinding_goal_range_distances_ignore_satisfied_range() -> bool:
-	var footprint := Vector2i.ONE
-	var target_origin := Vector2i(5, 1)
-	var goal_rect := Rect2i(target_origin, Vector2i.ONE)
+	var footprint: Vector2i = Vector2i.ONE
+	var target_origin: Vector2i = Vector2i(5, 1)
+	var goal_rect: Rect2i = Rect2i(target_origin, Vector2i.ONE)
 	var at_range: int = _PATHFINDING._goal_distance(
 		Vector2i(4, 1), footprint, target_origin, goal_rect, 1, false
 	)
@@ -1683,32 +1683,32 @@ func _test_halt_on_sight_blocks_move_when_enemy_visible() -> bool:
 
 
 func _test_halt_on_sight_rechecks_between_movement_substeps() -> bool:
-	var registry := EntityRegistry.new()
-	var marine := _def_with_movement_combat(
+	var registry: EntityRegistry = EntityRegistry.new()
+	var marine: EntityDef = _def_with_movement_combat(
 		"marine", Vector2i(1, 1), ["light", "ground"], _combat_def(1, 1, ["ground"]), 50, 4
 	)
 	marine.vision = _vision_def(2)
 	registry.entities = [marine]
-	var state := _state_with_grid(10, 3)
-	var actor := _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var state: MatchState = _state_with_grid(10, 3)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
 	actor.halt_on_sight = true
-	var enemy := _make_entity(state, "marine", 1, Vector2i(4, 1), 50, "ground")
+	var enemy: Entity = _make_entity(state, "marine", 1, Vector2i(4, 1), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
 	state.tile_grid.place(enemy.id, Rect2i(4, 1, 1, 1))
 
-	var move := EntityOrder.new()
+	var move: EntityOrder = EntityOrder.new()
 	move.type = EntityOrder.Type.MOVE
 	move.entity_id = actor.id
 	move.target_tile = Vector2i(8, 1)
 
-	var result := Resolver.resolve(
+	var result: ResolveResult = Resolver.resolve(
 		state, _submit([move] as Array[EntityOrder]), _submit([]), registry, null
 	)
-	var moved_steps := 0
+	var moved_steps: int = 0
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
 			moved_steps += 1
-	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
 	if new_actor.origin != Vector2i(2, 1):
 		push_error(
 			"halt-on-sight should stop after enemy becomes visible, got %s" % new_actor.origin
