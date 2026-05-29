@@ -80,7 +80,8 @@ func is_rect_in_bounds(rect: Rect2i) -> bool:
 
 
 func entity_at(tile: Vector2i) -> int:
-	# Returns the entity id occupying this tile, or -1 if clear / out of bounds.
+	# Returns the first deterministic occupant, or -1 if clear / out of bounds.
+	# Use entities_at() for target selection on tiles that may contain overlaps.
 	var occupants: Array[int] = entities_at(tile)
 	return occupants[0] if not occupants.is_empty() else -1
 

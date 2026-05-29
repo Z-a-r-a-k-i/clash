@@ -330,7 +330,7 @@ static func _target_conflict_result(remaining: Dictionary) -> Dictionary:
 			visited[entity_id] = true
 		if component.size() <= 1:
 			continue
-		var min_distance := 0
+		var min_distance: int = 0
 		var min_ids: Array[int] = []
 		for entity_id in component:
 			var proposal: Dictionary = remaining[entity_id]
@@ -342,16 +342,75 @@ static func _target_conflict_result(remaining: Dictionary) -> Dictionary:
 				min_ids.append(entity_id)
 		if min_ids.size() == 1:
 			var winner_id: int = min_ids[0]
-			for entity_id in component:
-				if entity_id != winner_id:
-					losers[entity_id] = true
+			var single_winner_ids: Array[int] = [winner_id]
+			_mark_direct_conflict_losers(single_winner_ids, component, remaining, losers)
 		else:
-			var completed_min_ids: Array[int] = _completed_same_target_tie_ids(min_ids, remaining)
-			for entity_id in completed_min_ids:
-				completed[entity_id] = true
-			for entity_id in component:
+			var tied_min_ids: Array[int] = []
+			var winner_ids: Array[int] = []
+			for entity_id in min_ids:
+				if _has_direct_conflict_with_any(entity_id, min_ids, remaining):
+					tied_min_ids.append(entity_id)
+				else:
+					winner_ids.append(entity_id)
+			_mark_direct_conflict_losers(winner_ids, component, remaining, losers)
+			for entity_id in tied_min_ids:
 				losers[entity_id] = true
+			_mark_direct_conflict_losers(tied_min_ids, component, remaining, losers)
+			_mark_completed_same_target_tie_groups(tied_min_ids, remaining, completed)
 	return {"losers": losers, "completed": completed}
+
+
+static func _mark_direct_conflict_losers(
+	blocker_ids: Array[int], component: Array[int], remaining: Dictionary, losers: Dictionary
+) -> void:
+	for entity_id in component:
+		if blocker_ids.has(entity_id):
+			continue
+		if _has_direct_conflict_with_any(entity_id, blocker_ids, remaining):
+			losers[entity_id] = true
+
+
+static func _has_direct_conflict_with_any(
+	entity_id: int, candidate_ids: Array[int], remaining: Dictionary
+) -> bool:
+	for candidate_id in candidate_ids:
+		if candidate_id == entity_id:
+			continue
+		if _proposals_directly_conflict(entity_id, candidate_id, remaining):
+			return true
+	return false
+
+
+static func _proposals_directly_conflict(a_id: int, b_id: int, remaining: Dictionary) -> bool:
+	var a: Dictionary = remaining.get(a_id, {})
+	var b: Dictionary = remaining.get(b_id, {})
+	var a_rect: Rect2i = a.get("target_rect", Rect2i())
+	var b_rect: Rect2i = b.get("target_rect", Rect2i())
+	return a.get("layer", "ground") == b.get("layer", "ground") and a_rect.intersects(b_rect)
+
+
+static func _mark_completed_same_target_tie_groups(
+	tied_ids: Array[int], remaining: Dictionary, completed: Dictionary
+) -> void:
+	var visited: Dictionary = {}
+	for start_id in tied_ids:
+		if visited.has(start_id):
+			continue
+		var group: Array[int] = []
+		var queue: Array[int] = [start_id]
+		visited[start_id] = true
+		while not queue.is_empty():
+			var current_id: int = queue.pop_front()
+			group.append(current_id)
+			for other_id in tied_ids:
+				if visited.has(other_id):
+					continue
+				if _proposals_directly_conflict(current_id, other_id, remaining):
+					visited[other_id] = true
+					queue.append(other_id)
+		group.sort()
+		for completed_id in _completed_same_target_tie_ids(group, remaining):
+			completed[completed_id] = true
 
 
 static func _completed_same_target_tie_ids(
@@ -360,7 +419,7 @@ static func _completed_same_target_tie_ids(
 	if tied_ids.size() <= 1:
 		return []
 	var target_origin: Vector2i = Vector2i.ZERO
-	var has_target := false
+	var has_target: bool = false
 	for entity_id in tied_ids:
 		var proposal: Dictionary = remaining.get(entity_id, {})
 		var intent: Dictionary = proposal.get("intent", {})
@@ -412,7 +471,7 @@ static func _proposal_conflict_component(start_id: int, remaining: Dictionary) -
 		var current: Dictionary = remaining[current_id]
 		var current_rect: Rect2i = current.get("target_rect", Rect2i())
 		for other_id in remaining.keys():
-			var candidate_id := int(other_id)
+			var candidate_id: int = int(other_id)
 			if seen.has(candidate_id):
 				continue
 			var other: Dictionary = remaining[candidate_id]
@@ -483,7 +542,7 @@ static func _commit_proposal(
 		var complete_ev := ResolverEvent.new()
 		complete_ev.type = ResolverEvent.Type.MOVE_COMPLETED
 		complete_ev.actor_id = actor.id
-		complete_ev.from_origin = from_origin
+		complete_ev.from_origin = to_origin
 		complete_ev.to_origin = to_origin
 		events.append(complete_ev)
 	elif kind == "construction":

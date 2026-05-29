@@ -197,6 +197,7 @@ func _test_move_batch_preserves_overlapping_occupants() -> bool:
 		push_error("move_batch should allow overlapping commits when requested")
 		return false
 	var occupants: Array = g.call("entities_at", Vector2i(3, 1))
+	occupants.sort()
 	if occupants != [1, 2]:
 		push_error("overlapping move_batch should preserve both occupants, got %s" % occupants)
 		return false

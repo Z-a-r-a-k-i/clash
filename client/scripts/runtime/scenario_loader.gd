@@ -135,7 +135,7 @@ static func _place_entity(
 ) -> bool:
 	if def.construction != null and def.construction.requires_target_tag != "":
 		var tag: String = def.construction.requires_target_tag
-		var target_id := _find_target_at_tile(state, registry, rect.position, tag)
+		var target_id: int = _find_target_at_tile(state, registry, rect.position, tag)
 		if target_id < 0:
 			return false
 		var target_rect: Rect2i = state.tile_grid.entity_rect(target_id)
@@ -152,9 +152,9 @@ static func _place_entity(
 		# future refactor of either callee can't silently break it.
 		for x in range(rect.position.x, rect.position.x + rect.size.x):
 			for y in range(rect.position.y, rect.position.y + rect.size.y):
-				var occ := state.tile_grid.entity_at(Vector2i(x, y))
-				if occ != -1 and occ != target_id:
-					return false
+				for occ in state.tile_grid.entities_at(Vector2i(x, y)):
+					if occ != target_id:
+						return false
 		return state.tile_grid.place_overlapping(entity.id, rect, target_id)
 	return state.tile_grid.place(entity.id, rect)
 
@@ -169,16 +169,17 @@ static func _find_target_at_tile(
 		return -1
 	if not state.tile_grid.is_in_bounds(tile):
 		return -1
-	var occupant_id: int = state.tile_grid.entity_at(tile)
-	if occupant_id < 0:
+	var matching_ids: Array[int] = []
+	for occupant_id in state.tile_grid.entities_at(tile):
+		var occupant: Entity = state.get_entity_by_id(occupant_id)
+		if occupant == null:
+			continue
+		var occ_def: EntityDef = registry.get_by_id(occupant.current_def_id)
+		if occ_def != null and occ_def.tags.has(tag):
+			matching_ids.append(occupant.id)
+	if matching_ids.size() != 1:
 		return -1
-	var occupant := state.get_entity_by_id(occupant_id)
-	if occupant == null:
-		return -1
-	var occ_def: EntityDef = registry.get_by_id(occupant.current_def_id)
-	if occ_def == null or not occ_def.tags.has(tag):
-		return -1
-	return occupant.id
+	return matching_ids[0]
 
 
 # After placement, walk the SUCCESSFULLY-PLACED entities and credit

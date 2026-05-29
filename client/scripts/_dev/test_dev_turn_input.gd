@@ -79,6 +79,10 @@ func _all_tests() -> Array:
 			_test_rejects_occupied_target_build_preview
 		],
 		[
+			"dev_input_tagged_build_target_survives_overlapping_occupant",
+			_test_tagged_build_target_survives_overlapping_occupant
+		],
+		[
 			"dev_input_rejects_unaffordable_build_without_queue",
 			_test_rejects_unaffordable_build_without_queue
 		],
@@ -701,6 +705,31 @@ func _test_rejects_occupied_target_build_preview() -> bool:
 		push_error("rejected refinery BUILD should not append an order")
 		ok = false
 	return ok
+
+
+func _test_tagged_build_target_survives_overlapping_occupant() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	setup.state.get_player(0).minerals = 200
+	var marine: Entity = setup.state.get_entity_by_id(5)
+	marine.origin = Vector2i(6, 9)
+	if not setup.state.tile_grid.move_batch({5: marine.origin}, true):
+		push_error("test setup should move a marine onto the geyser tile")
+		return false
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	var preview: Dictionary = input.build_placement_preview("refinery", Vector2i(6, 9))
+	if preview.get("origin", Vector2i.ZERO) != Vector2i(5, 8):
+		push_error("refinery target lookup should still snap to the overlapped geyser")
+		return false
+	var message: String = preview.get("message", "")
+	if preview.get("valid", true) or message.find("occupied") == -1:
+		push_error("overlapped geyser should be rejected as occupied, got: %s" % preview)
+		return false
+	return true
 
 
 func _test_rejects_unaffordable_build_without_queue() -> bool:

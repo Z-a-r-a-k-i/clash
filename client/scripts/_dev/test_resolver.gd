@@ -67,6 +67,7 @@ func _all_tests() -> Array:
 		["move_routes_around_static_blocker", _test_move_routes_around_static_blocker],
 		["moving_unit_pass_through", _test_moving_unit_pass_through],
 		["simultaneous_swap", _test_simultaneous_swap],
+		["transitive_conflict_keeps_survivor", _test_transitive_conflict_keeps_survivor],
 		["equidistant_same_target_tie_stops", _test_equidistant_same_target_tie_stops],
 		[
 			"pathfinding_goal_range_distances_ignore_satisfied_range",
@@ -759,7 +760,7 @@ func _test_move_emits_event() -> bool:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
 			moved = ev.from_origin == Vector2i(5, 5) and ev.to_origin == Vector2i(6, 5)
 		if ev.type == ResolverEvent.Type.MOVE_COMPLETED and ev.actor_id == actor.id:
-			completed = ev.to_origin == Vector2i(6, 5)
+			completed = ev.from_origin == Vector2i(6, 5) and ev.to_origin == Vector2i(6, 5)
 	return moved and completed
 
 
@@ -878,6 +879,43 @@ func _test_simultaneous_swap() -> bool:
 	var new_left: Entity = result.new_state.get_entity_by_id(left.id)
 	var new_right: Entity = result.new_state.get_entity_by_id(right.id)
 	return new_left.origin == Vector2i(2, 1) and new_right.origin == Vector2i(1, 1)
+
+
+func _test_transitive_conflict_keeps_survivor() -> bool:
+	var registry: EntityRegistry = EntityRegistry.new()
+	var wide: EntityDef = _def_with_movement("wide", Vector2i(2, 1), ["ground"], 50, 1)
+	registry.entities = [wide]
+	var state: MatchState = _state_with_grid(8, 4)
+	var closest: Entity = _make_entity(state, "wide", 0, Vector2i(2, 1), 50, "ground")
+	var bridge: Entity = _make_entity(state, "wide", 0, Vector2i(4, 2), 50, "ground")
+	var survivor: Entity = _make_entity(state, "wide", 0, Vector2i(5, 0), 50, "ground")
+	state.tile_grid.place(closest.id, Rect2i(Vector2i(2, 1), Vector2i(2, 1)))
+	state.tile_grid.place(bridge.id, Rect2i(Vector2i(4, 2), Vector2i(2, 1)))
+	state.tile_grid.place(survivor.id, Rect2i(Vector2i(5, 0), Vector2i(2, 1)))
+
+	var orders: Array[EntityOrder] = [
+		_move_order(closest.id, EntityOrder.Type.MOVE, Vector2i(3, 1)),
+		_move_order(bridge.id, EntityOrder.Type.MOVE, Vector2i(4, 0)),
+		_move_order(survivor.id, EntityOrder.Type.MOVE, Vector2i(5, 2)),
+	]
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit(orders), _submit([]), registry, null
+	)
+	var new_closest: Entity = result.new_state.get_entity_by_id(closest.id)
+	var new_bridge: Entity = result.new_state.get_entity_by_id(bridge.id)
+	var new_survivor: Entity = result.new_state.get_entity_by_id(survivor.id)
+	if new_closest.origin != Vector2i(3, 1):
+		push_error("closest mover should win its direct conflict, got %s" % new_closest.origin)
+		return false
+	if new_bridge.origin != Vector2i(4, 2):
+		push_error("bridge mover should lose the direct conflict, got %s" % new_bridge.origin)
+		return false
+	if new_survivor.origin != Vector2i(5, 1):
+		push_error(
+			"non-overlapping transitive mover should still advance, got %s" % new_survivor.origin
+		)
+		return false
+	return true
 
 
 func _test_equidistant_same_target_tie_stops() -> bool:
