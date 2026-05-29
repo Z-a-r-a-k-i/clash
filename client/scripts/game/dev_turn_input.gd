@@ -88,10 +88,6 @@ func issue_move(target_tile: Vector2i) -> bool:
 	if not _can_entity_move(actor):
 		_status_message = "%s cannot move." % _def_id_for_entity(actor)
 		return false
-	var def: EntityDef = _def_for_entity(actor)
-	if def == null or def.movement == null or def.movement.speed_tiles_per_turn <= 0:
-		_status_message = "%s cannot move." % _def_id_for_entity(actor)
-		return false
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.MOVE
 	order.entity_id = actor.id
@@ -110,10 +106,6 @@ func issue_move_only(target_tile: Vector2i) -> bool:
 		_status_message = "MOVE ONLY target is outside the map."
 		return false
 	if not _can_entity_move(actor):
-		_status_message = "%s cannot move." % _def_id_for_entity(actor)
-		return false
-	var def: EntityDef = _def_for_entity(actor)
-	if def == null or def.movement == null or def.movement.speed_tiles_per_turn <= 0:
 		_status_message = "%s cannot move." % _def_id_for_entity(actor)
 		return false
 	var order: EntityOrder = EntityOrder.new()
@@ -173,7 +165,7 @@ func issue_attack_target(target_entity_id: int) -> bool:
 	if def == null or def.combat == null or def.combat.damage <= 0:
 		_status_message = "%s cannot target enemies." % _def_id_for_entity(actor)
 		return false
-	_interrupt_gather_assignment(actor)
+	GatherSystem.clear_assignment(actor)
 	actor.focus_target_entity_id = target.id
 	_status_message = "Set TARGET for #%d to #%d." % [actor.id, target.id]
 	return true
@@ -190,13 +182,6 @@ func issue_target_chase(target_entity_id: int) -> bool:
 	var target: Entity = _live_enemy_entity(target_entity_id)
 	if target == null:
 		_status_message = "Target chase needs a live enemy target."
-		return false
-	var def: EntityDef = _def_for_entity(actor)
-	if def == null or def.combat == null or def.combat.damage <= 0:
-		_status_message = "%s cannot target enemies." % _def_id_for_entity(actor)
-		return false
-	if def.movement == null or def.movement.speed_tiles_per_turn <= 0:
-		_status_message = "%s cannot chase targets." % _def_id_for_entity(actor)
 		return false
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.MOVE
@@ -1117,13 +1102,6 @@ func _replacement_index_for_order(orders: Array[EntityOrder], order: EntityOrder
 
 func _is_move_like(type: EntityOrder.Type) -> bool:
 	return type == EntityOrder.Type.MOVE or type == EntityOrder.Type.MOVE_ONLY
-
-
-func _interrupt_gather_assignment(entity: Entity) -> void:
-	if entity == null or entity.gather_state == null:
-		return
-	entity.gather_state.phase = GatherState.Phase.IDLE
-	entity.gather_state.assigned_source_entity_id = -1
 
 
 func _submission_for(player_id: int) -> SubmitTurn:

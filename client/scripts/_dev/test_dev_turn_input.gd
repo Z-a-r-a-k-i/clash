@@ -253,14 +253,14 @@ func _test_queues_gather() -> bool:
 		push_error("rejected raw-gas gather should not append an order")
 		return false
 	var refinery := Entity.new()
-	refinery.id = 12
+	refinery.id = setup.state.allocate_entity_id()
 	refinery.def_id = "refinery"
 	refinery.current_def_id = "refinery"
 	refinery.owner_player_id = 0
 	refinery.origin = Vector2i(5, 8)
 	refinery.current_hp = 750
 	setup.state.entities.append(refinery)
-	setup.state.tile_grid.place_overlapping(12, Rect2i(Vector2i(5, 8), Vector2i(2, 2)), 10)
+	setup.state.tile_grid.place_overlapping(refinery.id, Rect2i(Vector2i(5, 8), Vector2i(2, 2)), 10)
 	if not input.issue_gather(10):
 		push_error("gas with an owned refinery should be a valid gather target")
 		return false

@@ -765,23 +765,16 @@ func _is_enemy_target(entity: Entity) -> bool:
 func _selected_can_gather_from(target_entity_id: int) -> bool:
 	if not _input.can_issue_gather():
 		return false
-	var actor: Entity = _selected_entity()
-	if actor == null:
-		return false
-	var target: Entity = _loaded.state.get_entity_by_id(target_entity_id)
-	if not _is_resource_context_target(target):
-		return false
-	return (
-		GatherSystem.resolve_source_for_worker(
-			_loaded.state, _loaded.registry, target_entity_id, actor.owner_player_id
-		)
-		!= null
-	)
+	return _selected_can_gather_target_valid(target_entity_id)
 
 
 func _selected_can_rally_gather_to(target_entity_id: int) -> bool:
 	if not _input.can_issue_rally_gather():
 		return false
+	return _selected_can_gather_target_valid(target_entity_id)
+
+
+func _selected_can_gather_target_valid(target_entity_id: int) -> bool:
 	var actor: Entity = _selected_entity()
 	if actor == null:
 		return false

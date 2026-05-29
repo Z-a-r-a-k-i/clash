@@ -137,11 +137,11 @@ static func _distribute_one(
 				state, registry, order.target_entity_id, entity.owner_player_id
 			)
 			if source == null:
-				_interrupt_gather_assignment(entity)
+				GatherSystem.clear_assignment(entity)
 				_emit_order_rejected(order.entity_id, "bad_gather_target", events)
 				continue
 			if not GatherSystem.source_has_open_slot(state, registry, source, entity.id):
-				_interrupt_gather_assignment(entity)
+				GatherSystem.clear_assignment(entity)
 				_emit_order_rejected(order.entity_id, "source_saturated", events)
 				continue
 			entity.gather_state.assigned_source_entity_id = order.target_entity_id
@@ -153,11 +153,11 @@ static func _distribute_one(
 				entity.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
 			continue
 		if order.type == EntityOrder.Type.ATTACK:
-			_interrupt_gather_assignment(entity)
+			GatherSystem.clear_assignment(entity)
 			_set_focus_target_from_chain(state, entity, order.target_priority_chain)
 			continue
 		# Per-tick orders queue up.
-		_interrupt_gather_assignment(entity)
+		GatherSystem.clear_assignment(entity)
 		if order.type == EntityOrder.Type.MOVE and not order.target_priority_chain.is_empty():
 			_set_focus_target_from_chain(state, entity, order.target_priority_chain)
 		if not per_entity.has(order.entity_id):
@@ -166,15 +166,6 @@ static func _distribute_one(
 			_queue_replacing_move(per_entity, order)
 		else:
 			per_entity[order.entity_id].append(order)
-
-
-static func _interrupt_gather_assignment(entity: Entity) -> void:
-	if entity == null or entity.gather_state == null:
-		return
-	entity.gather_state.phase = GatherState.Phase.IDLE
-	entity.gather_state.assigned_source_entity_id = -1
-	entity.gather_state.carrying_amount = 0
-	entity.gather_state.carrying_resource_type = ""
 
 
 static func _is_adjacent_to(state: MatchState, a: Entity, b: Entity) -> bool:
@@ -300,7 +291,7 @@ static func _handle_build_order(
 	worker.pending_build_def_id = def.id
 	worker.pending_build_target_tile = rect.position
 	worker.pending_build_target_entity_id = overlap_target_id
-	_interrupt_gather_assignment(worker)
+	GatherSystem.clear_assignment(worker)
 	ConstructionSystem.try_start_pending_build(state, worker, registry, events)
 
 
@@ -338,7 +329,7 @@ static func _handle_build_resume(
 				return
 	building.construction_worker_id = worker.id
 	worker.locked_to_building_id = building.id
-	_interrupt_gather_assignment(worker)
+	GatherSystem.clear_assignment(worker)
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.BUILD_RESUMED
 	ev.actor_id = worker.id

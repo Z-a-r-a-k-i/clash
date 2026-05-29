@@ -2261,6 +2261,15 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 				return false
 			if ea.production_state.repeat_train_def_id != eb.production_state.repeat_train_def_id:
 				return false
+			if ea.production_state.rally_mode != eb.production_state.rally_mode:
+				return false
+			if ea.production_state.rally_target_tile != eb.production_state.rally_target_tile:
+				return false
+			if (
+				ea.production_state.rally_target_entity_id
+				!= eb.production_state.rally_target_entity_id
+			):
+				return false
 			if ea.production_state.queue.size() != eb.production_state.queue.size():
 				return false
 			for j in ea.production_state.queue.size():

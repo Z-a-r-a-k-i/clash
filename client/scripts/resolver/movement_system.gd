@@ -277,10 +277,10 @@ static func _gather_move_intent(
 		state, registry, actor.gather_state.assigned_source_entity_id, actor.owner_player_id
 	)
 	if source == null:
-		GatherSystem._clear_gather_assignment(actor)
+		GatherSystem.clear_assignment(actor)
 		return {}
 	if not GatherSystem._is_worker_within_source_cap(source_assignments, registry, actor, source):
-		GatherSystem._clear_gather_assignment(actor)
+		GatherSystem.clear_assignment(actor)
 		return {}
 	if GatherSystem._is_adjacent_to(state, actor, source):
 		actor.gather_state.phase = GatherState.Phase.GATHERING

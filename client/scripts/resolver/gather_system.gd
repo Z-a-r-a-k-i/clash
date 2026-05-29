@@ -78,10 +78,10 @@ static func _step_to_source(
 	)
 	if source == null:
 		# Source destroyed / refinery missing — idle in place.
-		_clear_gather_assignment(actor)
+		clear_assignment(actor)
 		return
 	if not _is_worker_within_source_cap(source_assignments, registry, actor, source):
-		_clear_gather_assignment(actor)
+		clear_assignment(actor)
 		return
 	if _is_adjacent_to(state, actor, source):
 		actor.gather_state.phase = GatherState.Phase.GATHERING
@@ -111,10 +111,10 @@ static func _tick_gather(
 		state, registry, actor.gather_state.assigned_source_entity_id, actor.owner_player_id
 	)
 	if source == null:
-		_clear_gather_assignment(actor)
+		clear_assignment(actor)
 		return
 	if not _is_worker_within_source_cap(source_assignments, registry, actor, source):
-		_clear_gather_assignment(actor)
+		clear_assignment(actor)
 		return
 	# Range check — a fresh MOVE / nudged origin could leave the worker
 	# in GATHERING phase while no longer next to the source. Don't drain
@@ -127,18 +127,18 @@ static func _tick_gather(
 		registry.get_by_id(source.current_def_id) if registry != null else null
 	)
 	if source_def == null or source_def.resource_source == null:
-		_clear_gather_assignment(actor)
+		clear_assignment(actor)
 		return
 	var rsd: ResourceSourceDef = source_def.resource_source
 	var yield_amount: int = rsd.yield_per_worker_per_turn * _worker_gather_rate(actor, registry)
 	if yield_amount <= 0:
 		# A misconfigured source with zero yield would loop the worker in
 		# GATHERING forever.
-		_clear_gather_assignment(actor)
+		clear_assignment(actor)
 		return
 	# Already drained.
 	if source.current_resource_amount == 0:
-		_clear_gather_assignment(actor)
+		clear_assignment(actor)
 		return
 	# Compute the actual harvest before mutating anything: cap by source
 	# remaining (-1 = infinite).
@@ -146,7 +146,7 @@ static func _tick_gather(
 	if source.current_resource_amount > 0:
 		actual_harvest = min(actual_harvest, source.current_resource_amount)
 	if actual_harvest <= 0:
-		_clear_gather_assignment(actor)
+		clear_assignment(actor)
 		return
 	if source.current_resource_amount > 0:
 		source.current_resource_amount -= actual_harvest
@@ -170,7 +170,7 @@ static func _tick_gather(
 		dep.type = ResolverEvent.Type.RESOURCE_DEPLETED
 		dep.target_id = source.id
 		events.append(dep)
-		_clear_gather_assignment(actor)
+		clear_assignment(actor)
 		return
 
 
@@ -200,6 +200,15 @@ static func source_gatherer_cap(registry: EntityRegistry, source: Entity) -> int
 	if def == null or def.resource_source == null:
 		return 0
 	return max(0, def.resource_source.max_gatherers)
+
+
+static func clear_assignment(actor: Entity) -> void:
+	if actor == null or actor.gather_state == null:
+		return
+	actor.gather_state.phase = GatherState.Phase.IDLE
+	actor.gather_state.assigned_source_entity_id = -1
+	actor.gather_state.carrying_amount = 0
+	actor.gather_state.carrying_resource_type = ""
 
 
 # Resolve a target entity id to a usable resource source. Handles
@@ -296,15 +305,6 @@ static func _is_worker_within_source_cap(
 			return rank < cap
 		rank += 1
 	return false
-
-
-static func _clear_gather_assignment(actor: Entity) -> void:
-	if actor == null or actor.gather_state == null:
-		return
-	actor.gather_state.phase = GatherState.Phase.IDLE
-	actor.gather_state.assigned_source_entity_id = -1
-	actor.gather_state.carrying_amount = 0
-	actor.gather_state.carrying_resource_type = ""
 
 
 # Look for an entity owned by `owner_id` at the same tile as `geyser`

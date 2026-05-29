@@ -164,7 +164,7 @@ static func try_start_pending_build(
 		return false
 	worker.locked_to_building_id = building.id
 	_clear_pending_build(worker)
-	_interrupt_gather_assignment(worker)
+	GatherSystem.clear_assignment(worker)
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.BUILD_STARTED
 	ev.actor_id = worker.id
@@ -320,15 +320,6 @@ static func _clear_pending_build(worker: Entity) -> void:
 	worker.pending_build_def_id = ""
 	worker.pending_build_target_tile = Vector2i.ZERO
 	worker.pending_build_target_entity_id = -1
-
-
-static func _interrupt_gather_assignment(entity: Entity) -> void:
-	if entity == null or entity.gather_state == null:
-		return
-	entity.gather_state.phase = GatherState.Phase.IDLE
-	entity.gather_state.assigned_source_entity_id = -1
-	entity.gather_state.carrying_amount = 0
-	entity.gather_state.carrying_resource_type = ""
 
 
 static func _find_target_at_tile(
