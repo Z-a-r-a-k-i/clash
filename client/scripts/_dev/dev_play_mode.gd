@@ -351,6 +351,7 @@ func resolve_turn() -> bool:
 		_renderer.clear_input_highlights()
 	_input.bind_context(_loaded.state, _loaded.registry)
 	_input.clear_submissions(false, false)
+	_input.apply_resolve_events(result.events)
 	_input.queue_move_assists_for_next_turn()
 	_input.promote_future_orders_for_next_turn()
 	_update_hud("Resolved turn %d." % _loaded.state.turn_index)

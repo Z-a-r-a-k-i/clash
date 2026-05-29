@@ -78,6 +78,10 @@ func _all_tests() -> Array:
 			"dev_play_mode_requeues_unfinished_move_after_resolve",
 			_test_requeues_unfinished_move_after_resolve
 		],
+		[
+			"dev_play_mode_tied_same_target_move_completes_for_future_queue",
+			_test_tied_same_target_move_completes_for_future_queue
+		],
 		["dev_play_mode_routes_command_card_orders", _test_routes_command_card_orders],
 		["dev_play_mode_pending_target_targets_enemy", _test_pending_target_targets_enemy],
 		["dev_play_mode_left_drag_pans_camera", _test_left_drag_pans_camera],
@@ -895,6 +899,76 @@ func _test_requeues_unfinished_move_after_resolve() -> bool:
 	return ok
 
 
+func _test_tied_same_target_move_completes_for_future_queue() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var marines: Array[int] = _find_entity_ids(mode.current_state(), "marine", 0)
+	if marines.size() < 2:
+		push_error("expected at least two P0 marines")
+		_free_mode(mode)
+		return false
+	var left_id: int = marines[0]
+	var right_id: int = marines[2] if marines.size() > 2 else marines[1]
+	if not mode.select_entity_id(left_id):
+		push_error("expected to select first marine")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(6, 11)):
+		push_error("expected first contested move to queue")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(8, 10), true):
+		push_error("expected first future move to queue")
+		_free_mode(mode)
+		return false
+	if not mode.select_entity_id(right_id):
+		push_error("expected to select second marine")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(6, 11)):
+		push_error("expected second contested move to queue")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(8, 12), true):
+		push_error("expected second future move to queue")
+		_free_mode(mode)
+		return false
+	if not mode.resolve_turn():
+		push_error("expected resolve to succeed")
+		_free_mode(mode)
+		return false
+	var left_after: Entity = mode.current_state().get_entity_by_id(left_id)
+	var right_after: Entity = mode.current_state().get_entity_by_id(right_id)
+	var ok := true
+	if left_after.origin != Vector2i(5, 10) or right_after.origin != Vector2i(5, 12):
+		push_error(
+			(
+				"tied movers should stop before the contested target, got %s and %s"
+				% [str(left_after.origin), str(right_after.origin)]
+			)
+		)
+		ok = false
+	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if orders.size() != 2:
+		push_error(
+			"future orders should promote after tied move completion, got %d" % orders.size()
+		)
+		ok = false
+	else:
+		if not _expect_order(orders[0], EntityOrder.Type.MOVE, left_id, Vector2i(8, 10)):
+			ok = false
+		if not _expect_order(orders[1], EntityOrder.Type.MOVE, right_id, Vector2i(8, 12)):
+			ok = false
+	_free_mode(mode)
+	return ok
+
+
 func _test_routes_command_card_orders() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -1378,6 +1452,17 @@ func _command_card_ids(card: Control, method_name: String) -> Array[String]:
 		var id: String = item
 		out.append(id)
 	return out
+
+
+func _expect_order(
+	order: EntityOrder, expected_type: EntityOrder.Type, entity_id: int, target_tile: Vector2i
+) -> bool:
+	return (
+		order != null
+		and order.type == expected_type
+		and order.entity_id == entity_id
+		and order.target_tile == target_tile
+	)
 
 
 func _find_label_with_substring(root: Node, needle: String) -> Label:

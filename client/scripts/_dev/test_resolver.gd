@@ -895,7 +895,20 @@ func _test_equidistant_same_target_tie_stops() -> bool:
 	)
 	var new_left: Entity = result.new_state.get_entity_by_id(left.id)
 	var new_right: Entity = result.new_state.get_entity_by_id(right.id)
-	return new_left.origin == Vector2i(2, 1) and new_right.origin == Vector2i(4, 1)
+	var completed_ids: Array[int] = []
+	for ev in result.events:
+		if ev.type != ResolverEvent.Type.MOVE_COMPLETED:
+			continue
+		if ev.to_origin != Vector2i(3, 1):
+			push_error("MOVE_COMPLETED should point at the contested target")
+			return false
+		completed_ids.append(ev.actor_id)
+	completed_ids.sort()
+	return (
+		new_left.origin == Vector2i(2, 1)
+		and new_right.origin == Vector2i(4, 1)
+		and completed_ids == [left.id, right.id]
+	)
 
 
 func _test_movement_respects_impassable_terrain_tags() -> bool:

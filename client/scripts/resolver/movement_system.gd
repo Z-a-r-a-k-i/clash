@@ -106,7 +106,7 @@ static func resolve_movement_substep(
 	if proposals.is_empty():
 		return
 
-	var winners: Array[Dictionary] = _winning_proposals(state, proposals, registry)
+	var winners: Array[Dictionary] = _winning_proposals(state, proposals, registry, events)
 	if winners.is_empty():
 		return
 	var moves: Dictionary = {}
@@ -199,6 +199,7 @@ static func _explicit_move_intent(
 		"target_origin": order.target_tile,
 		"exact_origin": true,
 		"goal_range": 0,
+		"movement_budget": budget,
 	}
 
 
@@ -273,7 +274,10 @@ static func _construction_move_intent(
 
 
 static func _winning_proposals(
-	state: MatchState, proposals: Array[Dictionary], registry: EntityRegistry
+	state: MatchState,
+	proposals: Array[Dictionary],
+	registry: EntityRegistry,
+	events: Array[ResolverEvent]
 ) -> Array[Dictionary]:
 	var remaining: Dictionary = {}
 	for proposal in proposals:
@@ -283,7 +287,9 @@ static func _winning_proposals(
 	var changed := true
 	while changed:
 		changed = false
-		var blocked: Dictionary = _target_conflict_losers(remaining)
+		var conflict_result: Dictionary = _target_conflict_result(remaining)
+		var blocked: Dictionary = conflict_result.get("losers", {})
+		_emit_completed_tied_moves(conflict_result.get("completed", {}), remaining, events)
 		var moving_ids: Dictionary = {}
 		for entity_id in remaining.keys():
 			if not blocked.has(entity_id):
@@ -308,8 +314,9 @@ static func _winning_proposals(
 	return winners
 
 
-static func _target_conflict_losers(remaining: Dictionary) -> Dictionary:
+static func _target_conflict_result(remaining: Dictionary) -> Dictionary:
 	var losers: Dictionary = {}
+	var completed: Dictionary = {}
 	var ids: Array[int] = []
 	for entity_id in remaining.keys():
 		ids.append(int(entity_id))
@@ -339,9 +346,60 @@ static func _target_conflict_losers(remaining: Dictionary) -> Dictionary:
 				if entity_id != winner_id:
 					losers[entity_id] = true
 		else:
+			var completed_min_ids: Array[int] = _completed_same_target_tie_ids(min_ids, remaining)
+			for entity_id in completed_min_ids:
+				completed[entity_id] = true
 			for entity_id in component:
 				losers[entity_id] = true
-	return losers
+	return {"losers": losers, "completed": completed}
+
+
+static func _completed_same_target_tie_ids(
+	tied_ids: Array[int], remaining: Dictionary
+) -> Array[int]:
+	if tied_ids.size() <= 1:
+		return []
+	var target_origin: Vector2i = Vector2i.ZERO
+	var has_target := false
+	for entity_id in tied_ids:
+		var proposal: Dictionary = remaining.get(entity_id, {})
+		var intent: Dictionary = proposal.get("intent", {})
+		if intent.get("kind", "") != "move":
+			return []
+		if not intent.get("exact_origin", true) or int(intent.get("goal_range", 0)) != 0:
+			return []
+		var intent_target: Vector2i = intent.get("target_origin", Vector2i.ZERO)
+		if proposal.get("to_origin", Vector2i.ZERO) != intent_target:
+			return []
+		if not has_target:
+			target_origin = intent_target
+			has_target = true
+		elif intent_target != target_origin:
+			return []
+	return tied_ids.duplicate()
+
+
+static func _emit_completed_tied_moves(
+	completed_ids: Dictionary, remaining: Dictionary, events: Array[ResolverEvent]
+) -> void:
+	var ids: Array[int] = []
+	for entity_id in completed_ids.keys():
+		ids.append(int(entity_id))
+	ids.sort()
+	for entity_id in ids:
+		var proposal: Dictionary = remaining.get(entity_id, {})
+		var actor: Entity = proposal.get("actor") as Entity
+		if actor == null:
+			continue
+		var intent: Dictionary = proposal.get("intent", {})
+		var movement_budget: int = int(intent.get("movement_budget", actor.moves_used_this_turn))
+		actor.moves_used_this_turn = max(actor.moves_used_this_turn, movement_budget)
+		var ev := ResolverEvent.new()
+		ev.type = ResolverEvent.Type.MOVE_COMPLETED
+		ev.actor_id = actor.id
+		ev.from_origin = proposal.get("from_origin", actor.origin)
+		ev.to_origin = intent.get("target_origin", actor.origin)
+		events.append(ev)
 
 
 static func _proposal_conflict_component(start_id: int, remaining: Dictionary) -> Array[int]:

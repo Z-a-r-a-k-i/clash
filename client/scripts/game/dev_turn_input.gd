@@ -357,6 +357,14 @@ func queue_move_assists_for_next_turn() -> void:
 		_append_order_to_submit(submit, order)
 
 
+func apply_resolve_events(events: Array[ResolverEvent]) -> void:
+	for event in events:
+		if event == null:
+			continue
+		if event.type == ResolverEvent.Type.MOVE_COMPLETED:
+			_clear_move_assist(event.actor_id)
+
+
 func promote_future_orders_for_next_turn() -> void:
 	_prune_future_orders()
 	var ids: Array[int] = []

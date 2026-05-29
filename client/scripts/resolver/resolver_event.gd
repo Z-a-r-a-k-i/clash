@@ -38,6 +38,7 @@ enum Type {
 	BUILD_CANCELLED,
 	ORDER_REJECTED,
 	ABILITY_USED,
+	MOVE_COMPLETED,
 }
 
 var type: Type = Type.INVALID
@@ -48,6 +49,8 @@ var actor_id: int = -1
 var target_id: int = -1
 
 # ENTITY_MOVED — origin transition (top-left tile of the entity's footprint).
+# MOVE_COMPLETED — from_origin is where the unit stopped; to_origin is the
+# requested movement destination that was intentionally completed.
 var from_origin: Vector2i = Vector2i.ZERO
 var to_origin: Vector2i = Vector2i.ZERO
 
