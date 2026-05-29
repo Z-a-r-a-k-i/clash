@@ -14,6 +14,8 @@ var _active_player_id: int = 0
 var _selected_entity_id: int = -1
 var _submissions: Dictionary[int, SubmitTurn] = {}
 var _move_assists: Dictionary[int, EntityOrder] = {}
+var _future_orders: Dictionary[int, Array] = {}
+var _queue_modifier_active: bool = false
 var _status_message: String = ""
 
 
@@ -27,12 +29,14 @@ func bind_context(state: MatchState, registry: EntityRegistry) -> void:
 	_ensure_submit_turn(0)
 	_ensure_submit_turn(1)
 	_prune_move_assists()
+	_prune_future_orders()
 	if _selected_entity_id >= 0 and not _is_selectable(_selected_entity_id):
 		_selected_entity_id = -1
 
 
 func set_active_player_id(player_id: int) -> void:
 	_active_player_id = player_id
+	_queue_modifier_active = false
 	_ensure_submit_turn(player_id)
 	if _selected_entity_id >= 0 and not _is_selectable(_selected_entity_id):
 		_selected_entity_id = -1
@@ -48,6 +52,14 @@ func selected_entity_id() -> int:
 
 func status_message() -> String:
 	return _status_message
+
+
+func set_queue_modifier_active(enabled: bool) -> void:
+	_queue_modifier_active = enabled
+
+
+func queue_modifier_active() -> bool:
+	return _queue_modifier_active
 
 
 func select_entity(entity_id: int) -> bool:
@@ -82,7 +94,6 @@ func issue_move(target_tile: Vector2i) -> bool:
 	order.entity_id = actor.id
 	order.target_tile = target_tile
 	_append_order(order)
-	_remember_move_assist(order)
 	_status_message = "Queued Attack and Move for #%d to %s." % [actor.id, str(target_tile)]
 	return true
 
@@ -107,7 +118,6 @@ func issue_move_only(target_tile: Vector2i) -> bool:
 	order.entity_id = actor.id
 	order.target_tile = target_tile
 	_append_order(order)
-	_remember_move_assist(order)
 	_status_message = (
 		"Queued MOVE ONLY for #%d to %s. Unit will not shoot this turn."
 		% [actor.id, str(target_tile)]
@@ -191,7 +201,6 @@ func issue_gather(target_entity_id: int) -> bool:
 	order.entity_id = actor.id
 	order.target_entity_id = target_entity_id
 	_append_order(order)
-	_clear_move_assist(actor.id, true)
 	_status_message = "Queued GATHER for #%d from #%d." % [actor.id, target_entity_id]
 	return true
 
@@ -229,7 +238,6 @@ func issue_build(def_id: String, target_tile: Vector2i, target_entity_id: int = 
 	order.target_tile = build_tile
 	order.target_entity_id = target_entity_id
 	_append_order(order)
-	_clear_move_assist(actor.id, true)
 	_status_message = "Queued BUILD %s for #%d at %s." % [def_id, actor.id, str(build_tile)]
 	return true
 
@@ -281,7 +289,6 @@ func issue_ability(ability_id: String) -> bool:
 	order.entity_id = actor.id
 	order.def_id = ability_id
 	_append_order(order)
-	_clear_move_assist(actor.id, true)
 	_status_message = "Queued USE_ABILITY %s for #%d." % [ability_id, actor.id]
 	return true
 
@@ -291,6 +298,9 @@ func issue_cancel(cancel_index: int = -1) -> bool:
 	if actor == null:
 		_status_message = "Select an entity before issuing CANCEL."
 		return false
+	if cancel_index < 0 and _remove_future_order_for_entity(actor.id):
+		_status_message = "Cancelled future queued order for #%d." % actor.id
+		return true
 	if cancel_index < 0 and _remove_queued_order_for_entity(actor.id):
 		_clear_move_assist(actor.id)
 		_status_message = "Cancelled queued order for #%d." % actor.id
@@ -318,12 +328,15 @@ func surrender_active_player() -> void:
 	_status_message = "P%d will surrender on resolve." % _active_player_id
 
 
-func clear_submissions(clear_move_assists: bool = true) -> void:
+func clear_submissions(clear_move_assists: bool = true, clear_future_orders: bool = true) -> void:
 	_submissions.clear()
 	_submissions[0] = SubmitTurn.new()
 	_submissions[1] = SubmitTurn.new()
+	_queue_modifier_active = false
 	if clear_move_assists:
 		_move_assists.clear()
+	if clear_future_orders:
+		_future_orders.clear()
 	_status_message = "Queues cleared."
 
 
@@ -344,12 +357,57 @@ func queue_move_assists_for_next_turn() -> void:
 		_append_order_to_submit(submit, order)
 
 
+func promote_future_orders_for_next_turn() -> void:
+	_prune_future_orders()
+	var ids: Array[int] = []
+	for entity_id in _future_orders.keys():
+		ids.append(entity_id)
+	ids.sort()
+	for entity_id in ids:
+		var entity: Entity = _state.get_entity_by_id(entity_id) if _state != null else null
+		if not _can_promote_future_order_for_entity(entity):
+			continue
+		if _has_queued_order_for_entity_and_player(entity.id, entity.owner_player_id):
+			continue
+		var queue: Array = _future_orders.get(entity_id, [])
+		if queue.is_empty():
+			_future_orders.erase(entity_id)
+			continue
+		var order: EntityOrder = queue.pop_front()
+		if queue.is_empty():
+			_future_orders.erase(entity_id)
+		else:
+			_future_orders[entity_id] = queue
+		var promoted: EntityOrder = order.clone()
+		promoted.entity_id = entity.id
+		_append_order_to_submit(_submission_for(entity.owner_player_id), promoted)
+		if _is_move_like(promoted.type):
+			_remember_move_assist(promoted)
+		else:
+			_clear_move_assist(entity.id)
+
+
 func submit_for_player(player_id: int) -> SubmitTurn:
 	return _submission_for(player_id)
 
 
 func queued_order_count(player_id: int) -> int:
 	return _submission_for(player_id).orders.size()
+
+
+func future_orders_for_entity(entity_id: int) -> Array[EntityOrder]:
+	var out: Array[EntityOrder] = []
+	var queue: Array = _future_orders.get(entity_id, [])
+	for item in queue:
+		var order: EntityOrder = item
+		if order != null:
+			out.append(order.clone())
+	return out
+
+
+func future_order_count_for_entity(entity_id: int) -> int:
+	var queue: Array = _future_orders.get(entity_id, [])
+	return queue.size()
 
 
 func selected_entity_label() -> String:
@@ -410,6 +468,7 @@ func can_issue_cancel() -> bool:
 		or actor.focus_target_entity_id >= 0
 		or actor.locked_to_building_id >= 0
 		or _has_queued_order_for_entity(actor.id)
+		or future_order_count_for_entity(actor.id) > 0
 	):
 		return true
 	if actor.production_state == null:
@@ -417,6 +476,36 @@ func can_issue_cancel() -> bool:
 	return (
 		not actor.production_state.active.is_empty() or not actor.production_state.queue.is_empty()
 	)
+
+
+func can_issue_repeat_train_toggle() -> bool:
+	var actor: Entity = _selected_entity()
+	return actor != null and actor.production_state != null and not train_option_ids().is_empty()
+
+
+func selected_repeat_train_enabled() -> bool:
+	var actor: Entity = _selected_entity()
+	return (
+		actor != null
+		and actor.production_state != null
+		and actor.production_state.repeat_train_enabled
+	)
+
+
+func issue_repeat_train_toggle(enabled: bool) -> bool:
+	var actor: Entity = _selected_entity()
+	if actor == null or actor.production_state == null:
+		_status_message = "Select a producer before toggling repeat training."
+		return false
+	if train_option_ids().is_empty():
+		_status_message = "%s cannot repeat train." % _def_id_for_entity(actor)
+		return false
+	actor.production_state.repeat_train_enabled = enabled
+	_status_message = (
+		("Repeat training enabled for #%d." if enabled else "Repeat training disabled for #%d.")
+		% actor.id
+	)
+	return true
 
 
 func can_afford_build(def_id: String) -> bool:
@@ -594,9 +683,29 @@ func label_for_ability_id(ability_id: String) -> String:
 	return ability_id
 
 
-func _append_order(order: EntityOrder) -> void:
-	var submit: SubmitTurn = _submission_for(_active_player_id)
-	_append_order_to_submit(submit, order)
+func _append_order(order: EntityOrder) -> bool:
+	if order == null:
+		return false
+	var queue_requested: bool = _consume_queue_modifier()
+	if not _uses_future_order_queue(order):
+		var submit: SubmitTurn = _submission_for(_active_player_id)
+		_append_order_to_submit(submit, order)
+		return true
+	if (
+		queue_requested
+		and (_has_queued_order_for_entity(order.entity_id) or _future_orders.has(order.entity_id))
+	):
+		_append_future_order(order)
+		return false
+	if not queue_requested:
+		_clear_current_and_future_orders_for_entity(order.entity_id)
+	var current_submit: SubmitTurn = _submission_for(_active_player_id)
+	_append_order_to_submit(current_submit, order)
+	if _is_move_like(order.type):
+		_remember_move_assist(order)
+	else:
+		_clear_move_assist(order.entity_id)
+	return true
 
 
 func _append_order_to_submit(submit: SubmitTurn, order: EntityOrder) -> void:
@@ -605,6 +714,37 @@ func _append_order_to_submit(submit: SubmitTurn, order: EntityOrder) -> void:
 		submit.orders[replace_index] = order
 	else:
 		submit.orders.append(order)
+
+
+func _uses_future_order_queue(order: EntityOrder) -> bool:
+	if order == null:
+		return false
+	return not (
+		order.type == EntityOrder.Type.TRAIN
+		or order.type == EntityOrder.Type.RESEARCH
+		or order.type == EntityOrder.Type.CANCEL
+		or order.type == EntityOrder.Type.HALT_ON_SIGHT_TOGGLE
+	)
+
+
+func _consume_queue_modifier() -> bool:
+	var queue_requested: bool = _queue_modifier_active
+	_queue_modifier_active = false
+	return queue_requested
+
+
+func _append_future_order(order: EntityOrder) -> void:
+	if order == null:
+		return
+	var queue: Array = _future_orders.get(order.entity_id, [])
+	queue.append(order.clone())
+	_future_orders[order.entity_id] = queue
+
+
+func _clear_current_and_future_orders_for_entity(entity_id: int) -> void:
+	_remove_all_queued_orders_for_entity(entity_id)
+	_future_orders.erase(entity_id)
+	_clear_move_assist(entity_id)
 
 
 func _remember_move_assist(order: EntityOrder) -> void:
@@ -667,6 +807,14 @@ func _has_queued_order_for_entity(entity_id: int) -> bool:
 	return false
 
 
+func _has_queued_order_for_entity_and_player(entity_id: int, player_id: int) -> bool:
+	var submit: SubmitTurn = _submission_for(player_id)
+	for order in submit.orders:
+		if order != null and order.entity_id == entity_id:
+			return true
+	return false
+
+
 func _remove_queued_order_for_entity(entity_id: int) -> bool:
 	var submit: SubmitTurn = _submission_for(_active_player_id)
 	for i in range(submit.orders.size() - 1, -1, -1):
@@ -677,6 +825,29 @@ func _remove_queued_order_for_entity(entity_id: int) -> bool:
 	return false
 
 
+func _remove_all_queued_orders_for_entity(entity_id: int) -> bool:
+	var removed := false
+	var submit: SubmitTurn = _submission_for(_active_player_id)
+	for i in range(submit.orders.size() - 1, -1, -1):
+		var order: EntityOrder = submit.orders[i]
+		if order != null and order.entity_id == entity_id:
+			submit.orders.remove_at(i)
+			removed = true
+	return removed
+
+
+func _remove_future_order_for_entity(entity_id: int) -> bool:
+	var queue: Array = _future_orders.get(entity_id, [])
+	if queue.is_empty():
+		return false
+	queue.remove_at(queue.size() - 1)
+	if queue.is_empty():
+		_future_orders.erase(entity_id)
+	else:
+		_future_orders[entity_id] = queue
+	return true
+
+
 func _remove_queued_move_for_entity(entity_id: int) -> void:
 	for submit in _submissions.values():
 		var submit_turn: SubmitTurn = submit
@@ -684,6 +855,35 @@ func _remove_queued_move_for_entity(entity_id: int) -> void:
 			var order: EntityOrder = submit_turn.orders[i]
 			if order != null and order.entity_id == entity_id and _is_move_like(order.type):
 				submit_turn.orders.remove_at(i)
+
+
+func _prune_future_orders() -> void:
+	for entity_id in _future_orders.keys():
+		var entity: Entity = _state.get_entity_by_id(entity_id) if _state != null else null
+		if entity == null or entity.current_hp <= 0 or entity.owner_player_id < 0:
+			_future_orders.erase(entity_id)
+			continue
+		var queue: Array = _future_orders.get(entity_id, [])
+		for i in range(queue.size() - 1, -1, -1):
+			var order: EntityOrder = queue[i]
+			if order == null or order.entity_id != entity_id:
+				queue.remove_at(i)
+		if queue.is_empty():
+			_future_orders.erase(entity_id)
+		else:
+			_future_orders[entity_id] = queue
+
+
+func _can_promote_future_order_for_entity(entity: Entity) -> bool:
+	if entity == null or entity.current_hp <= 0 or entity.owner_player_id < 0:
+		return false
+	if entity.locked_to_building_id >= 0 or entity.is_constructing:
+		return false
+	if entity.ability_cast != null:
+		return false
+	if entity.gather_state != null and entity.gather_state.phase != GatherState.Phase.IDLE:
+		return false
+	return true
 
 
 func _replacement_index_for_order(orders: Array[EntityOrder], order: EntityOrder) -> int:

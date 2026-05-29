@@ -193,6 +193,11 @@ func _all_tests() -> Array:
 		["cancel_queued_no_cost_movement", _test_cancel_queued_no_cost_movement],
 		["cancel_active_triggers_try_fill", _test_cancel_active_triggers_try_fill],
 		["train_pop_overflow_stalls_at_install", _test_train_pop_overflow_stalls_at_install],
+		[
+			"repeat_training_repeats_latest_unit_after_mixed_queue",
+			_test_repeat_training_repeats_latest_unit_after_mixed_queue
+		],
+		["repeat_training_stalls_and_resumes", _test_repeat_training_stalls_and_resumes],
 		["research_full_cycle", _test_research_full_cycle],
 		["research_already_unlocked_rejected", _test_research_already_unlocked_rejected],
 		["duplicate_research_rejected_when_active", _test_duplicate_research_rejected_when_active],
@@ -1631,6 +1636,10 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 			return false
 		if ea.production_state != null:
 			if ea.production_state.active != eb.production_state.active:
+				return false
+			if ea.production_state.repeat_train_enabled != eb.production_state.repeat_train_enabled:
+				return false
+			if ea.production_state.repeat_train_def_id != eb.production_state.repeat_train_def_id:
 				return false
 			if ea.production_state.queue.size() != eb.production_state.queue.size():
 				return false
@@ -3397,6 +3406,99 @@ func _test_train_pop_overflow_stalls_at_install() -> bool:
 		if ev.type == ResolverEvent.Type.PRODUCTION_STALLED:
 			return (ev.amount & ProductionSystem.STALL_POP) != 0
 	return false
+
+
+func _test_repeat_training_repeats_latest_unit_after_mixed_queue() -> bool:
+	var registry := _production_registry()
+	registry.researches = [_make_research_def("stim_research", 100, 0, 2)]
+	registry.entities[0].production.researches = ["stim_research"]
+	var state := _state_with_grid(30, 30)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	barracks.production_state.repeat_train_enabled = true
+	state.tile_grid.place(barracks.id, Rect2i(5, 5, 3, 3))
+	_add_opponent_keepalive_building(state, registry)
+
+	var train_a := EntityOrder.new()
+	train_a.type = EntityOrder.Type.TRAIN
+	train_a.entity_id = barracks.id
+	train_a.def_id = "marine"
+	var research := EntityOrder.new()
+	research.type = EntityOrder.Type.RESEARCH
+	research.entity_id = barracks.id
+	research.def_id = "stim_research"
+	var train_b := EntityOrder.new()
+	train_b.type = EntityOrder.Type.TRAIN
+	train_b.entity_id = barracks.id
+	train_b.def_id = "marine"
+	var result := Resolver.resolve(
+		state,
+		_submit([train_a, research, train_b] as Array[EntityOrder]),
+		_submit(),
+		registry,
+		null
+	)
+
+	var saw_repeat_start := false
+	var completed_trains := 0
+	for _i in 12:
+		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+		for ev in result.events:
+			if ev.type == ResolverEvent.Type.TRAIN_COMPLETED and ev.def_id == "marine":
+				completed_trains += 1
+		var b: Entity = result.new_state.get_entity_by_id(barracks.id)
+		if (
+			completed_trains >= 2
+			and b.production_state.queue.is_empty()
+			and not b.production_state.active.is_empty()
+			and (
+				b.production_state.active.get(ProductionState.KEY_KIND, "")
+				== ProductionState.KIND_UNIT
+			)
+			and b.production_state.active.get(ProductionState.KEY_DEF_ID, "") == "marine"
+			and result.new_state.get_player(0).unlocked_researches.has("stim_research")
+		):
+			saw_repeat_start = true
+			break
+	if not saw_repeat_start:
+		return false
+	var final_barracks: Entity = result.new_state.get_entity_by_id(barracks.id)
+	return (
+		final_barracks.production_state.repeat_train_enabled
+		and final_barracks.production_state.repeat_train_def_id == "marine"
+	)
+
+
+func _test_repeat_training_stalls_and_resumes() -> bool:
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 0
+	state.players[0].pop_cap = 10
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	barracks.production_state.repeat_train_enabled = true
+	barracks.production_state.repeat_train_def_id = "marine"
+	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
+	_add_opponent_keepalive_building(state, registry)
+
+	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
+	var b: Entity = result.new_state.get_entity_by_id(barracks.id)
+	if not b.production_state.active.is_empty() or not b.production_state.queue.is_empty():
+		return false
+	if not _has_event_of_type(result.events, ResolverEvent.Type.PRODUCTION_STALLED):
+		return false
+	result.new_state.get_player(0).minerals = 50
+	result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
+	b = result.new_state.get_entity_by_id(barracks.id)
+	if b.production_state.active.is_empty():
+		return false
+	if b.production_state.queue.size() != 0:
+		return false
+	return b.production_state.active.get(ProductionState.KEY_DEF_ID, "") == "marine"
 
 
 func _test_build_distributes_creates_constructing_entity() -> bool:

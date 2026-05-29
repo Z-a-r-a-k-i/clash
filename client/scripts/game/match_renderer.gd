@@ -13,7 +13,9 @@ const DEFAULT_VISUALS_PATH := "res://data/entity_visuals.tres"
 const DEFAULT_TUNABLES_PATH := "res://data/tunables.tres"
 const VISION_SYSTEM_SCRIPT := preload("res://scripts/runtime/vision_system.gd")
 
-# Camera margin in tiles around the map bounds when auto-fitting.
+# Camera margin in tiles for auto-fit candidates. Final camera bounds still
+# clamp to the playable map, so margin is discarded when it would reveal
+# outside the map.
 const _CAMERA_MARGIN_TILES := 3
 
 # Terrain fallback color for chunk-3. Plan-07b3 (perspective + fog) replaces
@@ -358,6 +360,7 @@ func pan_camera_by_screen_delta(delta: Vector2) -> void:
 		return
 	var safe_zoom: float = maxf(_camera.zoom.x, 0.01)
 	_camera.position -= delta / safe_zoom
+	_clamp_camera_to_map_bounds()
 
 
 func is_entity_view_visible(entity_id: int) -> bool:
@@ -625,7 +628,18 @@ func _render_action_preview(preview: Dictionary) -> void:
 		return
 	var group := Node2D.new()
 	group.name = "ActionPreview_%d" % actor_id
+	var preview_color: Color = _ACTION_PREVIEW_COLOR
+	if preview.get("future", false):
+		preview_color = Color(
+			_ACTION_PREVIEW_COLOR.r,
+			_ACTION_PREVIEW_COLOR.g,
+			_ACTION_PREVIEW_COLOR.b,
+			_ACTION_PREVIEW_COLOR.a * 0.62
+		)
 	var start: Vector2 = actor_view.position
+	if preview.has("start_tile"):
+		var start_tile: Vector2i = preview.get("start_tile", Vector2i.ZERO)
+		start = _tile_center(start_tile)
 	var target: Vector2 = start
 	var has_target := false
 	var target_entity_id: int = preview.get("target_entity_id", -1)
@@ -640,11 +654,11 @@ func _render_action_preview(preview: Dictionary) -> void:
 		has_target = true
 	if has_target:
 		var line := Line2D.new()
-		line.default_color = _ACTION_PREVIEW_COLOR
+		line.default_color = preview_color
 		line.width = _ACTION_PREVIEW_LINE_WIDTH
 		line.points = PackedVector2Array([start, target])
 		group.add_child(line)
-		group.add_child(_target_marker(target))
+		group.add_child(_target_marker(target, preview_color))
 	var label := Label.new()
 	label.text = _preview_label(preview)
 	label.modulate = _ACTION_PREVIEW_TEXT_COLOR
@@ -658,9 +672,9 @@ func _render_action_preview(preview: Dictionary) -> void:
 	_action_previews_root.add_child(group)
 
 
-func _target_marker(marker_position: Vector2) -> Polygon2D:
+func _target_marker(marker_position: Vector2, color: Color = _ACTION_PREVIEW_COLOR) -> Polygon2D:
 	var marker := Polygon2D.new()
-	marker.color = _ACTION_PREVIEW_COLOR
+	marker.color = color
 	var radius := 7.0
 	marker.polygon = PackedVector2Array(
 		[
@@ -676,9 +690,15 @@ func _target_marker(marker_position: Vector2) -> Polygon2D:
 func _preview_label(preview: Dictionary) -> String:
 	var kind: String = preview.get("kind", "Action")
 	var def_id: String = preview.get("def_id", "")
+	var sequence_index: int = preview.get("sequence_index", 0)
+	var prefix := ""
+	if sequence_index > 0:
+		prefix = "%d. " % sequence_index
+		if preview.get("future", false):
+			prefix = "%d> " % sequence_index
 	if def_id != "":
-		return "%s %s" % [kind, def_id]
-	return kind
+		return "%s%s %s" % [prefix, kind, def_id]
+	return "%s%s" % [prefix, kind]
 
 
 func _tile_center(tile: Vector2i) -> Vector2:
@@ -880,9 +900,47 @@ func _camera_fit_viewport_size() -> Vector2:
 func _set_camera_zoom(value: float) -> void:
 	if _camera == null:
 		return
-	var zoom: float = clampf(value, _MIN_CAMERA_ZOOM, _MAX_CAMERA_ZOOM)
+	var min_zoom: float = _camera_min_zoom_for_map()
+	var max_zoom: float = maxf(_MAX_CAMERA_ZOOM, min_zoom)
+	var zoom: float = clampf(value, min_zoom, max_zoom)
 	_camera.zoom = Vector2.ONE * zoom
+	_clamp_camera_to_map_bounds()
 	_update_zoom_debug_readout()
+
+
+func _camera_min_zoom_for_map() -> float:
+	var min_zoom: float = _MIN_CAMERA_ZOOM
+	var map_bounds: Rect2 = _map_world_bounds()
+	if map_bounds.size.x <= 0.0 or map_bounds.size.y <= 0.0:
+		return _MIN_CAMERA_ZOOM
+	var viewport_size: Vector2 = _camera_fit_viewport_size()
+	min_zoom = maxf(min_zoom, viewport_size.x / map_bounds.size.x)
+	min_zoom = maxf(min_zoom, viewport_size.y / map_bounds.size.y)
+	return min_zoom
+
+
+func _clamp_camera_to_map_bounds() -> void:
+	if _camera == null:
+		return
+	var map_bounds: Rect2 = _map_world_bounds()
+	if map_bounds.size.x <= 0.0 or map_bounds.size.y <= 0.0:
+		return
+	var safe_zoom: float = maxf(_camera.zoom.x, 0.01)
+	var visible_size: Vector2 = _camera_fit_viewport_size() / safe_zoom
+	var clamped_position: Vector2 = _camera.position
+	if visible_size.x >= map_bounds.size.x:
+		clamped_position.x = map_bounds.get_center().x
+	else:
+		var min_x: float = map_bounds.position.x + visible_size.x * 0.5
+		var max_x: float = map_bounds.end.x - visible_size.x * 0.5
+		clamped_position.x = clampf(clamped_position.x, min_x, max_x)
+	if visible_size.y >= map_bounds.size.y:
+		clamped_position.y = map_bounds.get_center().y
+	else:
+		var min_y: float = map_bounds.position.y + visible_size.y * 0.5
+		var max_y: float = map_bounds.end.y - visible_size.y * 0.5
+		clamped_position.y = clampf(clamped_position.y, min_y, max_y)
+	_camera.position = clamped_position
 
 
 func _update_zoom_debug_readout() -> void:

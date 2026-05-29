@@ -5,6 +5,7 @@ const DEV_PLAY_MODE_PATH := "res://scripts/_dev/dev_play_mode.gd"
 const COMMAND_CARD_PATH := "res://scripts/game/command_card.gd"
 const COMBAT_SCENARIO_PATH := "res://data/scenarios/combat_marines_vs_tanks.tres"
 const MVP_SCENARIO_PATH := "res://data/scenarios/mvp_map.tres"
+const TUNABLES_PATH := "res://data/tunables.tres"
 
 
 func _enter_tree() -> void:
@@ -68,6 +69,7 @@ func _all_tests() -> Array:
 			"dev_play_mode_selected_and_friendly_action_previews",
 			_test_selected_and_friendly_action_previews
 		],
+		["dev_play_mode_shift_click_routes_future_orders", _test_shift_click_routes_future_orders],
 		[
 			"dev_play_mode_pending_build_updates_placement_preview",
 			_test_pending_build_updates_placement_preview
@@ -80,7 +82,10 @@ func _all_tests() -> Array:
 		["dev_play_mode_pending_target_targets_enemy", _test_pending_target_targets_enemy],
 		["dev_play_mode_left_drag_pans_camera", _test_left_drag_pans_camera],
 		["dev_play_mode_hud_anchors_away_from_start_area", _test_hud_anchors_away_from_start_area],
-		["dev_play_mode_focuses_active_player_on_switch", _test_focuses_active_player_on_switch],
+		[
+			"dev_play_mode_switching_player_keeps_camera_bounded",
+			_test_switching_player_keeps_camera_bounded
+		],
 		["dev_play_mode_hud_omits_resolution_button", _test_hud_omits_resolution_button],
 	]
 
@@ -466,6 +471,16 @@ func _test_command_card_shows_costs() -> bool:
 				"Stim Pack button should show mineral cost and research time: %s" % stim_button.text
 			)
 			ok = false
+		var repeat_toggle: CheckBox = _find_check_box_with_substring(card, "Repeat Train")
+		if repeat_toggle == null or not repeat_toggle.visible:
+			push_error("training producer command card should show Repeat Train")
+			ok = false
+		else:
+			repeat_toggle.emit_signal("toggled", true)
+			var barracks: Entity = mode.current_state().get_entity_by_id(barracks_id)
+			if barracks == null or not barracks.production_state.repeat_train_enabled:
+				push_error("Repeat Train toggle should update selected producer state")
+				ok = false
 
 	_free_mode(mode)
 	return ok
@@ -617,17 +632,8 @@ func _test_hud_resources_and_readable_queue() -> bool:
 	elif not mode.issue_move_selected(Vector2i(13, 22)):
 		push_error("expected worker move to queue")
 		ok = false
-	elif (
-		queue_label != null
-		and (
-			not queue_label.visible
-			or queue_label.text != "Queued this turn: 1 action"
-			or queue_label.text.find("P0=") != -1
-		)
-	):
-		push_error(
-			"queued-order label should be active-player readable, got: %s" % queue_label.text
-		)
+	elif queue_label != null and queue_label.visible:
+		push_error("queued-order count label should stay hidden; previews are the primary queue UX")
 		ok = false
 	_free_mode(mode)
 	return ok
@@ -690,6 +696,88 @@ func _test_selected_and_friendly_action_previews() -> bool:
 		return false
 	_free_mode(mode)
 	return true
+
+
+func _test_shift_click_routes_future_orders() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	if worker_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected to select a P0 worker")
+		_free_mode(mode)
+		return false
+	var card: Control = mode.command_card()
+	if card == null:
+		push_error("expected command card")
+		_free_mode(mode)
+		return false
+	if _find_check_box_with_substring(card, "Queue") != null:
+		push_error("command card should not expose a Queue toggle; use Shift-click instead")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(13, 22)):
+		push_error("expected first queued move")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(13, 25), true):
+		push_error("expected Shift-click move to become future order")
+		_free_mode(mode)
+		return false
+	var renderer: MatchRenderer = mode.renderer()
+	var ok: bool = true
+	if mode.input_model().submit_for_player(0).orders.size() != 1:
+		push_error("Shift-click queueing should keep one current order")
+		ok = false
+	if mode.input_model().future_order_count_for_entity(worker_id) != 1:
+		push_error("Shift-click should append a future order")
+		ok = false
+	if mode.input_model().queue_modifier_active():
+		push_error("Shift-click queue modifier should be one-shot")
+		ok = false
+	if renderer != null and renderer.action_preview_count() != 2:
+		push_error("selected previews should include current and future orders")
+		ok = false
+	elif renderer != null:
+		var preview_root: Node2D = renderer.get_node_or_null("Overlays/ActionPreviews") as Node2D
+		var future_preview: Node = (
+			preview_root.get_child(1)
+			if preview_root != null and preview_root.get_child_count() > 1
+			else null
+		)
+		var future_line: Line2D = (
+			future_preview.get_child(0) as Line2D if future_preview != null else null
+		)
+		var expected_future_start: Vector2 = Vector2(13.5, 22.5) * 32.0
+		if (
+			future_line == null
+			or future_line.points.size() < 2
+			or future_line.points[0].distance_to(expected_future_start) > 0.5
+		):
+			push_error(
+				(
+					"future queued move preview should start at previous move destination, got %s"
+					% str(future_line)
+				)
+			)
+			ok = false
+	mode.set_active_player_id(1)
+	if mode.input_model().queue_modifier_active():
+		push_error("queue modifier should stay inactive when switching active player")
+		ok = false
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		push_error("scenario reload should succeed")
+		ok = false
+	elif mode.input_model().queue_modifier_active():
+		push_error("queue modifier should stay inactive on scenario reload")
+		ok = false
+	_free_mode(mode)
+	return ok
 
 
 func _test_pending_build_updates_placement_preview() -> bool:
@@ -1020,8 +1108,8 @@ func _test_left_drag_pans_camera() -> bool:
 		return false
 	var original_position: Vector2 = camera.position
 	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, Vector2(8.0, 8.0)))
-	mode.call("_unhandled_input", _mouse_motion(Vector2(96.0, 0.0), MOUSE_BUTTON_MASK_LEFT))
-	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, Vector2(104.0, 8.0)))
+	mode.call("_unhandled_input", _mouse_motion(Vector2(0.0, 96.0), MOUSE_BUTTON_MASK_LEFT))
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, Vector2(8.0, 104.0)))
 	var ok := true
 	if camera.position == original_position:
 		push_error("left-dragging empty map space should pan the camera")
@@ -1067,7 +1155,7 @@ func _test_hud_anchors_away_from_start_area() -> bool:
 	return ok
 
 
-func _test_focuses_active_player_on_switch() -> bool:
+func _test_switching_player_keeps_camera_bounded() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
 		return false
@@ -1089,22 +1177,64 @@ func _test_focuses_active_player_on_switch() -> bool:
 		push_error("renderer has no Camera2D")
 		_free_mode(mode)
 		return false
-	var p0_position: Vector2 = camera.position
+	var ok: bool = _camera_visible_rect_inside_state(
+		camera, mode.current_state(), "P0 player focus"
+	)
 	mode.set_active_player_id(1)
-	var p1_position: Vector2 = camera.position
-	var ok := true
-	if p0_position.distance_to(p1_position) < 128.0:
-		push_error(
-			(
-				"switching player should refocus camera; positions were %s and %s"
-				% [str(p0_position), str(p1_position)]
-			)
-		)
-		ok = false
+	ok = _camera_visible_rect_inside_state(camera, mode.current_state(), "P1 player focus") and ok
 	if renderer.call("perspective_player_id") != 1:
 		push_error("switching player should still update renderer perspective")
 		ok = false
 	_free_mode(mode)
+	return ok
+
+
+func _test_tile_size() -> float:
+	var tunables: Tunables = load(TUNABLES_PATH) as Tunables
+	if tunables == null:
+		return 32.0
+	return float(tunables.tile_pixel_size)
+
+
+func _camera_visible_rect_inside_state(
+	camera: Camera2D, state: MatchState, context: String
+) -> bool:
+	if state == null or state.tile_grid == null:
+		push_error("camera bounds check requires a loaded tile grid")
+		return false
+	var viewport: Viewport = camera.get_viewport()
+	var viewport_size: Vector2 = (
+		viewport.get_visible_rect().size if viewport != null else Vector2.ZERO
+	)
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		viewport_size = Vector2(
+			float(ProjectSettings.get_setting("display/window/size/viewport_width", 1920.0)),
+			float(ProjectSettings.get_setting("display/window/size/viewport_height", 1080.0))
+		)
+	var safe_zoom_x: float = maxf(camera.zoom.x, 0.01)
+	var safe_zoom_y: float = maxf(camera.zoom.y, 0.01)
+	var visible_size: Vector2 = Vector2(
+		viewport_size.x / safe_zoom_x, viewport_size.y / safe_zoom_y
+	)
+	var visible: Rect2 = Rect2(camera.position - visible_size * 0.5, visible_size)
+	var tile_size: float = _test_tile_size()
+	var map_bounds: Rect2 = Rect2(
+		Vector2.ZERO, Vector2(state.tile_grid.width * tile_size, state.tile_grid.height * tile_size)
+	)
+	var epsilon: float = 0.01
+	var ok: bool = (
+		visible.position.x >= map_bounds.position.x - epsilon
+		and visible.position.y >= map_bounds.position.y - epsilon
+		and visible.end.x <= map_bounds.end.x + epsilon
+		and visible.end.y <= map_bounds.end.y + epsilon
+	)
+	if not ok:
+		push_error(
+			(
+				"camera visible rect escaped map after %s: visible=%s map=%s zoom=%s"
+				% [context, str(visible), str(map_bounds), str(camera.zoom)]
+			)
+		)
 	return ok
 
 
@@ -1257,6 +1387,20 @@ func _find_button_with_substring(root: Node, needle: String) -> Button:
 			return button
 	for child in root.get_children():
 		var found: Button = _find_button_with_substring(child, needle)
+		if found != null:
+			return found
+	return null
+
+
+func _find_check_box_with_substring(root: Node, needle: String) -> CheckBox:
+	if root == null:
+		return null
+	if root is CheckBox:
+		var check_box: CheckBox = root as CheckBox
+		if check_box.text.find(needle) != -1:
+			return check_box
+	for child in root.get_children():
+		var found: CheckBox = _find_check_box_with_substring(child, needle)
 		if found != null:
 			return found
 	return null

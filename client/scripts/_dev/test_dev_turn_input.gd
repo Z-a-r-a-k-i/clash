@@ -51,6 +51,23 @@ func _all_tests() -> Array:
 			"dev_input_non_move_command_replaces_requeued_move_assist",
 			_test_non_move_command_replaces_requeued_move_assist
 		],
+		[
+			"dev_input_queue_modifier_appends_future_orders",
+			_test_queue_modifier_appends_future_orders
+		],
+		[
+			"dev_input_normal_order_replaces_current_and_future",
+			_test_normal_order_replaces_current_and_future
+		],
+		[
+			"dev_input_cancel_removes_future_before_current",
+			_test_cancel_removes_future_before_current
+		],
+		["dev_input_promotes_future_order_when_ready", _test_promotes_future_order_when_ready],
+		[
+			"dev_input_waits_to_promote_future_order_while_gathering",
+			_test_waits_to_promote_future_order_while_gathering
+		],
 		["dev_input_queues_build_train_and_research", _test_queues_build_train_research],
 		[
 			"dev_input_snaps_refinery_build_to_geyser_origin",
@@ -195,13 +212,10 @@ func _test_replaces_duplicate_move_and_target() -> bool:
 		push_error("expected second target to replace first")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
-	if orders.size() != 2:
-		push_error("expected one MOVE and one ATTACK after replacement, got %d" % orders.size())
+	if orders.size() != 1:
+		push_error("expected latest normal command to replace prior orders, got %d" % orders.size())
 		return false
-	return (
-		_expect_order(orders[0], EntityOrder.Type.MOVE, 5, Vector2i(8, 8), -1, [])
-		and _expect_order(orders[1], EntityOrder.Type.ATTACK, 5, Vector2i.ZERO, -1, [8])
-	)
+	return _expect_order(orders[0], EntityOrder.Type.ATTACK, 5, Vector2i.ZERO, -1, [8])
 
 
 func _test_queues_gather() -> bool:
@@ -380,6 +394,154 @@ func _test_non_move_command_replaces_requeued_move_assist() -> bool:
 		push_error("non-move command should remove assisted move, got %d orders" % orders.size())
 		return false
 	return _expect_order(orders[0], EntityOrder.Type.GATHER, 1, Vector2i.ZERO, 3, [])
+
+
+func _test_queue_modifier_appends_future_orders() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.issue_move(Vector2i(6, 6)):
+		push_error("expected first command to queue for this turn")
+		return false
+	input.set_queue_modifier_active(true)
+	if not input.issue_move_only(Vector2i(8, 8)):
+		push_error("expected queue-modified command to append as future order")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("queue modifier should keep one current order, got %d" % orders.size())
+		return false
+	if input.future_order_count_for_entity(5) != 1:
+		push_error("queue modifier should append one future order")
+		return false
+	var future: Array[EntityOrder] = input.future_orders_for_entity(5)
+	return (
+		_expect_order(orders[0], EntityOrder.Type.MOVE, 5, Vector2i(6, 6), -1, [])
+		and _expect_order(future[0], EntityOrder.Type.MOVE_ONLY, 5, Vector2i(8, 8), -1, [])
+	)
+
+
+func _test_normal_order_replaces_current_and_future() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	input.issue_move(Vector2i(6, 6))
+	input.set_queue_modifier_active(true)
+	input.issue_move_only(Vector2i(8, 8))
+	if not input.issue_move(Vector2i(9, 9)):
+		push_error("expected normal command after future queue to queue")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("normal command should replace current order, got %d orders" % orders.size())
+		return false
+	if input.future_order_count_for_entity(5) != 0:
+		push_error("normal command should clear future orders")
+		return false
+	return _expect_order(orders[0], EntityOrder.Type.MOVE, 5, Vector2i(9, 9), -1, [])
+
+
+func _test_cancel_removes_future_before_current() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	input.issue_move(Vector2i(6, 6))
+	input.set_queue_modifier_active(true)
+	input.issue_move_only(Vector2i(8, 8))
+	if not input.issue_cancel():
+		push_error("first cancel should remove future order")
+		return false
+	if input.future_order_count_for_entity(5) != 0:
+		push_error("first cancel should clear the future queue")
+		return false
+	if input.submit_for_player(0).orders.size() != 1:
+		push_error("first cancel should leave current order intact")
+		return false
+	if not input.issue_cancel():
+		push_error("second cancel should remove current order")
+		return false
+	return input.submit_for_player(0).orders.is_empty()
+
+
+func _test_promotes_future_order_when_ready() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	setup.state.get_player(0).minerals = 200
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	if not input.issue_build("barracks", Vector2i(6, 6)):
+		push_error("expected BUILD to queue as current order")
+		return false
+	input.set_queue_modifier_active(true)
+	if not input.issue_gather(3):
+		push_error("expected GATHER to queue as future order behind BUILD")
+		return false
+	var worker: Entity = setup.state.get_entity_by_id(1)
+	worker.locked_to_building_id = 42
+	input.clear_submissions(false, false)
+	input.promote_future_orders_for_next_turn()
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("future GATHER should wait while worker is locked")
+		return false
+	worker.locked_to_building_id = -1
+	input.promote_future_orders_for_next_turn()
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("future GATHER should promote when worker is free, got %d" % orders.size())
+		return false
+	if input.future_order_count_for_entity(1) != 0:
+		push_error("promoted future order should be removed from future queue")
+		return false
+	return _expect_order(orders[0], EntityOrder.Type.GATHER, 1, Vector2i.ZERO, 3, [])
+
+
+func _test_waits_to_promote_future_order_while_gathering() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(1)
+	if not input.issue_gather(3):
+		push_error("expected GATHER to queue as current order")
+		return false
+	input.set_queue_modifier_active(true)
+	if not input.issue_move(Vector2i(8, 8)):
+		push_error("expected MOVE to queue as future order behind GATHER")
+		return false
+	var worker: Entity = setup.state.get_entity_by_id(1)
+	worker.gather_state.phase = GatherState.Phase.GATHERING
+	input.clear_submissions(false, false)
+	input.promote_future_orders_for_next_turn()
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("future MOVE should wait while worker is actively gathering")
+		return false
+	if input.future_order_count_for_entity(1) != 1:
+		push_error("future MOVE should remain queued while worker is gathering")
+		return false
+	worker.gather_state.phase = GatherState.Phase.IDLE
+	input.promote_future_orders_for_next_turn()
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("future MOVE should promote once worker is idle, got %d" % orders.size())
+		return false
+	return _expect_order(orders[0], EntityOrder.Type.MOVE, 1, Vector2i(8, 8), -1, [])
 
 
 func _test_queues_build_train_research() -> bool:

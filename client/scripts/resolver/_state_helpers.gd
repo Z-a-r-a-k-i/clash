@@ -515,6 +515,7 @@ static func _handle_train_order(
 		):
 			_emit_order_rejected(order.entity_id, "not_in_produces", events)
 			return
+	entity.production_state.repeat_train_def_id = order.def_id
 	(
 		entity
 		. production_state

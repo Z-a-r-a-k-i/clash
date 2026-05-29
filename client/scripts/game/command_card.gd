@@ -11,6 +11,7 @@ signal train_requested(def_id: String)
 signal research_requested(def_id: String)
 signal ability_requested(def_id: String)
 signal cancel_requested(cancel_index: int)
+signal repeat_train_toggled(enabled: bool)
 
 const DEV_FONT_SIZE := 18
 const DEV_BUTTON_MIN_HEIGHT := 34.0
@@ -22,6 +23,7 @@ var _target_button: Button = null
 var _halt_on_sight_button: Button = null
 var _gather_button: Button = null
 var _cancel_button: Button = null
+var _repeat_train_toggle: CheckBox = null
 var _action_row: HBoxContainer = null
 var _state_row: HBoxContainer = null
 var _build_list: VBoxContainer = null
@@ -33,6 +35,7 @@ var _build_options: Array[Dictionary] = []
 var _train_options: Array[Dictionary] = []
 var _research_options: Array[Dictionary] = []
 var _ability_options: Array[Dictionary] = []
+var _repeat_train_enabled: bool = false
 
 
 func _ready() -> void:
@@ -51,10 +54,13 @@ func set_command_state(
 	train_options: Array[Dictionary],
 	research_options: Array[Dictionary],
 	ability_options: Array[Dictionary],
-	can_cancel: bool
+	can_cancel: bool,
+	can_repeat_train: bool = false,
+	repeat_train_enabled: bool = false
 ) -> void:
 	_ensure_ui()
 	_halt_on_sight_enabled = halt_on_sight_enabled
+	_repeat_train_enabled = repeat_train_enabled
 	_build_options = _copy_options(build_options)
 	_train_options = _copy_options(train_options)
 	_research_options = _copy_options(research_options)
@@ -75,12 +81,14 @@ func set_command_state(
 	_gather_button.disabled = false
 	_cancel_button.visible = can_cancel
 	_cancel_button.disabled = false
+	_repeat_train_toggle.visible = can_repeat_train
+	_repeat_train_toggle.set_pressed_no_signal(repeat_train_enabled)
 	_rebuild_option_buttons(_build_list, _build_options, build_requested)
 	_rebuild_option_buttons(_train_list, _train_options, train_requested)
 	_rebuild_option_buttons(_research_list, _research_options, research_requested)
 	_rebuild_option_buttons(_ability_list, _ability_options, ability_requested)
 	_action_row.visible = can_move or can_move_only or can_gather
-	_state_row.visible = can_target or can_halt_on_sight or can_cancel
+	_state_row.visible = can_target or can_halt_on_sight or can_cancel or can_repeat_train
 	visible = (
 		_action_row.visible
 		or _state_row.visible
@@ -152,6 +160,12 @@ func _ensure_ui() -> void:
 	_cancel_button.pressed.connect(func() -> void: cancel_requested.emit(-1))
 	_state_row.add_child(_cancel_button)
 
+	_repeat_train_toggle = _toggle("Repeat Train")
+	_repeat_train_toggle.toggled.connect(
+		func(enabled: bool) -> void: repeat_train_toggled.emit(enabled)
+	)
+	_state_row.add_child(_repeat_train_toggle)
+
 	_build_list = _section("Build")
 	add_child(_build_list)
 	_train_list = _section("Train")
@@ -179,6 +193,15 @@ func _button(text: String) -> Button:
 	button.custom_minimum_size = Vector2(0.0, DEV_BUTTON_MIN_HEIGHT)
 	button.add_theme_font_size_override("font_size", DEV_FONT_SIZE)
 	return button
+
+
+func _toggle(text: String) -> CheckBox:
+	var toggle: CheckBox = CheckBox.new()
+	toggle.text = text
+	toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	toggle.custom_minimum_size = Vector2(0.0, DEV_BUTTON_MIN_HEIGHT)
+	toggle.add_theme_font_size_override("font_size", DEV_FONT_SIZE)
+	return toggle
 
 
 func _rebuild_option_buttons(

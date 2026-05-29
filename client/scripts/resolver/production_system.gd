@@ -64,7 +64,10 @@ static func try_fill_active_slots(
 			continue
 		if not entity.production_state.active.is_empty():
 			continue
-		if entity.production_state.queue.is_empty():
+		if (
+			entity.production_state.queue.is_empty()
+			and not _has_repeat_train_head(entity.production_state)
+		):
 			continue
 		_try_fill_one(state, registry, entity, events)
 
@@ -75,21 +78,33 @@ static func try_fill_active_slots(
 static func _try_fill_one(
 	state: MatchState, registry: EntityRegistry, producer: Entity, events: Array[ResolverEvent]
 ) -> void:
-	var head: Dictionary = producer.production_state.queue[0]
+	var using_repeat: bool = producer.production_state.queue.is_empty()
+	var head: Dictionary = (
+		_repeat_train_head(producer.production_state)
+		if using_repeat
+		else producer.production_state.queue[0]
+	)
 	var def_id: String = head.get(ProductionState.KEY_DEF_ID, "")
 	var kind: String = head.get(ProductionState.KEY_KIND, "")
 	var costs := _lookup_costs(registry, def_id, kind)
 	if costs.is_empty():
 		# Bad def reference — drop the queue item; misconfigured data
 		# shouldn't deadlock the producer.
-		producer.production_state.queue.pop_front()
+		if using_repeat:
+			producer.production_state.repeat_train_enabled = false
+			producer.production_state.repeat_train_def_id = ""
+		else:
+			producer.production_state.queue.pop_front()
 		push_warning(
 			"ProductionSystem: queue item %s/%s has no resolvable cost; dropping." % [def_id, kind]
 		)
 		return
 	var player := state.get_player(producer.owner_player_id)
 	if player == null:
-		producer.production_state.queue.pop_front()
+		if using_repeat:
+			producer.production_state.repeat_train_enabled = false
+		else:
+			producer.production_state.queue.pop_front()
 		return
 	var stall_mask := _compute_stall_mask(player, costs)
 	if stall_mask != 0:
@@ -107,7 +122,8 @@ static func _try_fill_one(
 		ProductionState.KEY_PAID_GAS: costs["gas"] as int,
 		ProductionState.KEY_PAID_POP: costs["pop"] as int,
 	}
-	producer.production_state.queue.pop_front()
+	if not using_repeat:
+		producer.production_state.queue.pop_front()
 	var ev := ResolverEvent.new()
 	if kind == ProductionState.KIND_RESEARCH:
 		ev.type = ResolverEvent.Type.RESEARCH_STARTED
@@ -116,6 +132,23 @@ static func _try_fill_one(
 	ev.actor_id = producer.id
 	ev.def_id = def_id
 	events.append(ev)
+
+
+static func _has_repeat_train_head(production_state: ProductionState) -> bool:
+	return (
+		production_state != null
+		and production_state.repeat_train_enabled
+		and production_state.repeat_train_def_id != ""
+	)
+
+
+static func _repeat_train_head(production_state: ProductionState) -> Dictionary:
+	if not _has_repeat_train_head(production_state):
+		return {}
+	return {
+		ProductionState.KEY_DEF_ID: production_state.repeat_train_def_id,
+		ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
+	}
 
 
 # Returns {minerals, gas, pop, time} for the queue item, or empty Dict
