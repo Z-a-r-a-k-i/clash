@@ -68,6 +68,10 @@ func _all_tests() -> Array:
 		["moving_unit_pass_through", _test_moving_unit_pass_through],
 		["simultaneous_swap", _test_simultaneous_swap],
 		["transitive_conflict_keeps_survivor", _test_transitive_conflict_keeps_survivor],
+		[
+			"equal_distance_chain_keeps_non_overlapping_survivors",
+			_test_equal_distance_chain_keeps_non_overlapping_survivors
+		],
 		["equidistant_same_target_tie_stops", _test_equidistant_same_target_tie_stops],
 		[
 			"pathfinding_goal_range_distances_ignore_satisfied_range",
@@ -914,6 +918,41 @@ func _test_transitive_conflict_keeps_survivor() -> bool:
 		push_error(
 			"non-overlapping transitive mover should still advance, got %s" % new_survivor.origin
 		)
+		return false
+	return true
+
+
+func _test_equal_distance_chain_keeps_non_overlapping_survivors() -> bool:
+	var registry: EntityRegistry = EntityRegistry.new()
+	var wide: EntityDef = _def_with_movement("wide", Vector2i(2, 1), ["ground"], 50, 1)
+	registry.entities = [wide]
+	var state: MatchState = _state_with_grid(8, 4)
+	var left: Entity = _make_entity(state, "wide", 0, Vector2i(2, 1), 50, "ground")
+	var bridge: Entity = _make_entity(state, "wide", 0, Vector2i(4, 2), 50, "ground")
+	var right: Entity = _make_entity(state, "wide", 0, Vector2i(5, 0), 50, "ground")
+	state.tile_grid.place(left.id, Rect2i(Vector2i(2, 1), Vector2i(2, 1)))
+	state.tile_grid.place(bridge.id, Rect2i(Vector2i(4, 2), Vector2i(2, 1)))
+	state.tile_grid.place(right.id, Rect2i(Vector2i(5, 0), Vector2i(2, 1)))
+
+	var orders: Array[EntityOrder] = [
+		_move_order(left.id, EntityOrder.Type.MOVE, Vector2i(3, 1)),
+		_move_order(bridge.id, EntityOrder.Type.MOVE, Vector2i(4, 1)),
+		_move_order(right.id, EntityOrder.Type.MOVE, Vector2i(5, 1)),
+	]
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit(orders), _submit([]), registry, null
+	)
+	var new_left: Entity = result.new_state.get_entity_by_id(left.id)
+	var new_bridge: Entity = result.new_state.get_entity_by_id(bridge.id)
+	var new_right: Entity = result.new_state.get_entity_by_id(right.id)
+	if new_left.origin != Vector2i(3, 1):
+		push_error("left non-overlapping tie survivor should advance, got %s" % new_left.origin)
+		return false
+	if new_bridge.origin != Vector2i(4, 2):
+		push_error("bridge tie mover should stop, got %s" % new_bridge.origin)
+		return false
+	if new_right.origin != Vector2i(5, 1):
+		push_error("right non-overlapping tie survivor should advance, got %s" % new_right.origin)
 		return false
 	return true
 
@@ -4340,6 +4379,7 @@ func _test_build_refinery_on_geyser_overlap_allowed() -> bool:
 	var worker := _make_entity(state, "worker", 0, Vector2i(9, 5), 50, "ground")
 	state.tile_grid.place(worker.id, Rect2i(9, 5, 1, 1))
 	var geyser := _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
+	geyser.current_def_id = ""
 	geyser.current_resource_amount = -1
 	state.tile_grid.place(geyser.id, Rect2i(10, 5, 2, 2))
 

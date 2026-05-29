@@ -345,19 +345,93 @@ static func _target_conflict_result(remaining: Dictionary) -> Dictionary:
 			var single_winner_ids: Array[int] = [winner_id]
 			_mark_direct_conflict_losers(single_winner_ids, component, remaining, losers)
 		else:
-			var tied_min_ids: Array[int] = []
-			var winner_ids: Array[int] = []
-			for entity_id in min_ids:
-				if _has_direct_conflict_with_any(entity_id, min_ids, remaining):
-					tied_min_ids.append(entity_id)
-				else:
-					winner_ids.append(entity_id)
-			_mark_direct_conflict_losers(winner_ids, component, remaining, losers)
-			for entity_id in tied_min_ids:
-				losers[entity_id] = true
-			_mark_direct_conflict_losers(tied_min_ids, component, remaining, losers)
-			_mark_completed_same_target_tie_groups(tied_min_ids, remaining, completed)
+			_process_equal_distance_minima(min_ids, component, remaining, losers, completed)
 	return {"losers": losers, "completed": completed}
+
+
+static func _process_equal_distance_minima(
+	min_ids: Array[int],
+	component: Array[int],
+	remaining: Dictionary,
+	losers: Dictionary,
+	completed: Dictionary
+) -> void:
+	var visited: Dictionary = {}
+	for start_id in min_ids:
+		if visited.has(start_id):
+			continue
+		var group: Array[int] = _min_conflict_group(start_id, min_ids, remaining)
+		for entity_id in group:
+			visited[entity_id] = true
+		if group.size() <= 1:
+			_mark_direct_conflict_losers(group, component, remaining, losers)
+			continue
+		var winner_ids: Array[int] = _non_conflicting_min_winners(group, remaining)
+		if winner_ids.size() <= 1:
+			for entity_id in group:
+				losers[entity_id] = true
+			_mark_direct_conflict_losers(group, component, remaining, losers)
+			_mark_completed_same_target_tie_groups(group, remaining, completed)
+			continue
+		_mark_direct_conflict_losers(winner_ids, component, remaining, losers)
+		for entity_id in group:
+			if not winner_ids.has(entity_id):
+				losers[entity_id] = true
+
+
+static func _min_conflict_group(
+	start_id: int, candidate_ids: Array[int], remaining: Dictionary
+) -> Array[int]:
+	var group: Array[int] = []
+	var queue: Array[int] = [start_id]
+	var seen: Dictionary = {start_id: true}
+	while not queue.is_empty():
+		var current_id: int = queue.pop_front()
+		group.append(current_id)
+		for other_id in candidate_ids:
+			if seen.has(other_id):
+				continue
+			if _proposals_directly_conflict(current_id, other_id, remaining):
+				seen[other_id] = true
+				queue.append(other_id)
+	group.sort()
+	return group
+
+
+static func _non_conflicting_min_winners(group: Array[int], remaining: Dictionary) -> Array[int]:
+	var candidates: Array[int] = group.duplicate()
+	var winners: Array[int] = []
+	while not candidates.is_empty():
+		var best_id: int = candidates[0]
+		var best_degree: int = _min_conflict_degree(best_id, candidates, remaining)
+		for candidate_id in candidates:
+			var degree: int = _min_conflict_degree(candidate_id, candidates, remaining)
+			if degree < best_degree or (degree == best_degree and candidate_id < best_id):
+				best_id = candidate_id
+				best_degree = degree
+		winners.append(best_id)
+		var next_candidates: Array[int] = []
+		for candidate_id in candidates:
+			if candidate_id == best_id:
+				continue
+			if not _proposals_directly_conflict(best_id, candidate_id, remaining):
+				next_candidates.append(candidate_id)
+		candidates = next_candidates
+	winners.sort()
+	return winners
+
+
+static func _min_conflict_degree(
+	entity_id: int, candidate_ids: Array[int], remaining: Dictionary
+) -> int:
+	var degree: int = 0
+	for candidate_id in candidate_ids:
+		if (
+			candidate_id != entity_id
+			and _proposals_directly_conflict(entity_id, candidate_id, remaining)
+		):
+			degree += 1
+	return degree
 
 
 static func _mark_direct_conflict_losers(

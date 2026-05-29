@@ -396,12 +396,20 @@ static func _find_target_at_tile(
 		var occupant: Entity = state.get_entity_by_id(occupant_id)
 		if occupant == null:
 			continue
-		var def: EntityDef = registry.get_by_id(occupant.current_def_id)
+		var def: EntityDef = registry.get_by_id(_effective_def_id(occupant))
 		if def != null and def.tags.has(tag):
 			matching_ids.append(occupant.id)
 	if matching_ids.size() != 1:
 		return -1
 	return matching_ids[0]
+
+
+static func _effective_def_id(entity: Entity) -> String:
+	if entity == null:
+		return ""
+	if entity.current_def_id != "":
+		return entity.current_def_id
+	return entity.def_id
 
 
 # RESEARCH handler — appends a queue declaration on the producer's
