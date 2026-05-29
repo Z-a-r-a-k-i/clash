@@ -11,6 +11,7 @@ extends Node
 
 const MATCH_SCENE_PATH := "res://scenes/match.tscn"
 const ENTITY_VIEW_SCENE_PATH := "res://scenes/entity_view.tscn"
+const TUNABLES_PATH := "res://data/tunables.tres"
 
 
 func _enter_tree() -> void:
@@ -673,6 +674,13 @@ func _renderer_registry() -> EntityRegistry:
 	return registry
 
 
+func _test_tile_size() -> float:
+	var tunables: Tunables = load(TUNABLES_PATH) as Tunables
+	if tunables == null:
+		return 32.0
+	return float(tunables.tile_pixel_size)
+
+
 static func _approximately_equal(a: Vector2, b: Vector2) -> bool:
 	return absf(a.x - b.x) < 0.5 and absf(a.y - b.y) < 0.5
 
@@ -685,8 +693,9 @@ func _camera_visible_rect_inside_map(camera: Camera2D, state: MatchState, contex
 	var safe_zoom: float = maxf(camera.zoom.x, 0.01)
 	var visible_size: Vector2 = viewport_size / safe_zoom
 	var visible: Rect2 = Rect2(camera.position - visible_size * 0.5, visible_size)
+	var tile_size: float = _test_tile_size()
 	var map_bounds: Rect2 = Rect2(
-		Vector2.ZERO, Vector2(state.tile_grid.width * 32.0, state.tile_grid.height * 32.0)
+		Vector2.ZERO, Vector2(state.tile_grid.width * tile_size, state.tile_grid.height * tile_size)
 	)
 	var epsilon: float = 0.01
 	var ok: bool = (
@@ -1454,7 +1463,7 @@ func _test_action_previews() -> bool:
 	var preview_line: Line2D = (
 		preview_group.get_child(0) as Line2D if preview_group != null else null
 	)
-	var expected_start: Vector2 = Vector2(3.5, 1.5) * 32.0
+	var expected_start: Vector2 = Vector2(3.5, 1.5) * _test_tile_size()
 	if (
 		preview_line == null
 		or preview_line.points.size() < 2
@@ -2208,4 +2217,17 @@ func _test_camera_clamps_to_map_bounds() -> bool:
 	renderer.call("zoom_camera", 0.01)
 	ok = _camera_visible_rect_inside_map(camera, state, "max zoom-out") and ok
 	_free_renderer(renderer)
+	var small_state: MatchState = _make_renderer_state(
+		[{"def_id": "worker", "owner": 0, "origin": Vector2i.ZERO}], 5, 5
+	)
+	var small_renderer: MatchRenderer = _make_renderer()
+	small_renderer.bind_state(small_state, registry)
+	var small_camera: Camera2D = small_renderer.get_node_or_null("Camera2D") as Camera2D
+	if small_camera == null:
+		push_error("small-map renderer has no Camera2D")
+		_free_renderer(small_renderer)
+		return false
+	small_renderer.call("zoom_camera", 0.01)
+	ok = _camera_visible_rect_inside_map(small_camera, small_state, "tiny map max zoom-out") and ok
+	_free_renderer(small_renderer)
 	return ok

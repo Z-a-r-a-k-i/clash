@@ -5,6 +5,7 @@ const DEV_PLAY_MODE_PATH := "res://scripts/_dev/dev_play_mode.gd"
 const COMMAND_CARD_PATH := "res://scripts/game/command_card.gd"
 const COMBAT_SCENARIO_PATH := "res://data/scenarios/combat_marines_vs_tanks.tres"
 const MVP_SCENARIO_PATH := "res://data/scenarios/mvp_map.tres"
+const TUNABLES_PATH := "res://data/tunables.tres"
 
 
 func _enter_tree() -> void:
@@ -1188,21 +1189,37 @@ func _test_switching_player_keeps_camera_bounded() -> bool:
 	return ok
 
 
+func _test_tile_size() -> float:
+	var tunables: Tunables = load(TUNABLES_PATH) as Tunables
+	if tunables == null:
+		return 32.0
+	return float(tunables.tile_pixel_size)
+
+
 func _camera_visible_rect_inside_state(
 	camera: Camera2D, state: MatchState, context: String
 ) -> bool:
 	if state == null or state.tile_grid == null:
 		push_error("camera bounds check requires a loaded tile grid")
 		return false
-	var viewport_size: Vector2 = Vector2(
-		float(ProjectSettings.get_setting("display/window/size/viewport_width", 1920.0)),
-		float(ProjectSettings.get_setting("display/window/size/viewport_height", 1080.0))
+	var viewport: Viewport = camera.get_viewport()
+	var viewport_size: Vector2 = (
+		viewport.get_visible_rect().size if viewport != null else Vector2.ZERO
 	)
-	var safe_zoom: float = maxf(camera.zoom.x, 0.01)
-	var visible_size: Vector2 = viewport_size / safe_zoom
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		viewport_size = Vector2(
+			float(ProjectSettings.get_setting("display/window/size/viewport_width", 1920.0)),
+			float(ProjectSettings.get_setting("display/window/size/viewport_height", 1080.0))
+		)
+	var safe_zoom_x: float = maxf(camera.zoom.x, 0.01)
+	var safe_zoom_y: float = maxf(camera.zoom.y, 0.01)
+	var visible_size: Vector2 = Vector2(
+		viewport_size.x / safe_zoom_x, viewport_size.y / safe_zoom_y
+	)
 	var visible: Rect2 = Rect2(camera.position - visible_size * 0.5, visible_size)
+	var tile_size: float = _test_tile_size()
 	var map_bounds: Rect2 = Rect2(
-		Vector2.ZERO, Vector2(state.tile_grid.width * 32.0, state.tile_grid.height * 32.0)
+		Vector2.ZERO, Vector2(state.tile_grid.width * tile_size, state.tile_grid.height * tile_size)
 	)
 	var epsilon: float = 0.01
 	var ok: bool = (

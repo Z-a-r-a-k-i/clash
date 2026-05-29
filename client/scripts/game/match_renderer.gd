@@ -900,7 +900,9 @@ func _camera_fit_viewport_size() -> Vector2:
 func _set_camera_zoom(value: float) -> void:
 	if _camera == null:
 		return
-	var zoom: float = clampf(value, _camera_min_zoom_for_map(), _MAX_CAMERA_ZOOM)
+	var min_zoom: float = _camera_min_zoom_for_map()
+	var max_zoom: float = maxf(_MAX_CAMERA_ZOOM, min_zoom)
+	var zoom: float = clampf(value, min_zoom, max_zoom)
 	_camera.zoom = Vector2.ONE * zoom
 	_clamp_camera_to_map_bounds()
 	_update_zoom_debug_readout()
@@ -914,7 +916,7 @@ func _camera_min_zoom_for_map() -> float:
 	var viewport_size: Vector2 = _camera_fit_viewport_size()
 	min_zoom = maxf(min_zoom, viewport_size.x / map_bounds.size.x)
 	min_zoom = maxf(min_zoom, viewport_size.y / map_bounds.size.y)
-	return minf(min_zoom, _MAX_CAMERA_ZOOM)
+	return min_zoom
 
 
 func _clamp_camera_to_map_bounds() -> void:
