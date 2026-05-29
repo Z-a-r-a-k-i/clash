@@ -54,6 +54,10 @@ func _all_tests() -> Array:
 		["move_to_blocked_rejected", _test_move_to_blocked_rejected],
 		["move_does_not_self_collide", _test_move_does_not_self_collide],
 		["move_batch_allows_swaps", _test_move_batch_allows_swaps],
+		[
+			"move_batch_preserves_overlapping_occupants",
+			_test_move_batch_preserves_overlapping_occupants
+		],
 		["distance_overlap_zero", _test_distance_overlap_zero],
 		["distance_adjacent_diagonal_one", _test_distance_adjacent_diagonal],
 		["distance_adjacent_orthogonal_one", _test_distance_adjacent_orthogonal],
@@ -176,6 +180,29 @@ func _test_move_batch_allows_swaps() -> bool:
 	if not ok:
 		push_error("move_batch swap should update entity rects and tile occupancy")
 	return ok
+
+
+func _test_move_batch_preserves_overlapping_occupants() -> bool:
+	var g := TileGrid.new(5, 5)
+	g.place(1, Rect2i(1, 1, 1, 1))
+	g.place(2, Rect2i(2, 1, 1, 1))
+	if not g.has_method("entities_at"):
+		push_error("TileGrid should expose entities_at for overlapping occupancy queries")
+		return false
+	var moves: Dictionary = {
+		1: Vector2i(3, 1),
+		2: Vector2i(3, 1),
+	}
+	if not g.call("move_batch", moves, true):
+		push_error("move_batch should allow overlapping commits when requested")
+		return false
+	var occupants: Array = g.call("entities_at", Vector2i(3, 1))
+	if occupants != [1, 2]:
+		push_error("overlapping move_batch should preserve both occupants, got %s" % occupants)
+		return false
+	return (
+		g.entity_rect(1).position == Vector2i(3, 1) and g.entity_rect(2).position == Vector2i(3, 1)
+	)
 
 
 # ---------- Distance / adjacency ----------

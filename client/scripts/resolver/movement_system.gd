@@ -475,6 +475,17 @@ static func _commit_proposal(
 		var source: Entity = state.get_entity_by_id(intent.get("target_entity_id", -1))
 		if source != null and GatherSystem._is_adjacent_to(state, actor, source):
 			actor.gather_state.phase = GatherState.Phase.GATHERING
+	elif (
+		kind == "move"
+		and intent.get("exact_origin", true)
+		and to_origin == intent.get("target_origin", to_origin)
+	):
+		var complete_ev := ResolverEvent.new()
+		complete_ev.type = ResolverEvent.Type.MOVE_COMPLETED
+		complete_ev.actor_id = actor.id
+		complete_ev.from_origin = from_origin
+		complete_ev.to_origin = to_origin
+		events.append(complete_ev)
 	elif kind == "construction":
 		var building: Entity = state.get_entity_by_id(intent.get("target_entity_id", -1))
 		if building == null or building.current_hp <= 0 or not building.is_constructing:

@@ -75,6 +75,14 @@ func _all_tests() -> Array:
 		],
 		["dev_play_mode_shift_click_routes_future_orders", _test_shift_click_routes_future_orders],
 		[
+			"dev_play_mode_shift_click_routes_future_gather_and_build_orders",
+			_test_shift_click_routes_future_gather_and_build_orders
+		],
+		[
+			"dev_play_mode_halt_on_sight_move_preview_does_not_route",
+			_test_halt_on_sight_move_preview_does_not_route
+		],
+		[
 			"dev_play_mode_pending_build_updates_placement_preview",
 			_test_pending_build_updates_placement_preview
 		],
@@ -843,6 +851,106 @@ func _test_shift_click_routes_future_orders() -> bool:
 	return ok
 
 
+func _test_shift_click_routes_future_gather_and_build_orders() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	var ok := true
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	var gather_target_id: int = _add_runtime_entity(
+		mode.current_state(), "mineral_patch", -1, Vector2i(17, 23)
+	)
+	if worker_id < 0 or gather_target_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected worker and mineral patch for future gather preview")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(13, 22)):
+		push_error("expected first queued move before future gather")
+		ok = false
+	if not mode.issue_gather_selected(gather_target_id, true):
+		push_error("expected Shift-click gather to become future order")
+		ok = false
+	var renderer: MatchRenderer = mode.renderer()
+	var expected_start := Vector2(13.5, 22.5) * 32.0
+	if ok and not _action_preview_starts_near(renderer, 1, expected_start):
+		push_error("future gather preview should start at previous move destination")
+		ok = false
+
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		push_error("expected scenario reload before future build preview")
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	mode.current_state().get_player(0).minerals = 10000
+	mode.current_state().get_player(0).gas = 10000
+	worker_id = _find_entity_id(mode.current_state(), "worker", 0)
+	if worker_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected worker for future build preview")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(13, 22)):
+		push_error("expected first queued move before future build")
+		ok = false
+	if not mode.issue_build_selected("barracks", Vector2i(18, 23), true):
+		push_error("expected Shift-click build to become future order")
+		ok = false
+	renderer = mode.renderer()
+	if ok and not _action_preview_starts_near(renderer, 1, expected_start):
+		push_error("future build preview should start at previous move destination")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_halt_on_sight_move_preview_does_not_route() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var state: MatchState = mode.current_state()
+	var marine_id: int = _find_entity_id(state, "marine", 0)
+	var actor: Entity = state.get_entity_by_id(marine_id) if state != null else null
+	var renderer: MatchRenderer = mode.renderer()
+	if actor == null or state.tile_grid == null or renderer == null:
+		push_error("expected marine actor and renderer for halt preview test")
+		_free_mode(mode)
+		return false
+	var enemy_id := -1
+	for delta in [Vector2i(0, 1), Vector2i(1, 0), Vector2i(0, -1), Vector2i(-1, 0)]:
+		var enemy_origin: Vector2i = actor.origin + delta
+		enemy_id = _add_runtime_entity(state, "marine", 1, enemy_origin)
+		if enemy_id >= 0:
+			break
+	if enemy_id < 0:
+		push_error("expected to place enemy beside actor for halt preview test")
+		_free_mode(mode)
+		return false
+	actor.halt_on_sight = true
+	renderer.bind_state(state, _load_registry())
+	if (
+		not mode.select_entity_id(actor.id)
+		or not mode.issue_move_selected(actor.origin + Vector2i(6, 0))
+	):
+		push_error("expected halted marine MOVE preview to queue")
+		_free_mode(mode)
+		return false
+	var point_count: int = renderer.call("action_preview_line_point_count", 0)
+	_free_mode(mode)
+	if point_count > 2:
+		push_error("halt-on-sight MOVE preview should not draw a routed movement path")
+		return false
+	return true
+
+
 func _test_pending_build_updates_placement_preview() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -1502,6 +1610,27 @@ func _add_runtime_entity(state: MatchState, def_id: String, owner: int, origin: 
 		return -1
 	state.entities.append(entity)
 	return entity.id
+
+
+func _action_preview_starts_near(
+	renderer: MatchRenderer, preview_index: int, expected_start: Vector2
+) -> bool:
+	if renderer == null:
+		return false
+	var preview_root: Node2D = renderer.get_node_or_null("Overlays/ActionPreviews") as Node2D
+	if preview_root == null or preview_index < 0 or preview_index >= preview_root.get_child_count():
+		return false
+	var preview_group: Node = preview_root.get_child(preview_index)
+	var preview_line: Line2D = (
+		preview_group.get_child(0) as Line2D
+		if preview_group != null and preview_group.get_child_count() > 0
+		else null
+	)
+	return (
+		preview_line != null
+		and preview_line.points.size() >= 2
+		and preview_line.points[0].distance_to(expected_start) <= 0.5
+	)
 
 
 func _command_card_ids(card: Control, method_name: String) -> Array[String]:

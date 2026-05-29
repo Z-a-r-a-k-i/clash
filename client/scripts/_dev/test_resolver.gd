@@ -17,6 +17,7 @@ const _SMOKE_SCENARIO_PATH := "res://data/scenarios/smoke_minimal.tres"
 const _MVP_MAP_TSCN_PATH := "res://data/scenarios/mvp_map.tscn"
 const _MVP_MAP_TRES_PATH := "res://data/scenarios/mvp_map.tres"
 const _TEST_KEEPALIVE_DEF_ID := "__test_keepalive_building"
+const _PATHFINDING := preload("res://scripts/resolver/pathfinding_system.gd")
 
 
 func _enter_tree() -> void:
@@ -67,6 +68,10 @@ func _all_tests() -> Array:
 		["moving_unit_pass_through", _test_moving_unit_pass_through],
 		["simultaneous_swap", _test_simultaneous_swap],
 		["equidistant_same_target_tie_stops", _test_equidistant_same_target_tie_stops],
+		[
+			"pathfinding_goal_range_distances_ignore_satisfied_range",
+			_test_pathfinding_goal_range_distances_ignore_satisfied_range
+		],
 		[
 			"movement_respects_impassable_terrain_tags",
 			_test_movement_respects_impassable_terrain_tags
@@ -127,6 +132,10 @@ func _all_tests() -> Array:
 		[
 			"halt_on_sight_blocks_move_when_enemy_visible",
 			_test_halt_on_sight_blocks_move_when_enemy_visible
+		],
+		[
+			"halt_on_sight_rechecks_between_movement_substeps",
+			_test_halt_on_sight_rechecks_between_movement_substeps
 		],
 		["latest_move_like_intent_wins", _test_latest_move_like_intent_wins],
 		["idle_unit_auto_attacks_enemy_in_range", _test_idle_unit_auto_attacks_enemy_in_range],
@@ -731,7 +740,7 @@ func _test_overkill_batch_damage_before_destroy() -> bool:
 
 
 func _test_move_emits_event() -> bool:
-	# Marine with speed 4 moves 1 tile in 1 tick. Expect ENTITY_MOVED.
+	# Marine with speed 4 reaches a one-tile MOVE target. Expect movement and completion events.
 	var registry := _movable_registry(4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
@@ -740,14 +749,18 @@ func _test_move_emits_event() -> bool:
 	var move := EntityOrder.new()
 	move.type = EntityOrder.Type.MOVE
 	move.entity_id = actor.id
-	move.target_tile = Vector2i(8, 5)
+	move.target_tile = Vector2i(6, 5)
 	var queue_a: Array[EntityOrder] = [move]
 
 	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
+	var moved := false
+	var completed := false
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
-			return ev.from_origin == Vector2i(5, 5) and ev.to_origin == Vector2i(6, 5)
-	return false
+			moved = ev.from_origin == Vector2i(5, 5) and ev.to_origin == Vector2i(6, 5)
+		if ev.type == ResolverEvent.Type.MOVE_COMPLETED and ev.actor_id == actor.id:
+			completed = ev.to_origin == Vector2i(6, 5)
+	return moved and completed
 
 
 func _test_multi_tile_move_collision() -> bool:
@@ -909,6 +922,22 @@ func _test_equidistant_same_target_tie_stops() -> bool:
 		and new_right.origin == Vector2i(4, 1)
 		and completed_ids == [left.id, right.id]
 	)
+
+
+func _test_pathfinding_goal_range_distances_ignore_satisfied_range() -> bool:
+	var footprint := Vector2i.ONE
+	var target_origin := Vector2i(5, 1)
+	var goal_rect := Rect2i(target_origin, Vector2i.ONE)
+	var at_range: int = _PATHFINDING._goal_distance(
+		Vector2i(4, 1), footprint, target_origin, goal_rect, 1, false
+	)
+	var outside_range: int = _PATHFINDING._goal_distance(
+		Vector2i(3, 1), footprint, target_origin, goal_rect, 1, false
+	)
+	var manhattan_at_range: int = _PATHFINDING._manhattan_distance(
+		Vector2i(4, 1), footprint, target_origin, goal_rect, 1, false
+	)
+	return at_range == 0 and outside_range == 1 and manhattan_at_range == 0
 
 
 func _test_movement_respects_impassable_terrain_tags() -> bool:
@@ -1651,6 +1680,41 @@ func _test_halt_on_sight_blocks_move_when_enemy_visible() -> bool:
 			actor_shot = true
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
 	return actor_shot and new_actor.origin == Vector2i(5, 5)
+
+
+func _test_halt_on_sight_rechecks_between_movement_substeps() -> bool:
+	var registry := EntityRegistry.new()
+	var marine := _def_with_movement_combat(
+		"marine", Vector2i(1, 1), ["light", "ground"], _combat_def(1, 1, ["ground"]), 50, 4
+	)
+	marine.vision = _vision_def(2)
+	registry.entities = [marine]
+	var state := _state_with_grid(10, 3)
+	var actor := _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	actor.halt_on_sight = true
+	var enemy := _make_entity(state, "marine", 1, Vector2i(4, 1), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(4, 1, 1, 1))
+
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(8, 1)
+
+	var result := Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit([]), registry, null
+	)
+	var moved_steps := 0
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			moved_steps += 1
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	if new_actor.origin != Vector2i(2, 1):
+		push_error(
+			"halt-on-sight should stop after enemy becomes visible, got %s" % new_actor.origin
+		)
+		return false
+	return moved_steps == 1
 
 
 func _test_latest_move_like_intent_wins() -> bool:

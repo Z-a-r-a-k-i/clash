@@ -62,17 +62,19 @@ static func find_path(
 		_node(
 			start,
 			0,
-			_heuristic(start, footprint, target_origin, goal_rect, exact_origin),
-			_manhattan_distance(start, footprint, target_origin, goal_rect, exact_origin)
+			_heuristic(start, footprint, target_origin, goal_rect, goal_range, exact_origin),
+			_manhattan_distance(
+				start, footprint, target_origin, goal_rect, goal_range, exact_origin
+			)
 		)
 	)
 
 	var best_origin: Vector2i = start
 	var best_distance: int = _goal_distance(
-		start, footprint, target_origin, goal_rect, exact_origin
+		start, footprint, target_origin, goal_rect, goal_range, exact_origin
 	)
 	var best_manhattan: int = _manhattan_distance(
-		start, footprint, target_origin, goal_rect, exact_origin
+		start, footprint, target_origin, goal_rect, goal_range, exact_origin
 	)
 	var best_cost: int = 0
 
@@ -86,10 +88,10 @@ static func find_path(
 
 		var current_cost: int = g_score.get(current_key, 0)
 		var current_distance: int = _goal_distance(
-			current, footprint, target_origin, goal_rect, exact_origin
+			current, footprint, target_origin, goal_rect, goal_range, exact_origin
 		)
 		var current_manhattan: int = _manhattan_distance(
-			current, footprint, target_origin, goal_rect, exact_origin
+			current, footprint, target_origin, goal_rect, goal_range, exact_origin
 		)
 		if _is_better_reachable(
 			current,
@@ -123,9 +125,11 @@ static func find_path(
 			came_from[next_key] = current_key
 			reached[next_key] = next
 			g_score[next_key] = tentative_cost
-			var h: int = _heuristic(next, footprint, target_origin, goal_rect, exact_origin)
+			var h: int = _heuristic(
+				next, footprint, target_origin, goal_rect, goal_range, exact_origin
+			)
 			var m: int = _manhattan_distance(
-				next, footprint, target_origin, goal_rect, exact_origin
+				next, footprint, target_origin, goal_rect, goal_range, exact_origin
 			)
 			_heap_push_open(open, _node(next, tentative_cost, h, m))
 
@@ -291,9 +295,10 @@ static func _heuristic(
 	footprint: Vector2i,
 	target_origin: Vector2i,
 	goal_rect: Rect2i,
+	goal_range: int,
 	exact_origin: bool
 ) -> int:
-	return _chebyshev_to_goal(origin, footprint, target_origin, goal_rect, exact_origin)
+	return _chebyshev_to_goal(origin, footprint, target_origin, goal_rect, goal_range, exact_origin)
 
 
 static func _goal_distance(
@@ -301,9 +306,10 @@ static func _goal_distance(
 	footprint: Vector2i,
 	target_origin: Vector2i,
 	goal_rect: Rect2i,
+	goal_range: int,
 	exact_origin: bool
 ) -> int:
-	return _chebyshev_to_goal(origin, footprint, target_origin, goal_rect, exact_origin)
+	return _chebyshev_to_goal(origin, footprint, target_origin, goal_rect, goal_range, exact_origin)
 
 
 static func _chebyshev_to_goal(
@@ -311,11 +317,14 @@ static func _chebyshev_to_goal(
 	footprint: Vector2i,
 	target_origin: Vector2i,
 	goal_rect: Rect2i,
+	goal_range: int,
 	exact_origin: bool
 ) -> int:
 	if exact_origin:
 		return max(abs(origin.x - target_origin.x), abs(origin.y - target_origin.y))
-	return TileGrid.distance_between_rects(Rect2i(origin, footprint), goal_rect)
+	return max(
+		0, TileGrid.distance_between_rects(Rect2i(origin, footprint), goal_rect) - goal_range
+	)
 
 
 static func _manhattan_distance(
@@ -323,6 +332,7 @@ static func _manhattan_distance(
 	footprint: Vector2i,
 	target_origin: Vector2i,
 	goal_rect: Rect2i,
+	goal_range: int,
 	exact_origin: bool
 ) -> int:
 	if exact_origin:
@@ -342,7 +352,7 @@ static func _manhattan_distance(
 		dy = goal_rect.position.y - rect_y2
 	elif goal_y2 < rect.position.y:
 		dy = rect.position.y - goal_y2
-	return dx + dy
+	return max(0, dx + dy - goal_range)
 
 
 static func _is_goal(

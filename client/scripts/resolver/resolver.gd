@@ -136,7 +136,6 @@ static func resolve(
 				_ABILITY_SYSTEM.resolve_use_ability(working, entity, order, registry, events)
 
 		var move_only_entity_ids: Dictionary = _move_only_entity_ids_at_tick(per_entity, tick)
-		var halted_entity_ids: Dictionary = _halted_entity_ids(working, registry, sorted_entities)
 
 		if tick == 0:
 			# Phase 2: attacks. Stable collection by id followed by one batch
@@ -171,6 +170,9 @@ static func resolve(
 		# that budget. `moves_used_this_turn` still caps each entity, so
 		# this upper bound is safe for mixed-speed rosters.
 		for _substep in _max_live_movement_speed(working, registry):
+			var halted_entity_ids: Dictionary = _halted_entity_ids(
+				working, registry, sorted_entities
+			)
 			MovementSystem.resolve_movement_substep(
 				working,
 				per_entity,

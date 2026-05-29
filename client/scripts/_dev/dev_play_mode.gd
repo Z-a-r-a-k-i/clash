@@ -713,27 +713,23 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 	var has_planned_tile: bool = false
 	var planned_tile: Vector2i = Vector2i.ZERO
 	for queued in _queued_orders_for_entity(entity_id):
-		var queued_preview: Dictionary = _preview_for_order(queued)
+		var queued_preview: Dictionary = _preview_for_order(queued, planned_tile, has_planned_tile)
 		if not queued_preview.is_empty():
-			if has_planned_tile:
-				queued_preview["start_tile"] = planned_tile
 			queued_preview["sequence_index"] = sequence_index
 			queued_preview["future"] = false
 			out.append(queued_preview)
-			if queued_preview.has("target_tile"):
-				planned_tile = queued_preview.get("target_tile", planned_tile)
+			if _preview_keeps_planned_tile(queued_preview, has_planned_tile):
+				planned_tile = _preview_planned_tile_value(queued_preview, planned_tile)
 				has_planned_tile = true
 			sequence_index += 1
 	for future in _future_orders_for_entity(entity_id):
-		var future_preview: Dictionary = _preview_for_order(future)
+		var future_preview: Dictionary = _preview_for_order(future, planned_tile, has_planned_tile)
 		if not future_preview.is_empty():
-			if has_planned_tile:
-				future_preview["start_tile"] = planned_tile
 			future_preview["sequence_index"] = sequence_index
 			future_preview["future"] = true
 			out.append(future_preview)
-			if future_preview.has("target_tile"):
-				planned_tile = future_preview.get("target_tile", planned_tile)
+			if _preview_keeps_planned_tile(future_preview, has_planned_tile):
+				planned_tile = _preview_planned_tile_value(future_preview, planned_tile)
 				has_planned_tile = true
 			sequence_index += 1
 	if not out.is_empty():
@@ -797,9 +793,12 @@ func _future_orders_for_entity(entity_id: int) -> Array[EntityOrder]:
 	return _input.future_orders_for_entity(entity_id)
 
 
-func _preview_for_order(order: EntityOrder) -> Dictionary:
+func _preview_for_order(
+	order: EntityOrder, start_tile: Vector2i = Vector2i.ZERO, has_start_tile: bool = false
+) -> Dictionary:
 	if order == null:
 		return {}
+	var preview: Dictionary = {}
 	match order.type:
 		EntityOrder.Type.MOVE:
 			var kind: String = "Attack and Move"
@@ -807,31 +806,58 @@ func _preview_for_order(order: EntityOrder) -> Dictionary:
 				kind = (
 					"Shoot + Hold" if _attack_target_for_entity(order.entity_id) >= 0 else "Halted"
 				)
+				preview = _halted_move_preview(order.entity_id, kind)
 			elif _attack_target_for_entity(order.entity_id) >= 0:
 				kind = "Shoot + Move"
-			return _move_preview(order, kind)
+				preview = _move_preview(order, kind, start_tile, has_start_tile)
+			else:
+				preview = _move_preview(order, kind, start_tile, has_start_tile)
 		EntityOrder.Type.MOVE_ONLY:
-			return _move_preview(order, "Move Only")
+			preview = _move_preview(order, "Move Only", start_tile, has_start_tile)
 		EntityOrder.Type.ATTACK:
 			var target_id := -1
 			if not order.target_priority_chain.is_empty():
 				target_id = order.target_priority_chain[0]
-			return {"entity_id": order.entity_id, "kind": "Target", "target_entity_id": target_id}
+			preview = {
+				"entity_id": order.entity_id, "kind": "Target", "target_entity_id": target_id
+			}
 		EntityOrder.Type.GATHER:
-			return _gather_preview(order)
+			preview = _gather_preview(order, start_tile, has_start_tile)
 		EntityOrder.Type.BUILD:
-			return _build_preview(order)
+			preview = _build_preview(order, start_tile, has_start_tile)
 		EntityOrder.Type.TRAIN:
-			return {"entity_id": order.entity_id, "kind": "Train", "def_id": order.def_id}
+			preview = {"entity_id": order.entity_id, "kind": "Train", "def_id": order.def_id}
 		EntityOrder.Type.RESEARCH:
-			return {"entity_id": order.entity_id, "kind": "Research", "def_id": order.def_id}
+			preview = {"entity_id": order.entity_id, "kind": "Research", "def_id": order.def_id}
 		EntityOrder.Type.USE_ABILITY:
-			return {"entity_id": order.entity_id, "kind": "Ability", "def_id": order.def_id}
+			preview = {"entity_id": order.entity_id, "kind": "Ability", "def_id": order.def_id}
 		_:
-			return {}
+			preview = {}
+	if not preview.is_empty() and has_start_tile:
+		preview["start_tile"] = start_tile
+	return preview
 
 
-func _move_preview(order: EntityOrder, kind: String) -> Dictionary:
+func _halted_move_preview(entity_id: int, kind: String) -> Dictionary:
+	var preview: Dictionary = {
+		"entity_id": entity_id,
+		"kind": kind,
+	}
+	var target_id: int = _attack_target_for_entity(entity_id)
+	if target_id < 0:
+		var actor: Entity = _loaded.state.get_entity_by_id(entity_id) if _loaded != null else null
+		target_id = _visible_enemy_for_entity(actor)
+	if target_id >= 0:
+		preview["target_entity_id"] = target_id
+	return preview
+
+
+func _move_preview(
+	order: EntityOrder,
+	kind: String,
+	start_tile: Vector2i = Vector2i.ZERO,
+	has_start_tile: bool = false
+) -> Dictionary:
 	var preview: Dictionary = {
 		"entity_id": order.entity_id,
 		"kind": kind,
@@ -840,16 +866,22 @@ func _move_preview(order: EntityOrder, kind: String) -> Dictionary:
 	var actor: Entity = _loaded.state.get_entity_by_id(order.entity_id) if _loaded != null else null
 	if actor == null or _loaded.registry == null:
 		return preview
+	var start_origin: Vector2i = start_tile if has_start_tile else actor.origin
+	if not _should_preview_move_path(order, actor, start_origin):
+		return preview
+	var path_actor: Entity = _preview_actor_at(actor, start_tile, has_start_tile)
 	var options: Dictionary = _path_preview_options(actor.owner_player_id)
 	var path: Array[Vector2i] = PATHFINDING_SCRIPT.find_path(
-		_loaded.state, actor, order.target_tile, _loaded.registry, options
+		_loaded.state, path_actor, order.target_tile, _loaded.registry, options
 	)
 	if not path.is_empty():
 		preview["path"] = path
 	return preview
 
 
-func _gather_preview(order: EntityOrder) -> Dictionary:
+func _gather_preview(
+	order: EntityOrder, start_tile: Vector2i = Vector2i.ZERO, has_start_tile: bool = false
+) -> Dictionary:
 	var preview: Dictionary = {
 		"entity_id": order.entity_id,
 		"kind": "Gather",
@@ -868,15 +900,21 @@ func _gather_preview(order: EntityOrder) -> Dictionary:
 	options[PATHFINDING_SCRIPT.OPTION_GOAL_RECT] = target_rect
 	options[PATHFINDING_SCRIPT.OPTION_GOAL_RANGE] = 1
 	options[PATHFINDING_SCRIPT.OPTION_EXACT_ORIGIN] = false
+	var path_actor: Entity = _preview_actor_at(actor, start_tile, has_start_tile)
+	var handoff_tile: Vector2i = path_actor.origin
 	var path: Array[Vector2i] = PATHFINDING_SCRIPT.find_path(
-		_loaded.state, actor, target_rect.position, _loaded.registry, options
+		_loaded.state, path_actor, target_rect.position, _loaded.registry, options
 	)
 	if not path.is_empty():
 		preview["path"] = path
+		handoff_tile = path[path.size() - 1]
+	preview["handoff_tile"] = handoff_tile
 	return preview
 
 
-func _build_preview(order: EntityOrder) -> Dictionary:
+func _build_preview(
+	order: EntityOrder, start_tile: Vector2i = Vector2i.ZERO, has_start_tile: bool = false
+) -> Dictionary:
 	var preview: Dictionary = {
 		"entity_id": order.entity_id,
 		"kind": "Build",
@@ -895,12 +933,46 @@ func _build_preview(order: EntityOrder) -> Dictionary:
 	options[PATHFINDING_SCRIPT.OPTION_GOAL_RECT] = build_rect
 	options[PATHFINDING_SCRIPT.OPTION_GOAL_RANGE] = 1
 	options[PATHFINDING_SCRIPT.OPTION_EXACT_ORIGIN] = false
+	var path_actor: Entity = _preview_actor_at(actor, start_tile, has_start_tile)
+	var handoff_tile: Vector2i = path_actor.origin
 	var path: Array[Vector2i] = PATHFINDING_SCRIPT.find_path(
-		_loaded.state, actor, order.target_tile, _loaded.registry, options
+		_loaded.state, path_actor, order.target_tile, _loaded.registry, options
 	)
 	if not path.is_empty():
 		preview["path"] = path
+		handoff_tile = path[path.size() - 1]
+	preview["handoff_tile"] = handoff_tile
 	return preview
+
+
+func _preview_actor_at(actor: Entity, start_tile: Vector2i, has_start_tile: bool) -> Entity:
+	if actor == null or not has_start_tile:
+		return actor
+	var preview_actor: Entity = actor.clone()
+	preview_actor.origin = start_tile
+	return preview_actor
+
+
+func _should_preview_move_path(order: EntityOrder, actor: Entity, start_origin: Vector2i) -> bool:
+	if order == null or actor == null:
+		return false
+	if not _can_preview_spend_movement(actor):
+		return false
+	if actor.ability_cast != null:
+		return false
+	if order.type == EntityOrder.Type.MOVE and _will_halt_on_sight(actor.id):
+		return false
+	return start_origin != order.target_tile
+
+
+func _preview_keeps_planned_tile(preview: Dictionary, has_planned_tile: bool) -> bool:
+	return preview.has("handoff_tile") or preview.has("target_tile") or has_planned_tile
+
+
+func _preview_planned_tile_value(preview: Dictionary, fallback: Vector2i) -> Vector2i:
+	if preview.has("handoff_tile"):
+		return preview.get("handoff_tile", fallback)
+	return preview.get("target_tile", fallback)
 
 
 func _path_preview_options(player_id: int) -> Dictionary:
