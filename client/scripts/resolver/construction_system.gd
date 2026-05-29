@@ -145,8 +145,9 @@ static func try_start_pending_build(
 	building.owner_player_id = worker.owner_player_id
 	building.origin = rect.position
 	building.current_layer = "ground"
+	building.current_hp = 1
 	if def.health != null:
-		building.current_hp = def.health.max_hp
+		building.current_hp = max(1, def.health.max_hp)
 	building.is_constructing = true
 	building.construction_turns_remaining = def.construction.build_time_turns
 	building.construction_worker_id = worker.id

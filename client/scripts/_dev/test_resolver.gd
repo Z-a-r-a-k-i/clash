@@ -248,6 +248,10 @@ func _all_tests() -> Array:
 			"build_adjacent_worker_starts_constructing_entity",
 			_test_build_adjacent_worker_starts_constructing_entity
 		],
+		[
+			"build_without_health_starts_with_positive_hp",
+			_test_build_without_health_starts_with_positive_hp
+		],
 		["build_far_worker_delays_site_creation", _test_build_far_worker_delays_site_creation],
 		["build_worker_walks_to_site", _test_build_worker_walks_to_site],
 		[
@@ -4192,6 +4196,38 @@ func _test_build_adjacent_worker_starts_constructing_entity() -> bool:
 		_has_event_of_type(result.events, ResolverEvent.Type.BUILD_STARTED)
 		and _has_event_of_type(result.events, ResolverEvent.Type.BUILD_PROGRESSED)
 	)
+
+
+func _test_build_without_health_starts_with_positive_hp() -> bool:
+	var registry := _build_registry()
+	var barracks_def: EntityDef = registry.get_by_id("barracks")
+	barracks_def.health = null
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
+	worker.def_id = "worker"
+	worker.current_def_id = "worker"
+	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	for e in result.new_state.entities:
+		if e != null and e.def_id == "barracks":
+			if e.current_hp != 1:
+				push_error("constructible defs without health should still start alive")
+				return false
+			return (
+				e.is_constructing
+				and _has_event_of_type(result.events, ResolverEvent.Type.BUILD_PROGRESSED)
+			)
+	push_error("BUILD should create the no-health barracks once worker is adjacent")
+	return false
 
 
 func _test_build_far_worker_delays_site_creation() -> bool:
