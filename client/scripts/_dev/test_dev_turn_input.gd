@@ -51,7 +51,10 @@ func _all_tests() -> Array:
 			"dev_input_non_move_command_replaces_requeued_move_assist",
 			_test_non_move_command_replaces_requeued_move_assist
 		],
-		["dev_input_queue_mode_appends_future_orders", _test_queue_mode_appends_future_orders],
+		[
+			"dev_input_queue_modifier_appends_future_orders",
+			_test_queue_modifier_appends_future_orders
+		],
 		[
 			"dev_input_normal_order_replaces_current_and_future",
 			_test_normal_order_replaces_current_and_future
@@ -393,7 +396,7 @@ func _test_non_move_command_replaces_requeued_move_assist() -> bool:
 	return _expect_order(orders[0], EntityOrder.Type.GATHER, 1, Vector2i.ZERO, 3, [])
 
 
-func _test_queue_mode_appends_future_orders() -> bool:
+func _test_queue_modifier_appends_future_orders() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
@@ -401,19 +404,19 @@ func _test_queue_mode_appends_future_orders() -> bool:
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
-	input.set_queue_mode_enabled(true)
 	if not input.issue_move(Vector2i(6, 6)):
-		push_error("expected first queue-mode command to queue for this turn")
+		push_error("expected first command to queue for this turn")
 		return false
+	input.set_queue_modifier_active(true)
 	if not input.issue_move_only(Vector2i(8, 8)):
-		push_error("expected second queue-mode command to append as future order")
+		push_error("expected queue-modified command to append as future order")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if orders.size() != 1:
-		push_error("queue mode should keep one current order, got %d" % orders.size())
+		push_error("queue modifier should keep one current order, got %d" % orders.size())
 		return false
 	if input.future_order_count_for_entity(5) != 1:
-		push_error("queue mode should append one future order")
+		push_error("queue modifier should append one future order")
 		return false
 	var future: Array[EntityOrder] = input.future_orders_for_entity(5)
 	return (
@@ -430,12 +433,11 @@ func _test_normal_order_replaces_current_and_future() -> bool:
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
-	input.set_queue_mode_enabled(true)
 	input.issue_move(Vector2i(6, 6))
+	input.set_queue_modifier_active(true)
 	input.issue_move_only(Vector2i(8, 8))
-	input.set_queue_mode_enabled(false)
 	if not input.issue_move(Vector2i(9, 9)):
-		push_error("expected normal command after queue mode to queue")
+		push_error("expected normal command after future queue to queue")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if orders.size() != 1:
@@ -455,8 +457,8 @@ func _test_cancel_removes_future_before_current() -> bool:
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
-	input.set_queue_mode_enabled(true)
 	input.issue_move(Vector2i(6, 6))
+	input.set_queue_modifier_active(true)
 	input.issue_move_only(Vector2i(8, 8))
 	if not input.issue_cancel():
 		push_error("first cancel should remove future order")
@@ -482,10 +484,10 @@ func _test_promotes_future_order_when_ready() -> bool:
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(1)
-	input.set_queue_mode_enabled(true)
 	if not input.issue_build("barracks", Vector2i(6, 6)):
 		push_error("expected BUILD to queue as current order")
 		return false
+	input.set_queue_modifier_active(true)
 	if not input.issue_gather(3):
 		push_error("expected GATHER to queue as future order behind BUILD")
 		return false
@@ -516,10 +518,10 @@ func _test_waits_to_promote_future_order_while_gathering() -> bool:
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(1)
-	input.set_queue_mode_enabled(true)
 	if not input.issue_gather(3):
 		push_error("expected GATHER to queue as current order")
 		return false
+	input.set_queue_modifier_active(true)
 	if not input.issue_move(Vector2i(8, 8)):
 		push_error("expected MOVE to queue as future order behind GATHER")
 		return false

@@ -11,7 +11,6 @@ signal train_requested(def_id: String)
 signal research_requested(def_id: String)
 signal ability_requested(def_id: String)
 signal cancel_requested(cancel_index: int)
-signal queue_mode_toggled(enabled: bool)
 signal repeat_train_toggled(enabled: bool)
 
 const DEV_FONT_SIZE := 18
@@ -24,7 +23,6 @@ var _target_button: Button = null
 var _halt_on_sight_button: Button = null
 var _gather_button: Button = null
 var _cancel_button: Button = null
-var _queue_toggle: CheckBox = null
 var _repeat_train_toggle: CheckBox = null
 var _action_row: HBoxContainer = null
 var _state_row: HBoxContainer = null
@@ -37,7 +35,6 @@ var _build_options: Array[Dictionary] = []
 var _train_options: Array[Dictionary] = []
 var _research_options: Array[Dictionary] = []
 var _ability_options: Array[Dictionary] = []
-var _queue_mode_enabled: bool = false
 var _repeat_train_enabled: bool = false
 
 
@@ -58,13 +55,11 @@ func set_command_state(
 	research_options: Array[Dictionary],
 	ability_options: Array[Dictionary],
 	can_cancel: bool,
-	queue_mode_enabled: bool = false,
 	can_repeat_train: bool = false,
 	repeat_train_enabled: bool = false
 ) -> void:
 	_ensure_ui()
 	_halt_on_sight_enabled = halt_on_sight_enabled
-	_queue_mode_enabled = queue_mode_enabled
 	_repeat_train_enabled = repeat_train_enabled
 	_build_options = _copy_options(build_options)
 	_train_options = _copy_options(train_options)
@@ -86,7 +81,6 @@ func set_command_state(
 	_gather_button.disabled = false
 	_cancel_button.visible = can_cancel
 	_cancel_button.disabled = false
-	_queue_toggle.set_pressed_no_signal(queue_mode_enabled)
 	_repeat_train_toggle.visible = can_repeat_train
 	_repeat_train_toggle.set_pressed_no_signal(repeat_train_enabled)
 	_rebuild_option_buttons(_build_list, _build_options, build_requested)
@@ -131,10 +125,6 @@ func _ensure_ui() -> void:
 	_selection_label.text = "Command card: none"
 	_style_label(_selection_label)
 	add_child(_selection_label)
-
-	_queue_toggle = _toggle("Queue")
-	_queue_toggle.toggled.connect(func(enabled: bool) -> void: queue_mode_toggled.emit(enabled))
-	add_child(_queue_toggle)
 
 	_action_row = HBoxContainer.new()
 	_action_row.name = "Actions"

@@ -68,10 +68,7 @@ func _all_tests() -> Array:
 			"dev_play_mode_selected_and_friendly_action_previews",
 			_test_selected_and_friendly_action_previews
 		],
-		[
-			"dev_play_mode_queue_toggle_routes_future_orders",
-			_test_queue_toggle_routes_future_orders
-		],
+		["dev_play_mode_shift_click_routes_future_orders", _test_shift_click_routes_future_orders],
 		[
 			"dev_play_mode_pending_build_updates_placement_preview",
 			_test_pending_build_updates_placement_preview
@@ -700,7 +697,7 @@ func _test_selected_and_friendly_action_previews() -> bool:
 	return true
 
 
-func _test_queue_toggle_routes_future_orders() -> bool:
+func _test_shift_click_routes_future_orders() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
 		return false
@@ -719,38 +716,39 @@ func _test_queue_toggle_routes_future_orders() -> bool:
 		push_error("expected command card")
 		_free_mode(mode)
 		return false
-	var queue_toggle: CheckBox = _find_check_box_with_substring(card, "Queue")
-	if queue_toggle == null:
-		push_error("command card should expose a Queue toggle")
-		_free_mode(mode)
-		return false
-	queue_toggle.emit_signal("toggled", true)
-	if not mode.input_model().queue_mode_enabled():
-		push_error("Queue toggle should enable input queue mode")
+	if _find_check_box_with_substring(card, "Queue") != null:
+		push_error("command card should not expose a Queue toggle; use Shift-click instead")
 		_free_mode(mode)
 		return false
 	if not mode.issue_move_selected(Vector2i(13, 22)):
 		push_error("expected first queued move")
 		_free_mode(mode)
 		return false
-	if not mode.issue_move_selected(Vector2i(13, 25)):
-		push_error("expected second queued move to become future order")
+	if not mode.issue_move_selected(Vector2i(13, 25), true):
+		push_error("expected Shift-click move to become future order")
 		_free_mode(mode)
 		return false
 	var renderer: MatchRenderer = mode.renderer()
 	var ok: bool = true
 	if mode.input_model().submit_for_player(0).orders.size() != 1:
-		push_error("Queue mode should keep one current order")
+		push_error("Shift-click queueing should keep one current order")
 		ok = false
 	if mode.input_model().future_order_count_for_entity(worker_id) != 1:
-		push_error("Queue mode should append a future order")
+		push_error("Shift-click should append a future order")
+		ok = false
+	if mode.input_model().queue_modifier_active():
+		push_error("Shift-click queue modifier should be one-shot")
 		ok = false
 	if renderer != null and renderer.action_preview_count() != 2:
 		push_error("selected previews should include current and future orders")
 		ok = false
 	elif renderer != null:
 		var preview_root: Node2D = renderer.get_node_or_null("Overlays/ActionPreviews") as Node2D
-		var future_preview: Node = preview_root.get_child(1) if preview_root != null else null
+		var future_preview: Node = (
+			preview_root.get_child(1)
+			if preview_root != null and preview_root.get_child_count() > 1
+			else null
+		)
 		var future_line: Line2D = (
 			future_preview.get_child(0) as Line2D if future_preview != null else null
 		)
@@ -768,18 +766,14 @@ func _test_queue_toggle_routes_future_orders() -> bool:
 			)
 			ok = false
 	mode.set_active_player_id(1)
-	if mode.input_model().queue_mode_enabled():
-		push_error("Queue mode should reset when switching active player")
-		ok = false
-	mode.set_queue_mode_enabled(true)
-	if not mode.input_model().queue_mode_enabled():
-		push_error("test setup should re-enable queue mode")
+	if mode.input_model().queue_modifier_active():
+		push_error("queue modifier should stay inactive when switching active player")
 		ok = false
 	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
 		push_error("scenario reload should succeed")
 		ok = false
-	elif mode.input_model().queue_mode_enabled():
-		push_error("Queue mode should reset on scenario reload")
+	elif mode.input_model().queue_modifier_active():
+		push_error("queue modifier should stay inactive on scenario reload")
 		ok = false
 	_free_mode(mode)
 	return ok

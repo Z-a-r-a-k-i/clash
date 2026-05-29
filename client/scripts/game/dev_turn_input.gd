@@ -15,7 +15,7 @@ var _selected_entity_id: int = -1
 var _submissions: Dictionary[int, SubmitTurn] = {}
 var _move_assists: Dictionary[int, EntityOrder] = {}
 var _future_orders: Dictionary[int, Array] = {}
-var _queue_mode_enabled: bool = false
+var _queue_modifier_active: bool = false
 var _status_message: String = ""
 
 
@@ -36,7 +36,7 @@ func bind_context(state: MatchState, registry: EntityRegistry) -> void:
 
 func set_active_player_id(player_id: int) -> void:
 	_active_player_id = player_id
-	_queue_mode_enabled = false
+	_queue_modifier_active = false
 	_ensure_submit_turn(player_id)
 	if _selected_entity_id >= 0 and not _is_selectable(_selected_entity_id):
 		_selected_entity_id = -1
@@ -54,13 +54,12 @@ func status_message() -> String:
 	return _status_message
 
 
-func set_queue_mode_enabled(enabled: bool) -> void:
-	_queue_mode_enabled = enabled
-	_status_message = "Queue mode %s." % ("enabled" if enabled else "disabled")
+func set_queue_modifier_active(enabled: bool) -> void:
+	_queue_modifier_active = enabled
 
 
-func queue_mode_enabled() -> bool:
-	return _queue_mode_enabled
+func queue_modifier_active() -> bool:
+	return _queue_modifier_active
 
 
 func select_entity(entity_id: int) -> bool:
@@ -333,6 +332,7 @@ func clear_submissions(clear_move_assists: bool = true, clear_future_orders: boo
 	_submissions.clear()
 	_submissions[0] = SubmitTurn.new()
 	_submissions[1] = SubmitTurn.new()
+	_queue_modifier_active = false
 	if clear_move_assists:
 		_move_assists.clear()
 	if clear_future_orders:
@@ -686,17 +686,18 @@ func label_for_ability_id(ability_id: String) -> String:
 func _append_order(order: EntityOrder) -> bool:
 	if order == null:
 		return false
+	var queue_requested: bool = _consume_queue_modifier()
 	if not _uses_future_order_queue(order):
 		var submit: SubmitTurn = _submission_for(_active_player_id)
 		_append_order_to_submit(submit, order)
 		return true
 	if (
-		_queue_mode_enabled
+		queue_requested
 		and (_has_queued_order_for_entity(order.entity_id) or _future_orders.has(order.entity_id))
 	):
 		_append_future_order(order)
 		return false
-	if not _queue_mode_enabled:
+	if not queue_requested:
 		_clear_current_and_future_orders_for_entity(order.entity_id)
 	var current_submit: SubmitTurn = _submission_for(_active_player_id)
 	_append_order_to_submit(current_submit, order)
@@ -724,6 +725,12 @@ func _uses_future_order_queue(order: EntityOrder) -> bool:
 		or order.type == EntityOrder.Type.CANCEL
 		or order.type == EntityOrder.Type.HALT_ON_SIGHT_TOGGLE
 	)
+
+
+func _consume_queue_modifier() -> bool:
+	var queue_requested: bool = _queue_modifier_active
+	_queue_modifier_active = false
+	return queue_requested
 
 
 func _append_future_order(order: EntityOrder) -> void:

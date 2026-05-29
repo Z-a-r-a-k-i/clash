@@ -59,7 +59,7 @@ func load_scenario_path(path: String) -> bool:
 		push_error("DevPlayMode: ScenarioLoader returned null.")
 		return false
 	_clear_pending_command()
-	_input.set_queue_mode_enabled(false)
+	_input.set_queue_modifier_active(false)
 	_ensure_renderer()
 	if _renderer == null:
 		return false
@@ -99,11 +99,6 @@ func set_show_all_friendly_action_previews(enabled: bool) -> void:
 	_refresh_action_previews()
 
 
-func set_queue_mode_enabled(enabled: bool) -> void:
-	_input.set_queue_mode_enabled(enabled)
-	_update_hud()
-
-
 func set_active_player_id(player_id: int) -> void:
 	_input.set_active_player_id(player_id)
 	_clear_pending_command()
@@ -126,20 +121,26 @@ func select_entity_id(entity_id: int) -> bool:
 	return ok
 
 
-func issue_move_selected(tile: Vector2i) -> bool:
+func issue_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
+	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_move(tile)
+	_input.set_queue_modifier_active(false)
 	_update_hud()
 	return ok
 
 
-func issue_move_only_selected(tile: Vector2i) -> bool:
+func issue_move_only_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
+	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_move_only(tile)
+	_input.set_queue_modifier_active(false)
 	_update_hud()
 	return ok
 
 
-func issue_attack_selected(target_entity_id: int) -> bool:
+func issue_attack_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
+	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_attack(target_entity_id)
+	_input.set_queue_modifier_active(false)
 	_update_hud()
 	return ok
 
@@ -150,8 +151,10 @@ func issue_attack_target_selected(target_entity_id: int) -> bool:
 	return ok
 
 
-func issue_gather_selected(target_entity_id: int) -> bool:
+func issue_gather_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
+	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_gather(target_entity_id)
+	_input.set_queue_modifier_active(false)
 	_update_hud()
 	return ok
 
@@ -162,8 +165,10 @@ func issue_halt_on_sight_selected(enabled: bool) -> bool:
 	return ok
 
 
-func issue_build_selected(def_id: String, tile: Vector2i) -> bool:
+func issue_build_selected(def_id: String, tile: Vector2i, queue_requested: bool = false) -> bool:
+	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_build(def_id, tile)
+	_input.set_queue_modifier_active(false)
 	_update_hud()
 	return ok
 
@@ -198,7 +203,7 @@ func issue_cancel_selected(cancel_index: int = -1) -> bool:
 	return ok
 
 
-func issue_context_at_tile(tile: Vector2i) -> bool:
+func issue_context_at_tile(tile: Vector2i, queue_requested: bool = false) -> bool:
 	if _loaded == null or _loaded.state == null or _loaded.state.tile_grid == null:
 		return false
 	var target_id: int = (
@@ -213,8 +218,8 @@ func issue_context_at_tile(tile: Vector2i) -> bool:
 				return issue_attack_target_selected(target_id)
 			return false
 		if _is_gather_target(target):
-			return issue_gather_selected(target_id)
-	return issue_move_selected(tile)
+			return issue_gather_selected(target_id, queue_requested)
+	return issue_move_selected(tile, queue_requested)
 
 
 func begin_move() -> void:
@@ -257,15 +262,15 @@ func begin_build(def_id: String) -> void:
 	_update_hud("Click a placement tile for BUILD %s." % def_id)
 
 
-func confirm_pending_at_tile(tile: Vector2i) -> bool:
+func confirm_pending_at_tile(tile: Vector2i, queue_requested: bool = false) -> bool:
 	if _pending_command == PENDING_MOVE:
-		var move_ok: bool = issue_move_selected(tile)
+		var move_ok: bool = issue_move_selected(tile, queue_requested)
 		if move_ok:
 			_clear_pending_command()
 			_update_hud()
 		return move_ok
 	if _pending_command == PENDING_MOVE_ONLY:
-		var move_only_ok: bool = issue_move_only_selected(tile)
+		var move_only_ok: bool = issue_move_only_selected(tile, queue_requested)
 		if move_only_ok:
 			_clear_pending_command()
 			_update_hud()
@@ -290,7 +295,7 @@ func confirm_pending_at_tile(tile: Vector2i) -> bool:
 			_update_hud()
 		return target_ok
 	if _pending_command == PENDING_BUILD:
-		var build_ok: bool = issue_build_selected(_pending_build_def_id, tile)
+		var build_ok: bool = issue_build_selected(_pending_build_def_id, tile, queue_requested)
 		if build_ok:
 			_clear_pending_command()
 			_update_hud()
@@ -307,7 +312,7 @@ func confirm_pending_at_tile(tile: Vector2i) -> bool:
 		if not _is_gather_target(target):
 			_update_hud("Click a mineral patch or refinery to GATHER.")
 			return false
-		var gather_ok: bool = issue_gather_selected(target_id)
+		var gather_ok: bool = issue_gather_selected(target_id, queue_requested)
 		if gather_ok:
 			_clear_pending_command()
 			_update_hud()
@@ -399,7 +404,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var entity_id: int = _renderer.entity_id_at_tile(tile)
 		if button.button_index == MOUSE_BUTTON_LEFT:
 			if _pending_command != PENDING_NONE:
-				confirm_pending_at_tile(tile)
+				confirm_pending_at_tile(tile, button.shift_pressed)
 				return
 			if entity_id >= 0:
 				select_entity_id(entity_id)
@@ -411,7 +416,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _pending_command != PENDING_NONE:
 				cancel_pending_command()
 				return
-			issue_context_at_tile(tile)
+			issue_context_at_tile(tile, button.shift_pressed)
 
 
 func _ensure_renderer() -> void:
@@ -537,7 +542,6 @@ func _build_hud() -> void:
 	_command_card.connect("research_requested", Callable(self, "issue_research_selected"))
 	_command_card.connect("ability_requested", Callable(self, "issue_ability_selected"))
 	_command_card.connect("cancel_requested", Callable(self, "issue_cancel_selected"))
-	_command_card.connect("queue_mode_toggled", Callable(self, "set_queue_mode_enabled"))
 	_command_card.connect("repeat_train_toggled", Callable(self, "issue_repeat_train_selected"))
 	root.add_child(_command_card)
 	_update_hud()
@@ -669,7 +673,6 @@ func _refresh_command_card() -> void:
 		_research_options(_input.research_option_ids()),
 		_ability_options(_input.ability_option_ids()),
 		_input.can_issue_cancel(),
-		_input.queue_mode_enabled(),
 		_input.can_issue_repeat_train_toggle(),
 		_input.selected_repeat_train_enabled()
 	)
