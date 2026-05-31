@@ -169,11 +169,12 @@ static func resolve(
 		# movement systems until every live mover has had a chance to spend
 		# that budget. `moves_used_this_turn` still caps each entity, so
 		# this upper bound is safe for mixed-speed rosters.
+		var movement_path_cache: Dictionary = {}
 		for _substep in _max_live_movement_speed(working, registry):
 			var halted_entity_ids: Dictionary = _halted_entity_ids(
 				working, registry, sorted_entities
 			)
-			MovementSystem.resolve_movement_substep(
+			var moved: bool = MovementSystem.resolve_movement_substep(
 				working,
 				per_entity,
 				tick,
@@ -182,8 +183,11 @@ static func resolve(
 				events,
 				fired_entity_ids,
 				halted_entity_ids,
-				sorted_entities
+				sorted_entities,
+				movement_path_cache
 			)
+			if not moved:
+				break
 
 		# Phase 4 extension: gather workers at a source tick yields and
 		# direct resource credit.
