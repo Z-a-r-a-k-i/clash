@@ -381,7 +381,7 @@ func clear_submissions(clear_move_assists: bool = true, clear_future_orders: boo
 
 
 func create_snapshot() -> DevInputSnapshot:
-	var snapshot := DevInputSnapshot.new()
+	var snapshot: DevInputSnapshot = DevInputSnapshot.new()
 	snapshot.active_player_id = _active_player_id
 	snapshot.selected_entity_id = _selected_entity_id
 	snapshot.submit_a = _submission_for(0).clone()
