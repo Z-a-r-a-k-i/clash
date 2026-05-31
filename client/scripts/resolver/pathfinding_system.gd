@@ -201,7 +201,9 @@ static func find_next_step(
 			"path": direct_path,
 		}
 
-	var path: Array[Vector2i] = find_path(state, actor, target_origin, registry, options)
+	var path_options: Dictionary = options.duplicate()
+	path_options[OPTION_OCCUPANCY_BLOCKERS] = occupancy_blockers
+	var path: Array[Vector2i] = find_path(state, actor, target_origin, registry, path_options)
 	if path.is_empty():
 		return {}
 	return {

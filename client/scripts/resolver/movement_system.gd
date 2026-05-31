@@ -55,10 +55,11 @@ static func resolve_movement_substep(
 	fired_entity_ids: Dictionary,
 	halted_entity_ids: Dictionary,
 	sorted_entities: Array[Entity],
-	path_cache: Dictionary = {}
+	path_cache: Variant = null
 ) -> bool:
 	if state == null or state.tile_grid == null or registry == null:
 		return false
+	var active_path_cache: Dictionary = path_cache if path_cache is Dictionary else {}
 	var intents: Array[Dictionary] = _movement_intents(
 		state,
 		per_entity,
@@ -102,11 +103,18 @@ static func resolve_movement_substep(
 		if intent.has("goal_rect"):
 			options[_PATHFINDING.OPTION_GOAL_RECT] = intent["goal_rect"]
 		var step: Dictionary = _cached_next_step(
-			state.tile_grid, actor, target_origin, footprint, movement, options, intent, path_cache
+			state.tile_grid,
+			actor,
+			target_origin,
+			footprint,
+			movement,
+			options,
+			intent,
+			active_path_cache
 		)
 		if step.is_empty():
 			step = _PATHFINDING.find_next_step(state, actor, target_origin, registry, options)
-			_store_path_cache(actor, target_origin, intent, step, path_cache)
+			_store_path_cache(actor, target_origin, intent, step, active_path_cache)
 		if step.is_empty():
 			continue
 		var next_origin: Vector2i = step.get("next_origin", actor.origin)

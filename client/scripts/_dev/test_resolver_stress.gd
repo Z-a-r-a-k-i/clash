@@ -11,7 +11,8 @@ const _UNIT_ROWS := 10
 const _UNITS_PER_PLAYER := _UNIT_ROWS * 2
 const _BLOCKER_COUNT := 16
 const _ABILITY_ORDERS_PER_UNIT := 4
-const _MAX_RESOLVE_USEC := 125000
+const _MAX_RESOLVE_USEC_DEFAULT := 125000
+const _BUDGET_ENV_VAR := "RESOLVER_STRESS_BUDGET_USEC"
 
 
 func _enter_tree() -> void:
@@ -54,6 +55,7 @@ func _test_large_ordered_resolve_stays_under_budget() -> bool:
 	var order_count: int = fixture["order_count"]
 	var unit_count: int = fixture["unit_count"]
 	var blocker_count: int = fixture["blocker_count"]
+	var max_resolve_usec := _resolve_budget_usec()
 
 	var start_usec := Time.get_ticks_usec()
 	var result: ResolveResult = Resolver.resolve(state, submit_a, submit_b, registry, null)
@@ -108,11 +110,11 @@ func _test_large_ordered_resolve_stays_under_budget() -> bool:
 	if result.new_state.match_over:
 		push_error("[test_resolver_stress] stress resolve should not end the match")
 		return false
-	if elapsed_usec > _MAX_RESOLVE_USEC:
+	if elapsed_usec > max_resolve_usec:
 		push_error(
 			(
 				"[test_resolver_stress] resolve took %.3fms; budget is %.3fms"
-				% [float(elapsed_usec) / 1000.0, float(_MAX_RESOLVE_USEC) / 1000.0]
+				% [float(elapsed_usec) / 1000.0, float(max_resolve_usec) / 1000.0]
 			)
 		)
 		return false
@@ -355,3 +357,12 @@ func _count_events(events: Array[ResolverEvent], event_type: ResolverEvent.Type)
 		if event != null and event.type == event_type:
 			count += 1
 	return count
+
+
+func _resolve_budget_usec() -> int:
+	var override := OS.get_environment(_BUDGET_ENV_VAR)
+	if override.is_valid_int():
+		var value := override.to_int()
+		if value > 0:
+			return value
+	return _MAX_RESOLVE_USEC_DEFAULT
