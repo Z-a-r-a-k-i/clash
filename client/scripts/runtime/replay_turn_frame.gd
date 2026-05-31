@@ -11,7 +11,7 @@ extends Resource
 
 
 func clone() -> ReplayTurnFrame:
-	var c := ReplayTurnFrame.new()
+	var c: ReplayTurnFrame = ReplayTurnFrame.new()
 	c.turn_index = turn_index
 	c.submit_a = submit_a.clone() if submit_a != null else SubmitTurn.new()
 	c.submit_b = submit_b.clone() if submit_b != null else SubmitTurn.new()

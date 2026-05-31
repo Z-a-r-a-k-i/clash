@@ -17,7 +17,7 @@ extends Resource
 
 
 func clone() -> DevInputSnapshot:
-	var c := DevInputSnapshot.new()
+	var c: DevInputSnapshot = DevInputSnapshot.new()
 	c.active_player_id = active_player_id
 	c.selected_entity_id = selected_entity_id
 	c.submit_a = submit_a.clone() if submit_a != null else SubmitTurn.new()
@@ -29,20 +29,26 @@ func clone() -> DevInputSnapshot:
 	return c
 
 
-func _clone_order_dictionary(source: Dictionary) -> Dictionary:
+func _clone_order_dictionary(source: Variant) -> Dictionary:
 	var out: Dictionary = {}
-	for key in source:
-		var order: EntityOrder = source[key]
+	if not source is Dictionary:
+		return out
+	var source_dict: Dictionary = source
+	for key in source_dict:
+		var order: EntityOrder = source_dict[key]
 		if order != null:
 			out[int(key)] = order.clone()
 	return out
 
 
-func _clone_future_order_dictionary(source: Dictionary) -> Dictionary:
+func _clone_future_order_dictionary(source: Variant) -> Dictionary:
 	var out: Dictionary = {}
-	for key in source:
+	if not source is Dictionary:
+		return out
+	var source_dict: Dictionary = source
+	for key in source_dict:
 		var cloned_queue: Array[EntityOrder] = []
-		var raw_queue: Variant = source[key]
+		var raw_queue: Variant = source_dict[key]
 		if not raw_queue is Array:
 			continue
 		var queue: Array = raw_queue

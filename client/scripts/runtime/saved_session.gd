@@ -16,7 +16,7 @@ extends Resource
 
 
 func clone() -> SavedSession:
-	var c := SavedSession.new()
+	var c: SavedSession = SavedSession.new()
 	c.state = state.clone() if state != null else null
 	c.registry = registry
 	c.input_snapshot = input_snapshot.clone() if input_snapshot != null else null

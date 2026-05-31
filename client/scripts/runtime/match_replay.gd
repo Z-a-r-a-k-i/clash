@@ -13,7 +13,7 @@ const CURRENT_FORMAT_VERSION := 1
 
 
 func clone() -> MatchReplay:
-	var c := MatchReplay.new()
+	var c: MatchReplay = MatchReplay.new()
 	c.format_version = format_version
 	c.initial_session = initial_session.clone() if initial_session != null else null
 	c.frames = []

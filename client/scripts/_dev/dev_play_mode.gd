@@ -974,14 +974,6 @@ func _truncate_replay_after_turn(turn_index: int) -> void:
 			_checkpoints.erase(key)
 
 
-func _rebuild_replay_checkpoints() -> bool:
-	var rebuilt_checkpoints: Dictionary[int, SavedSession] = _checkpoints_for_replay(_replay)
-	if rebuilt_checkpoints.is_empty():
-		return false
-	_checkpoints = rebuilt_checkpoints
-	return true
-
-
 func _checkpoints_for_replay(replay: MatchReplay) -> Dictionary[int, SavedSession]:
 	var checkpoints: Dictionary[int, SavedSession] = {}
 	if replay == null or replay.initial_session == null:

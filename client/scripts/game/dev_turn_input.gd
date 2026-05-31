@@ -933,19 +933,25 @@ func _append_future_order(order: EntityOrder) -> void:
 	_future_orders[order.entity_id] = queue
 
 
-func _clone_order_dictionary(source: Dictionary) -> Dictionary[int, EntityOrder]:
+func _clone_order_dictionary(source: Variant) -> Dictionary[int, EntityOrder]:
 	var out: Dictionary[int, EntityOrder] = {}
-	for key in source.keys():
-		var order: EntityOrder = source[key]
+	if not source is Dictionary:
+		return out
+	var source_dict: Dictionary = source
+	for key in source_dict.keys():
+		var order: EntityOrder = source_dict[key]
 		if order != null:
 			out[int(key)] = order.clone()
 	return out
 
 
-func _clone_future_order_dictionary(source: Dictionary) -> Dictionary[int, Array]:
+func _clone_future_order_dictionary(source: Variant) -> Dictionary[int, Array]:
 	var out: Dictionary[int, Array] = {}
-	for key in source.keys():
-		var raw_queue: Variant = source[key]
+	if not source is Dictionary:
+		return out
+	var source_dict: Dictionary = source
+	for key in source_dict.keys():
+		var raw_queue: Variant = source_dict[key]
 		if not raw_queue is Array:
 			continue
 		var cloned_queue: Array[EntityOrder] = []
@@ -1149,6 +1155,7 @@ func _prune_submissions() -> void:
 			continue
 		for i in range(submit.orders.size() - 1, -1, -1):
 			var order: EntityOrder = submit.orders[i]
+			_prune_missing_order_targets(order)
 			if not _is_restorable_order(order, player_id):
 				submit.orders.remove_at(i)
 
@@ -1163,11 +1170,16 @@ func _is_restorable_order(order: EntityOrder, player_id: int) -> bool:
 		return false
 	if order.target_entity_id >= 0 and _state.get_entity_by_id(order.target_entity_id) == null:
 		return false
+	return true
+
+
+func _prune_missing_order_targets(order: EntityOrder) -> void:
+	if order == null or _state == null:
+		return
 	for i in range(order.target_priority_chain.size() - 1, -1, -1):
 		var target_id: int = order.target_priority_chain[i]
 		if _state.get_entity_by_id(target_id) == null:
 			order.target_priority_chain.remove_at(i)
-	return true
 
 
 func _can_promote_future_order_for_entity(entity: Entity) -> bool:

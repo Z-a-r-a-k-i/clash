@@ -33,7 +33,7 @@ static func save(
 	if path == "":
 		push_warning("MatchSaver.save: empty path; nothing written.")
 		return ERR_INVALID_PARAMETER
-	var session := SavedSession.new()
+	var session: SavedSession = SavedSession.new()
 	session.state = state
 	session.registry = registry
 	session.input_snapshot = input_snapshot
@@ -52,7 +52,7 @@ static func load_from(path: String) -> SavedSession:
 	var resource: Resource = ResourceLoader.load(
 		path, "SavedSession", ResourceLoader.CACHE_MODE_IGNORE
 	)
-	var session := resource as SavedSession
+	var session: SavedSession = resource as SavedSession
 	if session == null:
 		return null
 	if session.state == null:
