@@ -6,6 +6,8 @@ const MATCH_SCENE_PATH := "res://scenes/match.tscn"
 const REGISTRY_PATH := "res://data/entity_registry.tres"
 const TUNABLES_PATH := "res://data/tunables.tres"
 const DEV_TURN_INPUT_SCRIPT := preload("res://scripts/game/dev_turn_input.gd")
+const _RESOLVE_PROFILE_FLAG_PATH := "res://resolver_profile_enabled"
+const _DEV_RESOLVE_PROFILE_LOG_PATH := "user://dev_play_resolve_latest.log"
 const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
 const PATHFINDING_SCRIPT := preload("res://scripts/resolver/pathfinding_system.gd")
 const PENDING_NONE := ""
@@ -415,6 +417,14 @@ func cancel_pending_command() -> void:
 	_update_hud("Pending command cancelled.")
 
 
+func _emit_dev_resolve_profile(lines: Array[String]) -> void:
+	for line in lines:
+		print(line)
+	var file := FileAccess.open(_DEV_RESOLVE_PROFILE_LOG_PATH, FileAccess.WRITE)
+	if file != null:
+		file.store_string("\n".join(lines) + "\n")
+
+
 func pending_order_count(player_id: int) -> int:
 	return _input.queued_order_count(player_id)
 
@@ -422,28 +432,115 @@ func pending_order_count(player_id: int) -> int:
 func resolve_turn() -> bool:
 	if _loaded == null or _loaded.state == null or _loaded.registry == null or _tunables == null:
 		return false
+	var profile_enabled := FileAccess.file_exists(_RESOLVE_PROFILE_FLAG_PATH)
+	var profile_lines: Array[String] = []
+	var profile_total_start := Time.get_ticks_usec()
+	var profile_step := profile_total_start
+	if profile_enabled:
+		profile_lines.append(
+			"[dev_resolve_profile] captured_at=%s" % Time.get_datetime_string_from_system()
+		)
+		profile_lines.append(
+			"[dev_resolve_profile] before entities=%d" % _loaded.state.entities.size()
+		)
+	var submit_a: SubmitTurn = _input.submit_for_player(0)
+	var submit_b: SubmitTurn = _input.submit_for_player(1)
+	if profile_enabled:
+		(
+			profile_lines
+			. append(
+				(
+					"[dev_resolve_profile] submit_inputs=%.3fms orders_a=%d orders_b=%d"
+					% [
+						float(Time.get_ticks_usec() - profile_step) / 1000.0,
+						submit_a.orders.size(),
+						submit_b.orders.size(),
+					]
+				)
+			)
+		)
+		profile_step = Time.get_ticks_usec()
 	var result: ResolveResult = Resolver.resolve(
-		_loaded.state,
-		_input.submit_for_player(0),
-		_input.submit_for_player(1),
-		_loaded.registry,
-		_tunables
+		_loaded.state, submit_a, submit_b, _loaded.registry, _tunables
 	)
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[dev_resolve_profile] resolver=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		profile_step = Time.get_ticks_usec()
 	if result == null or result.new_state == null:
+		if profile_enabled:
+			profile_lines.append("[dev_resolve_profile] failed_result=true")
+			_emit_dev_resolve_profile(profile_lines)
 		return false
 	_loaded.state = result.new_state
 	_clear_pending_command()
 	if _renderer != null:
 		_renderer.render_step(result.new_state, result.events)
+		if profile_enabled:
+			profile_lines.append(
+				(
+					"[dev_resolve_profile] renderer.render_step=%.3fms events=%d"
+					% [float(Time.get_ticks_usec() - profile_step) / 1000.0, result.events.size()]
+				)
+			)
+			profile_step = Time.get_ticks_usec()
 		_renderer.clear_input_highlights()
+		if profile_enabled:
+			profile_lines.append(
+				(
+					"[dev_resolve_profile] renderer.clear_input_highlights=%.3fms"
+					% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+				)
+			)
+			profile_step = Time.get_ticks_usec()
 	_input.bind_context(_loaded.state, _loaded.registry)
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[dev_resolve_profile] input.bind_context=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		profile_step = Time.get_ticks_usec()
 	_input.clear_submissions(false, false)
 	_input.apply_resolve_events(result.events)
 	_input.queue_rally_orders_for_train_completed(result.events)
 	_input.queue_move_assists_for_next_turn()
 	_input.promote_future_orders_for_next_turn()
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[dev_resolve_profile] input.post_resolve=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		profile_step = Time.get_ticks_usec()
 	_reset_context_cursor()
 	_update_hud("Resolved turn %d." % _loaded.state.turn_index)
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[dev_resolve_profile] hud=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		(
+			profile_lines
+			. append(
+				(
+					"[dev_resolve_profile] total=%.3fms after_entities=%d"
+					% [
+						float(Time.get_ticks_usec() - profile_total_start) / 1000.0,
+						_loaded.state.entities.size(),
+					]
+				)
+			)
+		)
+		_emit_dev_resolve_profile(profile_lines)
 	return true
 
 

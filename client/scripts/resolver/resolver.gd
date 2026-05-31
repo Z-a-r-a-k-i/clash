@@ -34,6 +34,7 @@ extends RefCounted
 
 const _STATE_HELPERS := preload("res://scripts/resolver/_state_helpers.gd")
 const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
+const _RESOLVER_PROFILER := preload("res://scripts/resolver/resolver_profiler.gd")
 
 
 static func resolve(
@@ -43,15 +44,32 @@ static func resolve(
 	registry: EntityRegistry,
 	tunables: Tunables
 ) -> ResolveResult:
+	var profile: Variant = null
+	if _RESOLVER_PROFILER.is_enabled():
+		profile = _RESOLVER_PROFILER.new()
+		profile.start()
+	var profile_step: int = profile.mark() if profile != null else 0
 	var result := ResolveResult.new()
 	var events: Array[ResolverEvent] = []
+	if profile != null:
+		profile.count("input.entities", state.entities.size() if state != null else 0)
+		profile.count("input.orders_a", submit_a.orders.size() if submit_a != null else 0)
+		profile.count("input.orders_b", submit_b.orders.size() if submit_b != null else 0)
 
 	# 1. Working copies. Per the pure-function contract, neither the input
 	#    `state` nor the input submissions can be aliased into the result.
 	var working: MatchState = state.clone()
+	if profile != null:
+		profile.add("clone_state", profile_step)
+		profile_step = profile.mark()
 	var safe_submit_a: SubmitTurn = submit_a.clone() if submit_a != null else null
 	var safe_submit_b: SubmitTurn = submit_b.clone() if submit_b != null else null
+	if profile != null:
+		profile.add("clone_submissions", profile_step)
+		profile_step = profile.mark()
 	_clear_deprecated_persistent_orders(working)
+	if profile != null:
+		profile.add("clear_persistent_orders", profile_step)
 
 	# 1a. If the match is already over, return a clone with no further
 	#     processing. Prevents re-emitting MATCH_ENDED or mutating terminal
@@ -59,6 +77,9 @@ static func resolve(
 	if working.match_over:
 		result.new_state = working
 		result.events = events
+		if profile != null:
+			profile.count("early_return.match_over")
+			profile.finish()
 		return result
 
 	# 2. Player-level surrender takes priority — if either side surrendered,
@@ -88,6 +109,9 @@ static func resolve(
 		events.append(ev)
 		result.new_state = working
 		result.events = events
+		if profile != null:
+			profile.count("early_return.surrender")
+			profile.finish()
 		return result
 
 	# 3. Distribute orders into per-entity queues. HALT_ON_SIGHT_TOGGLE and
@@ -99,23 +123,43 @@ static func resolve(
 	var orders_b: Array[EntityOrder] = (
 		safe_submit_b.orders if safe_submit_b != null else [] as Array[EntityOrder]
 	)
+	if profile != null:
+		profile_step = profile.mark()
 	var per_entity := _STATE_HELPERS.distribute_orders(
 		working, orders_a, orders_b, registry, events
 	)
+	if profile != null:
+		profile.add("distribute_orders", profile_step)
 
 	# 3a. Idle producers that just received a TRAIN/RESEARCH this turn
 	#     should start producing immediately (so build-time is N turns
 	#     from order submission, not N+1). Plan node 05.
+	if profile != null:
+		profile_step = profile.mark()
 	ProductionSystem.try_fill_active_slots(working, registry, events)
+	if profile != null:
+		profile.add("production.try_fill_active_slots", profile_step)
 
 	# 4. Tick loop. Move orders still consume movement budget in a stable
 	#    phase, but attacks are no longer queued slots: each combat unit
 	#    may fire at most once per resolve.
+	if profile != null:
+		profile_step = profile.mark()
 	var n_ticks := _STATE_HELPERS.max_queue_length(per_entity)
+	if profile != null:
+		profile.add("max_queue_length", profile_step)
 	# Ensure active gather cycles and active production slots still advance
 	# on turns with no submitted orders.
-	if n_ticks == 0 and _has_standing_work(working, registry):
-		n_ticks = 1
+	if n_ticks == 0:
+		if profile != null:
+			profile_step = profile.mark()
+		var has_standing_work: bool = _has_standing_work(working, registry, profile)
+		if profile != null:
+			profile.add("standing_work.total", profile_step)
+		if has_standing_work:
+			n_ticks = 1
+	if profile != null:
+		profile.count("ticks", n_ticks)
 	var fired_entity_ids: Dictionary = {}
 	for tick in n_ticks:
 		# Sort once per tick and reuse across phases. Determinism still
@@ -124,18 +168,30 @@ static func resolve(
 		# the array (current_hp == 0) — the sort is stable and id-based,
 		# so the order itself doesn't change, but recomputing is cheap and
 		# defensive against future mutations of `entities`.
+		if profile != null:
+			profile_step = profile.mark()
 		var sorted_entities := working.entities_sorted_by_id()
+		if profile != null:
+			profile.add("tick.sort_entities", profile_step)
 
 		# Phase 1: self-target abilities. These consume the action slot
 		# before attacks and movement; delayed casts block later slots.
+		if profile != null:
+			profile_step = profile.mark()
 		for entity in sorted_entities:
 			var order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
 			if order == null:
 				continue
 			if order.type == EntityOrder.Type.USE_ABILITY:
 				_ABILITY_SYSTEM.resolve_use_ability(working, entity, order, registry, events)
+		if profile != null:
+			profile.add("tick.abilities", profile_step)
 
+		if profile != null:
+			profile_step = profile.mark()
 		var move_only_entity_ids: Dictionary = _move_only_entity_ids_at_tick(per_entity, tick)
+		if profile != null:
+			profile.add("tick.move_only_ids", profile_step)
 
 		if tick == 0:
 			# Phase 2: attacks. Stable collection by id followed by one batch
@@ -150,17 +206,30 @@ static func resolve(
 					continue
 				if move_only_entity_ids.has(entity.id):
 					continue
-				var attack_order := _standing_attack_order(working, entity, registry)
+				var attack_lookup_start: int = profile.mark() if profile != null else 0
+				var attack_order := _standing_attack_order(working, entity, registry, false)
+				if profile != null:
+					profile.add("tick.attack_order_lookup", attack_lookup_start)
+					profile.count("attack_order_lookups")
 				if attack_order == null:
 					continue
+				var attack_intent_start: int = profile.mark() if profile != null else 0
 				var intent := CombatSystem.build_attack_intent(
-					working, entity, attack_order, registry, tunables
+					working, entity, attack_order, registry, tunables, sorted_entities
 				)
+				if profile != null:
+					profile.add("tick.attack_intent_build", attack_intent_start)
+					profile.count("attack_intent_builds")
 				if not intent.is_empty():
 					attack_intents.append(intent)
+			if profile != null:
+				profile_step = profile.mark()
 			var tick_fired_ids := CombatSystem.apply_attack_intents(
 				working, attack_intents, registry, events
 			)
+			if profile != null:
+				profile.add("tick.attack_apply", profile_step)
+				profile.count("attack_intents", attack_intents.size())
 			for entity_id in tick_fired_ids:
 				fired_entity_ids[entity_id] = true
 
@@ -169,11 +238,23 @@ static func resolve(
 		# movement systems until every live mover has had a chance to spend
 		# that budget. `moves_used_this_turn` still caps each entity, so
 		# this upper bound is safe for mixed-speed rosters.
-		for _substep in _max_live_movement_speed(working, registry):
+		var movement_path_cache: Dictionary = {}
+		if profile != null:
+			profile_step = profile.mark()
+		var max_movement_speed: int = _max_live_movement_speed(working, registry)
+		if profile != null:
+			profile.add("movement.max_live_speed", profile_step)
+		for _substep in max_movement_speed:
+			if profile != null:
+				profile.count("movement.substep_attempts")
+				profile_step = profile.mark()
 			var halted_entity_ids: Dictionary = _halted_entity_ids(
 				working, registry, sorted_entities
 			)
-			MovementSystem.resolve_movement_substep(
+			if profile != null:
+				profile.add("movement.halted_entity_ids", profile_step)
+				profile_step = profile.mark()
+			var moved: bool = MovementSystem.resolve_movement_substep(
 				working,
 				per_entity,
 				tick,
@@ -182,19 +263,36 @@ static func resolve(
 				events,
 				fired_entity_ids,
 				halted_entity_ids,
-				sorted_entities
+				sorted_entities,
+				movement_path_cache,
+				profile
 			)
+			if profile != null:
+				profile.add("movement.resolve_substep", profile_step)
+			if not moved:
+				break
 
 		# Phase 4 extension: gather workers at a source tick yields and
 		# direct resource credit.
+		if profile != null:
+			profile_step = profile.mark()
 		GatherSystem.advance_state_phase(working, registry, tunables, events)
+		if profile != null:
+			profile.add("tick.gather", profile_step)
 
 	# 5. End-of-turn pass.
+	if profile != null:
+		profile_step = profile.mark()
 	EndOfTurnSystem.run(working, registry, tunables, events)
+	if profile != null:
+		profile.add("end_of_turn", profile_step)
 	working.turn_index += 1
 
 	result.new_state = working
 	result.events = events
+	if profile != null:
+		profile.count("events", events.size())
+		profile.finish()
 	return result
 
 
@@ -203,27 +301,47 @@ static func resolve(
 # construction, production, or an automatic attack.
 # Used by resolve() to force n_ticks ≥ 1 on turns with no submitted
 # orders.
-static func _has_standing_work(state: MatchState, registry: EntityRegistry) -> bool:
+static func _has_standing_work(
+	state: MatchState, registry: EntityRegistry, profile: Variant = null
+) -> bool:
 	for e in state.entities:
 		if e == null or e.current_hp <= 0:
 			continue
 		if e.ability_cast != null:
+			if profile != null:
+				profile.count("standing_work.ability_cast")
 			return true
 		if e.gather_state != null and e.gather_state.phase != GatherState.Phase.IDLE:
+			if profile != null:
+				profile.count("standing_work.gather")
 			return true
 		if ConstructionSystem.has_pending_build(e):
+			if profile != null:
+				profile.count("standing_work.pending_build")
 			return true
 		if e.locked_to_building_id >= 0:
+			if profile != null:
+				profile.count("standing_work.locked_worker")
 			return true
 		if e.is_constructing:
+			if profile != null:
+				profile.count("standing_work.constructing")
 			return true
+		var attack_lookup_start: int = profile.mark() if profile != null else 0
 		if _standing_attack_order(state, e, registry) != null:
+			if profile != null:
+				profile.add("standing_work.attack_order_lookup", attack_lookup_start)
+				profile.count("standing_work.attack_order_lookups")
+				profile.count("standing_work.attack")
 			return true
+		if profile != null:
+			profile.add("standing_work.attack_order_lookup", attack_lookup_start)
+			profile.count("standing_work.attack_order_lookups")
 	return false
 
 
 static func _standing_attack_order(
-	state: MatchState, entity: Entity, registry: EntityRegistry
+	state: MatchState, entity: Entity, registry: EntityRegistry, require_ready_target: bool = true
 ) -> EntityOrder:
 	if entity == null or entity.current_hp <= 0:
 		return null
@@ -234,6 +352,11 @@ static func _standing_attack_order(
 		or entity.locked_to_building_id >= 0
 		or entity.is_constructing
 	):
+		return null
+	if registry == null:
+		return null
+	var def: EntityDef = registry.get_by_id(entity.current_def_id)
+	if def == null or def.combat == null:
 		return null
 	var auto_attack := EntityOrder.new()
 	auto_attack.type = EntityOrder.Type.ATTACK
@@ -249,9 +372,12 @@ static func _standing_attack_order(
 			entity.focus_target_entity_id = -1
 		else:
 			auto_attack.target_priority_chain = [entity.focus_target_entity_id]
-	if CombatSystem.can_attack_now(state, entity, auto_attack, registry):
-		return auto_attack
-	return null
+	if (
+		require_ready_target
+		and not CombatSystem.can_attack_now(state, entity, auto_attack, registry)
+	):
+		return null
+	return auto_attack
 
 
 static func _max_live_movement_speed(state: MatchState, registry: EntityRegistry) -> int:

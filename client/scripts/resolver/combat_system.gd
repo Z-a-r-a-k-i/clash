@@ -32,7 +32,8 @@ static func build_attack_intent(
 	attacker: Entity,
 	order: EntityOrder,
 	registry: EntityRegistry,
-	_tunables: Tunables
+	_tunables: Tunables,
+	sorted_entities: Variant = null
 ) -> Dictionary:
 	if attacker == null or attacker.current_hp <= 0:
 		return {}
@@ -42,7 +43,7 @@ static func build_attack_intent(
 	if def == null or def.combat == null:
 		return {}  # Not combat-capable; silently skip.
 	var combat: CombatDef = def.combat
-	var target := _select_target(state, attacker, combat, order, registry)
+	var target := _select_target(state, attacker, combat, order, registry, sorted_entities)
 	if target == null:
 		return {}
 	var damage := _compute_damage(combat, target, attacker, registry)
@@ -111,7 +112,11 @@ static func apply_attack_intents(
 
 
 static func can_attack_now(
-	state: MatchState, attacker: Entity, order: EntityOrder, registry: EntityRegistry
+	state: MatchState,
+	attacker: Entity,
+	order: EntityOrder,
+	registry: EntityRegistry,
+	sorted_entities: Variant = null
 ) -> bool:
 	if attacker == null or attacker.current_hp <= 0:
 		return false
@@ -120,7 +125,7 @@ static func can_attack_now(
 	var def: EntityDef = registry.get_by_id(attacker.current_def_id)
 	if def == null or def.combat == null:
 		return false
-	return _select_target(state, attacker, def.combat, order, registry) != null
+	return _select_target(state, attacker, def.combat, order, registry, sorted_entities) != null
 
 
 # ---------- Target selection ----------
@@ -136,40 +141,44 @@ static func _select_target(
 	attacker: Entity,
 	combat: CombatDef,
 	order: EntityOrder,
-	registry: EntityRegistry
+	registry: EntityRegistry,
+	sorted_entities: Variant = null
 ) -> Entity:
+	var attacker_rect := _resolve_rect(state, attacker, registry)
+	if attacker_rect.size == Vector2i.ZERO:
+		return null
+
 	# Priority chain.
 	if order != null:
 		for target_id in order.target_priority_chain:
 			var candidate := state.get_entity_by_id(target_id)
-			if _is_valid_target(state, attacker, combat, candidate, registry):
+			if not _is_targetable(attacker, combat, candidate):
+				continue
+			var d := _entity_distance_from_rect(state, attacker_rect, candidate, registry)
+			if d >= 0 and d <= combat.attack_range:
 				return candidate
 
 	# Closest enemy in range, ties broken by id (entities_sorted_by_id
 	# guarantees stable iteration).
 	var closest: Entity = null
 	var closest_dist := -1
-	for candidate in state.entities_sorted_by_id():
-		if not _is_valid_target(state, attacker, combat, candidate, registry):
+	var candidates: Array = (
+		sorted_entities if sorted_entities is Array else state.entities_sorted_by_id()
+	)
+	for item in candidates:
+		var candidate: Entity = item as Entity
+		if not _is_targetable(attacker, combat, candidate):
 			continue
-		var d := _entity_distance(state, attacker, candidate, registry)
-		if d < 0:
+		var d := _entity_distance_from_rect(state, attacker_rect, candidate, registry)
+		if d < 0 or d > combat.attack_range:
 			continue
-		if closest == null or d < closest_dist:
+		if closest == null or d < closest_dist or (d == closest_dist and candidate.id < closest.id):
 			closest = candidate
 			closest_dist = d
 	return closest
 
 
-# Returns true if `candidate` is a fireable target for `attacker`:
-# alive, enemy-owned, on a target-able layer, within attack_range.
-static func _is_valid_target(
-	state: MatchState,
-	attacker: Entity,
-	combat: CombatDef,
-	candidate: Entity,
-	registry: EntityRegistry
-) -> bool:
+static func _is_targetable(attacker: Entity, combat: CombatDef, candidate: Entity) -> bool:
 	if candidate == null:
 		return false
 	if candidate.id == attacker.id:
@@ -182,7 +191,19 @@ static func _is_valid_target(
 	# (which is a content bug; CombatDef without TargetLayers is useless).
 	if combat.target_layers.size() == 0:
 		return false
-	if not combat.target_layers.has(candidate.current_layer):
+	return combat.target_layers.has(candidate.current_layer)
+
+
+# Returns true if `candidate` is a fireable target for `attacker`:
+# alive, enemy-owned, on a target-able layer, within attack_range.
+static func _is_valid_target(
+	state: MatchState,
+	attacker: Entity,
+	combat: CombatDef,
+	candidate: Entity,
+	registry: EntityRegistry
+) -> bool:
+	if not _is_targetable(attacker, combat, candidate):
 		return false
 	# Range check.
 	var d := _entity_distance(state, attacker, candidate, registry)
@@ -203,6 +224,15 @@ static func _entity_distance(
 	if ra.size == Vector2i.ZERO or rb.size == Vector2i.ZERO:
 		return -1
 	return TileGrid.distance_between_rects(ra, rb)
+
+
+static func _entity_distance_from_rect(
+	state: MatchState, a_rect: Rect2i, b: Entity, registry: EntityRegistry
+) -> int:
+	var rb := _resolve_rect(state, b, registry)
+	if rb.size == Vector2i.ZERO:
+		return -1
+	return TileGrid.distance_between_rects(a_rect, rb)
 
 
 # Prefer the TileGrid's recorded rect (it tracks dynamic placement); fall

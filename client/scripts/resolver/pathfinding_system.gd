@@ -9,6 +9,8 @@ const OPTION_KNOWN_ENTITY_IDS := "known_entity_ids"
 const OPTION_GOAL_RECT := "goal_rect"
 const OPTION_GOAL_RANGE := "goal_range"
 const OPTION_EXACT_ORIGIN := "exact_origin"
+const OPTION_OCCUPANCY_BLOCKERS := "occupancy_blockers"
+const OPTION_PROFILE := "_profile"
 
 const _NEIGHBORS: Array[Vector2i] = [
 	Vector2i(1, 0),
@@ -44,19 +46,29 @@ static func find_path(
 	var goal_rect: Rect2i = options.get(OPTION_GOAL_RECT, Rect2i(target_origin, footprint))
 	var goal_range: int = options.get(OPTION_GOAL_RANGE, 0)
 	var exact_origin: bool = options.get(OPTION_EXACT_ORIGIN, true)
-	var passable_entity_ids: Dictionary = _id_set(options.get(OPTION_PASSABLE_ENTITY_IDS, {}))
-	var known_entity_ids: Dictionary = _id_set(options.get(OPTION_KNOWN_ENTITY_IDS, {}))
+	var profile: Variant = options.get(OPTION_PROFILE, null)
 	var actor_layer: String = layer_for_entity(actor, registry)
-	var occupancy_blockers: Array[Dictionary] = _occupancy_blockers(
-		state, actor, registry, actor_layer, passable_entity_ids, known_entity_ids
-	)
+	var occupancy_blockers: Dictionary = options.get(OPTION_OCCUPANCY_BLOCKERS, {})
+	if occupancy_blockers.is_empty():
+		var passable_entity_ids: Dictionary = _id_set(options.get(OPTION_PASSABLE_ENTITY_IDS, {}))
+		var known_entity_ids: Dictionary = _id_set(options.get(OPTION_KNOWN_ENTITY_IDS, {}))
+		occupancy_blockers = _occupancy_blockers(
+			state, actor, registry, actor_layer, passable_entity_ids, known_entity_ids
+		)
 
 	var start: Vector2i = actor.origin
 	if _is_goal(start, footprint, target_origin, goal_rect, goal_range, exact_origin):
 		return out
+	var exact_target_blocked := (
+		exact_origin
+		and not _can_occupy_origin_with_blockers(
+			state.tile_grid, target_origin, footprint, movement, occupancy_blockers
+		)
+	)
 
+	var grid_width: int = max(1, state.tile_grid.width)
 	var open: Array[Dictionary] = []
-	var start_key: String = _key(start)
+	var start_key: int = _key(start, grid_width)
 	var g_score: Dictionary = {start_key: 0}
 	var came_from: Dictionary = {}
 	var reached: Dictionary = {start_key: start}
@@ -81,14 +93,16 @@ static func find_path(
 		start, footprint, target_origin, goal_rect, goal_range, exact_origin
 	)
 	var best_cost: int = 0
+	var expanded_nodes := 0
 
 	while not open.is_empty():
 		var current_node: Dictionary = _heap_pop_open(open)
 		var current: Vector2i = current_node["origin"]
-		var current_key: String = _key(current)
+		var current_key: int = _key(current, grid_width)
 		if closed.has(current_key):
 			continue
 		closed[current_key] = true
+		expanded_nodes += 1
 
 		var current_cost: int = g_score.get(current_key, 0)
 		var current_distance: int = _goal_distance(
@@ -112,11 +126,13 @@ static func find_path(
 			best_manhattan = current_manhattan
 			best_cost = current_cost
 		if _is_goal(current, footprint, target_origin, goal_rect, goal_range, exact_origin):
+			_count_profile(profile, "pathfinding.expanded_nodes", expanded_nodes)
+			_count_profile(profile, "pathfinding.full_path_success")
 			return _reconstruct_path(came_from, reached, current_key)
 
 		for delta in _NEIGHBORS:
 			var next: Vector2i = current + delta
-			var next_key: String = _key(next)
+			var next_key: int = _key(next, grid_width)
 			if closed.has(next_key):
 				continue
 			if not _can_occupy_origin_with_blockers(
@@ -136,10 +152,112 @@ static func find_path(
 				next, footprint, target_origin, goal_rect, goal_range, exact_origin
 			)
 			_heap_push_open(open, _node(next, tentative_cost, h, m))
+		if (
+			exact_target_blocked
+			and best_distance <= 1
+			and (open.is_empty() or int(open[0].get("f", 0)) > best_cost + best_distance)
+		):
+			_count_profile(profile, "pathfinding.exact_blocked_early_exit")
+			_count_profile(profile, "pathfinding.expanded_nodes", expanded_nodes)
+			if best_origin == start:
+				_count_profile(profile, "pathfinding.full_path_no_progress")
+				return out
+			_count_profile(profile, "pathfinding.full_path_best_reachable")
+			return _reconstruct_path(came_from, reached, _key(best_origin, grid_width))
 
 	if best_origin == start:
+		_count_profile(profile, "pathfinding.expanded_nodes", expanded_nodes)
+		_count_profile(profile, "pathfinding.full_path_no_progress")
 		return out
-	return _reconstruct_path(came_from, reached, _key(best_origin))
+	_count_profile(profile, "pathfinding.expanded_nodes", expanded_nodes)
+	_count_profile(profile, "pathfinding.full_path_best_reachable")
+	return _reconstruct_path(came_from, reached, _key(best_origin, grid_width))
+
+
+static func find_next_step(
+	state: MatchState,
+	actor: Entity,
+	target_origin: Vector2i,
+	registry: EntityRegistry,
+	options: Dictionary = {}
+) -> Dictionary:
+	if state == null or actor == null or registry == null or state.tile_grid == null:
+		return {}
+	if actor.current_hp <= 0:
+		return {}
+	var footprint: Vector2i = entity_footprint(state, actor, registry)
+	if footprint.x <= 0 or footprint.y <= 0:
+		return {}
+	var movement: MovementDef = movement_def_for_entity(actor, registry)
+	if movement == null:
+		return {}
+
+	var goal_rect: Rect2i = options.get(OPTION_GOAL_RECT, Rect2i(target_origin, footprint))
+	var goal_range: int = options.get(OPTION_GOAL_RANGE, 0)
+	var exact_origin: bool = options.get(OPTION_EXACT_ORIGIN, true)
+	var profile: Variant = options.get(OPTION_PROFILE, null)
+	var occupancy_blockers: Dictionary = options.get(OPTION_OCCUPANCY_BLOCKERS, {})
+	if occupancy_blockers.is_empty():
+		var passable_entity_ids: Dictionary = _id_set(options.get(OPTION_PASSABLE_ENTITY_IDS, {}))
+		var known_entity_ids: Dictionary = _id_set(options.get(OPTION_KNOWN_ENTITY_IDS, {}))
+		occupancy_blockers = _occupancy_blockers(
+			state,
+			actor,
+			registry,
+			layer_for_entity(actor, registry),
+			passable_entity_ids,
+			known_entity_ids
+		)
+	var start: Vector2i = actor.origin
+	if _is_goal(start, footprint, target_origin, goal_rect, goal_range, exact_origin):
+		return {}
+	if (
+		exact_origin
+		and (
+			_chebyshev_to_goal(start, footprint, target_origin, goal_rect, goal_range, exact_origin)
+			<= 1
+		)
+		and not _can_occupy_origin_with_blockers(
+			state.tile_grid, target_origin, footprint, movement, occupancy_blockers
+		)
+	):
+		_count_profile(profile, "pathfinding.exact_blocked_adjacent_no_progress")
+		return {}
+
+	var direct_path: Array[Vector2i] = _monotonic_path(
+		state.tile_grid,
+		start,
+		target_origin,
+		footprint,
+		movement,
+		occupancy_blockers,
+		goal_rect,
+		goal_range,
+		exact_origin
+	)
+	if not direct_path.is_empty():
+		_count_profile(profile, "pathfinding.monotonic_success")
+		return {
+			"next_origin": direct_path[0],
+			"path_distance": direct_path.size(),
+			"path": direct_path,
+		}
+
+	var path_options: Dictionary = options.duplicate()
+	path_options[OPTION_OCCUPANCY_BLOCKERS] = occupancy_blockers
+	var path_start := Time.get_ticks_usec() if profile != null else 0
+	var path: Array[Vector2i] = find_path(state, actor, target_origin, registry, path_options)
+	if profile != null:
+		_add_profile(profile, "pathfinding.full_path", path_start)
+	if path.is_empty():
+		_count_profile(profile, "pathfinding.empty")
+		return {}
+	_count_profile(profile, "pathfinding.full_path_used")
+	return {
+		"next_origin": path[0],
+		"path_distance": path.size(),
+		"path": path,
+	}
 
 
 static func can_occupy_origin(
@@ -161,24 +279,15 @@ static func can_occupy_origin(
 		return false
 	if not _terrain_allows_rect(state.tile_grid, rect, movement):
 		return false
-	var actor_layer: String = layer_for_entity(actor, registry)
-	for entity in state.entities_sorted_by_id():
-		if entity == null or entity.id == actor.id:
-			continue
-		if not known_entity_ids.is_empty() and not known_entity_ids.has(entity.id):
-			continue
-		if passable_entity_ids.has(entity.id):
-			continue
-		if not _is_spatial_blocker(entity, registry):
-			continue
-		if layer_for_entity(entity, registry) != actor_layer:
-			continue
-		var other_rect: Rect2i = state.tile_grid.entity_rect(entity.id)
-		if other_rect.size.x <= 0 or other_rect.size.y <= 0:
-			continue
-		if other_rect.intersects(rect):
-			return false
-	return true
+	var blockers: Dictionary = _occupancy_blockers(
+		state,
+		actor,
+		registry,
+		layer_for_entity(actor, registry),
+		passable_entity_ids,
+		known_entity_ids
+	)
+	return _can_occupy_origin_with_blockers(state.tile_grid, origin, footprint, movement, blockers)
 
 
 static func _occupancy_blockers(
@@ -188,12 +297,14 @@ static func _occupancy_blockers(
 	actor_layer: String,
 	passable_entity_ids: Dictionary,
 	known_entity_ids: Dictionary
-) -> Array[Dictionary]:
-	var blockers: Array[Dictionary] = []
-	if state == null or actor == null or state.tile_grid == null or registry == null:
-		return blockers
+) -> Dictionary:
+	var blocked_tiles: Dictionary = {}
+	if state == null or state.tile_grid == null or registry == null:
+		return {"tiles": blocked_tiles}
 	for entity in state.entities_sorted_by_id():
-		if entity == null or entity.id == actor.id:
+		if entity == null:
+			continue
+		if actor != null and entity.id == actor.id:
 			continue
 		if not known_entity_ids.is_empty() and not known_entity_ids.has(entity.id):
 			continue
@@ -206,8 +317,10 @@ static func _occupancy_blockers(
 		var other_rect: Rect2i = state.tile_grid.entity_rect(entity.id)
 		if other_rect.size.x <= 0 or other_rect.size.y <= 0:
 			continue
-		blockers.append({"id": entity.id, "rect": other_rect})
-	return blockers
+		for x in range(other_rect.position.x, other_rect.position.x + other_rect.size.x):
+			for y in range(other_rect.position.y, other_rect.position.y + other_rect.size.y):
+				blocked_tiles[Vector2i(x, y)] = true
+	return {"tiles": blocked_tiles}
 
 
 static func _can_occupy_origin_with_blockers(
@@ -215,20 +328,180 @@ static func _can_occupy_origin_with_blockers(
 	origin: Vector2i,
 	footprint: Vector2i,
 	movement: MovementDef,
-	occupancy_blockers: Array[Dictionary]
+	occupancy_blockers: Dictionary
 ) -> bool:
 	if grid == null or movement == null:
 		return false
+	var blocked_tiles: Dictionary = occupancy_blockers.get("tiles", {})
+	if (
+		footprint == Vector2i.ONE
+		and movement.impassable_terrain_tags.is_empty()
+		and movement.pathable_terrain_tags.is_empty()
+	):
+		if not grid.is_in_bounds(origin):
+			return false
+		return blocked_tiles.is_empty() or not blocked_tiles.has(origin)
 	var rect := Rect2i(origin, footprint)
 	if not grid.is_rect_in_bounds(rect):
 		return false
 	if not _terrain_allows_rect(grid, rect, movement):
 		return false
-	for blocker in occupancy_blockers:
-		var other_rect: Rect2i = blocker.get("rect", Rect2i())
-		if other_rect.intersects(rect):
-			return false
+	if not blocked_tiles.is_empty():
+		for x in range(rect.position.x, rect.position.x + rect.size.x):
+			for y in range(rect.position.y, rect.position.y + rect.size.y):
+				if blocked_tiles.has(Vector2i(x, y)):
+					return false
 	return true
+
+
+static func _monotonic_path(
+	grid: TileGrid,
+	start: Vector2i,
+	target_origin: Vector2i,
+	footprint: Vector2i,
+	movement: MovementDef,
+	occupancy_blockers: Dictionary,
+	goal_rect: Rect2i,
+	goal_range: int,
+	exact_origin: bool
+) -> Array[Vector2i]:
+	var path: Array[Vector2i] = []
+	var current: Vector2i = start
+	var guard: int = max(grid.width, grid.height) + max(footprint.x, footprint.y) + goal_range
+	while not _is_goal(current, footprint, target_origin, goal_rect, goal_range, exact_origin):
+		if path.size() > guard:
+			return []
+		var next_origin: Vector2i = _monotonic_next_origin(
+			grid,
+			current,
+			target_origin,
+			footprint,
+			movement,
+			occupancy_blockers,
+			goal_rect,
+			goal_range,
+			exact_origin
+		)
+		if next_origin == current:
+			return []
+		current = next_origin
+		path.append(current)
+	return path
+
+
+static func _monotonic_next_origin(
+	grid: TileGrid,
+	current: Vector2i,
+	target_origin: Vector2i,
+	footprint: Vector2i,
+	movement: MovementDef,
+	occupancy_blockers: Dictionary,
+	goal_rect: Rect2i,
+	goal_range: int,
+	exact_origin: bool
+) -> Vector2i:
+	if exact_origin:
+		return _exact_monotonic_next_origin(
+			grid, current, target_origin, footprint, movement, occupancy_blockers
+		)
+	var current_distance: int = _goal_distance(
+		current, footprint, target_origin, goal_rect, goal_range, exact_origin
+	)
+	var current_manhattan: int = _manhattan_distance(
+		current, footprint, target_origin, goal_rect, goal_range, exact_origin
+	)
+	var best_origin: Vector2i = current
+	var best_distance: int = current_distance
+	var best_manhattan: int = current_manhattan
+	var has_candidate := false
+	for delta in _NEIGHBORS:
+		var next: Vector2i = current + delta
+		if not _can_occupy_origin_with_blockers(
+			grid, next, footprint, movement, occupancy_blockers
+		):
+			continue
+		var next_distance: int = _goal_distance(
+			next, footprint, target_origin, goal_rect, goal_range, exact_origin
+		)
+		var next_manhattan: int = _manhattan_distance(
+			next, footprint, target_origin, goal_rect, goal_range, exact_origin
+		)
+		if next_distance > current_distance:
+			continue
+		if next_distance == current_distance and next_manhattan >= current_manhattan:
+			continue
+		if (
+			not has_candidate
+			or _is_better_reachable(
+				next,
+				next_distance,
+				next_manhattan,
+				1,
+				best_origin,
+				best_distance,
+				best_manhattan,
+				1
+			)
+		):
+			has_candidate = true
+			best_origin = next
+			best_distance = next_distance
+			best_manhattan = next_manhattan
+	return best_origin
+
+
+static func _exact_monotonic_next_origin(
+	grid: TileGrid,
+	current: Vector2i,
+	target_origin: Vector2i,
+	footprint: Vector2i,
+	movement: MovementDef,
+	occupancy_blockers: Dictionary
+) -> Vector2i:
+	var current_dx: int = abs(current.x - target_origin.x)
+	var current_dy: int = abs(current.y - target_origin.y)
+	var current_distance: int = max(current_dx, current_dy)
+	var current_manhattan: int = current_dx + current_dy
+	var best_origin: Vector2i = current
+	var best_distance: int = current_distance
+	var best_manhattan: int = current_manhattan
+	var has_candidate := false
+	for delta in _NEIGHBORS:
+		var next: Vector2i = current + delta
+		if not _can_occupy_origin_with_blockers(
+			grid, next, footprint, movement, occupancy_blockers
+		):
+			continue
+		var next_dx: int = abs(next.x - target_origin.x)
+		var next_dy: int = abs(next.y - target_origin.y)
+		var next_distance: int = max(next_dx, next_dy)
+		var next_manhattan: int = next_dx + next_dy
+		if next_distance > current_distance:
+			continue
+		if next_distance == current_distance and next_manhattan >= current_manhattan:
+			continue
+		if (
+			not has_candidate
+			or next_distance < best_distance
+			or (
+				next_distance == best_distance
+				and (
+					next_manhattan < best_manhattan
+					or (
+						next_manhattan == best_manhattan
+						and (
+							next.y < best_origin.y
+							or (next.y == best_origin.y and next.x < best_origin.x)
+						)
+					)
+				)
+			)
+		):
+			has_candidate = true
+			best_origin = next
+			best_distance = next_distance
+			best_manhattan = next_manhattan
+	return best_origin
 
 
 static func entity_footprint(
@@ -444,10 +717,10 @@ static func _is_better_reachable(
 
 
 static func _reconstruct_path(
-	came_from: Dictionary, reached: Dictionary, end_key: String
+	came_from: Dictionary, reached: Dictionary, end_key: int
 ) -> Array[Vector2i]:
 	var reversed: Array[Vector2i] = []
-	var current_key: String = end_key
+	var current_key: int = end_key
 	while came_from.has(current_key):
 		reversed.append(reached[current_key])
 		current_key = came_from[current_key]
@@ -456,6 +729,8 @@ static func _reconstruct_path(
 
 
 static func _terrain_allows_rect(grid: TileGrid, rect: Rect2i, movement: MovementDef) -> bool:
+	if movement.impassable_terrain_tags.is_empty() and movement.pathable_terrain_tags.is_empty():
+		return true
 	for x in range(rect.position.x, rect.position.x + rect.size.x):
 		for y in range(rect.position.y, rect.position.y + rect.size.y):
 			var tags: Array[String] = grid.tile_terrain_tags(Vector2i(x, y))
@@ -495,5 +770,15 @@ static func _id_set(value: Variant) -> Dictionary:
 	return out
 
 
-static func _key(origin: Vector2i) -> String:
-	return "%d,%d" % [origin.x, origin.y]
+static func _add_profile(profile: Variant, label: String, start_usec: int) -> void:
+	if profile != null and profile.has_method("add"):
+		profile.add(label, start_usec)
+
+
+static func _count_profile(profile: Variant, label: String, amount: int = 1) -> void:
+	if profile != null and profile.has_method("count"):
+		profile.count(label, amount)
+
+
+static func _key(origin: Vector2i, grid_width: int) -> int:
+	return origin.y * grid_width + origin.x

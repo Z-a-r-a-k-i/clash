@@ -78,6 +78,18 @@ func _all_tests() -> Array:
 			_test_pathfinding_goal_range_distances_ignore_satisfied_range
 		],
 		[
+			"find_next_step_matches_a_star_around_concave_blocker",
+			_test_find_next_step_matches_a_star_around_concave_blocker
+		],
+		[
+			"find_next_step_matches_a_star_for_blocked_target",
+			_test_find_next_step_matches_a_star_for_blocked_target
+		],
+		[
+			"cached_next_step_invalidates_blocked_remainder",
+			_test_cached_next_step_invalidates_blocked_remainder
+		],
+		[
 			"movement_respects_impassable_terrain_tags",
 			_test_movement_respects_impassable_terrain_tags
 		],
@@ -1030,6 +1042,83 @@ func _test_pathfinding_goal_range_distances_ignore_satisfied_range() -> bool:
 		Vector2i(4, 1), footprint, target_origin, goal_rect, 1, false
 	)
 	return at_range == 0 and outside_range == 1 and manhattan_at_range == 0
+
+
+func _test_find_next_step_matches_a_star_around_concave_blocker() -> bool:
+	var registry: EntityRegistry = _movable_registry(4)
+	var state: MatchState = _state_with_grid(7, 5)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
+	for blocker_origin in [Vector2i(3, 0), Vector2i(3, 1), Vector2i(3, 2)]:
+		var blocker: Entity = _make_entity(state, "marine", -1, blocker_origin, 50, "ground")
+		state.tile_grid.place(blocker.id, Rect2i(blocker_origin, Vector2i.ONE))
+
+	var target_origin := Vector2i(5, 1)
+	var path: Array[Vector2i] = _PATHFINDING.find_path(state, actor, target_origin, registry)
+	var step: Dictionary = _PATHFINDING.find_next_step(state, actor, target_origin, registry)
+	if path.is_empty() or step.is_empty():
+		push_error("concave blocker should still have an A* route")
+		return false
+	return (
+		step.get("next_origin", actor.origin) == path[0]
+		and step.get("path_distance", 0) == path.size()
+	)
+
+
+func _test_find_next_step_matches_a_star_for_blocked_target() -> bool:
+	var registry: EntityRegistry = _movable_registry(6)
+	var state: MatchState = _state_with_grid(8, 3)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var blocker: Entity = _make_entity(state, "marine", -1, Vector2i(5, 1), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(blocker.id, Rect2i(5, 1, 1, 1))
+
+	var target_origin := Vector2i(5, 1)
+	var path: Array[Vector2i] = _PATHFINDING.find_path(state, actor, target_origin, registry)
+	var step: Dictionary = _PATHFINDING.find_next_step(state, actor, target_origin, registry)
+	if path.is_empty() or step.is_empty():
+		push_error("blocked target should use closest reachable A* route")
+		return false
+	return (
+		step.get("next_origin", actor.origin) == path[0]
+		and step.get("path_distance", 0) == path.size()
+	)
+
+
+func _test_cached_next_step_invalidates_blocked_remainder() -> bool:
+	var registry: EntityRegistry = _movable_registry(3)
+	var state: MatchState = _state_with_grid(6, 3)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
+	var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, registry)
+	var path_cache: Dictionary = {
+		actor.id:
+		{
+			"target_origin": Vector2i(4, 1),
+			"exact_origin": true,
+			"goal_range": 0,
+			"has_goal_rect": false,
+			"goal_rect": Rect2i(),
+			"path": [Vector2i(2, 1), Vector2i(3, 1), Vector2i(4, 1)],
+		},
+	}
+	var options: Dictionary = {
+		_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS: {"tiles": {Vector2i(3, 1): true}},
+	}
+	var step: Dictionary = MovementSystem._cached_next_step(
+		state.tile_grid,
+		actor,
+		Vector2i(4, 1),
+		Vector2i.ONE,
+		movement,
+		options,
+		{"exact_origin": true, "goal_range": 0},
+		path_cache
+	)
+	if not step.is_empty():
+		push_error("cached route with blocked remainder should be invalidated")
+		return false
+	return not path_cache.has(actor.id)
 
 
 func _test_movement_respects_impassable_terrain_tags() -> bool:
