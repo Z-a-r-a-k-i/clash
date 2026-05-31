@@ -8,6 +8,8 @@ const TUNABLES_PATH := "res://data/tunables.tres"
 const DEV_TURN_INPUT_SCRIPT := preload("res://scripts/game/dev_turn_input.gd")
 const _RESOLVE_PROFILE_FLAG_PATH := "res://resolver_profile_enabled"
 const _DEV_RESOLVE_PROFILE_LOG_PATH := "user://dev_play_resolve_latest.log"
+const _DEV_SNAPSHOT_LATEST_PATH := "user://dev_snapshot_latest.tres"
+const _DEV_REPLAY_LATEST_PATH := "user://dev_replay_latest.tres"
 const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
 const PATHFINDING_SCRIPT := preload("res://scripts/resolver/pathfinding_system.gd")
 const PENDING_NONE := ""
@@ -25,7 +27,7 @@ const CONTEXT_RALLY_GATHER := "rally_gather"
 const CONTEXT_INVALID := "invalid"
 const HUD_MARGIN := 12.0
 const HUD_WIDTH := 440.0
-const HUD_HEIGHT := 560.0
+const HUD_HEIGHT := 720.0
 const CAMERA_ZOOM_STEP := 1.15
 const CAMERA_DRAG_THRESHOLD := 4.0
 
@@ -39,6 +41,8 @@ var _hud_layer: CanvasLayer = null
 var _active_label: Label = null
 var _resources_label: Label = null
 var _queue_label: Label = null
+var _replay_label: Label = null
+var _replay_turn_spin: SpinBox = null
 var _status_label: Label = null
 var _command_card: Control = null
 var _pending_command: String = PENDING_NONE
@@ -48,6 +52,10 @@ var _left_empty_drag_candidate: bool = false
 var _left_empty_drag_moved: bool = false
 var _left_empty_drag_start: Vector2 = Vector2.ZERO
 var _show_all_friendly_action_previews: bool = false
+var _replay: MatchReplay = MatchReplay.new()
+var _checkpoints: Dictionary[int, SavedSession] = {}
+var _replay_mode_active: bool = false
+var _replay_cursor_turn: int = 0
 
 
 func _ready() -> void:
@@ -78,6 +86,7 @@ func load_scenario_path(path: String) -> bool:
 	_renderer.focus_player_start(_input.active_player_id())
 	_input.bind_context(_loaded.state, _loaded.registry)
 	_input.clear_submissions()
+	_start_replay_journal()
 	_reset_context_cursor()
 	_update_hud()
 	return true
@@ -101,8 +110,30 @@ func command_card() -> Control:
 	return _command_card
 
 
+func replay_frame_count() -> int:
+	return _replay.frames.size() if _replay != null else 0
+
+
+func replay_checkpoint_count() -> int:
+	return _checkpoints.size()
+
+
+func replay_cursor_turn() -> int:
+	return _replay_cursor_turn
+
+
+func replay_mode_active() -> bool:
+	return _replay_mode_active
+
+
 func pending_command_kind() -> String:
 	return _pending_command
+
+
+func _reject_replay_edit() -> bool:
+	_clear_pending_command()
+	_update_hud("Replay is read-only. Use Restore Here to branch from this turn.")
+	return false
 
 
 func set_show_all_friendly_action_previews(enabled: bool) -> void:
@@ -111,6 +142,9 @@ func set_show_all_friendly_action_previews(enabled: bool) -> void:
 
 
 func set_active_player_id(player_id: int) -> void:
+	if _replay_mode_active:
+		_reject_replay_edit()
+		return
 	_input.set_active_player_id(player_id)
 	_clear_pending_command()
 	if _renderer != null:
@@ -122,6 +156,8 @@ func set_active_player_id(player_id: int) -> void:
 
 
 func select_entity_id(entity_id: int) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	var ok: bool = _input.select_entity(entity_id)
 	if _renderer != null:
 		_clear_build_placement_preview()
@@ -136,6 +172,8 @@ func select_entity_id(entity_id: int) -> bool:
 
 
 func issue_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_move(tile)
 	_input.set_queue_modifier_active(false)
@@ -144,6 +182,8 @@ func issue_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
 
 
 func issue_move_only_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_move_only(tile)
 	_input.set_queue_modifier_active(false)
@@ -152,6 +192,8 @@ func issue_move_only_selected(tile: Vector2i, queue_requested: bool = false) -> 
 
 
 func issue_attack_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_attack(target_entity_id)
 	_input.set_queue_modifier_active(false)
@@ -160,12 +202,16 @@ func issue_attack_selected(target_entity_id: int, queue_requested: bool = false)
 
 
 func issue_attack_target_selected(target_entity_id: int) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	var ok: bool = _input.issue_attack_target(target_entity_id)
 	_update_hud()
 	return ok
 
 
 func issue_target_chase_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_target_chase(target_entity_id)
 	_input.set_queue_modifier_active(false)
@@ -174,6 +220,8 @@ func issue_target_chase_selected(target_entity_id: int, queue_requested: bool = 
 
 
 func issue_gather_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_gather(target_entity_id)
 	_input.set_queue_modifier_active(false)
@@ -182,24 +230,32 @@ func issue_gather_selected(target_entity_id: int, queue_requested: bool = false)
 
 
 func issue_rally_move_selected(tile: Vector2i) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	var ok: bool = _input.issue_rally_move(tile)
 	_update_hud()
 	return ok
 
 
 func issue_rally_gather_selected(target_entity_id: int) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	var ok: bool = _input.issue_rally_gather(target_entity_id)
 	_update_hud()
 	return ok
 
 
 func issue_halt_on_sight_selected(enabled: bool) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	var ok: bool = _input.issue_halt_on_sight_toggle(enabled)
 	_update_hud()
 	return ok
 
 
 func issue_build_selected(def_id: String, tile: Vector2i, queue_requested: bool = false) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_build(def_id, tile)
 	_input.set_queue_modifier_active(false)
@@ -208,36 +264,48 @@ func issue_build_selected(def_id: String, tile: Vector2i, queue_requested: bool 
 
 
 func issue_train_selected(def_id: String) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	var ok: bool = _input.issue_train(def_id)
 	_update_hud()
 	return ok
 
 
 func issue_research_selected(def_id: String) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	var ok: bool = _input.issue_research(def_id)
 	_update_hud()
 	return ok
 
 
 func issue_ability_selected(ability_id: String) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	var ok: bool = _input.issue_ability(ability_id)
 	_update_hud()
 	return ok
 
 
 func issue_repeat_train_selected(enabled: bool) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	var ok: bool = _input.issue_repeat_train_toggle(enabled)
 	_update_hud()
 	return ok
 
 
 func issue_cancel_selected(cancel_index: int = -1) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	var ok: bool = _input.issue_cancel(cancel_index)
 	_update_hud()
 	return ok
 
 
 func issue_context_at_tile(tile: Vector2i, queue_requested: bool = false) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	var context: Dictionary = context_action_at_tile(tile)
 	var action: String = context.get("action", CONTEXT_NONE)
 	if action == CONTEXT_MOVE_ONLY:
@@ -257,6 +325,8 @@ func issue_context_at_tile(tile: Vector2i, queue_requested: bool = false) -> boo
 
 
 func context_action_at_tile(tile: Vector2i) -> Dictionary:
+	if _replay_mode_active:
+		return _context_result(CONTEXT_NONE, Input.CURSOR_ARROW, "")
 	if _pending_command != PENDING_NONE:
 		return _context_result(CONTEXT_NONE, Input.CURSOR_ARROW, "")
 	if _loaded == null or _loaded.state == null or _loaded.state.tile_grid == null:
@@ -309,6 +379,9 @@ func context_cursor_shape_at_tile(tile: Vector2i) -> int:
 
 
 func begin_move() -> void:
+	if _replay_mode_active:
+		_reject_replay_edit()
+		return
 	if not _input.can_issue_move():
 		_update_hud("Select a movable unit before Attack and Move.")
 		return
@@ -320,6 +393,9 @@ func begin_move() -> void:
 
 
 func begin_move_only() -> void:
+	if _replay_mode_active:
+		_reject_replay_edit()
+		return
 	if not _input.can_issue_move_only():
 		_update_hud("Select a movable unit before MOVE ONLY.")
 		return
@@ -331,6 +407,9 @@ func begin_move_only() -> void:
 
 
 func begin_target() -> void:
+	if _replay_mode_active:
+		_reject_replay_edit()
+		return
 	if not _input.can_issue_attack_target():
 		_update_hud("Select a combat unit before TARGET.")
 		return
@@ -342,6 +421,9 @@ func begin_target() -> void:
 
 
 func begin_build(def_id: String) -> void:
+	if _replay_mode_active:
+		_reject_replay_edit()
+		return
 	_clear_build_placement_preview()
 	if not _input.build_option_ids().has(def_id):
 		_update_hud("Selected entity cannot BUILD %s." % def_id)
@@ -353,6 +435,8 @@ func begin_build(def_id: String) -> void:
 
 
 func confirm_pending_at_tile(tile: Vector2i, queue_requested: bool = false) -> bool:
+	if _replay_mode_active:
+		return _reject_replay_edit()
 	if _pending_command == PENDING_MOVE:
 		var move_ok: bool = issue_move_selected(tile, queue_requested)
 		if move_ok:
@@ -410,6 +494,9 @@ func confirm_pending_at_tile(tile: Vector2i, queue_requested: bool = false) -> b
 
 
 func cancel_pending_command() -> void:
+	if _replay_mode_active:
+		_reject_replay_edit()
+		return
 	if _pending_command == PENDING_NONE:
 		return
 	_clear_pending_command()
@@ -429,8 +516,165 @@ func pending_order_count(player_id: int) -> int:
 	return _input.queued_order_count(player_id)
 
 
+func save_latest_snapshot() -> bool:
+	return save_snapshot_to_path(_DEV_SNAPSHOT_LATEST_PATH)
+
+
+func load_latest_snapshot() -> bool:
+	return load_snapshot_from_path(_DEV_SNAPSHOT_LATEST_PATH)
+
+
+func save_snapshot_to_path(path: String) -> bool:
+	if _loaded == null or _loaded.state == null or _loaded.registry == null:
+		_update_hud("No match loaded to snapshot.")
+		return false
+	var err: Error = MatchSaver.save(
+		_loaded.state, _loaded.registry, path, _input.create_snapshot()
+	)
+	if err != OK:
+		_update_hud("Snapshot save failed: %d." % err)
+		return false
+	_update_hud("Saved snapshot to %s." % path)
+	return true
+
+
+func load_snapshot_from_path(path: String) -> bool:
+	var session: SavedSession = MatchSaver.load_from(path)
+	if session == null:
+		_update_hud("Snapshot load failed: %s." % path)
+		return false
+	if not _bind_session(session, false, "Loaded snapshot turn %d." % session.state.turn_index):
+		return false
+	_start_replay_journal()
+	_update_hud("Loaded snapshot turn %d." % session.state.turn_index)
+	return true
+
+
+func save_latest_replay() -> bool:
+	return save_replay_to_path(_DEV_REPLAY_LATEST_PATH)
+
+
+func load_latest_replay() -> bool:
+	return load_replay_from_path(_DEV_REPLAY_LATEST_PATH)
+
+
+func save_replay_to_path(path: String) -> bool:
+	if _replay == null or _replay.initial_session == null:
+		_update_hud("No replay journal to save.")
+		return false
+	var err: Error = ResourceSaver.save(_replay, path)
+	if err != OK:
+		_update_hud("Replay save failed: %d." % err)
+		return false
+	_update_hud("Saved replay to %s." % path)
+	return true
+
+
+func load_replay_from_path(path: String) -> bool:
+	var resource: Resource = ResourceLoader.load(
+		path, "MatchReplay", ResourceLoader.CACHE_MODE_IGNORE
+	)
+	var loaded_replay := resource as MatchReplay
+	if loaded_replay == null:
+		_update_hud("Replay load failed: %s." % path)
+		return false
+	if loaded_replay.format_version != MatchReplay.CURRENT_FORMAT_VERSION:
+		_update_hud("Replay format %d is not supported." % loaded_replay.format_version)
+		return false
+	if loaded_replay.initial_session == null:
+		_update_hud("Replay has no initial session.")
+		return false
+	var candidate: MatchReplay = loaded_replay.clone()
+	if not _ensure_tunables():
+		return false
+	var rebuilt_checkpoints: Dictionary[int, SavedSession] = _checkpoints_for_replay(candidate)
+	if rebuilt_checkpoints.is_empty():
+		_update_hud("Replay checkpoint rebuild failed.")
+		return false
+	_replay = candidate
+	_checkpoints = rebuilt_checkpoints
+	return replay_latest()
+
+
+func replay_start() -> bool:
+	return replay_jump_to_turn(_replay_initial_turn())
+
+
+func replay_previous() -> bool:
+	if _loaded == null or _loaded.state == null:
+		return false
+	return replay_jump_to_turn(_loaded.state.turn_index - 1)
+
+
+func replay_next() -> bool:
+	if _loaded == null or _loaded.state == null or _loaded.registry == null:
+		return false
+	if not _ensure_tunables():
+		return false
+	var turn_before: int = _loaded.state.turn_index
+	var frame: ReplayTurnFrame = _frame_for_turn(turn_before)
+	if frame == null:
+		_update_hud("Replay is already at the latest turn.")
+		return false
+	var result: ResolveResult = Resolver.resolve(
+		_loaded.state, frame.submit_a, frame.submit_b, _loaded.registry, _tunables
+	)
+	if result == null or result.new_state == null:
+		_update_hud("Replay step failed at turn %d." % turn_before)
+		return false
+	if result.new_state.turn_index <= turn_before:
+		_update_hud("Replay step did not advance past turn %d." % turn_before)
+		return false
+	_loaded.state = result.new_state
+	_clear_pending_command()
+	if _renderer != null:
+		_renderer.render_step(result.new_state, result.events)
+		_renderer.clear_input_highlights()
+	_input.bind_context(_loaded.state, _loaded.registry)
+	_input.clear_submissions(false, false)
+	_input.apply_resolve_events(result.events)
+	_input.queue_rally_orders_for_train_completed(result.events)
+	_input.queue_move_assists_for_next_turn()
+	_input.promote_future_orders_for_next_turn()
+	_replay_mode_active = true
+	_replay_cursor_turn = _loaded.state.turn_index
+	_record_checkpoint(_loaded.state.turn_index)
+	_reset_context_cursor()
+	_update_hud("Replay stepped to turn %d." % _loaded.state.turn_index)
+	return true
+
+
+func replay_latest() -> bool:
+	return replay_jump_to_turn(_latest_checkpoint_turn())
+
+
+func replay_jump_to_turn(turn_index: int) -> bool:
+	if not _checkpoints.has(turn_index):
+		_update_hud("Replay checkpoint %d is not available." % turn_index)
+		return false
+	var session: SavedSession = _checkpoints[turn_index]
+	return _bind_session(session, true, "Replay jumped to turn %d." % turn_index)
+
+
+func restore_replay_here() -> bool:
+	if _loaded == null or _loaded.state == null:
+		return false
+	var turn_index: int = _loaded.state.turn_index
+	if not _checkpoints.has(turn_index):
+		_record_checkpoint(turn_index)
+	var session: SavedSession = _checkpoints[turn_index]
+	if not _bind_session(session, false, "Restored playable timeline at turn %d." % turn_index):
+		return false
+	_truncate_replay_after_turn(turn_index)
+	_record_checkpoint(turn_index)
+	return true
+
+
 func resolve_turn() -> bool:
 	if _loaded == null or _loaded.state == null or _loaded.registry == null or _tunables == null:
+		return false
+	if _replay_mode_active:
+		_update_hud("Use Restore Here before resolving from a replay checkpoint.")
 		return false
 	var profile_enabled := FileAccess.file_exists(_RESOLVE_PROFILE_FLAG_PATH)
 	var profile_lines: Array[String] = []
@@ -443,8 +687,11 @@ func resolve_turn() -> bool:
 		profile_lines.append(
 			"[dev_resolve_profile] before entities=%d" % _loaded.state.entities.size()
 		)
+	var turn_before: int = _loaded.state.turn_index
 	var submit_a: SubmitTurn = _input.submit_for_player(0)
 	var submit_b: SubmitTurn = _input.submit_for_player(1)
+	var journal_submit_a: SubmitTurn = submit_a.clone()
+	var journal_submit_b: SubmitTurn = submit_b.clone()
 	if profile_enabled:
 		(
 			profile_lines
@@ -476,6 +723,8 @@ func resolve_turn() -> bool:
 			profile_lines.append("[dev_resolve_profile] failed_result=true")
 			_emit_dev_resolve_profile(profile_lines)
 		return false
+	_truncate_replay_after_turn(turn_before)
+	_append_replay_frame(turn_before, journal_submit_a, journal_submit_b)
 	_loaded.state = result.new_state
 	_clear_pending_command()
 	if _renderer != null:
@@ -511,6 +760,8 @@ func resolve_turn() -> bool:
 	_input.queue_rally_orders_for_train_completed(result.events)
 	_input.queue_move_assists_for_next_turn()
 	_input.promote_future_orders_for_next_turn()
+	_record_checkpoint(_loaded.state.turn_index)
+	_replay_cursor_turn = _loaded.state.turn_index
 	if profile_enabled:
 		profile_lines.append(
 			(
@@ -577,6 +828,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		if button.button_index == MOUSE_BUTTON_MIDDLE:
 			_is_panning_camera = button.pressed
 			return
+		if _replay_mode_active:
+			return
 		if button.button_index == MOUSE_BUTTON_LEFT and not button.pressed:
 			if _left_empty_drag_candidate:
 				if not _left_empty_drag_moved:
@@ -625,6 +878,169 @@ func _ensure_renderer() -> void:
 		push_error("DevPlayMode: match scene root is not a MatchRenderer.")
 		return
 	add_child(_renderer)
+
+
+func _ensure_tunables() -> bool:
+	if _tunables != null:
+		return true
+	_tunables = load(TUNABLES_PATH) as Tunables
+	if _tunables == null:
+		push_error("DevPlayMode: missing tunables.")
+		_update_hud("Missing tunables.")
+		return false
+	return true
+
+
+func _start_replay_journal() -> void:
+	if _loaded == null or _loaded.state == null or _loaded.registry == null:
+		return
+	_replay = MatchReplay.new()
+	_replay.initial_session = _make_session(
+		_loaded.state, _loaded.registry, _input.create_snapshot()
+	)
+	_replay.frames = []
+	_checkpoints.clear()
+	_record_checkpoint(_loaded.state.turn_index)
+	_replay_mode_active = false
+	_replay_cursor_turn = _loaded.state.turn_index
+
+
+func _make_session(
+	state: MatchState, registry: EntityRegistry, input_snapshot: DevInputSnapshot
+) -> SavedSession:
+	var session := SavedSession.new()
+	session.state = state.clone() if state != null else null
+	session.registry = registry
+	session.input_snapshot = input_snapshot.clone() if input_snapshot != null else null
+	return session
+
+
+func _record_checkpoint(turn_index: int) -> void:
+	if _loaded == null or _loaded.state == null or _loaded.registry == null:
+		return
+	_checkpoints[turn_index] = _make_session(
+		_loaded.state, _loaded.registry, _input.create_snapshot()
+	)
+
+
+func _bind_session(session: SavedSession, replay_mode: bool, status_message: String) -> bool:
+	if session == null or session.state == null or session.registry == null:
+		_update_hud("Cannot bind an incomplete session.")
+		return false
+	if _loaded == null:
+		_loaded = LoadedScenario.new()
+	_loaded.state = session.state.clone()
+	_loaded.registry = session.registry
+	_ensure_renderer()
+	if _renderer != null:
+		_renderer.bind_state(_loaded.state, _loaded.registry)
+		_renderer.set_perspective_player_id(_input.active_player_id())
+		_renderer.clear_input_highlights()
+	_input.restore_snapshot(session.input_snapshot, _loaded.state, _loaded.registry)
+	if _renderer != null:
+		_renderer.set_perspective_player_id(_input.active_player_id())
+		_renderer.set_selected_entity_id(_input.selected_entity_id())
+	_clear_pending_command()
+	_replay_mode_active = replay_mode
+	_replay_cursor_turn = _loaded.state.turn_index
+	_reset_context_cursor()
+	_update_hud(status_message)
+	return true
+
+
+func _append_replay_frame(turn_index: int, submit_a: SubmitTurn, submit_b: SubmitTurn) -> void:
+	if _replay == null:
+		_replay = MatchReplay.new()
+	if _replay.initial_session == null:
+		_replay.initial_session = _make_session(
+			_loaded.state, _loaded.registry, _input.create_snapshot()
+		)
+	var frame := ReplayTurnFrame.new()
+	frame.turn_index = turn_index
+	frame.submit_a = submit_a.clone() if submit_a != null else SubmitTurn.new()
+	frame.submit_b = submit_b.clone() if submit_b != null else SubmitTurn.new()
+	_replay.frames.append(frame)
+
+
+func _truncate_replay_after_turn(turn_index: int) -> void:
+	if _replay != null:
+		for i in range(_replay.frames.size() - 1, -1, -1):
+			var frame: ReplayTurnFrame = _replay.frames[i]
+			if frame == null or frame.turn_index >= turn_index:
+				_replay.frames.remove_at(i)
+	for checkpoint_turn in _checkpoints.keys():
+		var key: int = checkpoint_turn
+		if key > turn_index:
+			_checkpoints.erase(key)
+
+
+func _rebuild_replay_checkpoints() -> bool:
+	var rebuilt_checkpoints: Dictionary[int, SavedSession] = _checkpoints_for_replay(_replay)
+	if rebuilt_checkpoints.is_empty():
+		return false
+	_checkpoints = rebuilt_checkpoints
+	return true
+
+
+func _checkpoints_for_replay(replay: MatchReplay) -> Dictionary[int, SavedSession]:
+	var checkpoints: Dictionary[int, SavedSession] = {}
+	if replay == null or replay.initial_session == null:
+		return checkpoints
+	var initial: SavedSession = replay.initial_session
+	if initial.state == null or initial.registry == null:
+		return checkpoints
+	var state: MatchState = initial.state.clone()
+	var registry: EntityRegistry = initial.registry
+	var replay_input: DevTurnInput = DEV_TURN_INPUT_SCRIPT.new() as DevTurnInput
+	replay_input.restore_snapshot(initial.input_snapshot, state, registry)
+	checkpoints[state.turn_index] = _make_session(state, registry, replay_input.create_snapshot())
+	for item in replay.frames:
+		var frame: ReplayTurnFrame = item
+		if frame == null or frame.turn_index != state.turn_index:
+			return {}
+		var result: ResolveResult = Resolver.resolve(
+			state, frame.submit_a, frame.submit_b, registry, _tunables
+		)
+		if result == null or result.new_state == null:
+			return {}
+		state = result.new_state
+		replay_input.bind_context(state, registry)
+		replay_input.clear_submissions(false, false)
+		replay_input.apply_resolve_events(result.events)
+		replay_input.queue_rally_orders_for_train_completed(result.events)
+		replay_input.queue_move_assists_for_next_turn()
+		replay_input.promote_future_orders_for_next_turn()
+		checkpoints[state.turn_index] = _make_session(
+			state, registry, replay_input.create_snapshot()
+		)
+	return checkpoints
+
+
+func _frame_for_turn(turn_index: int) -> ReplayTurnFrame:
+	if _replay == null:
+		return null
+	for item in _replay.frames:
+		var frame: ReplayTurnFrame = item
+		if frame != null and frame.turn_index == turn_index:
+			return frame
+	return null
+
+
+func _replay_initial_turn() -> int:
+	if (
+		_replay != null
+		and _replay.initial_session != null
+		and _replay.initial_session.state != null
+	):
+		return _replay.initial_session.state.turn_index
+	return 0
+
+
+func _latest_checkpoint_turn() -> int:
+	var latest: int = _replay_initial_turn()
+	for checkpoint_turn in _checkpoints.keys():
+		latest = maxi(latest, int(checkpoint_turn))
+	return latest
 
 
 func _event_world_position(event: InputEventMouse) -> Vector2:
@@ -701,6 +1117,72 @@ func _build_hud() -> void:
 	surrender_button.pressed.connect(_surrender_from_hud)
 	buttons.add_child(surrender_button)
 
+	var snapshot_buttons: HBoxContainer = HBoxContainer.new()
+	snapshot_buttons.name = "SnapshotButtons"
+	root.add_child(snapshot_buttons)
+
+	var save_snapshot_button: Button = _button("Save Snap")
+	save_snapshot_button.pressed.connect(save_latest_snapshot)
+	snapshot_buttons.add_child(save_snapshot_button)
+
+	var load_snapshot_button: Button = _button("Load Snap")
+	load_snapshot_button.pressed.connect(load_latest_snapshot)
+	snapshot_buttons.add_child(load_snapshot_button)
+
+	var save_replay_button: Button = _button("Save Replay")
+	save_replay_button.pressed.connect(save_latest_replay)
+	snapshot_buttons.add_child(save_replay_button)
+
+	var load_replay_button: Button = _button("Load Replay")
+	load_replay_button.pressed.connect(load_latest_replay)
+	snapshot_buttons.add_child(load_replay_button)
+
+	var replay_buttons: HBoxContainer = HBoxContainer.new()
+	replay_buttons.name = "ReplayButtons"
+	root.add_child(replay_buttons)
+
+	var replay_start_button: Button = _button("Start")
+	replay_start_button.pressed.connect(replay_start)
+	replay_buttons.add_child(replay_start_button)
+
+	var replay_prev_button: Button = _button("Prev")
+	replay_prev_button.pressed.connect(replay_previous)
+	replay_buttons.add_child(replay_prev_button)
+
+	var replay_next_button: Button = _button("Next")
+	replay_next_button.pressed.connect(replay_next)
+	replay_buttons.add_child(replay_next_button)
+
+	var replay_latest_button: Button = _button("Latest")
+	replay_latest_button.pressed.connect(replay_latest)
+	replay_buttons.add_child(replay_latest_button)
+
+	var restore_button: Button = _button("Restore Here")
+	restore_button.pressed.connect(restore_replay_here)
+	replay_buttons.add_child(restore_button)
+
+	var replay_jump: HBoxContainer = HBoxContainer.new()
+	replay_jump.name = "ReplayJump"
+	root.add_child(replay_jump)
+
+	var replay_turn_label := Label.new()
+	replay_turn_label.text = "Turn"
+	_style_label(replay_turn_label)
+	replay_jump.add_child(replay_turn_label)
+
+	_replay_turn_spin = SpinBox.new()
+	_replay_turn_spin.name = "ReplayTurn"
+	_replay_turn_spin.min_value = 0.0
+	_replay_turn_spin.max_value = 0.0
+	_replay_turn_spin.step = 1.0
+	_replay_turn_spin.custom_minimum_size = Vector2(88.0, 34.0)
+	_replay_turn_spin.add_theme_font_size_override("font_size", 18)
+	replay_jump.add_child(_replay_turn_spin)
+
+	var replay_jump_button: Button = _button("Jump")
+	replay_jump_button.pressed.connect(_jump_replay_from_hud)
+	replay_jump.add_child(replay_jump_button)
+
 	var preview_toggle := CheckBox.new()
 	preview_toggle.name = "ShowFriendlyPreviews"
 	preview_toggle.text = "Show all friendly orders"
@@ -721,6 +1203,10 @@ func _build_hud() -> void:
 	_queue_label.name = "QueuedOrders"
 	_style_label(_queue_label)
 	root.add_child(_queue_label)
+	_replay_label = Label.new()
+	_replay_label.name = "ReplayStatus"
+	_style_label(_replay_label)
+	root.add_child(_replay_label)
 	_status_label = Label.new()
 	_status_label.name = "Status"
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -756,14 +1242,26 @@ func _style_label(label: Label) -> void:
 
 
 func _clear_queues_from_hud() -> void:
+	if _replay_mode_active:
+		_reject_replay_edit()
+		return
 	_input.clear_submissions()
 	_clear_pending_command()
 	_update_hud()
 
 
 func _surrender_from_hud() -> void:
+	if _replay_mode_active:
+		_reject_replay_edit()
+		return
 	_input.surrender_active_player()
 	_update_hud()
+
+
+func _jump_replay_from_hud() -> void:
+	if _replay_turn_spin == null:
+		return
+	replay_jump_to_turn(int(_replay_turn_spin.value))
 
 
 func _update_hud(override_status: String = "") -> void:
@@ -783,6 +1281,20 @@ func _update_hud(override_status: String = "") -> void:
 	if _queue_label != null:
 		_queue_label.visible = false
 		_queue_label.text = ""
+	if _replay_label != null:
+		var replay_mode_text := "replay" if _replay_mode_active else "live"
+		_replay_label.text = (
+			"Timeline: %s  Turn: %d/%d  Frames: %d"
+			% [
+				replay_mode_text,
+				_replay_cursor_turn,
+				_latest_checkpoint_turn(),
+				replay_frame_count(),
+			]
+		)
+	if _replay_turn_spin != null:
+		_replay_turn_spin.max_value = float(maxi(_latest_checkpoint_turn(), _replay_initial_turn()))
+		_replay_turn_spin.value = float(_replay_cursor_turn)
 	if _status_label != null:
 		var status_message: String = _input.status_message()
 		if override_status != "":
@@ -908,6 +1420,9 @@ func _clear_pending_command() -> void:
 
 
 func begin_gather() -> void:
+	if _replay_mode_active:
+		_reject_replay_edit()
+		return
 	if not _input.can_issue_gather():
 		_update_hud("Select a worker before GATHER.")
 		return
@@ -936,6 +1451,26 @@ func _clear_build_placement_preview() -> void:
 
 func _refresh_command_card() -> void:
 	if _command_card == null:
+		return
+	if _replay_mode_active:
+		var empty_options: Array[Dictionary] = []
+		_command_card.call(
+			"set_command_state",
+			"Replay",
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			empty_options,
+			empty_options,
+			empty_options,
+			empty_options,
+			false,
+			false,
+			false
+		)
 		return
 	_command_card.call(
 		"set_command_state",

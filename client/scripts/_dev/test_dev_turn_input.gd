@@ -100,6 +100,7 @@ func _all_tests() -> Array:
 			_test_cancel_removes_selected_unit_queued_order
 		],
 		["dev_input_queues_use_ability", _test_queues_use_ability],
+		["dev_input_snapshot_restore_preserves_continuation", _test_snapshot_restore],
 		["dev_input_clears_submissions_after_resolve", _test_clears_submissions],
 		["dev_input_surrender_only_marks_active_player", _test_surrender_active_player],
 	]
@@ -1035,6 +1036,55 @@ func _test_queues_use_ability() -> bool:
 		push_error("cooldown should hide stim ability option")
 		return false
 	return true
+
+
+func _test_snapshot_restore() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	input.issue_move_only(Vector2i(9, 1))
+	input.set_queue_modifier_active(true)
+	input.issue_move(Vector2i(8, 1))
+	input.set_active_player_id(1)
+	input.select_entity(2)
+	input.issue_move_only(Vector2i(6, 1))
+	input.set_queue_modifier_active(true)
+	var snapshot: DevInputSnapshot = input.create_snapshot()
+	var restored: DevTurnInput = _make_input()
+	var restored_state: MatchState = setup.state.clone()
+	restored.restore_snapshot(snapshot, restored_state, setup.registry)
+	var ok := true
+	if restored.active_player_id() != 1:
+		push_error("snapshot restore should preserve active player")
+		ok = false
+	if restored.selected_entity_id() != 2:
+		push_error("snapshot restore should preserve selected entity")
+		ok = false
+	if not restored.queue_modifier_active():
+		push_error("snapshot restore should preserve queue modifier")
+		ok = false
+	if restored.submit_for_player(0).orders.size() != 1:
+		push_error("snapshot restore should preserve P0 submission")
+		ok = false
+	if restored.submit_for_player(1).orders.size() != 1:
+		push_error("snapshot restore should preserve P1 submission")
+		ok = false
+	if restored.future_order_count_for_entity(5) != 1:
+		push_error("snapshot restore should preserve future order queue")
+		ok = false
+	restored.clear_submissions(false, false)
+	restored.queue_move_assists_for_next_turn()
+	if restored.submit_for_player(0).orders.size() != 1:
+		push_error("snapshot restore should preserve P0 move assist")
+		ok = false
+	if restored.submit_for_player(1).orders.size() != 1:
+		push_error("snapshot restore should preserve P1 move assist")
+		ok = false
+	return ok
 
 
 func _test_clears_submissions() -> bool:
