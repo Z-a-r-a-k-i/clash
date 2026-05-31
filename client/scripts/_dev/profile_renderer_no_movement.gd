@@ -107,11 +107,12 @@ func _place_entity(
 	entity.origin = origin
 	entity.current_hp = 1000
 	entity.current_layer = "ground"
-	state.entities.append(entity)
 	if not state.tile_grid.place(entity.id, Rect2i(origin, footprint)):
 		push_error(
 			"[profile_renderer_no_movement] failed to place %s at %s" % [def_id, str(origin)]
 		)
+		return
+	state.entities.append(entity)
 
 
 func _registry() -> EntityRegistry:

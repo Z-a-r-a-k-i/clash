@@ -245,9 +245,10 @@ static func find_next_step(
 
 	var path_options: Dictionary = options.duplicate()
 	path_options[OPTION_OCCUPANCY_BLOCKERS] = occupancy_blockers
-	var path_start := Time.get_ticks_usec()
+	var path_start := Time.get_ticks_usec() if profile != null else 0
 	var path: Array[Vector2i] = find_path(state, actor, target_origin, registry, path_options)
-	_add_profile(profile, "pathfinding.full_path", path_start)
+	if profile != null:
+		_add_profile(profile, "pathfinding.full_path", path_start)
 	if path.is_empty():
 		_count_profile(profile, "pathfinding.empty")
 		return {}

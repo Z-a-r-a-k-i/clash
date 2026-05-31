@@ -172,7 +172,7 @@ static func _select_target(
 		var d := _entity_distance_from_rect(state, attacker_rect, candidate, registry)
 		if d < 0 or d > combat.attack_range:
 			continue
-		if closest == null or d < closest_dist:
+		if closest == null or d < closest_dist or (d == closest_dist and candidate.id < closest.id):
 			closest = candidate
 			closest_dist = d
 	return closest

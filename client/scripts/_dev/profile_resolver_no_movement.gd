@@ -59,8 +59,12 @@ func _run_case(
 	print("[profile_resolver_no_movement] begin %s" % label)
 	var start_usec := Time.get_ticks_usec()
 	var result: ResolveResult = Resolver.resolve(state, submit_a, submit_b, registry, null)
+	if result == null or result.new_state == null:
+		push_error("[profile_resolver_no_movement] invalid resolve result for %s" % label)
+		quit(1)
+		return
 	var elapsed_usec := Time.get_ticks_usec() - start_usec
-	var event_count := result.events.size() if result != null else -1
+	var event_count := result.events.size()
 	print(
 		(
 			"[profile_resolver_no_movement] case=%s elapsed=%.3fms events=%d"
