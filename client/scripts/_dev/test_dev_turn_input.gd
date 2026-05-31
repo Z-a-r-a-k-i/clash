@@ -101,6 +101,14 @@ func _all_tests() -> Array:
 		],
 		["dev_input_queues_use_ability", _test_queues_use_ability],
 		["dev_input_snapshot_restore_preserves_continuation", _test_snapshot_restore],
+		[
+			"dev_input_snapshot_restore_skips_malformed_order_entries",
+			_test_snapshot_restore_skips_malformed_order_entries
+		],
+		[
+			"dev_input_snapshot_restore_prunes_invalid_future_orders",
+			_test_snapshot_restore_prunes_invalid_future_orders
+		],
 		["dev_input_clears_submissions_after_resolve", _test_clears_submissions],
 		["dev_input_surrender_only_marks_active_player", _test_surrender_active_player],
 	]
@@ -1085,6 +1093,68 @@ func _test_snapshot_restore() -> bool:
 		push_error("snapshot restore should preserve P1 move assist")
 		ok = false
 	return ok
+
+
+func _test_snapshot_restore_skips_malformed_order_entries() -> bool:
+	var setup: Dictionary = _make_input_setup()
+	var valid_assist: EntityOrder = EntityOrder.new()
+	valid_assist.type = EntityOrder.Type.MOVE
+	valid_assist.entity_id = 5
+	valid_assist.target_tile = Vector2i(6, 1)
+	var valid_future: EntityOrder = EntityOrder.new()
+	valid_future.type = EntityOrder.Type.MOVE_ONLY
+	valid_future.entity_id = 5
+	valid_future.target_tile = Vector2i(8, 1)
+	var snapshot: DevInputSnapshot = DevInputSnapshot.new()
+	snapshot.submit_a = SubmitTurn.new()
+	snapshot.submit_b = SubmitTurn.new()
+	snapshot.move_assists = {5: valid_assist, 1: "not an order"}
+	snapshot.future_orders = {5: ["not an order", valid_future], 1: "not a queue"}
+	var restored: DevTurnInput = _make_input()
+	if restored == null:
+		return false
+	restored.restore_snapshot(snapshot, setup.state.clone(), setup.registry)
+	if restored.future_order_count_for_entity(5) != 1:
+		push_error("snapshot restore should skip malformed future order entries")
+		return false
+	restored.queue_move_assists_for_next_turn()
+	var orders: Array[EntityOrder] = restored.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("snapshot restore should keep valid move assist after malformed entries")
+		return false
+	return _expect_order(orders[0], EntityOrder.Type.MOVE, 5, Vector2i(6, 1), -1, [])
+
+
+func _test_snapshot_restore_prunes_invalid_future_orders() -> bool:
+	var setup: Dictionary = _make_input_setup()
+	var invalid_gather: EntityOrder = EntityOrder.new()
+	invalid_gather.type = EntityOrder.Type.GATHER
+	invalid_gather.entity_id = 1
+	invalid_gather.target_entity_id = 999
+	var valid_move: EntityOrder = EntityOrder.new()
+	valid_move.type = EntityOrder.Type.MOVE
+	valid_move.entity_id = 1
+	valid_move.target_tile = Vector2i(2, 2)
+	var snapshot: DevInputSnapshot = DevInputSnapshot.new()
+	snapshot.submit_a = SubmitTurn.new()
+	snapshot.submit_b = SubmitTurn.new()
+	snapshot.future_orders = {1: [invalid_gather, valid_move]}
+	var restored: DevTurnInput = _make_input()
+	if restored == null:
+		return false
+	restored.restore_snapshot(snapshot, setup.state.clone(), setup.registry)
+	if restored.future_order_count_for_entity(1) != 1:
+		push_error("snapshot restore should prune future orders with missing targets")
+		return false
+	restored.promote_future_orders_for_next_turn()
+	var orders: Array[EntityOrder] = restored.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("snapshot restore should promote only the valid future order")
+		return false
+	if restored.future_order_count_for_entity(1) != 0:
+		push_error("promoted future order should be removed after pruning invalid entries")
+		return false
+	return _expect_order(orders[0], EntityOrder.Type.MOVE, 1, Vector2i(2, 2), -1, [])
 
 
 func _test_clears_submissions() -> bool:

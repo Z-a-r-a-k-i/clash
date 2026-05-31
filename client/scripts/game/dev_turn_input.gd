@@ -939,9 +939,11 @@ func _clone_order_dictionary(source: Variant) -> Dictionary[int, EntityOrder]:
 		return out
 	var source_dict: Dictionary = source
 	for key in source_dict.keys():
-		var order: EntityOrder = source_dict[key]
-		if order != null:
-			out[int(key)] = order.clone()
+		var raw_order: Variant = source_dict[key]
+		if not raw_order is EntityOrder:
+			continue
+		var order: EntityOrder = raw_order
+		out[int(key)] = order.clone()
 	return out
 
 
@@ -956,9 +958,10 @@ func _clone_future_order_dictionary(source: Variant) -> Dictionary[int, Array]:
 			continue
 		var cloned_queue: Array[EntityOrder] = []
 		for item in raw_queue:
+			if not item is EntityOrder:
+				continue
 			var order: EntityOrder = item
-			if order != null:
-				cloned_queue.append(order.clone())
+			cloned_queue.append(order.clone())
 		if not cloned_queue.is_empty():
 			out[int(key)] = cloned_queue
 	return out
@@ -1138,8 +1141,16 @@ func _prune_future_orders() -> void:
 			continue
 		var queue: Array = _future_orders.get(entity_id, [])
 		for i in range(queue.size() - 1, -1, -1):
-			var order: EntityOrder = queue[i]
-			if order == null or order.entity_id != entity_id:
+			var raw_order: Variant = queue[i]
+			if not raw_order is EntityOrder:
+				queue.remove_at(i)
+				continue
+			var order: EntityOrder = raw_order
+			_prune_missing_order_targets(order)
+			if (
+				order.entity_id != entity_id
+				or not _is_restorable_order(order, entity.owner_player_id)
+			):
 				queue.remove_at(i)
 		if queue.is_empty():
 			_future_orders.erase(entity_id)
