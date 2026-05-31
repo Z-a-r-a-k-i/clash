@@ -4199,25 +4199,27 @@ func _test_build_adjacent_worker_starts_constructing_entity() -> bool:
 
 
 func _test_build_without_health_starts_with_positive_hp() -> bool:
-	var registry := _build_registry()
+	var registry: EntityRegistry = _build_registry()
 	var barracks_def: EntityDef = registry.get_by_id("barracks")
 	barracks_def.health = null
-	var state := _state_with_grid(20, 20)
+	var state: MatchState = _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
 	state.players[0].minerals = 500
-	var worker := _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
+	var worker: Entity = _make_entity(state, "worker", 0, Vector2i(4, 5), 50, "ground")
 	worker.def_id = "worker"
 	worker.current_def_id = "worker"
 	state.tile_grid.place(worker.id, Rect2i(4, 5, 1, 1))
 
-	var build_order := EntityOrder.new()
+	var build_order: EntityOrder = EntityOrder.new()
 	build_order.type = EntityOrder.Type.BUILD
 	build_order.entity_id = worker.id
 	build_order.def_id = "barracks"
 	build_order.target_tile = Vector2i(5, 5)
-	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([build_order]), _submit(), registry, null
+	)
 
-	for e in result.new_state.entities:
+	for e: Entity in result.new_state.entities:
 		if e != null and e.def_id == "barracks":
 			if e.current_hp != 1:
 				push_error("constructible defs without health should still start alive")
