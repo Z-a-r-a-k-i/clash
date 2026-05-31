@@ -279,6 +279,12 @@ static func _destroy_entity(
 			else:
 				player.pop_used = max(0, player.pop_used - def.population.pop_cost)
 
+	# If a worker dies before its build site exists, cancel the reserved
+	# build and refund the reservation because there is no constructed
+	# entity to destroy.
+	if ConstructionSystem.has_pending_build(dead):
+		ConstructionSystem.cancel_pending_build(state, dead, registry, events)
+
 	# If a constructing building dies, free its locked worker.
 	if dead.is_constructing and dead.construction_worker_id >= 0:
 		var worker := state.get_entity_by_id(dead.construction_worker_id)

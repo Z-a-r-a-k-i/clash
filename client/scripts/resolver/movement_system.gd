@@ -6,6 +6,8 @@ extends RefCounted
 # Per-tick semantics (called from Phase 3 of the resolver tick loop):
 # - MOVE / MOVE_ONLY: advance one tile toward order.target_tile if the entity has
 #   move budget remaining. Ignores enemies along the path.
+# - MOVE with target_priority_chain chases the first live enemy in the chain and
+#   falls back to order.target_tile if none is still alive.
 #
 # Per-turn budget: an entity can move at most `def.movement.speed_tiles_per_turn`
 # tiles in one turn, accumulated across all ticks. Tracked via
@@ -38,7 +40,8 @@ static func resolve_move(
 	if actor.moves_used_this_turn >= movement_speed:
 		return
 
-	if step_toward(state, actor, order.target_tile, events):
+	var target_tile: Vector2i = _target_tile_for_order(state, actor, order)
+	if step_toward(state, actor, target_tile, events):
 		actor.moves_used_this_turn += 1
 
 
@@ -56,7 +59,14 @@ static func resolve_movement_substep(
 	if state == null or state.tile_grid == null or registry == null:
 		return
 	var intents: Array[Dictionary] = _movement_intents(
-		state, per_entity, tick, registry, fired_entity_ids, halted_entity_ids, sorted_entities
+		state,
+		per_entity,
+		tick,
+		registry,
+		fired_entity_ids,
+		halted_entity_ids,
+		sorted_entities,
+		events
 	)
 	if intents.is_empty():
 		return
@@ -116,7 +126,7 @@ static func resolve_movement_substep(
 		return
 	winners.sort_custom(_proposal_id_less)
 	for proposal in winners:
-		_commit_proposal(state, proposal, events)
+		_commit_proposal(state, proposal, registry, events)
 
 
 # ---------- Internals ----------
@@ -139,7 +149,8 @@ static func _movement_intents(
 	registry: EntityRegistry,
 	fired_entity_ids: Dictionary,
 	halted_entity_ids: Dictionary,
-	sorted_entities: Array[Entity]
+	sorted_entities: Array[Entity],
+	events: Array[ResolverEvent]
 ) -> Array[Dictionary]:
 	var intents: Array[Dictionary] = []
 	var source_assignments: Dictionary[int, Array] = GatherSystem._source_assignments_by_source(
@@ -152,7 +163,7 @@ static func _movement_intents(
 			continue
 		var order: EntityOrder = _action_at(per_entity, actor.id, tick)
 		var explicit_intent: Dictionary = _explicit_move_intent(
-			actor, order, registry, fired_entity_ids, halted_entity_ids
+			state, actor, order, registry, fired_entity_ids, halted_entity_ids
 		)
 		if not explicit_intent.is_empty():
 			intents.append(explicit_intent)
@@ -165,13 +176,16 @@ static func _movement_intents(
 		if not gather_intent.is_empty():
 			intents.append(gather_intent)
 			continue
-		var construction_intent: Dictionary = _construction_move_intent(state, actor, registry)
+		var construction_intent: Dictionary = _construction_move_intent(
+			state, actor, registry, events
+		)
 		if not construction_intent.is_empty():
 			intents.append(construction_intent)
 	return intents
 
 
 static func _explicit_move_intent(
+	state: MatchState,
 	actor: Entity,
 	order: EntityOrder,
 	registry: EntityRegistry,
@@ -182,7 +196,11 @@ static func _explicit_move_intent(
 		return {}
 	if order.type != EntityOrder.Type.MOVE and order.type != EntityOrder.Type.MOVE_ONLY:
 		return {}
-	if order.type == EntityOrder.Type.MOVE and halted_entity_ids.has(actor.id):
+	if (
+		order.type == EntityOrder.Type.MOVE
+		and halted_entity_ids.has(actor.id)
+		and order.target_priority_chain.is_empty()
+	):
 		return {}
 	var move_only: bool = order.type == EntityOrder.Type.MOVE_ONLY
 	var budget: int = movement_budget_for_entity(
@@ -190,17 +208,57 @@ static func _explicit_move_intent(
 	)
 	if not _can_spend_movement(actor, budget):
 		return {}
-	if actor.origin == order.target_tile:
+	var goal: Dictionary = _move_goal_for_order(state, actor, order)
+	var target_origin: Vector2i = goal.get("target_origin", order.target_tile)
+	if actor.origin == target_origin and bool(goal.get("exact_origin", true)):
 		return {}
-	return {
+	var intent: Dictionary = {
 		"kind": "move",
 		"entity_id": actor.id,
 		"actor": actor,
+		"target_origin": target_origin,
+		"exact_origin": goal.get("exact_origin", true),
+		"goal_range": goal.get("goal_range", 0),
+		"movement_budget": budget,
+	}
+	if goal.has("goal_rect"):
+		intent["goal_rect"] = goal["goal_rect"]
+	return intent
+
+
+static func _move_goal_for_order(
+	state: MatchState, actor: Entity, order: EntityOrder
+) -> Dictionary:
+	var fallback: Dictionary = {
 		"target_origin": order.target_tile,
 		"exact_origin": true,
 		"goal_range": 0,
-		"movement_budget": budget,
 	}
+	if (
+		state == null
+		or state.tile_grid == null
+		or actor == null
+		or order == null
+		or order.type != EntityOrder.Type.MOVE
+		or order.target_priority_chain.is_empty()
+	):
+		return fallback
+	for target_id in order.target_priority_chain:
+		var target: Entity = state.get_entity_by_id(target_id)
+		if target == null or target.current_hp <= 0:
+			continue
+		if target.owner_player_id < 0 or target.owner_player_id == actor.owner_player_id:
+			continue
+		var target_rect: Rect2i = state.tile_grid.entity_rect(target.id)
+		if target_rect.size == Vector2i.ZERO:
+			target_rect = Rect2i(target.origin, Vector2i.ONE)
+		return {
+			"target_origin": target_rect.position,
+			"goal_rect": target_rect,
+			"exact_origin": false,
+			"goal_range": 1,
+		}
+	return fallback
 
 
 static func _gather_move_intent(
@@ -219,10 +277,10 @@ static func _gather_move_intent(
 		state, registry, actor.gather_state.assigned_source_entity_id, actor.owner_player_id
 	)
 	if source == null:
-		GatherSystem._clear_gather_assignment(actor)
+		GatherSystem.clear_assignment(actor)
 		return {}
 	if not GatherSystem._is_worker_within_source_cap(source_assignments, registry, actor, source):
-		GatherSystem._clear_gather_assignment(actor)
+		GatherSystem.clear_assignment(actor)
 		return {}
 	if GatherSystem._is_adjacent_to(state, actor, source):
 		actor.gather_state.phase = GatherState.Phase.GATHERING
@@ -243,8 +301,33 @@ static func _gather_move_intent(
 
 
 static func _construction_move_intent(
-	state: MatchState, actor: Entity, registry: EntityRegistry
+	state: MatchState, actor: Entity, registry: EntityRegistry, events: Array[ResolverEvent]
 ) -> Dictionary:
+	if ConstructionSystem.has_pending_build(actor):
+		if ConstructionSystem.try_start_pending_build(state, actor, registry, events):
+			return {}
+		if not ConstructionSystem.has_pending_build(actor):
+			return {}
+		if not _can_spend_movement(actor, movement_speed_for_entity(actor, registry)):
+			return {}
+		var pending_layout: Dictionary = ConstructionSystem._pending_build_layout(
+			state, actor, registry
+		)
+		if not pending_layout.get("valid", false):
+			return {}
+		var pending_rect: Rect2i = pending_layout["rect"]
+		if ConstructionSystem._is_adjacent_to_rect(state, actor, pending_rect):
+			ConstructionSystem.try_start_pending_build(state, actor, registry, events)
+			return {}
+		return {
+			"kind": "pending_construction",
+			"entity_id": actor.id,
+			"actor": actor,
+			"target_origin": pending_rect.position,
+			"goal_rect": pending_rect,
+			"goal_range": 1,
+			"exact_origin": false,
+		}
 	if actor.locked_to_building_id < 0:
 		return {}
 	if not _can_spend_movement(actor, movement_speed_for_entity(actor, registry)):
@@ -586,7 +669,7 @@ static func _target_blocked_by_non_mover(
 
 
 static func _commit_proposal(
-	state: MatchState, proposal: Dictionary, events: Array[ResolverEvent]
+	state: MatchState, proposal: Dictionary, registry: EntityRegistry, events: Array[ResolverEvent]
 ) -> void:
 	var actor: Entity = proposal.get("actor") as Entity
 	if actor == null:
@@ -623,6 +706,8 @@ static func _commit_proposal(
 		var building: Entity = state.get_entity_by_id(intent.get("target_entity_id", -1))
 		if building == null or building.current_hp <= 0 or not building.is_constructing:
 			actor.locked_to_building_id = -1
+	elif kind == "pending_construction":
+		ConstructionSystem.try_start_pending_build(state, actor, registry, events)
 
 
 static func _action_at(per_entity: Dictionary, entity_id: int, tick: int) -> EntityOrder:
@@ -644,6 +729,12 @@ static func _is_spatial_blocker(entity: Entity, registry: EntityRegistry) -> boo
 
 static func _proposal_id_less(a: Dictionary, b: Dictionary) -> bool:
 	return int(a.get("entity_id", -1)) < int(b.get("entity_id", -1))
+
+
+static func _target_tile_for_order(
+	state: MatchState, actor: Entity, order: EntityOrder
+) -> Vector2i:
+	return _move_goal_for_order(state, actor, order).get("target_origin", order.target_tile)
 
 
 # Try to advance one tile toward `target_tile`. Returns true on success.

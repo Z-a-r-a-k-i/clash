@@ -44,6 +44,8 @@ func _all_tests() -> Array:
 			"dev_input_queues_move_only_and_applies_state_changes",
 			_test_queues_move_only_and_applies_state_changes
 		],
+		["dev_input_move_only_allows_noncombat_movers", _test_move_only_allows_noncombat_movers],
+		["dev_input_queues_target_chase_atomically", _test_queues_target_chase_atomically],
 		["dev_input_requeues_unfinished_move_assist", _test_requeues_unfinished_move_assist],
 		["dev_input_drops_completed_move_assist", _test_drops_completed_move_assist],
 		["dev_input_cancel_clears_move_assist", _test_cancel_clears_move_assist],
@@ -59,6 +61,8 @@ func _all_tests() -> Array:
 			"dev_input_normal_order_replaces_current_and_future",
 			_test_normal_order_replaces_current_and_future
 		],
+		["dev_input_sets_producer_rally", _test_sets_producer_rally],
+		["dev_input_queues_spawned_unit_rally_orders", _test_queues_spawned_unit_rally_orders],
 		[
 			"dev_input_cancel_removes_future_before_current",
 			_test_cancel_removes_future_before_current
@@ -242,6 +246,24 @@ func _test_queues_gather() -> bool:
 	if input.submit_for_player(0).orders.size() != 1:
 		push_error("rejected gather should not append an order")
 		return false
+	if input.issue_gather(10):
+		push_error("raw gas without an owned refinery should not be a valid gather target")
+		return false
+	if input.submit_for_player(0).orders.size() != 1:
+		push_error("rejected raw-gas gather should not append an order")
+		return false
+	var refinery := Entity.new()
+	refinery.id = setup.state.allocate_entity_id()
+	refinery.def_id = "refinery"
+	refinery.current_def_id = "refinery"
+	refinery.owner_player_id = 0
+	refinery.origin = Vector2i(5, 8)
+	refinery.current_hp = 750
+	setup.state.entities.append(refinery)
+	setup.state.tile_grid.place_overlapping(refinery.id, Rect2i(Vector2i(5, 8), Vector2i(2, 2)), 10)
+	if not input.issue_gather(10):
+		push_error("gas with an owned refinery should be a valid gather target")
+		return false
 	input.select_entity(5)
 	if input.issue_gather(3):
 		push_error("marine should not be allowed to gather")
@@ -299,6 +321,59 @@ func _test_queues_move_only_and_applies_state_changes() -> bool:
 		push_error("halt-on-sight should remain immediately enabled")
 		return false
 	return true
+
+
+func _test_move_only_allows_noncombat_movers() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(9)
+	if not input.can_issue_move_only():
+		push_error("noncombat mover should be allowed to use MOVE_ONLY")
+		return false
+	if not input.issue_move_only(Vector2i(11, 11)):
+		push_error("expected noncombat mover MOVE_ONLY to queue")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("expected one noncombat mover order, got %d" % orders.size())
+		return false
+	return _expect_order(orders[0], EntityOrder.Type.MOVE_ONLY, 9, Vector2i(11, 11), -1, [])
+
+
+func _test_queues_target_chase_atomically() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.issue_target_chase(2):
+		push_error("expected target chase to queue for selected marine")
+		return false
+	var actor: Entity = setup.state.get_entity_by_id(5)
+	if actor.focus_target_entity_id != -1:
+		push_error("target chase should not mutate focus before resolver distribution")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("target chase should be one atomic order, got %d" % orders.size())
+		return false
+	if not _expect_order(orders[0], EntityOrder.Type.MOVE, 5, Vector2i(7, 1), -1, [2]):
+		return false
+	input.set_queue_modifier_active(true)
+	if not input.issue_target_chase(2):
+		push_error("expected shift target chase to append as future order")
+		return false
+	if input.submit_for_player(0).orders.size() != 1 or input.future_order_count_for_entity(5) != 1:
+		push_error("shift target chase should append one future atomic order")
+		return false
+	var future: Array[EntityOrder] = input.future_orders_for_entity(5)
+	return _expect_order(future[0], EntityOrder.Type.MOVE, 5, Vector2i(7, 1), -1, [2])
 
 
 func _test_requeues_unfinished_move_assist() -> bool:
@@ -453,6 +528,77 @@ func _test_normal_order_replaces_current_and_future() -> bool:
 	return _expect_order(orders[0], EntityOrder.Type.MOVE, 5, Vector2i(9, 9), -1, [])
 
 
+func _test_sets_producer_rally() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(11)
+	if not input.issue_rally_move(Vector2i(9, 9)):
+		push_error("base should set move rally")
+		return false
+	var base: Entity = setup.state.get_entity_by_id(11)
+	if (
+		base.production_state.rally_mode != ProductionState.RALLY_MODE_MOVE
+		or base.production_state.rally_target_tile != Vector2i(9, 9)
+		or base.production_state.rally_target_entity_id != -1
+	):
+		push_error("move rally state did not persist on producer")
+		return false
+	if not input.issue_rally_gather(3):
+		push_error("base should set gather rally to mineral")
+		return false
+	if (
+		base.production_state.rally_mode != ProductionState.RALLY_MODE_GATHER
+		or base.production_state.rally_target_entity_id != 3
+	):
+		push_error("gather rally state did not persist on producer")
+		return false
+	var cloned: ProductionState = base.production_state.clone()
+	cloned.rally_target_entity_id = 999
+	return base.production_state.rally_target_entity_id == 3
+
+
+func _test_queues_spawned_unit_rally_orders() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	var state: MatchState = setup.state
+	input.bind_context(state, setup.registry)
+	var base: Entity = state.get_entity_by_id(11)
+	base.production_state.rally_mode = ProductionState.RALLY_MODE_MOVE
+	base.production_state.rally_target_tile = Vector2i(9, 9)
+	_add_entity(state, 12, "worker", 0, Vector2i(4, 8), Vector2i(1, 1), 40)
+	var move_event := ResolverEvent.new()
+	move_event.type = ResolverEvent.Type.TRAIN_COMPLETED
+	move_event.actor_id = 11
+	move_event.target_id = 12
+	input.queue_rally_orders_for_train_completed([move_event])
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("move rally should queue one spawned-unit order, got %d" % orders.size())
+		return false
+	if not _expect_order(orders[0], EntityOrder.Type.MOVE_ONLY, 12, Vector2i(9, 9), -1, []):
+		return false
+	input.clear_submissions()
+	base.production_state.rally_mode = ProductionState.RALLY_MODE_GATHER
+	base.production_state.rally_target_entity_id = 3
+	_add_entity(state, 13, "worker", 0, Vector2i(4, 9), Vector2i(1, 1), 40)
+	var gather_event := ResolverEvent.new()
+	gather_event.type = ResolverEvent.Type.TRAIN_COMPLETED
+	gather_event.actor_id = 11
+	gather_event.target_id = 13
+	input.queue_rally_orders_for_train_completed([gather_event])
+	orders = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("gather rally should queue one spawned-unit order, got %d" % orders.size())
+		return false
+	return _expect_order(orders[0], EntityOrder.Type.GATHER, 13, Vector2i.ZERO, 3, [])
+
+
 func _test_cancel_removes_future_before_current() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
@@ -503,6 +649,12 @@ func _test_promotes_future_order_when_ready() -> bool:
 		push_error("future GATHER should wait while worker is locked")
 		return false
 	worker.locked_to_building_id = -1
+	worker.pending_build_def_id = "barracks"
+	input.promote_future_orders_for_next_turn()
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("future GATHER should wait while worker has a pending build")
+		return false
+	worker.pending_build_def_id = ""
 	input.promote_future_orders_for_next_turn()
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if orders.size() != 1:
@@ -673,14 +825,13 @@ func _test_rejects_occupied_target_build_preview() -> bool:
 	var setup: Dictionary = _make_input_setup()
 	setup.state.get_player(0).minerals = 200
 	var existing_refinery: Entity = Entity.new()
-	existing_refinery.id = 11
+	existing_refinery.id = setup.state.allocate_entity_id()
 	existing_refinery.def_id = "refinery"
 	existing_refinery.current_def_id = "refinery"
 	existing_refinery.owner_player_id = 0
 	existing_refinery.origin = Vector2i(5, 8)
 	existing_refinery.current_hp = 750
 	setup.state.entities.append(existing_refinery)
-	setup.state.next_entity_id = max(setup.state.next_entity_id, existing_refinery.id + 1)
 	if not setup.state.tile_grid.place_overlapping(
 		existing_refinery.id, Rect2i(Vector2i(5, 8), Vector2i(2, 2)), 10
 	):
@@ -796,8 +947,8 @@ func _test_derives_command_options() -> bool:
 	if not input.can_issue_move():
 		push_error("non-combat mover should expose Move")
 		return false
-	if input.can_issue_move_only():
-		push_error("non-combat mover should not expose Move Only")
+	if not input.can_issue_move_only():
+		push_error("non-combat mover should expose Move Only")
 		return false
 	input.select_entity(5)
 	setup.state.get_entity_by_id(5).focus_target_entity_id = 2
@@ -946,6 +1097,7 @@ func _make_input_setup() -> Dictionary:
 		_make_def("worker", Vector2i(1, 1), true, true, false),
 		_make_def("marine", Vector2i(1, 1), true, false, false),
 		_make_def("mineral_patch", Vector2i(1, 1), false, false, true),
+		_make_base_def(),
 		_make_barracks_def(),
 		_make_gas_geyser_def(),
 		_make_refinery_def(),
@@ -963,7 +1115,9 @@ func _make_input_setup() -> Dictionary:
 	state.get_entity_by_id(7).current_resource_amount = 0
 	_add_entity(state, 9, "noncombat_mover", 0, Vector2i(10, 10), Vector2i(1, 1), 10)
 	_add_entity(state, 10, "gas_geyser", -1, Vector2i(5, 8), Vector2i(2, 2), 1000)
+	_add_entity(state, 11, "base", 0, Vector2i(1, 8), Vector2i(3, 3), 1500)
 	state.get_entity_by_id(6).production_state = ProductionState.new()
+	state.get_entity_by_id(11).production_state = ProductionState.new()
 	return {"state": state, "registry": registry}
 
 
@@ -1016,6 +1170,20 @@ func _make_barracks_def() -> EntityDef:
 	var production: ProductionDef = ProductionDef.new()
 	production.produces = ["marine"]
 	production.researches = ["stim_research"]
+	def.production = production
+	return def
+
+
+func _make_base_def() -> EntityDef:
+	var def: EntityDef = EntityDef.new()
+	def.id = "base"
+	def.footprint = Vector2i(3, 3)
+	def.tags = ["building", "base", "structure", "ground"]
+	var health: HealthDef = HealthDef.new()
+	health.max_hp = 1500
+	def.health = health
+	var production: ProductionDef = ProductionDef.new()
+	production.produces = ["worker"]
 	def.production = production
 	return def
 

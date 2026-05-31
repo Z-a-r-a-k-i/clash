@@ -85,8 +85,7 @@ func issue_move(target_tile: Vector2i) -> bool:
 	if _state == null or _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
 		_status_message = "Attack and Move target is outside the map."
 		return false
-	var def: EntityDef = _def_for_entity(actor)
-	if def == null or def.movement == null or def.movement.speed_tiles_per_turn <= 0:
+	if not _can_entity_move(actor):
 		_status_message = "%s cannot move." % _def_id_for_entity(actor)
 		return false
 	var order: EntityOrder = EntityOrder.new()
@@ -106,12 +105,8 @@ func issue_move_only(target_tile: Vector2i) -> bool:
 	if _state == null or _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
 		_status_message = "MOVE ONLY target is outside the map."
 		return false
-	var def: EntityDef = _def_for_entity(actor)
-	if def == null or def.movement == null or def.movement.speed_tiles_per_turn <= 0:
+	if not _can_entity_move(actor):
 		_status_message = "%s cannot move." % _def_id_for_entity(actor)
-		return false
-	if def.combat == null or def.combat.damage <= 0:
-		_status_message = "%s cannot use Move Only." % _def_id_for_entity(actor)
 		return false
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.MOVE_ONLY
@@ -129,6 +124,13 @@ func issue_attack(target_entity_id: int) -> bool:
 	var actor: Entity = _selected_entity()
 	if actor == null:
 		_status_message = "Select a unit before issuing ATTACK."
+		return false
+	if (
+		ConstructionSystem.has_pending_build(actor)
+		or actor.locked_to_building_id >= 0
+		or actor.is_constructing
+	):
+		_status_message = "%s cannot attack." % _def_id_for_entity(actor)
 		return false
 	var target: Entity = _live_enemy_entity(target_entity_id)
 	if target == null:
@@ -152,6 +154,9 @@ func issue_attack_target(target_entity_id: int) -> bool:
 	if actor == null:
 		_status_message = "Select a combat unit before setting TARGET."
 		return false
+	if not can_issue_attack_target():
+		_status_message = "%s cannot target enemies." % _def_id_for_entity(actor)
+		return false
 	var target: Entity = _live_enemy_entity(target_entity_id)
 	if target == null:
 		_status_message = "Attack target needs a live enemy target."
@@ -160,9 +165,31 @@ func issue_attack_target(target_entity_id: int) -> bool:
 	if def == null or def.combat == null or def.combat.damage <= 0:
 		_status_message = "%s cannot target enemies." % _def_id_for_entity(actor)
 		return false
-	_interrupt_gather_assignment(actor)
+	GatherSystem.clear_assignment(actor)
 	actor.focus_target_entity_id = target.id
 	_status_message = "Set TARGET for #%d to #%d." % [actor.id, target.id]
+	return true
+
+
+func issue_target_chase(target_entity_id: int) -> bool:
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		_status_message = "Select a combat unit before issuing target chase."
+		return false
+	if not can_issue_target_chase():
+		_status_message = "%s cannot chase targets." % _def_id_for_entity(actor)
+		return false
+	var target: Entity = _live_enemy_entity(target_entity_id)
+	if target == null:
+		_status_message = "Target chase needs a live enemy target."
+		return false
+	var order: EntityOrder = EntityOrder.new()
+	order.type = EntityOrder.Type.MOVE
+	order.entity_id = actor.id
+	order.target_tile = target.origin
+	order.target_priority_chain = [target_entity_id]
+	_append_order(order)
+	_status_message = "Queued target chase for #%d against #%d." % [actor.id, target_entity_id]
 	return true
 
 
@@ -187,6 +214,9 @@ func issue_gather(target_entity_id: int) -> bool:
 	if actor == null:
 		_status_message = "Select a worker before issuing GATHER."
 		return false
+	if not _can_entity_gather(actor):
+		_status_message = "%s cannot gather." % _def_id_for_entity(actor)
+		return false
 	var actor_def: EntityDef = _def_for_entity(actor)
 	if actor_def == null or actor_def.gather == null or actor.gather_state == null:
 		_status_message = "%s cannot gather." % _def_id_for_entity(actor)
@@ -195,6 +225,12 @@ func issue_gather(target_entity_id: int) -> bool:
 	var target_def: EntityDef = _def_for_entity(target)
 	if target == null or not _is_gather_target(target, target_def):
 		_status_message = "GATHER needs a resource source or refinery target."
+		return false
+	var source: Entity = GatherSystem.resolve_source_for_worker(
+		_state, _registry, target_entity_id, actor.owner_player_id
+	)
+	if source == null:
+		_status_message = "GATHER needs an owned refinery for that gas source."
 		return false
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.GATHER
@@ -209,6 +245,9 @@ func issue_build(def_id: String, target_tile: Vector2i, target_entity_id: int = 
 	var actor: Entity = _selected_entity()
 	if actor == null:
 		_status_message = "Select a builder before issuing BUILD."
+		return false
+	if actor.locked_to_building_id >= 0 or ConstructionSystem.has_pending_build(actor):
+		_status_message = "Builder is already committed to construction."
 		return false
 	if _state == null or _state.tile_grid == null:
 		_status_message = "BUILD needs a loaded map."
@@ -308,6 +347,7 @@ func issue_cancel(cancel_index: int = -1) -> bool:
 	if (
 		cancel_index < 0
 		and actor.locked_to_building_id < 0
+		and not ConstructionSystem.has_pending_build(actor)
 		and (_move_assists.has(actor.id) or actor.focus_target_entity_id >= 0)
 	):
 		_clear_move_assist(actor.id)
@@ -363,6 +403,21 @@ func apply_resolve_events(events: Array[ResolverEvent]) -> void:
 			continue
 		if event.type == ResolverEvent.Type.MOVE_COMPLETED:
 			_clear_move_assist(event.actor_id)
+
+
+func queue_rally_orders_for_train_completed(events: Array[ResolverEvent]) -> void:
+	if _state == null or _registry == null:
+		return
+	for ev in events:
+		if ev == null or ev.type != ResolverEvent.Type.TRAIN_COMPLETED:
+			continue
+		var producer: Entity = _state.get_entity_by_id(ev.actor_id)
+		var spawned: Entity = _state.get_entity_by_id(ev.target_id)
+		if producer == null or spawned == null:
+			continue
+		if producer.production_state == null:
+			continue
+		_queue_rally_order_for_spawn(producer, spawned)
 
 
 func promote_future_orders_for_next_turn() -> void:
@@ -433,38 +488,61 @@ func selected_halt_on_sight() -> bool:
 
 func can_issue_move() -> bool:
 	var actor: Entity = _selected_entity()
-	var def: EntityDef = _def_for_entity(actor)
-	return def != null and def.movement != null and def.movement.speed_tiles_per_turn > 0
+	return _can_entity_move(actor)
 
 
 func can_issue_move_only() -> bool:
 	var actor: Entity = _selected_entity()
-	var def: EntityDef = _def_for_entity(actor)
-	return (
-		def != null
-		and def.movement != null
-		and def.movement.speed_tiles_per_turn > 0
-		and def.combat != null
-		and def.combat.damage > 0
-	)
+	return _can_entity_move(actor)
 
 
 func can_issue_attack_target() -> bool:
 	var actor: Entity = _selected_entity()
+	if (
+		actor == null
+		or ConstructionSystem.has_pending_build(actor)
+		or actor.locked_to_building_id >= 0
+		or actor.is_constructing
+	):
+		return false
 	var def: EntityDef = _def_for_entity(actor)
 	return def != null and def.combat != null and def.combat.damage > 0
 
 
+func can_issue_target_chase() -> bool:
+	var actor: Entity = _selected_entity()
+	if (
+		actor == null
+		or ConstructionSystem.has_pending_build(actor)
+		or actor.locked_to_building_id >= 0
+		or actor.is_constructing
+	):
+		return false
+	var def: EntityDef = _def_for_entity(actor)
+	return (
+		def != null
+		and def.combat != null
+		and def.combat.damage > 0
+		and def.movement != null
+		and def.movement.speed_tiles_per_turn > 0
+	)
+
+
 func can_issue_halt_on_sight_toggle() -> bool:
 	var actor: Entity = _selected_entity()
+	if (
+		actor == null
+		or ConstructionSystem.has_pending_build(actor)
+		or actor.locked_to_building_id >= 0
+	):
+		return false
 	var def: EntityDef = _def_for_entity(actor)
 	return def != null and def.combat != null and def.combat.damage > 0
 
 
 func can_issue_gather() -> bool:
 	var actor: Entity = _selected_entity()
-	var def: EntityDef = _def_for_entity(actor)
-	return def != null and def.gather != null and actor.gather_state != null
+	return _can_entity_gather(actor)
 
 
 func can_issue_cancel() -> bool:
@@ -475,6 +553,7 @@ func can_issue_cancel() -> bool:
 		_move_assists.has(actor.id)
 		or actor.focus_target_entity_id >= 0
 		or actor.locked_to_building_id >= 0
+		or ConstructionSystem.has_pending_build(actor)
 		or _has_queued_order_for_entity(actor.id)
 		or future_order_count_for_entity(actor.id) > 0
 	):
@@ -489,6 +568,16 @@ func can_issue_cancel() -> bool:
 func can_issue_repeat_train_toggle() -> bool:
 	var actor: Entity = _selected_entity()
 	return actor != null and actor.production_state != null and not train_option_ids().is_empty()
+
+
+func can_issue_rally_move() -> bool:
+	var actor: Entity = _selected_entity()
+	return _producer_can_train(actor)
+
+
+func can_issue_rally_gather() -> bool:
+	var actor: Entity = _selected_entity()
+	return _producer_can_train_gatherer(actor)
 
 
 func selected_repeat_train_enabled() -> bool:
@@ -516,6 +605,50 @@ func issue_repeat_train_toggle(enabled: bool) -> bool:
 	return true
 
 
+func issue_rally_move(target_tile: Vector2i) -> bool:
+	var actor: Entity = _selected_entity()
+	if actor == null or actor.production_state == null:
+		_status_message = "Select a producer before setting a rally point."
+		return false
+	if not can_issue_rally_move():
+		_status_message = "%s cannot set a train rally." % _def_id_for_entity(actor)
+		return false
+	if _state == null or _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
+		_status_message = "Rally target is outside the map."
+		return false
+	actor.production_state.rally_mode = ProductionState.RALLY_MODE_MOVE
+	actor.production_state.rally_target_tile = target_tile
+	actor.production_state.rally_target_entity_id = -1
+	_status_message = "Set rally for #%d to %s." % [actor.id, str(target_tile)]
+	return true
+
+
+func issue_rally_gather(target_entity_id: int) -> bool:
+	var actor: Entity = _selected_entity()
+	if actor == null or actor.production_state == null:
+		_status_message = "Select a producer before setting a gather rally."
+		return false
+	if not can_issue_rally_gather():
+		_status_message = "%s cannot rally gatherers." % _def_id_for_entity(actor)
+		return false
+	var target: Entity = _gather_target_entity(target_entity_id)
+	var target_def: EntityDef = _def_for_entity(target)
+	if target == null or not _is_gather_target(target, target_def):
+		_status_message = "Gather rally needs a resource source or refinery target."
+		return false
+	var source: Entity = GatherSystem.resolve_source_for_worker(
+		_state, _registry, target_entity_id, actor.owner_player_id
+	)
+	if source == null:
+		_status_message = "Gather rally needs an owned refinery for that gas source."
+		return false
+	actor.production_state.rally_mode = ProductionState.RALLY_MODE_GATHER
+	actor.production_state.rally_target_tile = Vector2i.ZERO
+	actor.production_state.rally_target_entity_id = target_entity_id
+	_status_message = "Set gather rally for #%d to #%d." % [actor.id, target_entity_id]
+	return true
+
+
 func can_afford_build(def_id: String) -> bool:
 	return _build_affordability_message(def_id) == ""
 
@@ -532,6 +665,9 @@ func build_placement_preview(def_id: String, clicked_tile: Vector2i) -> Dictiona
 	var actor: Entity = _selected_entity()
 	if actor == null:
 		out["message"] = "Select a builder before issuing BUILD."
+		return out
+	if actor.locked_to_building_id >= 0 or ConstructionSystem.has_pending_build(actor):
+		out["message"] = "Builder is already committed to construction."
 		return out
 	if _state == null or _state.tile_grid == null:
 		out["message"] = "BUILD needs a loaded map."
@@ -568,6 +704,8 @@ func build_option_ids() -> Array[String]:
 	var actor: Entity = _selected_entity()
 	var actor_def: EntityDef = _def_for_entity(actor)
 	if actor == null or actor_def == null or _registry == null:
+		return out
+	if actor.locked_to_building_id >= 0 or ConstructionSystem.has_pending_build(actor):
 		return out
 	for candidate in _registry.entities:
 		var def: EntityDef = candidate
@@ -749,6 +887,41 @@ func _append_future_order(order: EntityOrder) -> void:
 	_future_orders[order.entity_id] = queue
 
 
+func _queue_rally_order_for_spawn(producer: Entity, spawned: Entity) -> void:
+	if producer == null or spawned == null or producer.production_state == null:
+		return
+	if spawned.current_hp <= 0 or spawned.owner_player_id != producer.owner_player_id:
+		return
+	var mode: String = producer.production_state.rally_mode
+	if mode == ProductionState.RALLY_MODE_MOVE:
+		if not _can_entity_move(spawned):
+			return
+		var target_tile: Vector2i = producer.production_state.rally_target_tile
+		if _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
+			return
+		var move_order := EntityOrder.new()
+		move_order.type = EntityOrder.Type.MOVE_ONLY
+		move_order.entity_id = spawned.id
+		move_order.target_tile = target_tile
+		_append_order_to_submit(_submission_for(spawned.owner_player_id), move_order)
+		_remember_move_assist(move_order)
+	elif mode == ProductionState.RALLY_MODE_GATHER:
+		if not _can_entity_gather(spawned):
+			return
+		var target_entity_id: int = producer.production_state.rally_target_entity_id
+		var source: Entity = GatherSystem.resolve_source_for_worker(
+			_state, _registry, target_entity_id, spawned.owner_player_id
+		)
+		if source == null:
+			return
+		var gather_order := EntityOrder.new()
+		gather_order.type = EntityOrder.Type.GATHER
+		gather_order.entity_id = spawned.id
+		gather_order.target_entity_id = target_entity_id
+		_append_order_to_submit(_submission_for(spawned.owner_player_id), gather_order)
+		_clear_move_assist(spawned.id)
+
+
 func _clear_current_and_future_orders_for_entity(entity_id: int) -> void:
 	_remove_all_queued_orders_for_entity(entity_id)
 	_future_orders.erase(entity_id)
@@ -784,27 +957,42 @@ func _can_continue_move_assist(entity: Entity, order: EntityOrder) -> bool:
 		return false
 	if entity.current_hp <= 0 or entity.owner_player_id < 0:
 		return false
-	if entity.origin == order.target_tile:
-		return false
 	if (
 		_state == null
 		or _state.tile_grid == null
 		or not _state.tile_grid.is_in_bounds(order.target_tile)
 	):
 		return false
+	var effective_target_tile: Vector2i = _effective_move_assist_target_tile(entity, order)
+	if entity.origin == effective_target_tile:
+		return false
 	var def: EntityDef = _def_for_entity(entity)
 	if def == null or def.movement == null or def.movement.speed_tiles_per_turn <= 0:
 		return false
-	if order.type == EntityOrder.Type.MOVE_ONLY:
-		if def.combat == null or def.combat.damage <= 0:
-			return false
 	if entity.gather_state != null and entity.gather_state.phase != GatherState.Phase.IDLE:
 		return false
-	if entity.locked_to_building_id >= 0 or entity.is_constructing:
+	if (
+		ConstructionSystem.has_pending_build(entity)
+		or entity.locked_to_building_id >= 0
+		or entity.is_constructing
+	):
 		return false
 	if entity.ability_cast != null:
 		return false
 	return true
+
+
+func _effective_move_assist_target_tile(entity: Entity, order: EntityOrder) -> Vector2i:
+	if entity == null or order == null:
+		return Vector2i.ZERO
+	if order.type == EntityOrder.Type.MOVE and not order.target_priority_chain.is_empty():
+		var target: Entity = _live_enemy_from_chain(entity, order.target_priority_chain)
+		if target != null:
+			var target_rect: Rect2i = _state.tile_grid.entity_rect(target.id)
+			if target_rect.size != Vector2i.ZERO:
+				return target_rect.position
+			return target.origin
+	return order.target_tile
 
 
 func _has_queued_order_for_entity(entity_id: int) -> bool:
@@ -885,7 +1073,11 @@ func _prune_future_orders() -> void:
 func _can_promote_future_order_for_entity(entity: Entity) -> bool:
 	if entity == null or entity.current_hp <= 0 or entity.owner_player_id < 0:
 		return false
-	if entity.locked_to_building_id >= 0 or entity.is_constructing:
+	if (
+		ConstructionSystem.has_pending_build(entity)
+		or entity.locked_to_building_id >= 0
+		or entity.is_constructing
+	):
 		return false
 	if entity.ability_cast != null:
 		return false
@@ -910,13 +1102,6 @@ func _replacement_index_for_order(orders: Array[EntityOrder], order: EntityOrder
 
 func _is_move_like(type: EntityOrder.Type) -> bool:
 	return type == EntityOrder.Type.MOVE or type == EntityOrder.Type.MOVE_ONLY
-
-
-func _interrupt_gather_assignment(entity: Entity) -> void:
-	if entity == null or entity.gather_state == null:
-		return
-	entity.gather_state.phase = GatherState.Phase.IDLE
-	entity.gather_state.assigned_source_entity_id = -1
 
 
 func _submission_for(player_id: int) -> SubmitTurn:
@@ -958,6 +1143,19 @@ func _live_enemy_entity(entity_id: int) -> Entity:
 	return entity
 
 
+func _live_enemy_from_chain(actor: Entity, target_priority_chain: Array[int]) -> Entity:
+	if actor == null or _state == null:
+		return null
+	for target_id in target_priority_chain:
+		var target: Entity = _state.get_entity_by_id(target_id)
+		if target == null or target.current_hp <= 0:
+			continue
+		if target.owner_player_id < 0 or target.owner_player_id == actor.owner_player_id:
+			continue
+		return target
+	return null
+
+
 func _gather_target_entity(entity_id: int) -> Entity:
 	if _state == null:
 		return null
@@ -989,6 +1187,55 @@ func _def_id_for_entity(entity: Entity) -> String:
 	if entity == null:
 		return ""
 	return entity.current_def_id if entity.current_def_id != "" else entity.def_id
+
+
+func _can_entity_move(entity: Entity) -> bool:
+	if (
+		entity == null
+		or ConstructionSystem.has_pending_build(entity)
+		or entity.locked_to_building_id >= 0
+		or entity.is_constructing
+	):
+		return false
+	var def: EntityDef = _def_for_entity(entity)
+	return def != null and def.movement != null and def.movement.speed_tiles_per_turn > 0
+
+
+func _can_entity_gather(entity: Entity) -> bool:
+	if (
+		entity == null
+		or ConstructionSystem.has_pending_build(entity)
+		or entity.locked_to_building_id >= 0
+		or entity.is_constructing
+	):
+		return false
+	var def: EntityDef = _def_for_entity(entity)
+	return def != null and def.gather != null and entity.gather_state != null
+
+
+func _producer_can_train(entity: Entity) -> bool:
+	var def: EntityDef = _def_for_entity(entity)
+	if entity == null or entity.production_state == null or def == null or def.production == null:
+		return false
+	if entity.is_constructing:
+		return false
+	for def_id in def.production.produces:
+		if _registry == null or _registry.get_by_id(def_id) != null:
+			return true
+	return false
+
+
+func _producer_can_train_gatherer(entity: Entity) -> bool:
+	var def: EntityDef = _def_for_entity(entity)
+	if entity == null or entity.production_state == null or def == null or def.production == null:
+		return false
+	if entity.is_constructing:
+		return false
+	for def_id in def.production.produces:
+		var unit_def: EntityDef = _registry.get_by_id(def_id) if _registry != null else null
+		if unit_def != null and unit_def.gather != null:
+			return true
+	return false
 
 
 func _is_gather_target(target: Entity, target_def: EntityDef) -> bool:

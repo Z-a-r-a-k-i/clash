@@ -114,8 +114,9 @@ static func _distribute_one(
 		if order.type == EntityOrder.Type.BUILD:
 			_handle_build_order(state, entity, order, registry, events)
 			continue
-		# Locked workers (mid-construction) reject any tick-action orders.
-		if entity.locked_to_building_id >= 0:
+		# Build-committed workers reject any tick-action orders, whether
+		# the building entity has spawned yet or construction is underway.
+		if entity.locked_to_building_id >= 0 or ConstructionSystem.has_pending_build(entity):
 			_emit_order_rejected(order.entity_id, "worker_locked", events)
 			continue
 		if order.type == EntityOrder.Type.GATHER:
@@ -136,11 +137,11 @@ static func _distribute_one(
 				state, registry, order.target_entity_id, entity.owner_player_id
 			)
 			if source == null:
-				_interrupt_gather_assignment(entity)
+				GatherSystem.clear_assignment(entity)
 				_emit_order_rejected(order.entity_id, "bad_gather_target", events)
 				continue
 			if not GatherSystem.source_has_open_slot(state, registry, source, entity.id):
-				_interrupt_gather_assignment(entity)
+				GatherSystem.clear_assignment(entity)
 				_emit_order_rejected(order.entity_id, "source_saturated", events)
 				continue
 			entity.gather_state.assigned_source_entity_id = order.target_entity_id
@@ -152,26 +153,19 @@ static func _distribute_one(
 				entity.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
 			continue
 		if order.type == EntityOrder.Type.ATTACK:
-			_interrupt_gather_assignment(entity)
+			GatherSystem.clear_assignment(entity)
 			_set_focus_target_from_chain(state, entity, order.target_priority_chain)
 			continue
 		# Per-tick orders queue up.
-		_interrupt_gather_assignment(entity)
+		GatherSystem.clear_assignment(entity)
+		if order.type == EntityOrder.Type.MOVE and not order.target_priority_chain.is_empty():
+			_set_focus_target_from_chain(state, entity, order.target_priority_chain)
 		if not per_entity.has(order.entity_id):
 			per_entity[order.entity_id] = []
 		if order.type == EntityOrder.Type.MOVE or order.type == EntityOrder.Type.MOVE_ONLY:
 			_queue_replacing_move(per_entity, order)
 		else:
 			per_entity[order.entity_id].append(order)
-
-
-static func _interrupt_gather_assignment(entity: Entity) -> void:
-	if entity == null or entity.gather_state == null:
-		return
-	entity.gather_state.phase = GatherState.Phase.IDLE
-	entity.gather_state.assigned_source_entity_id = -1
-	entity.gather_state.carrying_amount = 0
-	entity.gather_state.carrying_resource_type = ""
 
 
 static func _is_adjacent_to(state: MatchState, a: Entity, b: Entity) -> bool:
@@ -230,7 +224,7 @@ static func _handle_build_order(
 		_handle_build_resume(state, worker, order, registry, events)
 		return
 	# New construction.
-	if worker.locked_to_building_id >= 0:
+	if worker.locked_to_building_id >= 0 or ConstructionSystem.has_pending_build(worker):
 		_emit_order_rejected(order.entity_id, "worker_locked", events)
 		return
 	if registry == null:
@@ -267,6 +261,9 @@ static func _handle_build_order(
 		if not state.tile_grid.is_rect_in_bounds(rect):
 			_emit_order_rejected(order.entity_id, "off_grid", events)
 			return
+		if not _can_place_build_rect(state, rect, overlap_target_id):
+			_emit_order_rejected(order.entity_id, "tile_occupied", events)
+			return
 	elif not state.tile_grid.is_rect_in_bounds(rect):
 		_emit_order_rejected(order.entity_id, "off_grid", events)
 		return
@@ -286,50 +283,16 @@ static func _handle_build_order(
 	):
 		_emit_order_rejected(order.entity_id, "insufficient_resources", events)
 		return
-	# Deduct + spawn building entity.
+	# Deduct now, but don't spawn the building until the worker reaches
+	# adjacency and starts construction.
 	player.minerals -= def.construction.mineral_cost
 	player.gas -= def.construction.gas_cost
 	player.pop_used += pop_cost
-	var building := Entity.new()
-	building.id = state.allocate_entity_id()
-	building.def_id = def.id
-	building.current_def_id = def.id
-	building.owner_player_id = worker.owner_player_id
-	building.origin = rect.position
-	building.current_layer = "ground"
-	if def.health != null:
-		building.current_hp = def.health.max_hp
-	building.is_constructing = true
-	building.construction_turns_remaining = def.construction.build_time_turns
-	building.construction_worker_id = worker.id
-	if def.production != null:
-		building.production_state = ProductionState.new()
-	state.entities.append(building)
-	var placed: bool
-	if require_tag != "":
-		placed = state.tile_grid.place_overlapping(building.id, rect, overlap_target_id)
-	else:
-		placed = state.tile_grid.place(building.id, rect)
-	if not placed:
-		# Roll back: refund cost+pop, drop the dangling building entity,
-		# don't lock the worker, don't emit BUILD_STARTED. This protects
-		# against races between the validation pass and the actual place
-		# (e.g. simultaneous BUILD orders on the same tile in the same
-		# turn from the same player).
-		player.minerals += def.construction.mineral_cost
-		player.gas += def.construction.gas_cost
-		player.pop_used = max(0, player.pop_used - pop_cost)
-		state.entities.erase(building)
-		_emit_order_rejected(order.entity_id, "tile_occupied", events)
-		return
-	worker.locked_to_building_id = building.id
-	_interrupt_gather_assignment(worker)
-	var ev := ResolverEvent.new()
-	ev.type = ResolverEvent.Type.BUILD_STARTED
-	ev.actor_id = worker.id
-	ev.target_id = building.id
-	ev.def_id = def.id
-	events.append(ev)
+	worker.pending_build_def_id = def.id
+	worker.pending_build_target_tile = rect.position
+	worker.pending_build_target_entity_id = overlap_target_id
+	GatherSystem.clear_assignment(worker)
+	ConstructionSystem.try_start_pending_build(state, worker, registry, events)
 
 
 static func _handle_build_resume(
@@ -352,7 +315,7 @@ static func _handle_build_resume(
 	if building.owner_player_id != worker.owner_player_id:
 		_emit_order_rejected(order.entity_id, "wrong_owner", events)
 		return
-	if worker.locked_to_building_id >= 0:
+	if worker.locked_to_building_id >= 0 or ConstructionSystem.has_pending_build(worker):
 		_emit_order_rejected(order.entity_id, "worker_locked", events)
 		return
 	# Resume must use a worker whose tag matches the building def's
@@ -366,7 +329,7 @@ static func _handle_build_resume(
 				return
 	building.construction_worker_id = worker.id
 	worker.locked_to_building_id = building.id
-	_interrupt_gather_assignment(worker)
+	GatherSystem.clear_assignment(worker)
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.BUILD_RESUMED
 	ev.actor_id = worker.id
@@ -410,6 +373,29 @@ static func _effective_def_id(entity: Entity) -> String:
 	if entity.current_def_id != "":
 		return entity.current_def_id
 	return entity.def_id
+
+
+static func _can_place_build_rect(
+	state: MatchState, rect: Rect2i, allow_overlap_id: int = -1
+) -> bool:
+	if state == null or state.tile_grid == null:
+		return false
+	if allow_overlap_id < 0:
+		return state.tile_grid.is_rect_clear(rect)
+	if not state.tile_grid.is_rect_in_bounds(rect):
+		return false
+	for x in range(rect.position.x, rect.position.x + rect.size.x):
+		for y in range(rect.position.y, rect.position.y + rect.size.y):
+			var occupant_id: int = state.tile_grid.entity_at(Vector2i(x, y))
+			if occupant_id != -1 and occupant_id != allow_overlap_id:
+				return false
+	for existing_id: int in state.tile_grid.all_placed_entity_ids():
+		if existing_id == allow_overlap_id:
+			continue
+		var existing_rect: Rect2i = state.tile_grid.entity_rect(existing_id)
+		if existing_rect.intersects(rect):
+			return false
+	return true
 
 
 # RESEARCH handler — appends a queue declaration on the producer's
@@ -573,6 +559,8 @@ static func _handle_cancel_order(
 		# If the entity is a worker locked to an in-progress build,
 		# cancel the build too: refund full cost, remove the building
 		# entity, free the worker. Plan node 05 chunk 6.
+		if ConstructionSystem.has_pending_build(entity):
+			ConstructionSystem.cancel_pending_build(state, entity, registry, events)
 		if entity.locked_to_building_id >= 0:
 			_cancel_build_via_worker(state, entity, registry, events)
 		return

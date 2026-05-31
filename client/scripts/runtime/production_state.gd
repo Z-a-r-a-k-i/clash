@@ -39,10 +39,19 @@ const KEY_PAID_POP := "paid_pop"
 const KIND_UNIT := "unit"
 const KIND_RESEARCH := "research"
 
+# Values for explicit player-set rally state. No rally is active until
+# `rally_mode` changes away from RALLY_MODE_NONE.
+const RALLY_MODE_NONE := "none"
+const RALLY_MODE_MOVE := "move"
+const RALLY_MODE_GATHER := "gather"
+
 @export var active: Dictionary = {}
 @export var queue: Array[Dictionary] = []
 @export var repeat_train_enabled: bool = false
 @export var repeat_train_def_id: String = ""
+@export var rally_mode: String = RALLY_MODE_NONE
+@export var rally_target_tile: Vector2i = Vector2i.ZERO
+@export var rally_target_entity_id: int = -1
 
 
 func clone() -> ProductionState:
@@ -53,4 +62,7 @@ func clone() -> ProductionState:
 		c.queue.append(item.duplicate())
 	c.repeat_train_enabled = repeat_train_enabled
 	c.repeat_train_def_id = repeat_train_def_id
+	c.rally_mode = rally_mode
+	c.rally_target_tile = rally_target_tile
+	c.rally_target_entity_id = rally_target_entity_id
 	return c

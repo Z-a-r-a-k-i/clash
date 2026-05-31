@@ -46,6 +46,10 @@ static func find_path(
 	var exact_origin: bool = options.get(OPTION_EXACT_ORIGIN, true)
 	var passable_entity_ids: Dictionary = _id_set(options.get(OPTION_PASSABLE_ENTITY_IDS, {}))
 	var known_entity_ids: Dictionary = _id_set(options.get(OPTION_KNOWN_ENTITY_IDS, {}))
+	var actor_layer: String = layer_for_entity(actor, registry)
+	var occupancy_blockers: Array[Dictionary] = _occupancy_blockers(
+		state, actor, registry, actor_layer, passable_entity_ids, known_entity_ids
+	)
 
 	var start: Vector2i = actor.origin
 	if _is_goal(start, footprint, target_origin, goal_rect, goal_range, exact_origin):
@@ -115,8 +119,8 @@ static func find_path(
 			var next_key: String = _key(next)
 			if closed.has(next_key):
 				continue
-			if not can_occupy_origin(
-				state, actor, next, registry, passable_entity_ids, known_entity_ids
+			if not _can_occupy_origin_with_blockers(
+				state.tile_grid, next, footprint, movement, occupancy_blockers
 			):
 				continue
 			var tentative_cost: int = current_cost + 1
@@ -172,6 +176,56 @@ static func can_occupy_origin(
 		var other_rect: Rect2i = state.tile_grid.entity_rect(entity.id)
 		if other_rect.size.x <= 0 or other_rect.size.y <= 0:
 			continue
+		if other_rect.intersects(rect):
+			return false
+	return true
+
+
+static func _occupancy_blockers(
+	state: MatchState,
+	actor: Entity,
+	registry: EntityRegistry,
+	actor_layer: String,
+	passable_entity_ids: Dictionary,
+	known_entity_ids: Dictionary
+) -> Array[Dictionary]:
+	var blockers: Array[Dictionary] = []
+	if state == null or actor == null or state.tile_grid == null or registry == null:
+		return blockers
+	for entity in state.entities_sorted_by_id():
+		if entity == null or entity.id == actor.id:
+			continue
+		if not known_entity_ids.is_empty() and not known_entity_ids.has(entity.id):
+			continue
+		if passable_entity_ids.has(entity.id):
+			continue
+		if not _is_spatial_blocker(entity, registry):
+			continue
+		if layer_for_entity(entity, registry) != actor_layer:
+			continue
+		var other_rect: Rect2i = state.tile_grid.entity_rect(entity.id)
+		if other_rect.size.x <= 0 or other_rect.size.y <= 0:
+			continue
+		blockers.append({"id": entity.id, "rect": other_rect})
+	return blockers
+
+
+static func _can_occupy_origin_with_blockers(
+	grid: TileGrid,
+	origin: Vector2i,
+	footprint: Vector2i,
+	movement: MovementDef,
+	occupancy_blockers: Array[Dictionary]
+) -> bool:
+	if grid == null or movement == null:
+		return false
+	var rect := Rect2i(origin, footprint)
+	if not grid.is_rect_in_bounds(rect):
+		return false
+	if not _terrain_allows_rect(grid, rect, movement):
+		return false
+	for blocker in occupancy_blockers:
+		var other_rect: Rect2i = blocker.get("rect", Rect2i())
 		if other_rect.intersects(rect):
 			return false
 	return true

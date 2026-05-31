@@ -211,6 +211,8 @@ static func _has_standing_work(state: MatchState, registry: EntityRegistry) -> b
 			return true
 		if e.gather_state != null and e.gather_state.phase != GatherState.Phase.IDLE:
 			return true
+		if ConstructionSystem.has_pending_build(e):
+			return true
 		if e.locked_to_building_id >= 0:
 			return true
 		if e.is_constructing:
@@ -227,7 +229,11 @@ static func _standing_attack_order(
 		return null
 	if entity.gather_state != null and entity.gather_state.phase != GatherState.Phase.IDLE:
 		return null
-	if entity.locked_to_building_id >= 0 or entity.is_constructing:
+	if (
+		ConstructionSystem.has_pending_build(entity)
+		or entity.locked_to_building_id >= 0
+		or entity.is_constructing
+	):
 		return null
 	var auto_attack := EntityOrder.new()
 	auto_attack.type = EntityOrder.Type.ATTACK
