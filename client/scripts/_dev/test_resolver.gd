@@ -86,6 +86,10 @@ func _all_tests() -> Array:
 			_test_find_next_step_matches_a_star_for_blocked_target
 		],
 		[
+			"cached_next_step_invalidates_blocked_remainder",
+			_test_cached_next_step_invalidates_blocked_remainder
+		],
+		[
 			"movement_respects_impassable_terrain_tags",
 			_test_movement_respects_impassable_terrain_tags
 		],
@@ -1079,6 +1083,42 @@ func _test_find_next_step_matches_a_star_for_blocked_target() -> bool:
 		step.get("next_origin", actor.origin) == path[0]
 		and step.get("path_distance", 0) == path.size()
 	)
+
+
+func _test_cached_next_step_invalidates_blocked_remainder() -> bool:
+	var registry: EntityRegistry = _movable_registry(3)
+	var state: MatchState = _state_with_grid(6, 3)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
+	var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, registry)
+	var path_cache: Dictionary = {
+		actor.id:
+		{
+			"target_origin": Vector2i(4, 1),
+			"exact_origin": true,
+			"goal_range": 0,
+			"has_goal_rect": false,
+			"goal_rect": Rect2i(),
+			"path": [Vector2i(2, 1), Vector2i(3, 1), Vector2i(4, 1)],
+		},
+	}
+	var options: Dictionary = {
+		_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS: {"tiles": {Vector2i(3, 1): true}},
+	}
+	var step: Dictionary = MovementSystem._cached_next_step(
+		state.tile_grid,
+		actor,
+		Vector2i(4, 1),
+		Vector2i.ONE,
+		movement,
+		options,
+		{"exact_origin": true, "goal_range": 0},
+		path_cache
+	)
+	if not step.is_empty():
+		push_error("cached route with blocked remainder should be invalidated")
+		return false
+	return not path_cache.has(actor.id)
 
 
 func _test_movement_respects_impassable_terrain_tags() -> bool:

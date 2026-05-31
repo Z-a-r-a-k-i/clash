@@ -186,11 +186,13 @@ static func _cached_next_step(
 		return {}
 	var next_origin: Vector2i = path[0]
 	var occupancy_blockers: Dictionary = options.get(_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS, {})
-	if not _PATHFINDING._can_occupy_origin_with_blockers(
-		grid, next_origin, footprint, movement, occupancy_blockers
-	):
-		path_cache.erase(actor.id)
-		return {}
+	for path_origin in path:
+		var path_origin_vec: Vector2i = path_origin
+		if not _PATHFINDING._can_occupy_origin_with_blockers(
+			grid, path_origin_vec, footprint, movement, occupancy_blockers
+		):
+			path_cache.erase(actor.id)
+			return {}
 	cached["path"] = path
 	path_cache[actor.id] = cached
 	return {
