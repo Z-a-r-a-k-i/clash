@@ -75,6 +75,9 @@ const _ZOOM_DEBUG_FONT_SIZE := 18
 # disturbing the team-color modulate when the tween clears.
 const _HIT_FLASH_SECONDS := 0.18
 const _HIT_FLASH_COLOR := Color(2.5, 2.5, 2.5)
+const _RESOLVE_PROFILE_FLAG_PATH := "res://resolver_profile_enabled"
+const _RENDER_PROFILE_LOG_PATH := "user://match_renderer_step_latest.log"
+const _VISIBILITY_PROFILE_LOG_PATH := "user://match_renderer_visibility_latest.log"
 
 var _state: MatchState = null
 var _registry: EntityRegistry = null
@@ -91,6 +94,7 @@ var _combat_log_lines: Array[String] = []
 
 # Cached PackedScene for spawning entity views without reloading per call.
 var _entity_view_scene: PackedScene = null
+var _texture_by_def_id: Dictionary = {}
 
 var _selected_entity_id: int = -1
 var _hover_tile: Vector2i = Vector2i.ZERO
@@ -101,6 +105,9 @@ var _seen_tiles_by_player: Dictionary = {}
 var _seen_enemy_building_snapshots_by_player: Dictionary = {}
 var _event_visible_entity_ids: Dictionary[int, bool] = {}
 var _zoom_debug_text: String = ""
+var _fog_overlay_signature: String = ""
+var _has_fog_overlay_cache := false
+var _fog_overlay_tile_count := 0
 
 @onready var _entities_root: Node2D = $Entities
 @onready var _terrain: TileMapLayer = $Terrain
@@ -173,23 +180,129 @@ func entity_view_count() -> int:
 # Position updates run last so attack-line endpoints reflect the
 # pre-event positions captured at the previous render_step / bind_state.
 func render_step(new_state: MatchState, events: Array[ResolverEvent]) -> void:
+	var profile_enabled := FileAccess.file_exists(_RESOLVE_PROFILE_FLAG_PATH)
+	var profile_lines: Array[String] = []
+	var profile_total_start := Time.get_ticks_usec()
+	var profile_step := profile_total_start
+	if profile_enabled:
+		profile_lines.append(
+			"[render_step_profile] captured_at=%s" % Time.get_datetime_string_from_system()
+		)
+		profile_lines.append("[render_step_profile] events=%d" % events.size())
 	_resolve_internal_nodes()
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[render_step_profile] resolve_internal_nodes=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		profile_step = Time.get_ticks_usec()
 	var event_visible_ids: Dictionary[int, bool] = _visible_entity_ids_for_player(
 		_perspective_player_id
 	)
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[render_step_profile] visible_ids_for_events=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		profile_step = Time.get_ticks_usec()
 	_state = new_state
 	if new_state == null:
+		if profile_enabled:
+			profile_lines.append("[render_step_profile] new_state_null=true")
+			_emit_render_step_profile(profile_lines)
 		return
 	_spawn_added_views(new_state)
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[render_step_profile] spawn_added_views=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		profile_step = Time.get_ticks_usec()
 	_event_visible_entity_ids = event_visible_ids
 	for event in events:
 		_render_event(event)
 	_event_visible_entity_ids = {}
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[render_step_profile] render_events=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		profile_step = Time.get_ticks_usec()
 	_prune_dead_views(new_state)
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[render_step_profile] prune_dead_views=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		profile_step = Time.get_ticks_usec()
 	_update_surviving_views(new_state)
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[render_step_profile] update_surviving_views=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		profile_step = Time.get_ticks_usec()
 	_refresh_all_visibility()
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[render_step_profile] refresh_all_visibility=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		profile_step = Time.get_ticks_usec()
 	_rebuild_production_progress()
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[render_step_profile] rebuild_production_progress=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		profile_step = Time.get_ticks_usec()
 	_rebuild_construction_progress()
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[render_step_profile] rebuild_construction_progress=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		profile_lines.append(
+			(
+				"[render_step_profile] total=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_total_start) / 1000.0)
+			)
+		)
+		_emit_render_step_profile(profile_lines)
+
+
+func _emit_render_step_profile(lines: Array[String]) -> void:
+	for line in lines:
+		print(line)
+	var file := FileAccess.open(_RENDER_PROFILE_LOG_PATH, FileAccess.WRITE)
+	if file != null:
+		file.store_string("\n".join(lines) + "\n")
+
+
+func _emit_visibility_profile(lines: Array[String]) -> void:
+	for line in lines:
+		print(line)
+	var file := FileAccess.open(_VISIBILITY_PROFILE_LOG_PATH, FileAccess.WRITE)
+	if file != null:
+		file.store_string("\n".join(lines) + "\n")
 
 
 # Lookup helper for tests — fastest way to assert on overlay state.
@@ -389,7 +502,7 @@ func is_entity_view_silhouette(entity_id: int) -> bool:
 func fog_overlay_count() -> int:
 	if _fog_root == null:
 		return 0
-	return _fog_root.get_child_count()
+	return _fog_overlay_tile_count
 
 
 func is_tile_currently_visible(player_id: int, tile: Vector2i) -> bool:
@@ -848,7 +961,11 @@ func _spawn_entity_view(entity: Entity, state: MatchState = null) -> void:
 	_entities_root.add_child(view)
 	view.bind_entity_id(entity.id)
 	view.update_from_state(
-		entity, def, _texture_for_def(def_id), _entity_rect_or_default(entity, state, def)
+		entity,
+		def,
+		_texture_for_def(def_id),
+		_entity_rect_or_default(entity, state, def),
+		_tile_size
 	)
 	_views_by_id[entity.id] = view
 
@@ -867,12 +984,17 @@ func _entity_rect_or_default(entity: Entity, state: MatchState, def: EntityDef) 
 
 
 func _texture_for_def(def_id: String) -> Texture2D:
+	if _texture_by_def_id.has(def_id):
+		return _texture_by_def_id[def_id]
 	if _visuals == null:
 		return null
 	var path: String = _visuals.sprite_paths.get(def_id, "")
 	if path == "":
+		_texture_by_def_id[def_id] = null
 		return null
-	return load(path) as Texture2D
+	var texture := load(path) as Texture2D
+	_texture_by_def_id[def_id] = texture
+	return texture
 
 
 func _fit_camera_to_state(state: MatchState) -> void:
@@ -1127,6 +1249,7 @@ func _update_surviving_views(new_state: MatchState) -> void:
 				def,
 				_texture_for_def(entity.current_def_id),
 				_entity_rect_or_default(entity, new_state, def),
+				_tile_size,
 			)
 		)
 
@@ -1135,6 +1258,9 @@ func _reset_visibility_memory() -> void:
 	_visibility_by_player.clear()
 	_seen_tiles_by_player.clear()
 	_seen_enemy_building_snapshots_by_player.clear()
+	_fog_overlay_signature = ""
+	_has_fog_overlay_cache = false
+	_fog_overlay_tile_count = 0
 	for player_id in _player_ids():
 		_seen_tiles_by_player[player_id] = {}
 		_seen_enemy_building_snapshots_by_player[player_id] = {}
@@ -1163,16 +1289,85 @@ func _seed_known_starting_base_snapshots() -> void:
 func _refresh_all_visibility() -> void:
 	if _state == null or _registry == null or _state.tile_grid == null:
 		return
+	var profile_enabled := FileAccess.file_exists(_RESOLVE_PROFILE_FLAG_PATH)
+	var profile_lines: Array[String] = []
+	var profile_total_start := Time.get_ticks_usec()
+	var profile_step := profile_total_start
+	var compute_visibility_usec: int = 0
+	var remember_tiles_usec: int = 0
+	var snapshot_usec: int = 0
+	var player_count := 0
+	var visible_tile_count := 0
+	if profile_enabled:
+		profile_lines.append(
+			"[visibility_profile] captured_at=%s" % Time.get_datetime_string_from_system()
+		)
+		profile_lines.append("[visibility_profile] entities=%d" % _state.entities.size())
 	_visibility_by_player.clear()
 	for player_id in _player_ids():
+		player_count += 1
+		var step_start := Time.get_ticks_usec()
 		var visibility: VisionSystem.Visibility = VISION_SYSTEM_SCRIPT.compute_player_visibility(
 			_state, _registry, player_id
 		)
+		compute_visibility_usec += Time.get_ticks_usec() - step_start
 		_visibility_by_player[player_id] = visibility
+		visible_tile_count += visibility.visible_tile_count()
+		step_start = Time.get_ticks_usec()
 		_remember_visible_tiles(player_id, visibility)
+		remember_tiles_usec += Time.get_ticks_usec() - step_start
+		step_start = Time.get_ticks_usec()
 		_refresh_seen_enemy_building_snapshots(player_id, visibility)
+		snapshot_usec += Time.get_ticks_usec() - step_start
+	profile_step = Time.get_ticks_usec()
 	_refresh_entity_visibility()
+	var refresh_entity_visibility_usec := Time.get_ticks_usec() - profile_step
+	if profile_enabled:
+		profile_lines.append("[visibility_profile] players=%d" % player_count)
+		profile_lines.append("[visibility_profile] visible_tiles=%d" % visible_tile_count)
+		profile_lines.append(
+			(
+				"[visibility_profile] compute_player_visibility=%.3fms"
+				% (float(compute_visibility_usec) / 1000.0)
+			)
+		)
+		profile_lines.append(
+			(
+				"[visibility_profile] remember_visible_tiles=%.3fms"
+				% (float(remember_tiles_usec) / 1000.0)
+			)
+		)
+		profile_lines.append(
+			(
+				"[visibility_profile] refresh_seen_enemy_building_snapshots=%.3fms"
+				% (float(snapshot_usec) / 1000.0)
+			)
+		)
+		profile_lines.append(
+			(
+				"[visibility_profile] refresh_entity_visibility=%.3fms"
+				% (float(refresh_entity_visibility_usec) / 1000.0)
+			)
+		)
+		profile_step = Time.get_ticks_usec()
 	_rebuild_fog_overlay()
+	if profile_enabled:
+		profile_lines.append(
+			(
+				"[visibility_profile] rebuild_fog_overlay=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_step) / 1000.0)
+			)
+		)
+		var fog_child_count := _fog_root.get_child_count() if _fog_root != null else 0
+		profile_lines.append("[visibility_profile] fog_children=%d" % fog_child_count)
+		profile_lines.append("[visibility_profile] fog_tiles=%d" % _fog_overlay_tile_count)
+		profile_lines.append(
+			(
+				"[visibility_profile] total=%.3fms"
+				% (float(Time.get_ticks_usec() - profile_total_start) / 1000.0)
+			)
+		)
+		_emit_visibility_profile(profile_lines)
 
 
 func _refresh_entity_visibility() -> void:
@@ -1238,22 +1433,78 @@ func _rebuild_fog_overlay() -> void:
 	_resolve_internal_nodes()
 	if _fog_root == null:
 		return
-	for child in _fog_root.get_children():
-		_fog_root.remove_child(child)
-		child.queue_free()
 	if _state == null or _state.tile_grid == null:
+		_clear_fog_overlay()
+		_fog_overlay_signature = ""
+		_has_fog_overlay_cache = false
 		return
 	var visibility: VisionSystem.Visibility = _visibility_by_player.get(_perspective_player_id)
 	if visibility == null:
+		_clear_fog_overlay()
+		_fog_overlay_signature = ""
+		_has_fog_overlay_cache = false
 		return
+	var signature: String = _fog_visibility_signature(visibility)
+	if _has_fog_overlay_cache and signature == _fog_overlay_signature:
+		return
+	_fog_overlay_signature = signature
+	_has_fog_overlay_cache = true
+	_clear_fog_overlay()
+	for y in range(_state.tile_grid.height):
+		var run_start := -1
+		for x in range(_state.tile_grid.width):
+			var tile := Vector2i(x, y)
+			if not visibility.is_tile_visible(tile):
+				_fog_overlay_tile_count += 1
+				if run_start < 0:
+					run_start = x
+				continue
+			if run_start >= 0:
+				_add_fog_overlay_run(run_start, y, x - run_start)
+				run_start = -1
+		if run_start >= 0:
+			_add_fog_overlay_run(run_start, y, _state.tile_grid.width - run_start)
+
+
+func _add_fog_overlay_run(start_x: int, y: int, width: int) -> void:
+	if _fog_root == null or width <= 0:
+		return
+	_fog_root.add_child(
+		_highlight_polygon(
+			Rect2i(Vector2i(start_x, y), Vector2i(width, 1)), _FOG_OUT_OF_VISION_COLOR
+		)
+	)
+
+
+func _clear_fog_overlay() -> void:
+	_fog_overlay_tile_count = 0
+	if _fog_root == null:
+		return
+	for child in _fog_root.get_children():
+		_fog_root.remove_child(child)
+		child.queue_free()
+
+
+func _fog_visibility_signature(visibility: VisionSystem.Visibility) -> String:
+	var hash := 17
+	var visible_count := 0
 	for x in range(_state.tile_grid.width):
 		for y in range(_state.tile_grid.height):
 			var tile := Vector2i(x, y)
-			if visibility.is_tile_visible(tile):
+			if not visibility.is_tile_visible(tile):
 				continue
-			_fog_root.add_child(
-				_highlight_polygon(Rect2i(tile, Vector2i.ONE), _FOG_OUT_OF_VISION_COLOR)
-			)
+			visible_count += 1
+			hash = int(hash * 31 + x * 73856093 + y * 19349663)
+	return (
+		"%d:%d:%d:%d:%d"
+		% [
+			_perspective_player_id,
+			_state.tile_grid.width,
+			_state.tile_grid.height,
+			visible_count,
+			hash,
+		]
+	)
 
 
 func _remember_visible_tiles(player_id: int, visibility: VisionSystem.Visibility) -> void:

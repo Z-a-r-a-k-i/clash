@@ -51,7 +51,11 @@ func get_entity_id() -> int:
 # falls back to entity.origin + def.footprint when no state is available
 # at construction time.
 func update_from_state(
-	entity: Entity, _def: EntityDef, sprite_texture: Texture2D, placement_rect: Rect2i
+	entity: Entity,
+	_def: EntityDef,
+	sprite_texture: Texture2D,
+	placement_rect: Rect2i,
+	tile_pixel_size: int = -1
 ) -> void:
 	if _sprite == null:
 		# In editor mode, _ready may not have fired yet; resolve children directly.
@@ -60,7 +64,7 @@ func update_from_state(
 
 	var fp_x: int = max(placement_rect.size.x, 1)
 	var fp_y: int = max(placement_rect.size.y, 1)
-	var tile_size := _tile_pixel_size()
+	var tile_size := tile_pixel_size if tile_pixel_size > 0 else _tile_pixel_size()
 	_owner_player_id = entity.owner_player_id
 	_is_constructing = entity.is_constructing
 	_fog_silhouette = false

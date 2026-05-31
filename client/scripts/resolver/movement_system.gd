@@ -55,7 +55,8 @@ static func resolve_movement_substep(
 	fired_entity_ids: Dictionary,
 	halted_entity_ids: Dictionary,
 	sorted_entities: Array[Entity],
-	path_cache: Variant = null
+	path_cache: Variant = null,
+	profile: Variant = null
 ) -> bool:
 	if state == null or state.tile_grid == null or registry == null:
 		return false
@@ -72,11 +73,19 @@ static func resolve_movement_substep(
 	)
 	if intents.is_empty():
 		return false
+	_count_profile(profile, "movement.intents", intents.size())
 	var passable_entity_ids: Dictionary = {}
 	for intent in intents:
 		var intent_entity_id: int = intent.get("entity_id", -1)
 		if intent_entity_id >= 0:
 			passable_entity_ids[intent_entity_id] = true
+		var kind: String = intent.get("kind", "")
+		if kind != "":
+			_count_profile(profile, "movement.intent.%s" % kind)
+		if bool(intent.get("exact_origin", true)):
+			_count_profile(profile, "movement.intent.exact")
+		else:
+			_count_profile(profile, "movement.intent.inexact")
 
 	var proposals: Array[Dictionary] = []
 	var occupancy_blockers_by_layer: Dictionary = {}
@@ -99,6 +108,7 @@ static func resolve_movement_substep(
 			_PATHFINDING.OPTION_EXACT_ORIGIN: intent.get("exact_origin", true),
 			_PATHFINDING.OPTION_GOAL_RANGE: intent.get("goal_range", 0),
 			_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS: occupancy_blockers_by_layer[actor_layer],
+			_PATHFINDING.OPTION_PROFILE: profile,
 		}
 		if intent.has("goal_rect"):
 			options[_PATHFINDING.OPTION_GOAL_RECT] = intent["goal_rect"]
@@ -113,8 +123,11 @@ static func resolve_movement_substep(
 			active_path_cache
 		)
 		if step.is_empty():
+			_count_profile(profile, "movement.path_cache_miss")
 			step = _PATHFINDING.find_next_step(state, actor, target_origin, registry, options)
 			_store_path_cache(actor, target_origin, intent, step, active_path_cache)
+		else:
+			_count_profile(profile, "movement.path_cache_hit")
 		if step.is_empty():
 			continue
 		var next_origin: Vector2i = step.get("next_origin", actor.origin)
@@ -137,10 +150,12 @@ static func resolve_movement_substep(
 		)
 	if proposals.is_empty():
 		return false
+	_count_profile(profile, "movement.proposals", proposals.size())
 
 	var winners: Array[Dictionary] = _winning_proposals(state, proposals, registry, events)
 	if winners.is_empty():
 		return false
+	_count_profile(profile, "movement.winners", winners.size())
 	var moves: Dictionary = {}
 	for proposal in winners:
 		moves[proposal.get("entity_id", -1)] = proposal.get("to_origin", Vector2i.ZERO)
@@ -835,6 +850,11 @@ static func _action_at(per_entity: Dictionary, entity_id: int, tick: int) -> Ent
 
 static func _can_spend_movement(actor: Entity, movement_budget: int) -> bool:
 	return movement_budget > 0 and actor.moves_used_this_turn < movement_budget
+
+
+static func _count_profile(profile: Variant, label: String, amount: int = 1) -> void:
+	if profile != null and profile.has_method("count"):
+		profile.count(label, amount)
 
 
 static func _is_spatial_blocker(entity: Entity, registry: EntityRegistry) -> bool:

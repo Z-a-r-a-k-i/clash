@@ -10,6 +10,7 @@ const OPTION_GOAL_RECT := "goal_rect"
 const OPTION_GOAL_RANGE := "goal_range"
 const OPTION_EXACT_ORIGIN := "exact_origin"
 const OPTION_OCCUPANCY_BLOCKERS := "occupancy_blockers"
+const OPTION_PROFILE := "_profile"
 
 const _NEIGHBORS: Array[Vector2i] = [
 	Vector2i(1, 0),
@@ -45,6 +46,7 @@ static func find_path(
 	var goal_rect: Rect2i = options.get(OPTION_GOAL_RECT, Rect2i(target_origin, footprint))
 	var goal_range: int = options.get(OPTION_GOAL_RANGE, 0)
 	var exact_origin: bool = options.get(OPTION_EXACT_ORIGIN, true)
+	var profile: Variant = options.get(OPTION_PROFILE, null)
 	var actor_layer: String = layer_for_entity(actor, registry)
 	var occupancy_blockers: Dictionary = options.get(OPTION_OCCUPANCY_BLOCKERS, {})
 	if occupancy_blockers.is_empty():
@@ -57,6 +59,12 @@ static func find_path(
 	var start: Vector2i = actor.origin
 	if _is_goal(start, footprint, target_origin, goal_rect, goal_range, exact_origin):
 		return out
+	var exact_target_blocked := (
+		exact_origin
+		and not _can_occupy_origin_with_blockers(
+			state.tile_grid, target_origin, footprint, movement, occupancy_blockers
+		)
+	)
 
 	var grid_width: int = max(1, state.tile_grid.width)
 	var open: Array[Dictionary] = []
@@ -85,6 +93,7 @@ static func find_path(
 		start, footprint, target_origin, goal_rect, goal_range, exact_origin
 	)
 	var best_cost: int = 0
+	var expanded_nodes := 0
 
 	while not open.is_empty():
 		var current_node: Dictionary = _heap_pop_open(open)
@@ -93,6 +102,7 @@ static func find_path(
 		if closed.has(current_key):
 			continue
 		closed[current_key] = true
+		expanded_nodes += 1
 
 		var current_cost: int = g_score.get(current_key, 0)
 		var current_distance: int = _goal_distance(
@@ -116,6 +126,8 @@ static func find_path(
 			best_manhattan = current_manhattan
 			best_cost = current_cost
 		if _is_goal(current, footprint, target_origin, goal_rect, goal_range, exact_origin):
+			_count_profile(profile, "pathfinding.expanded_nodes", expanded_nodes)
+			_count_profile(profile, "pathfinding.full_path_success")
 			return _reconstruct_path(came_from, reached, current_key)
 
 		for delta in _NEIGHBORS:
@@ -140,9 +152,25 @@ static func find_path(
 				next, footprint, target_origin, goal_rect, goal_range, exact_origin
 			)
 			_heap_push_open(open, _node(next, tentative_cost, h, m))
+		if (
+			exact_target_blocked
+			and best_distance <= 1
+			and (open.is_empty() or int(open[0].get("f", 0)) > best_cost + best_distance)
+		):
+			_count_profile(profile, "pathfinding.exact_blocked_early_exit")
+			_count_profile(profile, "pathfinding.expanded_nodes", expanded_nodes)
+			if best_origin == start:
+				_count_profile(profile, "pathfinding.full_path_no_progress")
+				return out
+			_count_profile(profile, "pathfinding.full_path_best_reachable")
+			return _reconstruct_path(came_from, reached, _key(best_origin, grid_width))
 
 	if best_origin == start:
+		_count_profile(profile, "pathfinding.expanded_nodes", expanded_nodes)
+		_count_profile(profile, "pathfinding.full_path_no_progress")
 		return out
+	_count_profile(profile, "pathfinding.expanded_nodes", expanded_nodes)
+	_count_profile(profile, "pathfinding.full_path_best_reachable")
 	return _reconstruct_path(came_from, reached, _key(best_origin, grid_width))
 
 
@@ -167,6 +195,7 @@ static func find_next_step(
 	var goal_rect: Rect2i = options.get(OPTION_GOAL_RECT, Rect2i(target_origin, footprint))
 	var goal_range: int = options.get(OPTION_GOAL_RANGE, 0)
 	var exact_origin: bool = options.get(OPTION_EXACT_ORIGIN, true)
+	var profile: Variant = options.get(OPTION_PROFILE, null)
 	var occupancy_blockers: Dictionary = options.get(OPTION_OCCUPANCY_BLOCKERS, {})
 	if occupancy_blockers.is_empty():
 		var passable_entity_ids: Dictionary = _id_set(options.get(OPTION_PASSABLE_ENTITY_IDS, {}))
@@ -182,6 +211,18 @@ static func find_next_step(
 	var start: Vector2i = actor.origin
 	if _is_goal(start, footprint, target_origin, goal_rect, goal_range, exact_origin):
 		return {}
+	if (
+		exact_origin
+		and (
+			_chebyshev_to_goal(start, footprint, target_origin, goal_rect, goal_range, exact_origin)
+			<= 1
+		)
+		and not _can_occupy_origin_with_blockers(
+			state.tile_grid, target_origin, footprint, movement, occupancy_blockers
+		)
+	):
+		_count_profile(profile, "pathfinding.exact_blocked_adjacent_no_progress")
+		return {}
 
 	var direct_path: Array[Vector2i] = _monotonic_path(
 		state.tile_grid,
@@ -195,6 +236,7 @@ static func find_next_step(
 		exact_origin
 	)
 	if not direct_path.is_empty():
+		_count_profile(profile, "pathfinding.monotonic_success")
 		return {
 			"next_origin": direct_path[0],
 			"path_distance": direct_path.size(),
@@ -203,9 +245,13 @@ static func find_next_step(
 
 	var path_options: Dictionary = options.duplicate()
 	path_options[OPTION_OCCUPANCY_BLOCKERS] = occupancy_blockers
+	var path_start := Time.get_ticks_usec()
 	var path: Array[Vector2i] = find_path(state, actor, target_origin, registry, path_options)
+	_add_profile(profile, "pathfinding.full_path", path_start)
 	if path.is_empty():
+		_count_profile(profile, "pathfinding.empty")
 		return {}
+	_count_profile(profile, "pathfinding.full_path_used")
 	return {
 		"next_origin": path[0],
 		"path_distance": path.size(),
@@ -721,6 +767,16 @@ static func _id_set(value: Variant) -> Dictionary:
 		for item in arr:
 			out[int(item)] = true
 	return out
+
+
+static func _add_profile(profile: Variant, label: String, start_usec: int) -> void:
+	if profile != null and profile.has_method("add"):
+		profile.add(label, start_usec)
+
+
+static func _count_profile(profile: Variant, label: String, amount: int = 1) -> void:
+	if profile != null and profile.has_method("count"):
+		profile.count(label, amount)
 
 
 static func _key(origin: Vector2i, grid_width: int) -> int:
