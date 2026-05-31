@@ -30,7 +30,9 @@ func _run_idle_out_of_range(runner: Node) -> bool:
 	var registry: EntityRegistry = fixture["registry"]
 	var unit_def: EntityDef = registry.get_by_id("stress_unit")
 	unit_def.combat.attack_range = 3
-	return _run_case("idle_out_of_range", fixture["state"], SubmitTurn.new(), SubmitTurn.new(), registry)
+	return _run_case(
+		"idle_out_of_range", fixture["state"], SubmitTurn.new(), SubmitTurn.new(), registry
+	)
 
 
 func _run_idle_in_auto_attack_range(runner: Node) -> bool:
@@ -48,7 +50,9 @@ func _run_attack_orders_only(runner: Node) -> bool:
 	var fixture: Dictionary = runner._build_stress_fixture()
 	var submit_a: SubmitTurn = _filter_attack_orders(fixture["submit_a"])
 	var submit_b: SubmitTurn = _filter_attack_orders(fixture["submit_b"])
-	return _run_case("attack_orders_only", fixture["state"], submit_a, submit_b, fixture["registry"])
+	return _run_case(
+		"attack_orders_only", fixture["state"], submit_a, submit_b, fixture["registry"]
+	)
 
 
 func _run_case(
