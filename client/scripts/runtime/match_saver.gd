@@ -18,7 +18,12 @@ extends RefCounted
 
 # Save (state, registry) to `path`. Returns Godot's Error code (OK on
 # success).
-static func save(state: MatchState, registry: EntityRegistry, path: String) -> Error:
+static func save(
+	state: MatchState,
+	registry: EntityRegistry,
+	path: String,
+	input_snapshot: DevInputSnapshot = null
+) -> Error:
 	if state == null:
 		push_warning("MatchSaver.save: state is null; nothing written.")
 		return ERR_INVALID_PARAMETER
@@ -28,9 +33,10 @@ static func save(state: MatchState, registry: EntityRegistry, path: String) -> E
 	if path == "":
 		push_warning("MatchSaver.save: empty path; nothing written.")
 		return ERR_INVALID_PARAMETER
-	var session := SavedSession.new()
+	var session: SavedSession = SavedSession.new()
 	session.state = state
 	session.registry = registry
+	session.input_snapshot = input_snapshot
 	return ResourceSaver.save(session, path)
 
 
@@ -46,7 +52,7 @@ static func load_from(path: String) -> SavedSession:
 	var resource: Resource = ResourceLoader.load(
 		path, "SavedSession", ResourceLoader.CACHE_MODE_IGNORE
 	)
-	var session := resource as SavedSession
+	var session: SavedSession = resource as SavedSession
 	if session == null:
 		return null
 	if session.state == null:

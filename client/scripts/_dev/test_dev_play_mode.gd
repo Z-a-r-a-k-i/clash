@@ -114,6 +114,7 @@ func _all_tests() -> Array:
 			_test_switching_player_keeps_camera_bounded
 		],
 		["dev_play_mode_hud_omits_resolution_button", _test_hud_omits_resolution_button],
+		["dev_play_mode_hud_separates_replay_controls", _test_hud_separates_replay_controls],
 	]
 
 
@@ -1843,12 +1844,161 @@ func _test_hud_omits_resolution_button() -> bool:
 	return ok
 
 
+func _test_hud_separates_replay_controls() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var play_root: Node = mode.get_node_or_null("DevHUD/Panel/Root")
+	var play_panel: PanelContainer = mode.get_node_or_null("DevHUD/Panel") as PanelContainer
+	var replay_panel: PanelContainer = mode.get_node_or_null("DevHUD/ReplayPanel") as PanelContainer
+	var escape_menu: PanelContainer = mode.get_node_or_null("DevHUD/EscapeMenu") as PanelContainer
+	var load_kind: OptionButton = (
+		mode.get_node_or_null("DevHUD/EscapeMenu/Root/LoadRow/LoadKind") as OptionButton
+	)
+	var snapshot_dialog: FileDialog = (
+		mode.get_node_or_null("DevHUD/SnapshotLoadDialog") as FileDialog
+	)
+	var replay_dialog: FileDialog = mode.get_node_or_null("DevHUD/ReplayLoadDialog") as FileDialog
+	var ok: bool = true
+	if play_root == null:
+		push_error("play HUD root should exist")
+		ok = false
+	else:
+		if play_root.get_node_or_null("SnapshotButtons") != null:
+			push_error("snapshot/replay save controls should not live in the play HUD")
+			ok = false
+		if play_root.get_node_or_null("ReplayButtons") != null:
+			push_error("replay transport controls should not live in the play HUD")
+			ok = false
+		var replay_button: Button = _find_exact_button(play_root, "Replay")
+		if replay_button != null:
+			push_error("play HUD should not expose replay controls")
+			ok = false
+	if play_panel == null:
+		push_error("play HUD panel should exist")
+		ok = false
+	elif not play_panel.visible:
+		push_error("play HUD should be visible during live play")
+		ok = false
+	if replay_panel == null:
+		push_error("replay HUD panel should exist separately from the play HUD")
+		ok = false
+	else:
+		if replay_panel.offset_left < 384.0 or replay_panel.offset_top > 12.0:
+			push_error("replay panel should sit to the right of the top-left zoom debug readout")
+			ok = false
+		if replay_panel.get_node_or_null("Root/SnapshotButtons") != null:
+			push_error("snapshot controls should not live in the replay panel")
+			ok = false
+		if replay_panel.get_node_or_null("Root/ReplayFileButtons") != null:
+			push_error("replay save/load file controls should not live in the replay panel")
+			ok = false
+		if replay_panel.get_node_or_null("Root/ReplayButtons") == null:
+			push_error("replay transport controls should live in the replay panel")
+			ok = false
+		if replay_panel.get_node_or_null("Root/ReplayTimelineRow/ReplayTimeline") == null:
+			push_error("replay panel should expose a timeline scrubber")
+			ok = false
+		if _find_exact_button(replay_panel, "Play From Here") == null:
+			push_error("replay panel should expose a play-from-here branch button")
+			ok = false
+		if replay_panel.visible:
+			push_error("replay panel should be hidden during live play")
+			ok = false
+	if escape_menu == null:
+		push_error("escape menu should exist")
+		ok = false
+	else:
+		if escape_menu.visible:
+			push_error("escape menu should start hidden")
+			ok = false
+		mode.call("_unhandled_input", _escape_key())
+		if not escape_menu.visible:
+			push_error("Escape should open the menu")
+			ok = false
+		if _find_exact_button(escape_menu, "New Game") == null:
+			push_error("escape menu should expose New Game")
+			ok = false
+		if _find_exact_button(escape_menu, "Save Snapshot") == null:
+			push_error("escape menu should expose snapshot saving")
+			ok = false
+		if _find_exact_button(escape_menu, "Load...") == null:
+			push_error("escape menu should expose shared load")
+			ok = false
+		if load_kind == null:
+			push_error("escape menu should expose snapshot/replay load filter")
+			ok = false
+		elif load_kind.item_count != 2:
+			push_error("load filter should include snapshot and replay")
+			ok = false
+		mode.call("_unhandled_input", _escape_key())
+		if escape_menu.visible:
+			push_error("Escape should close the menu")
+			ok = false
+	if snapshot_dialog == null:
+		push_error("snapshot load dialog should exist")
+		ok = false
+	else:
+		if snapshot_dialog.access != FileDialog.ACCESS_USERDATA:
+			push_error("snapshot load dialog should browse user:// data")
+			ok = false
+		if snapshot_dialog.current_dir != "user://tmp/snapshots":
+			push_error("snapshot load dialog should start in the snapshot folder")
+			ok = false
+	if replay_dialog == null:
+		push_error("replay load dialog should exist")
+		ok = false
+	else:
+		if replay_dialog.access != FileDialog.ACCESS_USERDATA:
+			push_error("replay load dialog should browse user:// data")
+			ok = false
+		if replay_dialog.current_dir != "user://tmp/replays":
+			push_error("replay load dialog should start in the replay folder")
+			ok = false
+	if ok and not mode.resolve_turn():
+		push_error("resolve should succeed before checking replay-only interface")
+		ok = false
+	if ok and not mode.replay_jump_to_turn(1):
+		push_error("replay jump should enter replay mode")
+		ok = false
+	if ok:
+		if play_panel.visible:
+			push_error("play HUD should be hidden during replay")
+			ok = false
+		if not replay_panel.visible:
+			push_error("replay panel should be visible during replay")
+			ok = false
+		mode.call("_set_escape_menu_visible", true)
+		var save_snapshot_button: Button = _find_exact_button(escape_menu, "Save Snapshot")
+		if save_snapshot_button == null or save_snapshot_button.visible:
+			push_error("snapshot saving should be hidden while viewing a replay")
+			ok = false
+		mode.call("_set_escape_menu_visible", false)
+		var play_from_here: Button = _find_exact_button(replay_panel, "Play From Here")
+		if play_from_here == null:
+			push_error("replay panel should keep Play From Here available in replay mode")
+			ok = false
+		else:
+			play_from_here.pressed.emit()
+			if not play_panel.visible or replay_panel.visible:
+				push_error("Play From Here should return to the playable interface")
+				ok = false
+	_free_mode(mode)
+	return ok
+
+
 func _make_mode() -> Node:
 	var script: Script = load(DEV_PLAY_MODE_PATH) as Script
 	if script == null:
 		push_error("could not load %s" % DEV_PLAY_MODE_PATH)
 		return null
-	return script.new()
+	var mode: Node = script.new()
+	mode.set_auto_save_replays_enabled(false)
+	return mode
 
 
 func _make_command_card() -> Control:
@@ -2138,6 +2288,13 @@ func _mouse_motion(relative: Vector2, button_mask: MouseButtonMask) -> InputEven
 	var event := InputEventMouseMotion.new()
 	event.relative = relative
 	event.button_mask = button_mask
+	return event
+
+
+func _escape_key() -> InputEventKey:
+	var event := InputEventKey.new()
+	event.keycode = KEY_ESCAPE
+	event.pressed = true
 	return event
 
 

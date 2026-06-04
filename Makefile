@@ -59,6 +59,7 @@ ifeq ($(OS),Windows_NT)
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_renderer_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_dev_turn_input_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_dev_play_mode_headless.gd
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_replay_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_balance_csv_export_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_m0_playtest_smoke_headless.gd
 else
@@ -70,6 +71,7 @@ else
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_renderer_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_dev_turn_input_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_dev_play_mode_headless.gd
+	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_replay_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_balance_csv_export_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_m0_playtest_smoke_headless.gd
 endif

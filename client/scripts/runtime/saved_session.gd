@@ -12,3 +12,12 @@ extends Resource
 
 @export var state: MatchState
 @export var registry: EntityRegistry
+@export var input_snapshot: DevInputSnapshot
+
+
+func clone() -> SavedSession:
+	var c: SavedSession = SavedSession.new()
+	c.state = state.clone() if state != null else null
+	c.registry = registry
+	c.input_snapshot = input_snapshot.clone() if input_snapshot != null else null
+	return c

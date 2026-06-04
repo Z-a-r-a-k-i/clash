@@ -380,6 +380,52 @@ func clear_submissions(clear_move_assists: bool = true, clear_future_orders: boo
 	_status_message = "Queues cleared."
 
 
+func create_snapshot() -> DevInputSnapshot:
+	var snapshot: DevInputSnapshot = DevInputSnapshot.new()
+	snapshot.active_player_id = _active_player_id
+	snapshot.selected_entity_id = _selected_entity_id
+	snapshot.submit_a = _submission_for(0).clone()
+	snapshot.submit_b = _submission_for(1).clone()
+	snapshot.move_assists = _clone_order_dictionary(_move_assists)
+	snapshot.future_orders = _clone_future_order_dictionary(_future_orders)
+	snapshot.queue_modifier_active = _queue_modifier_active
+	snapshot.status_message = _status_message
+	return snapshot
+
+
+func restore_snapshot(
+	snapshot: DevInputSnapshot, state: MatchState, registry: EntityRegistry
+) -> void:
+	_state = state
+	_registry = registry
+	_submissions.clear()
+	if snapshot == null:
+		_active_player_id = 0
+		_selected_entity_id = -1
+		_move_assists.clear()
+		_future_orders.clear()
+		_queue_modifier_active = false
+		_status_message = ""
+		clear_submissions()
+		bind_context(state, registry)
+		return
+	_active_player_id = snapshot.active_player_id
+	_selected_entity_id = snapshot.selected_entity_id
+	_submissions[0] = (snapshot.submit_a.clone() if snapshot.submit_a != null else SubmitTurn.new())
+	_submissions[1] = (snapshot.submit_b.clone() if snapshot.submit_b != null else SubmitTurn.new())
+	_move_assists = _clone_order_dictionary(snapshot.move_assists)
+	_future_orders = _clone_future_order_dictionary(snapshot.future_orders)
+	_queue_modifier_active = snapshot.queue_modifier_active
+	_status_message = snapshot.status_message
+	_ensure_submit_turn(0)
+	_ensure_submit_turn(1)
+	_prune_submissions()
+	_prune_move_assists()
+	_prune_future_orders()
+	if _selected_entity_id >= 0 and not _is_selectable(_selected_entity_id):
+		_selected_entity_id = -1
+
+
 func queue_move_assists_for_next_turn() -> void:
 	_prune_move_assists()
 	var ids: Array[int] = []
@@ -887,6 +933,40 @@ func _append_future_order(order: EntityOrder) -> void:
 	_future_orders[order.entity_id] = queue
 
 
+func _clone_order_dictionary(source: Variant) -> Dictionary[int, EntityOrder]:
+	var out: Dictionary[int, EntityOrder] = {}
+	if not source is Dictionary:
+		return out
+	var source_dict: Dictionary = source
+	for key in source_dict.keys():
+		var raw_order: Variant = source_dict[key]
+		if not raw_order is EntityOrder:
+			continue
+		var order: EntityOrder = raw_order
+		out[int(key)] = order.clone()
+	return out
+
+
+func _clone_future_order_dictionary(source: Variant) -> Dictionary[int, Array]:
+	var out: Dictionary[int, Array] = {}
+	if not source is Dictionary:
+		return out
+	var source_dict: Dictionary = source
+	for key in source_dict.keys():
+		var raw_queue: Variant = source_dict[key]
+		if not raw_queue is Array:
+			continue
+		var cloned_queue: Array[EntityOrder] = []
+		for item in raw_queue:
+			if not item is EntityOrder:
+				continue
+			var order: EntityOrder = item
+			cloned_queue.append(order.clone())
+		if not cloned_queue.is_empty():
+			out[int(key)] = cloned_queue
+	return out
+
+
 func _queue_rally_order_for_spawn(producer: Entity, spawned: Entity) -> void:
 	if producer == null or spawned == null or producer.production_state == null:
 		return
@@ -1061,13 +1141,56 @@ func _prune_future_orders() -> void:
 			continue
 		var queue: Array = _future_orders.get(entity_id, [])
 		for i in range(queue.size() - 1, -1, -1):
-			var order: EntityOrder = queue[i]
-			if order == null or order.entity_id != entity_id:
+			var raw_order: Variant = queue[i]
+			if not raw_order is EntityOrder:
+				queue.remove_at(i)
+				continue
+			var order: EntityOrder = raw_order
+			_prune_missing_order_targets(order)
+			if (
+				order.entity_id != entity_id
+				or not _is_restorable_order(order, entity.owner_player_id)
+			):
 				queue.remove_at(i)
 		if queue.is_empty():
 			_future_orders.erase(entity_id)
 		else:
 			_future_orders[entity_id] = queue
+
+
+func _prune_submissions() -> void:
+	for player_id in _submissions.keys():
+		var submit: SubmitTurn = _submissions[player_id]
+		if submit == null:
+			_submissions[player_id] = SubmitTurn.new()
+			continue
+		for i in range(submit.orders.size() - 1, -1, -1):
+			var order: EntityOrder = submit.orders[i]
+			_prune_missing_order_targets(order)
+			if not _is_restorable_order(order, player_id):
+				submit.orders.remove_at(i)
+
+
+func _is_restorable_order(order: EntityOrder, player_id: int) -> bool:
+	if order == null or order.type == EntityOrder.Type.INVALID:
+		return false
+	if _state == null:
+		return false
+	var actor: Entity = _state.get_entity_by_id(order.entity_id)
+	if actor == null or actor.current_hp <= 0 or actor.owner_player_id != player_id:
+		return false
+	if order.target_entity_id >= 0 and _state.get_entity_by_id(order.target_entity_id) == null:
+		return false
+	return true
+
+
+func _prune_missing_order_targets(order: EntityOrder) -> void:
+	if order == null or _state == null:
+		return
+	for i in range(order.target_priority_chain.size() - 1, -1, -1):
+		var target_id: int = order.target_priority_chain[i]
+		if _state.get_entity_by_id(target_id) == null:
+			order.target_priority_chain.remove_at(i)
 
 
 func _can_promote_future_order_for_entity(entity: Entity) -> bool:
