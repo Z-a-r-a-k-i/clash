@@ -565,7 +565,9 @@ func load_latest_snapshot() -> bool:
 
 
 func save_snapshot_to_folder() -> bool:
-	return save_snapshot_to_path(_new_timestamped_file_path(_DEV_SNAPSHOT_DIR, _DEV_SNAPSHOT_PREFIX))
+	return save_snapshot_to_path(
+		_new_timestamped_file_path(_DEV_SNAPSHOT_DIR, _DEV_SNAPSHOT_PREFIX)
+	)
 
 
 func save_snapshot_to_path(path: String) -> bool:
@@ -872,8 +874,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	var cancel_pressed: bool = event.is_action_pressed("ui_cancel")
 	if event is InputEventKey:
 		var key_event: InputEventKey = event as InputEventKey
-		cancel_pressed = cancel_pressed or (
-			key_event.pressed and not key_event.echo and key_event.keycode == KEY_ESCAPE
+		cancel_pressed = (
+			cancel_pressed
+			or (key_event.pressed and not key_event.echo and key_event.keycode == KEY_ESCAPE)
 		)
 	if cancel_pressed:
 		_toggle_escape_menu()
@@ -1072,9 +1075,7 @@ func _save_auto_replay() -> bool:
 		return false
 	var err: Error = ResourceSaver.save(_replay, _auto_replay_path)
 	if err != OK:
-		push_error(
-			"DevPlayMode: auto replay save failed for %s: %d" % [_auto_replay_path, err]
-		)
+		push_error("DevPlayMode: auto replay save failed for %s: %d" % [_auto_replay_path, err])
 		return false
 	return true
 

@@ -295,7 +295,9 @@ func _test_replay_save_load() -> bool:
 	if not ok:
 		push_error("loaded replay latest checkpoint should match saved live state")
 	var play_panel: PanelContainer = loaded_mode.get_node_or_null("DevHUD/Panel") as PanelContainer
-	var replay_panel: PanelContainer = loaded_mode.get_node_or_null("DevHUD/ReplayPanel") as PanelContainer
+	var replay_panel: PanelContainer = (
+		loaded_mode.get_node_or_null("DevHUD/ReplayPanel") as PanelContainer
+	)
 	if (
 		not loaded_mode.replay_mode_active()
 		or play_panel == null
@@ -318,9 +320,9 @@ func _test_replay_timeline_scrubs() -> bool:
 		return _fail_mode(mode, "recorded resolves failed")
 	if not mode.replay_latest():
 		return _fail_mode(mode, "replay latest failed")
-	var timeline: HSlider = mode.get_node_or_null(
-		"DevHUD/ReplayPanel/Root/ReplayTimelineRow/ReplayTimeline"
-	) as HSlider
+	var timeline: HSlider = (
+		mode.get_node_or_null("DevHUD/ReplayPanel/Root/ReplayTimelineRow/ReplayTimeline") as HSlider
+	)
 	if timeline == null:
 		return _fail_mode(mode, "replay timeline slider should exist")
 	timeline.value = 1.0
@@ -354,9 +356,10 @@ func _test_auto_replay_save() -> bool:
 	if not FileAccess.file_exists(auto_path):
 		_remove_user_file(auto_path)
 		return _fail_mode(mode, "auto replay should save after first resolved turn")
-	var replay: MatchReplay = ResourceLoader.load(
-		auto_path, "MatchReplay", ResourceLoader.CACHE_MODE_IGNORE
-	) as MatchReplay
+	var replay: MatchReplay = (
+		ResourceLoader.load(auto_path, "MatchReplay", ResourceLoader.CACHE_MODE_IGNORE)
+		as MatchReplay
+	)
 	if replay == null:
 		_remove_user_file(auto_path)
 		return _fail_mode(mode, "auto replay should reload as MatchReplay")

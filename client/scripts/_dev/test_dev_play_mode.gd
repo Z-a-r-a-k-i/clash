@@ -1856,12 +1856,12 @@ func _test_hud_separates_replay_controls() -> bool:
 	var play_panel: PanelContainer = mode.get_node_or_null("DevHUD/Panel") as PanelContainer
 	var replay_panel: PanelContainer = mode.get_node_or_null("DevHUD/ReplayPanel") as PanelContainer
 	var escape_menu: PanelContainer = mode.get_node_or_null("DevHUD/EscapeMenu") as PanelContainer
-	var load_kind: OptionButton = mode.get_node_or_null(
-		"DevHUD/EscapeMenu/Root/LoadRow/LoadKind"
-	) as OptionButton
-	var snapshot_dialog: FileDialog = mode.get_node_or_null(
-		"DevHUD/SnapshotLoadDialog"
-	) as FileDialog
+	var load_kind: OptionButton = (
+		mode.get_node_or_null("DevHUD/EscapeMenu/Root/LoadRow/LoadKind") as OptionButton
+	)
+	var snapshot_dialog: FileDialog = (
+		mode.get_node_or_null("DevHUD/SnapshotLoadDialog") as FileDialog
+	)
 	var replay_dialog: FileDialog = mode.get_node_or_null("DevHUD/ReplayLoadDialog") as FileDialog
 	var ok: bool = true
 	if play_root == null:
