@@ -45,6 +45,8 @@ func _all_tests() -> Array:
 		["bad_replay_load_preserves_current_timeline", _test_bad_replay_load_preserves_current],
 		["replay_restore_then_resolve_truncates_history", _test_restore_truncates_history],
 		["replay_save_load_rebuilds_checkpoints", _test_replay_save_load],
+		["replay_timeline_scrubs_recorded_checkpoints", _test_replay_timeline_scrubs],
+		["dev_play_mode_auto_saves_replay_to_tmp", _test_auto_replay_save],
 	]
 
 
@@ -159,6 +161,12 @@ func _test_load_snapshot_can_resolve() -> bool:
 		return _fail_mode(mode, "snapshot reload failed")
 	if mode.pending_order_count(0) != 1:
 		return _fail_mode(mode, "snapshot load should restore pending order")
+	if mode.replay_mode_active():
+		return _fail_mode(mode, "snapshot load should return to playable mode")
+	var play_panel: PanelContainer = mode.get_node_or_null("DevHUD/Panel") as PanelContainer
+	var replay_panel: PanelContainer = mode.get_node_or_null("DevHUD/ReplayPanel") as PanelContainer
+	if play_panel == null or not play_panel.visible or replay_panel == null or replay_panel.visible:
+		return _fail_mode(mode, "snapshot load should show the play interface")
 	if not mode.resolve_turn():
 		return _fail_mode(mode, "resolve after snapshot load failed")
 	var ok: bool = mode.current_state().turn_index == 1
@@ -286,8 +294,89 @@ func _test_replay_save_load() -> bool:
 	var ok: bool = _states_equal(expected, loaded_mode.current_state())
 	if not ok:
 		push_error("loaded replay latest checkpoint should match saved live state")
+	var play_panel: PanelContainer = loaded_mode.get_node_or_null("DevHUD/Panel") as PanelContainer
+	var replay_panel: PanelContainer = loaded_mode.get_node_or_null("DevHUD/ReplayPanel") as PanelContainer
+	if (
+		not loaded_mode.replay_mode_active()
+		or play_panel == null
+		or play_panel.visible
+		or replay_panel == null
+		or not replay_panel.visible
+	):
+		push_error("loaded replay should show replay controls without the play interface")
+		ok = false
 	_free_mode(mode)
 	_free_mode(loaded_mode)
+	return ok
+
+
+func _test_replay_timeline_scrubs() -> bool:
+	var mode: Node = _make_loaded_mode()
+	if mode == null:
+		return false
+	if not mode.resolve_turn() or not mode.resolve_turn():
+		return _fail_mode(mode, "recorded resolves failed")
+	if not mode.replay_latest():
+		return _fail_mode(mode, "replay latest failed")
+	var timeline: HSlider = mode.get_node_or_null(
+		"DevHUD/ReplayPanel/Root/ReplayTimelineRow/ReplayTimeline"
+	) as HSlider
+	if timeline == null:
+		return _fail_mode(mode, "replay timeline slider should exist")
+	timeline.value = 1.0
+	var ok: bool = mode.current_state().turn_index == 1
+	if not ok:
+		push_error("timeline slider should jump to the requested checkpoint")
+	_free_mode(mode)
+	return ok
+
+
+func _test_auto_replay_save() -> bool:
+	var mode: Node = _make_mode(true)
+	if mode == null:
+		return false
+	mode.scenario_path = COMBAT_SCENARIO_PATH
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var auto_path: String = mode.auto_replay_path()
+	if auto_path != "":
+		_remove_user_file(auto_path)
+		return _fail_mode(mode, "auto replay should wait until the first resolved turn")
+	_queue_attack(mode)
+	if not mode.resolve_turn():
+		return _fail_mode(mode, "auto replay resolve failed")
+	auto_path = mode.auto_replay_path()
+	if not auto_path.begins_with("user://tmp/replays/dev_replay_"):
+		_remove_user_file(auto_path)
+		return _fail_mode(mode, "auto replay path should live under user://tmp/replays")
+	if not FileAccess.file_exists(auto_path):
+		_remove_user_file(auto_path)
+		return _fail_mode(mode, "auto replay should save after first resolved turn")
+	var replay: MatchReplay = ResourceLoader.load(
+		auto_path, "MatchReplay", ResourceLoader.CACHE_MODE_IGNORE
+	) as MatchReplay
+	if replay == null:
+		_remove_user_file(auto_path)
+		return _fail_mode(mode, "auto replay should reload as MatchReplay")
+	var ok := true
+	if replay.frames.size() != 1:
+		push_error("auto replay should persist one frame after one resolve")
+		ok = false
+	if replay.initial_session == null or replay.initial_session.input_snapshot == null:
+		push_error("auto replay should persist initial session and input snapshot")
+		ok = false
+	var file: FileAccess = FileAccess.open(auto_path, FileAccess.READ)
+	var byte_count: int = 0
+	if file != null:
+		byte_count = file.get_length()
+		file.close()
+	if byte_count <= 0:
+		push_error("auto replay file should have non-zero size")
+		ok = false
+	_remove_user_file(auto_path)
+	_free_mode(mode)
 	return ok
 
 
@@ -312,12 +401,14 @@ func _make_loaded_mode_for(path: String) -> Node:
 	return mode
 
 
-func _make_mode() -> Node:
+func _make_mode(auto_save_replays_enabled: bool = false) -> Node:
 	var script: Script = load(DEV_PLAY_MODE_PATH) as Script
 	if script == null:
 		push_error("could not load %s" % DEV_PLAY_MODE_PATH)
 		return null
-	return script.new()
+	var mode: Node = script.new()
+	mode.set_auto_save_replays_enabled(auto_save_replays_enabled)
+	return mode
 
 
 func _fail_mode(mode: Node, message: String) -> bool:
@@ -332,6 +423,12 @@ func _free_mode(mode: Node) -> void:
 	if mode.is_inside_tree():
 		remove_child(mode)
 	mode.queue_free()
+
+
+func _remove_user_file(path: String) -> void:
+	if path == "":
+		return
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
 func _states_equal(a: MatchState, b: MatchState) -> bool:

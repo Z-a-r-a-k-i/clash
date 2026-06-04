@@ -10,6 +10,10 @@ const _RESOLVE_PROFILE_FLAG_PATH := "res://resolver_profile_enabled"
 const _DEV_RESOLVE_PROFILE_LOG_PATH := "user://dev_play_resolve_latest.log"
 const _DEV_SNAPSHOT_LATEST_PATH := "user://dev_snapshot_latest.tres"
 const _DEV_REPLAY_LATEST_PATH := "user://dev_replay_latest.tres"
+const _DEV_SNAPSHOT_DIR := "user://tmp/snapshots"
+const _DEV_SNAPSHOT_PREFIX := "dev_snapshot"
+const _DEV_REPLAY_AUTO_DIR := "user://tmp/replays"
+const _DEV_REPLAY_AUTO_PREFIX := "dev_replay"
 const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
 const PATHFINDING_SCRIPT := preload("res://scripts/resolver/pathfinding_system.gd")
 const PENDING_NONE := ""
@@ -28,21 +32,40 @@ const CONTEXT_INVALID := "invalid"
 const HUD_MARGIN := 12.0
 const HUD_WIDTH := 440.0
 const HUD_HEIGHT := 720.0
+const REPLAY_PANEL_LEFT := 384.0
+const REPLAY_PANEL_TOP := HUD_MARGIN
+const REPLAY_PANEL_HEIGHT := 220.0
+const ESCAPE_MENU_WIDTH := 360.0
+const ESCAPE_MENU_HEIGHT := 300.0
+const REPLAY_PLAY_STEP_SECONDS := 0.75
+const MENU_LOAD_SNAPSHOT := 0
+const MENU_LOAD_REPLAY := 1
 const CAMERA_ZOOM_STEP := 1.15
 const CAMERA_DRAG_THRESHOLD := 4.0
 
 @export_file("*.tres") var scenario_path: String = DEFAULT_SCENARIO_PATH
+@export var auto_save_replays: bool = true
 
 var _renderer: MatchRenderer = null
 var _loaded: LoadedScenario = null
 var _tunables: Tunables = null
 var _input: DevTurnInput = DEV_TURN_INPUT_SCRIPT.new() as DevTurnInput
 var _hud_layer: CanvasLayer = null
+var _play_panel: PanelContainer = null
+var _replay_panel: PanelContainer = null
+var _escape_menu_panel: PanelContainer = null
+var _menu_save_snapshot_button: Button = null
+var _menu_load_kind: OptionButton = null
 var _active_label: Label = null
 var _resources_label: Label = null
 var _queue_label: Label = null
 var _replay_label: Label = null
-var _replay_turn_spin: SpinBox = null
+var _replay_turn_label: Label = null
+var _replay_timeline: HSlider = null
+var _replay_play_button: Button = null
+var _replay_play_timer: Timer = null
+var _snapshot_file_dialog: FileDialog = null
+var _replay_file_dialog: FileDialog = null
 var _status_label: Label = null
 var _command_card: Control = null
 var _pending_command: String = PENDING_NONE
@@ -56,6 +79,9 @@ var _replay: MatchReplay = MatchReplay.new()
 var _checkpoints: Dictionary[int, SavedSession] = {}
 var _replay_mode_active: bool = false
 var _replay_cursor_turn: int = 0
+var _replay_playing: bool = false
+var _updating_replay_timeline: bool = false
+var _auto_replay_path: String = ""
 
 
 func _ready() -> void:
@@ -126,13 +152,27 @@ func replay_mode_active() -> bool:
 	return _replay_mode_active
 
 
+func replay_panel_visible() -> bool:
+	return _replay_panel != null and _replay_panel.visible
+
+
+func auto_replay_path() -> String:
+	return _auto_replay_path
+
+
+func set_auto_save_replays_enabled(enabled: bool) -> void:
+	auto_save_replays = enabled
+	if not enabled:
+		_auto_replay_path = ""
+
+
 func pending_command_kind() -> String:
 	return _pending_command
 
 
 func _reject_replay_edit() -> bool:
 	_clear_pending_command()
-	_update_hud("Replay is read-only. Use Restore Here to branch from this turn.")
+	_update_hud("Replay is read-only. Use Play From Here to branch from this turn.")
 	return false
 
 
@@ -524,9 +564,17 @@ func load_latest_snapshot() -> bool:
 	return load_snapshot_from_path(_DEV_SNAPSHOT_LATEST_PATH)
 
 
+func save_snapshot_to_folder() -> bool:
+	return save_snapshot_to_path(_new_timestamped_file_path(_DEV_SNAPSHOT_DIR, _DEV_SNAPSHOT_PREFIX))
+
+
 func save_snapshot_to_path(path: String) -> bool:
 	if _loaded == null or _loaded.state == null or _loaded.registry == null:
 		_update_hud("No match loaded to snapshot.")
+		return false
+	var dir_err: Error = _ensure_parent_dir(path)
+	if dir_err != OK:
+		_update_hud("Snapshot save path failed: %d." % dir_err)
 		return false
 	var err: Error = MatchSaver.save(
 		_loaded.state, _loaded.registry, path, _input.create_snapshot()
@@ -539,6 +587,7 @@ func save_snapshot_to_path(path: String) -> bool:
 
 
 func load_snapshot_from_path(path: String) -> bool:
+	_stop_replay_playback()
 	var session: SavedSession = MatchSaver.load_from(path)
 	if session == null:
 		_update_hud("Snapshot load failed: %s." % path)
@@ -546,6 +595,7 @@ func load_snapshot_from_path(path: String) -> bool:
 	if not _bind_session(session, false, "Loaded snapshot turn %d." % session.state.turn_index):
 		return false
 	_start_replay_journal()
+	_set_escape_menu_visible(false)
 	_update_hud("Loaded snapshot turn %d." % session.state.turn_index)
 	return true
 
@@ -558,9 +608,19 @@ func load_latest_replay() -> bool:
 	return load_replay_from_path(_DEV_REPLAY_LATEST_PATH)
 
 
+func save_replay_to_folder() -> bool:
+	return save_replay_to_path(
+		_new_timestamped_file_path(_DEV_REPLAY_AUTO_DIR, _DEV_REPLAY_AUTO_PREFIX)
+	)
+
+
 func save_replay_to_path(path: String) -> bool:
 	if _replay == null or _replay.initial_session == null:
 		_update_hud("No replay journal to save.")
+		return false
+	var dir_err: Error = _ensure_parent_dir(path)
+	if dir_err != OK:
+		_update_hud("Replay save path failed: %d." % dir_err)
 		return false
 	var err: Error = ResourceSaver.save(_replay, path)
 	if err != OK:
@@ -571,6 +631,7 @@ func save_replay_to_path(path: String) -> bool:
 
 
 func load_replay_from_path(path: String) -> bool:
+	_stop_replay_playback()
 	var resource: Resource = ResourceLoader.load(
 		path, "MatchReplay", ResourceLoader.CACHE_MODE_IGNORE
 	)
@@ -593,14 +654,18 @@ func load_replay_from_path(path: String) -> bool:
 		return false
 	_replay = candidate
 	_checkpoints = rebuilt_checkpoints
-	return replay_latest()
+	var ok: bool = replay_latest()
+	_set_escape_menu_visible(false)
+	return ok
 
 
 func replay_start() -> bool:
+	_stop_replay_playback()
 	return replay_jump_to_turn(_replay_initial_turn())
 
 
 func replay_previous() -> bool:
+	_stop_replay_playback()
 	if _loaded == null or _loaded.state == null:
 		return false
 	return replay_jump_to_turn(_loaded.state.turn_index - 1)
@@ -645,6 +710,7 @@ func replay_next() -> bool:
 
 
 func replay_latest() -> bool:
+	_stop_replay_playback()
 	return replay_jump_to_turn(_latest_checkpoint_turn())
 
 
@@ -657,6 +723,7 @@ func replay_jump_to_turn(turn_index: int) -> bool:
 
 
 func restore_replay_here() -> bool:
+	_stop_replay_playback()
 	if _loaded == null or _loaded.state == null:
 		return false
 	var turn_index: int = _loaded.state.turn_index
@@ -667,6 +734,8 @@ func restore_replay_here() -> bool:
 		return false
 	_truncate_replay_after_turn(turn_index)
 	_record_checkpoint(turn_index)
+	_reset_auto_replay_file()
+	_set_escape_menu_visible(false)
 	return true
 
 
@@ -674,7 +743,7 @@ func resolve_turn() -> bool:
 	if _loaded == null or _loaded.state == null or _loaded.registry == null or _tunables == null:
 		return false
 	if _replay_mode_active:
-		_update_hud("Use Restore Here before resolving from a replay checkpoint.")
+		_update_hud("Use Play From Here before resolving from a replay checkpoint.")
 		return false
 	var profile_enabled := FileAccess.file_exists(_RESOLVE_PROFILE_FLAG_PATH)
 	var profile_lines: Array[String] = []
@@ -761,6 +830,7 @@ func resolve_turn() -> bool:
 	_input.queue_move_assists_for_next_turn()
 	_input.promote_future_orders_for_next_turn()
 	_record_checkpoint(_loaded.state.turn_index)
+	var auto_save_ok: bool = _save_auto_replay()
 	_replay_cursor_turn = _loaded.state.turn_index
 	if profile_enabled:
 		profile_lines.append(
@@ -771,7 +841,10 @@ func resolve_turn() -> bool:
 		)
 		profile_step = Time.get_ticks_usec()
 	_reset_context_cursor()
-	_update_hud("Resolved turn %d." % _loaded.state.turn_index)
+	var resolve_status: String = "Resolved turn %d." % _loaded.state.turn_index
+	if not auto_save_ok:
+		resolve_status += " Auto replay save failed."
+	_update_hud(resolve_status)
 	if profile_enabled:
 		profile_lines.append(
 			(
@@ -796,7 +869,25 @@ func resolve_turn() -> bool:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	var cancel_pressed: bool = event.is_action_pressed("ui_cancel")
+	if event is InputEventKey:
+		var key_event: InputEventKey = event as InputEventKey
+		cancel_pressed = cancel_pressed or (
+			key_event.pressed and not key_event.echo and key_event.keycode == KEY_ESCAPE
+		)
+	if cancel_pressed:
+		_toggle_escape_menu()
+		var viewport: Viewport = get_viewport()
+		if viewport != null:
+			viewport.set_input_as_handled()
+		return
 	if _renderer == null or _loaded == null:
+		return
+	if (
+		_escape_menu_panel != null
+		and _escape_menu_panel.visible
+		and (event is InputEventMouseButton or event is InputEventMouseMotion)
+	):
 		return
 	if event is InputEventMouseMotion:
 		var motion: InputEventMouseMotion = event as InputEventMouseMotion
@@ -894,6 +985,7 @@ func _ensure_tunables() -> bool:
 func _start_replay_journal() -> void:
 	if _loaded == null or _loaded.state == null or _loaded.registry == null:
 		return
+	_stop_replay_playback()
 	_replay = MatchReplay.new()
 	_replay.initial_session = _make_session(
 		_loaded.state, _loaded.registry, _input.create_snapshot()
@@ -903,6 +995,7 @@ func _start_replay_journal() -> void:
 	_record_checkpoint(_loaded.state.turn_index)
 	_replay_mode_active = false
 	_replay_cursor_turn = _loaded.state.turn_index
+	_reset_auto_replay_file()
 
 
 func _make_session(
@@ -960,6 +1053,53 @@ func _append_replay_frame(turn_index: int, submit_a: SubmitTurn, submit_b: Submi
 	frame.submit_a = submit_a.clone() if submit_a != null else SubmitTurn.new()
 	frame.submit_b = submit_b.clone() if submit_b != null else SubmitTurn.new()
 	_replay.frames.append(frame)
+
+
+func _reset_auto_replay_file() -> void:
+	_auto_replay_path = ""
+
+
+func _save_auto_replay() -> bool:
+	if not auto_save_replays:
+		return true
+	if _auto_replay_path == "":
+		_auto_replay_path = _new_auto_replay_path()
+	if _replay == null or _replay.initial_session == null:
+		return false
+	var dir_err: Error = _ensure_parent_dir(_auto_replay_path)
+	if dir_err != OK:
+		push_error("DevPlayMode: could not create auto replay directory: %d" % dir_err)
+		return false
+	var err: Error = ResourceSaver.save(_replay, _auto_replay_path)
+	if err != OK:
+		push_error(
+			"DevPlayMode: auto replay save failed for %s: %d" % [_auto_replay_path, err]
+		)
+		return false
+	return true
+
+
+func _new_auto_replay_path() -> String:
+	return _new_timestamped_file_path(_DEV_REPLAY_AUTO_DIR, _DEV_REPLAY_AUTO_PREFIX)
+
+
+func _new_timestamped_file_path(dir_path: String, prefix: String) -> String:
+	var stamp: String = Time.get_datetime_string_from_system()
+	stamp = stamp.replace(":", "").replace("-", "").replace("T", "_")
+	var unique: String = "%s_%d" % [stamp, Time.get_ticks_usec()]
+	return dir_path.path_join("%s_%s.tres" % [prefix, unique])
+
+
+func _ensure_dir(path: String) -> Error:
+	return DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path))
+
+
+func _ensure_parent_dir(path: String) -> Error:
+	var absolute_path: String = ProjectSettings.globalize_path(path)
+	var parent_dir: String = absolute_path.get_base_dir()
+	if parent_dir == "":
+		return OK
+	return DirAccess.make_dir_recursive_absolute(parent_dir)
 
 
 func _truncate_replay_after_turn(turn_index: int) -> void:
@@ -1069,21 +1209,21 @@ func _build_hud() -> void:
 	_hud_layer.name = "DevHUD"
 	add_child(_hud_layer)
 
-	var panel: PanelContainer = PanelContainer.new()
-	panel.name = "Panel"
-	panel.anchor_left = 1.0
-	panel.anchor_right = 1.0
-	panel.anchor_top = 0.0
-	panel.anchor_bottom = 0.0
-	panel.offset_left = -HUD_WIDTH - HUD_MARGIN
-	panel.offset_top = HUD_MARGIN
-	panel.offset_right = -HUD_MARGIN
-	panel.offset_bottom = HUD_MARGIN + HUD_HEIGHT
-	_hud_layer.add_child(panel)
+	_play_panel = PanelContainer.new()
+	_play_panel.name = "Panel"
+	_play_panel.anchor_left = 1.0
+	_play_panel.anchor_right = 1.0
+	_play_panel.anchor_top = 0.0
+	_play_panel.anchor_bottom = 0.0
+	_play_panel.offset_left = -HUD_WIDTH - HUD_MARGIN
+	_play_panel.offset_top = HUD_MARGIN
+	_play_panel.offset_right = -HUD_MARGIN
+	_play_panel.offset_bottom = HUD_MARGIN + HUD_HEIGHT
+	_hud_layer.add_child(_play_panel)
 
 	var root: VBoxContainer = VBoxContainer.new()
 	root.name = "Root"
-	panel.add_child(root)
+	_play_panel.add_child(root)
 
 	var buttons: HBoxContainer = HBoxContainer.new()
 	buttons.name = "Buttons"
@@ -1109,72 +1249,6 @@ func _build_hud() -> void:
 	surrender_button.pressed.connect(_surrender_from_hud)
 	buttons.add_child(surrender_button)
 
-	var snapshot_buttons: HBoxContainer = HBoxContainer.new()
-	snapshot_buttons.name = "SnapshotButtons"
-	root.add_child(snapshot_buttons)
-
-	var save_snapshot_button: Button = _button("Save Snap")
-	save_snapshot_button.pressed.connect(save_latest_snapshot)
-	snapshot_buttons.add_child(save_snapshot_button)
-
-	var load_snapshot_button: Button = _button("Load Snap")
-	load_snapshot_button.pressed.connect(load_latest_snapshot)
-	snapshot_buttons.add_child(load_snapshot_button)
-
-	var save_replay_button: Button = _button("Save Replay")
-	save_replay_button.pressed.connect(save_latest_replay)
-	snapshot_buttons.add_child(save_replay_button)
-
-	var load_replay_button: Button = _button("Load Replay")
-	load_replay_button.pressed.connect(load_latest_replay)
-	snapshot_buttons.add_child(load_replay_button)
-
-	var replay_buttons: HBoxContainer = HBoxContainer.new()
-	replay_buttons.name = "ReplayButtons"
-	root.add_child(replay_buttons)
-
-	var replay_start_button: Button = _button("Start")
-	replay_start_button.pressed.connect(replay_start)
-	replay_buttons.add_child(replay_start_button)
-
-	var replay_prev_button: Button = _button("Prev")
-	replay_prev_button.pressed.connect(replay_previous)
-	replay_buttons.add_child(replay_prev_button)
-
-	var replay_next_button: Button = _button("Next")
-	replay_next_button.pressed.connect(replay_next)
-	replay_buttons.add_child(replay_next_button)
-
-	var replay_latest_button: Button = _button("Latest")
-	replay_latest_button.pressed.connect(replay_latest)
-	replay_buttons.add_child(replay_latest_button)
-
-	var restore_button: Button = _button("Restore Here")
-	restore_button.pressed.connect(restore_replay_here)
-	replay_buttons.add_child(restore_button)
-
-	var replay_jump: HBoxContainer = HBoxContainer.new()
-	replay_jump.name = "ReplayJump"
-	root.add_child(replay_jump)
-
-	var replay_turn_label := Label.new()
-	replay_turn_label.text = "Turn"
-	_style_label(replay_turn_label)
-	replay_jump.add_child(replay_turn_label)
-
-	_replay_turn_spin = SpinBox.new()
-	_replay_turn_spin.name = "ReplayTurn"
-	_replay_turn_spin.min_value = 0.0
-	_replay_turn_spin.max_value = 0.0
-	_replay_turn_spin.step = 1.0
-	_replay_turn_spin.custom_minimum_size = Vector2(88.0, 34.0)
-	_replay_turn_spin.add_theme_font_size_override("font_size", 18)
-	replay_jump.add_child(_replay_turn_spin)
-
-	var replay_jump_button: Button = _button("Jump")
-	replay_jump_button.pressed.connect(_jump_replay_from_hud)
-	replay_jump.add_child(replay_jump_button)
-
 	var preview_toggle := CheckBox.new()
 	preview_toggle.name = "ShowFriendlyPreviews"
 	preview_toggle.text = "Show all friendly orders"
@@ -1195,10 +1269,6 @@ func _build_hud() -> void:
 	_queue_label.name = "QueuedOrders"
 	_style_label(_queue_label)
 	root.add_child(_queue_label)
-	_replay_label = Label.new()
-	_replay_label.name = "ReplayStatus"
-	_style_label(_replay_label)
-	root.add_child(_replay_label)
 	_status_label = Label.new()
 	_status_label.name = "Status"
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1218,7 +1288,302 @@ func _build_hud() -> void:
 	_command_card.connect("cancel_requested", Callable(self, "issue_cancel_selected"))
 	_command_card.connect("repeat_train_toggled", Callable(self, "issue_repeat_train_selected"))
 	root.add_child(_command_card)
+	_build_replay_panel()
+	_build_escape_menu()
+	_build_file_dialogs()
+	_build_replay_play_timer()
 	_update_hud()
+
+
+func _build_replay_panel() -> void:
+	if _hud_layer == null:
+		return
+	_replay_panel = PanelContainer.new()
+	_replay_panel.name = "ReplayPanel"
+	_replay_panel.anchor_left = 0.0
+	_replay_panel.anchor_right = 0.0
+	_replay_panel.anchor_top = 0.0
+	_replay_panel.anchor_bottom = 0.0
+	_replay_panel.offset_left = REPLAY_PANEL_LEFT
+	_replay_panel.offset_top = REPLAY_PANEL_TOP
+	_replay_panel.offset_right = REPLAY_PANEL_LEFT + HUD_WIDTH
+	_replay_panel.offset_bottom = REPLAY_PANEL_TOP + REPLAY_PANEL_HEIGHT
+	_replay_panel.visible = false
+	_hud_layer.add_child(_replay_panel)
+
+	var root: VBoxContainer = VBoxContainer.new()
+	root.name = "Root"
+	_replay_panel.add_child(root)
+
+	var header: HBoxContainer = HBoxContainer.new()
+	header.name = "Header"
+	root.add_child(header)
+
+	var title: Label = Label.new()
+	title.text = "Replay"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_label(title)
+	header.add_child(title)
+
+	var replay_buttons: HBoxContainer = HBoxContainer.new()
+	replay_buttons.name = "ReplayButtons"
+	root.add_child(replay_buttons)
+
+	var replay_start_button: Button = _button("Start")
+	replay_start_button.pressed.connect(_start_replay_from_hud)
+	replay_buttons.add_child(replay_start_button)
+
+	var replay_prev_button: Button = _button("Prev")
+	replay_prev_button.pressed.connect(_previous_replay_from_hud)
+	replay_buttons.add_child(replay_prev_button)
+
+	_replay_play_button = _button("Play")
+	_replay_play_button.name = "ReplayPlay"
+	_replay_play_button.pressed.connect(_toggle_replay_playback)
+	replay_buttons.add_child(_replay_play_button)
+
+	var replay_next_button: Button = _button("Next")
+	replay_next_button.pressed.connect(_next_replay_from_hud)
+	replay_buttons.add_child(replay_next_button)
+
+	var replay_latest_button: Button = _button("Latest")
+	replay_latest_button.pressed.connect(_latest_replay_from_hud)
+	replay_buttons.add_child(replay_latest_button)
+
+	var timeline_row: HBoxContainer = HBoxContainer.new()
+	timeline_row.name = "ReplayTimelineRow"
+	root.add_child(timeline_row)
+
+	_replay_timeline = HSlider.new()
+	_replay_timeline.name = "ReplayTimeline"
+	_replay_timeline.min_value = 0.0
+	_replay_timeline.max_value = 0.0
+	_replay_timeline.step = 1.0
+	_replay_timeline.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_replay_timeline.value_changed.connect(_replay_timeline_changed)
+	timeline_row.add_child(_replay_timeline)
+
+	_replay_turn_label = Label.new()
+	_replay_turn_label.name = "ReplayTurnLabel"
+	_replay_turn_label.custom_minimum_size = Vector2(96.0, 34.0)
+	_style_label(_replay_turn_label)
+	timeline_row.add_child(_replay_turn_label)
+
+	var replay_actions: HBoxContainer = HBoxContainer.new()
+	replay_actions.name = "ReplayActions"
+	root.add_child(replay_actions)
+
+	var restore_button: Button = _button("Play From Here")
+	restore_button.pressed.connect(restore_replay_here)
+	replay_actions.add_child(restore_button)
+
+	_replay_label = Label.new()
+	_replay_label.name = "ReplayStatus"
+	_replay_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_style_label(_replay_label)
+	root.add_child(_replay_label)
+	_sync_mode_ui()
+
+
+func _build_escape_menu() -> void:
+	if _hud_layer == null:
+		return
+	_escape_menu_panel = PanelContainer.new()
+	_escape_menu_panel.name = "EscapeMenu"
+	_escape_menu_panel.anchor_left = 0.5
+	_escape_menu_panel.anchor_right = 0.5
+	_escape_menu_panel.anchor_top = 0.5
+	_escape_menu_panel.anchor_bottom = 0.5
+	_escape_menu_panel.offset_left = ESCAPE_MENU_WIDTH * -0.5
+	_escape_menu_panel.offset_right = ESCAPE_MENU_WIDTH * 0.5
+	_escape_menu_panel.offset_top = ESCAPE_MENU_HEIGHT * -0.5
+	_escape_menu_panel.offset_bottom = ESCAPE_MENU_HEIGHT * 0.5
+	_escape_menu_panel.visible = false
+	_hud_layer.add_child(_escape_menu_panel)
+
+	var root: VBoxContainer = VBoxContainer.new()
+	root.name = "Root"
+	_escape_menu_panel.add_child(root)
+
+	var title: Label = Label.new()
+	title.text = "Menu"
+	_style_label(title)
+	root.add_child(title)
+
+	var resume_button: Button = _button("Resume")
+	resume_button.pressed.connect(func() -> void: _set_escape_menu_visible(false))
+	root.add_child(resume_button)
+
+	var new_game_button: Button = _button("New Game")
+	new_game_button.pressed.connect(_new_game_from_menu)
+	root.add_child(new_game_button)
+
+	_menu_save_snapshot_button = _button("Save Snapshot")
+	_menu_save_snapshot_button.name = "SaveSnapshot"
+	_menu_save_snapshot_button.pressed.connect(save_snapshot_to_folder)
+	root.add_child(_menu_save_snapshot_button)
+
+	var load_row: HBoxContainer = HBoxContainer.new()
+	load_row.name = "LoadRow"
+	root.add_child(load_row)
+
+	_menu_load_kind = OptionButton.new()
+	_menu_load_kind.name = "LoadKind"
+	_menu_load_kind.add_item("Snapshot", MENU_LOAD_SNAPSHOT)
+	_menu_load_kind.add_item("Replay", MENU_LOAD_REPLAY)
+	_menu_load_kind.select(MENU_LOAD_SNAPSHOT)
+	_menu_load_kind.custom_minimum_size = Vector2(160.0, 34.0)
+	_menu_load_kind.add_theme_font_size_override("font_size", 18)
+	load_row.add_child(_menu_load_kind)
+
+	var load_button: Button = _button("Load...")
+	load_button.name = "Load"
+	load_button.pressed.connect(_open_menu_load_dialog)
+	load_row.add_child(load_button)
+	_sync_mode_ui()
+
+
+func _build_file_dialogs() -> void:
+	_snapshot_file_dialog = _file_dialog(
+		"SnapshotLoadDialog", _DEV_SNAPSHOT_DIR, _load_snapshot_file_selected
+	)
+	_hud_layer.add_child(_snapshot_file_dialog)
+	_replay_file_dialog = _file_dialog(
+		"ReplayLoadDialog", _DEV_REPLAY_AUTO_DIR, _load_replay_file_selected
+	)
+	_hud_layer.add_child(_replay_file_dialog)
+
+
+func _build_replay_play_timer() -> void:
+	_replay_play_timer = Timer.new()
+	_replay_play_timer.name = "ReplayPlayTimer"
+	_replay_play_timer.one_shot = false
+	_replay_play_timer.wait_time = REPLAY_PLAY_STEP_SECONDS
+	_replay_play_timer.timeout.connect(_advance_replay_playback)
+	add_child(_replay_play_timer)
+
+
+func _toggle_escape_menu() -> void:
+	_set_escape_menu_visible(not (_escape_menu_panel != null and _escape_menu_panel.visible))
+
+
+func _set_escape_menu_visible(visible: bool) -> void:
+	if _escape_menu_panel != null:
+		_escape_menu_panel.visible = visible
+	_update_hud()
+
+
+func _sync_mode_ui() -> void:
+	if _play_panel != null:
+		_play_panel.visible = not _replay_mode_active
+	if _replay_panel != null:
+		_replay_panel.visible = _replay_mode_active
+	if _menu_save_snapshot_button != null:
+		_menu_save_snapshot_button.visible = not _replay_mode_active
+	if _replay_play_button != null:
+		_replay_play_button.text = "Pause" if _replay_playing else "Play"
+
+
+func _file_dialog(name: String, current_dir: String, callback: Callable) -> FileDialog:
+	_ensure_dir(current_dir)
+	var dialog: FileDialog = FileDialog.new()
+	dialog.name = name
+	dialog.access = FileDialog.ACCESS_USERDATA
+	dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	dialog.current_dir = current_dir
+	dialog.filters = PackedStringArray(["*.tres ; Godot resources"])
+	dialog.file_selected.connect(callback)
+	return dialog
+
+
+func _open_menu_load_dialog() -> void:
+	if _menu_load_kind != null and _menu_load_kind.get_selected_id() == MENU_LOAD_REPLAY:
+		_open_file_dialog(_replay_file_dialog, _DEV_REPLAY_AUTO_DIR)
+	else:
+		_open_file_dialog(_snapshot_file_dialog, _DEV_SNAPSHOT_DIR)
+
+
+func _open_file_dialog(dialog: FileDialog, dir_path: String) -> void:
+	if dialog == null:
+		return
+	var err: Error = _ensure_dir(dir_path)
+	if err != OK:
+		_update_hud("Could not open folder %s: %d." % [dir_path, err])
+		return
+	dialog.current_dir = dir_path
+	dialog.popup_centered_ratio(0.7)
+
+
+func _load_snapshot_file_selected(path: String) -> void:
+	load_snapshot_from_path(path)
+
+
+func _load_replay_file_selected(path: String) -> void:
+	load_replay_from_path(path)
+
+
+func _new_game_from_menu() -> void:
+	_stop_replay_playback()
+	_set_escape_menu_visible(false)
+	var path: String = scenario_path if scenario_path != "" else DEFAULT_SCENARIO_PATH
+	load_scenario_path(path)
+
+
+func _start_replay_from_hud() -> void:
+	_stop_replay_playback()
+	replay_start()
+
+
+func _previous_replay_from_hud() -> void:
+	_stop_replay_playback()
+	replay_previous()
+
+
+func _next_replay_from_hud() -> void:
+	_stop_replay_playback()
+	replay_next()
+
+
+func _latest_replay_from_hud() -> void:
+	_stop_replay_playback()
+	replay_latest()
+
+
+func _toggle_replay_playback() -> void:
+	if not _replay_mode_active:
+		return
+	if _replay_playing:
+		_stop_replay_playback()
+		return
+	if _frame_for_turn(_replay_cursor_turn) == null:
+		_update_hud("Replay is already at the latest turn.")
+		return
+	_replay_playing = true
+	if _replay_play_timer != null:
+		_replay_play_timer.start()
+	_update_hud()
+
+
+func _advance_replay_playback() -> void:
+	if not _replay_playing:
+		return
+	if not replay_next() or _frame_for_turn(_replay_cursor_turn) == null:
+		_stop_replay_playback()
+
+
+func _stop_replay_playback() -> void:
+	_replay_playing = false
+	if _replay_play_timer != null:
+		_replay_play_timer.stop()
+	if _replay_play_button != null:
+		_replay_play_button.text = "Play"
+
+
+func _replay_timeline_changed(value: float) -> void:
+	if _updating_replay_timeline:
+		return
+	_stop_replay_playback()
+	replay_jump_to_turn(int(round(value)))
 
 
 func _button(text: String) -> Button:
@@ -1250,13 +1615,8 @@ func _surrender_from_hud() -> void:
 	_update_hud()
 
 
-func _jump_replay_from_hud() -> void:
-	if _replay_turn_spin == null:
-		return
-	replay_jump_to_turn(int(_replay_turn_spin.value))
-
-
 func _update_hud(override_status: String = "") -> void:
+	_sync_mode_ui()
 	if _active_label != null:
 		_active_label.text = "Active player: P%d" % _input.active_player_id()
 	if _resources_label != null:
@@ -1284,9 +1644,14 @@ func _update_hud(override_status: String = "") -> void:
 				replay_frame_count(),
 			]
 		)
-	if _replay_turn_spin != null:
-		_replay_turn_spin.max_value = float(maxi(_latest_checkpoint_turn(), _replay_initial_turn()))
-		_replay_turn_spin.value = float(_replay_cursor_turn)
+	if _replay_timeline != null:
+		_updating_replay_timeline = true
+		_replay_timeline.min_value = float(_replay_initial_turn())
+		_replay_timeline.max_value = float(maxi(_latest_checkpoint_turn(), _replay_initial_turn()))
+		_replay_timeline.value = float(_replay_cursor_turn)
+		_updating_replay_timeline = false
+	if _replay_turn_label != null:
+		_replay_turn_label.text = "%d / %d" % [_replay_cursor_turn, _latest_checkpoint_turn()]
 	if _status_label != null:
 		var status_message: String = _input.status_message()
 		if override_status != "":
