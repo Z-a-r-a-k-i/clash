@@ -58,7 +58,7 @@ The agent drives the Godot editor through the `godot-ai-plugin` MCP server when 
 ```powershell
 New-Item -ItemType Junction `
   -Path "<worktree>\client\addons\godot_ai" `
-  -Target "C:\Users\alk\Documents\Developpement\godot-ai-plugin\addons\godot_ai"
+  -Target "<path-to-your-main-godot-ai-plugin-checkout>\addons\godot_ai"
 ```
 
 Use the same local `godot-ai-plugin` addon target as the main checkout unless the user explicitly asks for a different plugin checkout.
