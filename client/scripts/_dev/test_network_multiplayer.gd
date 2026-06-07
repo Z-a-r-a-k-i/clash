@@ -205,6 +205,7 @@ func _test_network_ui_surface() -> bool:
 		return false
 	var mode: Node = script.new()
 	add_child(mode)
+	mode.call("_ready")
 	var ok: bool = true
 	if mode.get_node_or_null("MatchPlaySurface") == null:
 		push_error("network play mode should create a shared MatchPlaySurface")
@@ -266,7 +267,7 @@ func _submit_attack(state: MatchState, owner: int) -> SubmitTurn:
 func _first_entity_id(state: MatchState, owner: int) -> int:
 	if state == null:
 		return -1
-	for entity in state.entities_sorted_by_id():
+	for entity: Entity in state.entities_sorted_by_id():
 		if entity != null and entity.owner_player_id == owner and entity.current_hp > 0:
 			return entity.id
 	return -1
@@ -275,7 +276,7 @@ func _first_entity_id(state: MatchState, owner: int) -> int:
 func _first_enemy_entity_id(state: MatchState, owner: int) -> int:
 	if state == null:
 		return -1
-	for entity in state.entities_sorted_by_id():
+	for entity: Entity in state.entities_sorted_by_id():
 		if (
 			entity != null
 			and entity.owner_player_id >= 0
@@ -288,8 +289,7 @@ func _first_enemy_entity_id(state: MatchState, owner: int) -> int:
 
 func _peer_has_message_kind(messages_by_peer: Dictionary, peer_id: int, kind: String) -> bool:
 	var messages: Array = messages_by_peer.get(peer_id, [])
-	for item in messages:
-		var message: Dictionary = item
+	for message: Dictionary in messages:
 		if message.get("kind", "") == kind:
 			return true
 	return false
@@ -299,7 +299,7 @@ func _state_signature(state: MatchState) -> Dictionary:
 	if state == null:
 		return {}
 	var entities: Array[Dictionary] = []
-	for entity in state.entities_sorted_by_id():
+	for entity: Entity in state.entities_sorted_by_id():
 		(
 			entities
 			. append(
@@ -317,7 +317,7 @@ func _state_signature(state: MatchState) -> Dictionary:
 			)
 		)
 	var players: Array[Dictionary] = []
-	for player in state.players:
+	for player: PlayerState in state.players:
 		if player == null:
 			players.append({})
 		else:
@@ -345,7 +345,7 @@ func _submit_signature(submit: SubmitTurn) -> Dictionary:
 	if submit == null:
 		return {}
 	var orders: Array[Dictionary] = []
-	for order in submit.orders:
+	for order: EntityOrder in submit.orders:
 		if order == null:
 			orders.append({})
 		else:
@@ -369,7 +369,7 @@ func _submit_signature(submit: SubmitTurn) -> Dictionary:
 
 func _events_signature(events: Array) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
-	for item in events:
+	for item: Variant in events:
 		var event: ResolverEvent = item as ResolverEvent
 		if event == null:
 			out.append({})

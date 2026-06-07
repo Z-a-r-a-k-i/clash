@@ -25,11 +25,6 @@ var _player_slot: int = -1
 var _registry: EntityRegistry = null
 
 
-func _init() -> void:
-	_build_surface()
-	_build_hud()
-
-
 func _ready() -> void:
 	_build_surface()
 	_build_hud()
@@ -53,6 +48,9 @@ func bind_authoritative_snapshot(
 func apply_authoritative_result(new_state: MatchState, events: Array) -> void:
 	if new_state == null:
 		set_error("missing authoritative state")
+		return
+	if _registry == null:
+		set_error("missing registry")
 		return
 	_client_controller.mark_submit_pending(false)
 	_client_controller.bind_authoritative_state(new_state, _registry, _player_slot)
@@ -143,7 +141,8 @@ func submit_queued_turn() -> bool:
 		set_error("submit failed %d" % err)
 		_update_hud()
 		return false
-	_submit_label.text = "Submit: pending"
+	if _submit_label != null:
+		_submit_label.text = "Submit: pending"
 	return true
 
 
