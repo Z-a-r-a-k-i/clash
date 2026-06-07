@@ -20,6 +20,10 @@ See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Network playtest
+
+The first trusted same-version PvP slice runs a headless Godot WebSocket server from `client/`. See [docs/NETWORK-PLAYTEST.md](docs/NETWORK-PLAYTEST.md).
+
 ## License
 
 Private. All rights reserved.

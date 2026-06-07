@@ -1,7 +1,23 @@
 # Protocol
 
-> **Status: tentative — pending M2 network-layer choice.**
-> This doc describes a Go-server + WebSocket + protobuf path. At M0 the resolver lives in the Godot client and there is no network layer at all. The server technology and wire format are picked at M2 (candidate paths in `plan/m0/00-config-and-tunables.md`). If proto is chosen, the shape below is the starting point. If not, this doc gets rewritten or replaced.
+> **Status: v0 playtest + tentative M2 direction.**
+> The current playable network slice uses a same-version Godot Variant WebSocket codec in `client/scripts/network/`. The production M2 server technology and long-term wire format are still open; the protobuf notes below remain a candidate path, not the current implementation.
+
+## v0 Godot WebSocket Slice
+
+The v0 slice is intentionally narrow:
+
+- Transport: plain WebSocket for local/tunneled playtests.
+- Encoding: Godot Variant binary through `NetworkV0Codec`.
+- Scope: same client/server code version only.
+- State visibility: full authoritative state goes to both clients.
+- Message boundary: game logic receives dictionaries at the adapter edge and typed runtime objects after decoding.
+
+Implemented message kinds are: client hello, create match, join match, match joined, turn started, submit turn, turn resolved, match error, and disconnect notice. Type definitions stay in code.
+
+See `docs/NETWORK-PLAYTEST.md` for local and tunnel smoke instructions.
+
+## M2 Candidate Direction
 
 Wire protocol between clash client and server. Authoritative type definitions live in `proto/clash/v1/`. This document describes how the wire is used at a high level; do not duplicate field lists here.
 
