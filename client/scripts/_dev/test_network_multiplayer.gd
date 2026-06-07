@@ -205,7 +205,7 @@ func _test_network_ui_surface() -> bool:
 		return false
 	var mode: Node = script.new()
 	add_child(mode)
-	mode.call("_ready")
+	mode.call("ensure_initialized")
 	var ok: bool = true
 	if mode.get_node_or_null("MatchPlaySurface") == null:
 		push_error("network play mode should create a shared MatchPlaySurface")

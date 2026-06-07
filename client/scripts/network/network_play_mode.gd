@@ -26,6 +26,10 @@ var _registry: EntityRegistry = null
 
 
 func _ready() -> void:
+	ensure_initialized()
+
+
+func ensure_initialized() -> void:
 	_build_surface()
 	_build_hud()
 
@@ -46,13 +50,15 @@ func bind_authoritative_snapshot(
 
 
 func apply_authoritative_result(new_state: MatchState, events: Array) -> void:
+	_client_controller.mark_submit_pending(false)
 	if new_state == null:
 		set_error("missing authoritative state")
+		_update_hud()
 		return
 	if _registry == null:
 		set_error("missing registry")
+		_update_hud()
 		return
-	_client_controller.mark_submit_pending(false)
 	_client_controller.bind_authoritative_state(new_state, _registry, _player_slot)
 	_input.bind_context(new_state, _registry)
 	_input.clear_submissions(false, false)
