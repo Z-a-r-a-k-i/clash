@@ -53,6 +53,26 @@ CodeRabbit comment handling and review loops are owned by the `coderabbit:*` and
 
 The agent drives the Godot editor through the `godot-ai-plugin` MCP server when needed. The plugin is installed externally and is not vendored into this repo.
 
+`client/addons/godot_ai/` is gitignored for local setup. After creating a git worktree for this repo, recreate that addon link in the new worktree before opening Godot.
+
+Windows PowerShell:
+
+```powershell
+New-Item -ItemType Junction `
+  -Path "<worktree>\client\addons\godot_ai" `
+  -Target "<path-to-your-main-godot-ai-plugin-checkout>\addons\godot_ai"
+```
+
+Linux / macOS:
+
+```bash
+ln -s \
+  "<path-to-your-main-godot-ai-plugin-checkout>/addons/godot_ai" \
+  "<worktree>/client/addons/godot_ai"
+```
+
+Use the same local `godot-ai-plugin` addon target as the main checkout unless the user explicitly asks for a different plugin checkout.
+
 ## Documentation Philosophy
 
 Code is the source of truth. Define types and schemas in code (proto); never duplicate them in markdown. Use docs for design rationale, architecture decisions, and how things connect, not for restating field lists or enum values.
