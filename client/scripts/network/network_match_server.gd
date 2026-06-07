@@ -2,17 +2,18 @@ class_name NetworkMatchServer
 extends Node
 
 const MESSAGE := preload("res://scripts/network/network_message.gd")
+const MAX_PACKET_SIZE: int = 65536
 
 @export var bind_address: String = "127.0.0.1"
 @export var port: int = 9087
 @export_file("*.tres") var scenario_path: String = "res://data/scenarios/mvp_map.tres"
 @export_dir var replay_dir: String = "user://tmp/network_replays"
 
-var _tcp_server := TCPServer.new()
+var _tcp_server: TCPServer = TCPServer.new()
 var _peers: Dictionary[int, WebSocketPeer] = {}
-var _next_peer_id := 1
-var _codec := NetworkV0Codec.new()
-var _hub := NetworkMatchHub.new()
+var _next_peer_id: int = 1
+var _codec: NetworkV0Codec = NetworkV0Codec.new()
+var _hub: NetworkMatchHub = NetworkMatchHub.new()
 
 
 func start() -> Error:
@@ -50,12 +51,12 @@ func _process(_delta: float) -> void:
 func _accept_new_peers() -> void:
 	while _tcp_server.is_connection_available():
 		var stream: StreamPeerTCP = _tcp_server.take_connection()
-		var peer := WebSocketPeer.new()
+		var peer: WebSocketPeer = WebSocketPeer.new()
 		var err: Error = peer.accept_stream(stream)
 		if err != OK:
 			push_warning("NetworkMatchServer: WebSocket accept failed: %d" % err)
 			continue
-		var peer_id := _next_peer_id
+		var peer_id: int = _next_peer_id
 		_next_peer_id += 1
 		_peers[peer_id] = peer
 
@@ -71,7 +72,16 @@ func _poll_peers() -> void:
 		var state: int = peer.get_ready_state()
 		if state == WebSocketPeer.STATE_OPEN:
 			while peer.get_available_packet_count() > 0:
-				var message: Dictionary = _codec.decode(peer.get_packet())
+				var packet: PackedByteArray = peer.get_packet()
+				if packet.size() > MAX_PACKET_SIZE:
+					push_warning(
+						(
+							"NetworkMatchServer: dropping oversized packet from peer %d (%d bytes)"
+							% [peer_id, packet.size()]
+						)
+					)
+					continue
+				var message: Dictionary = _codec.decode(packet)
 				_handle_message(int(peer_id), message)
 		elif state == WebSocketPeer.STATE_CLOSED:
 			closed.append(int(peer_id))

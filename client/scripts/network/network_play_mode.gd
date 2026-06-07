@@ -4,12 +4,13 @@ extends Node
 const MESSAGE := preload("res://scripts/network/network_message.gd")
 const SURFACE_SCRIPT := preload("res://scripts/network/match_play_surface.gd")
 const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
+const SERVER_SCRIPT := preload("res://scripts/network/network_match_server.gd")
 
-const HUD_WIDTH := 420.0
-const HUD_MARGIN := 12.0
+const HUD_WIDTH: float = 420.0
+const HUD_MARGIN: float = 12.0
 
 var _surface: MatchPlaySurface = null
-var _client_controller := NetworkClientController.new()
+var _client_controller: NetworkClientController = NetworkClientController.new()
 var _client: NetworkClient = null
 var _input: DevTurnInput = DevTurnInput.new()
 var _hud_layer: CanvasLayer = null
@@ -175,7 +176,7 @@ func _build_hud() -> void:
 	_hud_layer = CanvasLayer.new()
 	_hud_layer.name = "NetworkHUD"
 	add_child(_hud_layer)
-	var panel := PanelContainer.new()
+	var panel: PanelContainer = PanelContainer.new()
 	panel.name = "Panel"
 	panel.anchor_left = 1.0
 	panel.anchor_right = 1.0
@@ -184,21 +185,22 @@ func _build_hud() -> void:
 	panel.offset_top = HUD_MARGIN
 	panel.offset_bottom = 300.0
 	_hud_layer.add_child(panel)
-	var root := VBoxContainer.new()
+	var root: VBoxContainer = VBoxContainer.new()
 	root.name = "Root"
 	panel.add_child(root)
 	_url_edit = LineEdit.new()
 	_url_edit.name = "ServerUrl"
-	_url_edit.placeholder_text = "ws://127.0.0.1:9087"
-	_url_edit.text = "ws://127.0.0.1:9087"
+	var default_url: String = _default_server_url()
+	_url_edit.placeholder_text = default_url
+	_url_edit.text = default_url
 	root.add_child(_url_edit)
-	var connection_row := HBoxContainer.new()
+	var connection_row: HBoxContainer = HBoxContainer.new()
 	connection_row.name = "Connection"
 	root.add_child(connection_row)
-	var connect_button := _button("Connect")
+	var connect_button: Button = _button("Connect")
 	connect_button.pressed.connect(_connect_pressed)
 	connection_row.add_child(connect_button)
-	var create_button := _button("Create")
+	var create_button: Button = _button("Create")
 	create_button.pressed.connect(_create_pressed)
 	connection_row.add_child(create_button)
 	_code_edit = LineEdit.new()
@@ -206,10 +208,10 @@ func _build_hud() -> void:
 	_code_edit.placeholder_text = "Code"
 	_code_edit.custom_minimum_size = Vector2(100.0, 32.0)
 	connection_row.add_child(_code_edit)
-	var join_button := _button("Join")
+	var join_button: Button = _button("Join")
 	join_button.pressed.connect(_join_pressed)
 	connection_row.add_child(join_button)
-	var submit_button := _button("Submit")
+	var submit_button: Button = _button("Submit")
 	submit_button.name = "SubmitTurn"
 	submit_button.pressed.connect(submit_queued_turn)
 	root.add_child(submit_button)
@@ -251,17 +253,21 @@ func _connect_pressed() -> void:
 
 
 func _create_pressed() -> void:
-	if _client != null:
-		var err: Error = _client.create_match()
-		if err != OK:
-			set_error("create failed %d" % err)
+	if _client == null:
+		set_error("not connected")
+		return
+	var err: Error = _client.create_match()
+	if err != OK:
+		set_error("create failed %d" % err)
 
 
 func _join_pressed() -> void:
-	if _client != null:
-		var err: Error = _client.join_match(_code_edit.text)
-		if err != OK:
-			set_error("join failed %d" % err)
+	if _client == null:
+		set_error("not connected")
+		return
+	var err: Error = _client.join_match(_code_edit.text)
+	if err != OK:
+		set_error("join failed %d" % err)
 
 
 func _handle_network_message(message: Dictionary) -> void:
@@ -378,15 +384,22 @@ func _move_only_button_pressed() -> void:
 		_status_label.text = "Right-click a tile for Move Only."
 
 
+func _default_server_url() -> String:
+	var server_defaults: NetworkMatchServer = SERVER_SCRIPT.new()
+	var default_port: int = server_defaults.port
+	server_defaults.free()
+	return "ws://127.0.0.1:%d" % default_port
+
+
 func _button(text: String) -> Button:
-	var button := Button.new()
+	var button: Button = Button.new()
 	button.text = text
 	button.custom_minimum_size = Vector2(72.0, 34.0)
 	return button
 
 
 func _label(text: String) -> Label:
-	var label := Label.new()
+	var label: Label = Label.new()
 	label.text = text
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	return label

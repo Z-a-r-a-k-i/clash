@@ -9,20 +9,22 @@ signal message_received(message: Dictionary)
 const MESSAGE := preload("res://scripts/network/network_message.gd")
 
 var _peer: WebSocketPeer = null
-var _codec := NetworkV0Codec.new()
-var _url := ""
-var _match_code := ""
-var _open_emitted := false
+var _codec: NetworkV0Codec = NetworkV0Codec.new()
+var _url: String = ""
+var _match_code: String = ""
+var _open_emitted: bool = false
 
 
 func connect_to_server(url: String) -> Error:
 	disconnect_from_server()
 	_url = url
+	_match_code = ""
 	_peer = WebSocketPeer.new()
 	_open_emitted = false
 	var err: Error = _peer.connect_to_url(url)
 	if err != OK:
 		_peer = null
+		_match_code = ""
 		connection_failed.emit()
 		return err
 	set_process(true)
@@ -33,6 +35,8 @@ func disconnect_from_server() -> void:
 	if _peer != null:
 		_peer.close()
 	_peer = null
+	_match_code = ""
+	_open_emitted = false
 	set_process(false)
 
 
@@ -83,6 +87,8 @@ func _process(_delta: float) -> void:
 			_handle_message(message)
 	elif state == WebSocketPeer.STATE_CLOSED:
 		_peer = null
+		_match_code = ""
+		_open_emitted = false
 		set_process(false)
 		disconnected.emit()
 

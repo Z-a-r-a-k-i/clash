@@ -4,8 +4,8 @@ extends RefCounted
 var _state: MatchState = null
 var _registry: EntityRegistry = null
 var _player_slot: int = -1
-var _submit_pending := false
-var _last_error := ""
+var _submit_pending: bool = false
+var _last_error: String = ""
 
 
 func bind_authoritative_state(
@@ -65,6 +65,9 @@ func can_submit_turn(submit: SubmitTurn) -> bool:
 func submit_from_input(input: DevTurnInput) -> SubmitTurn:
 	if input == null:
 		_last_error = "missing_input"
+		return null
+	if _player_slot < 0:
+		_last_error = "missing_player_slot"
 		return null
 	var submit: SubmitTurn = input.submit_for_player(_player_slot)
 	if not can_submit_turn(submit):

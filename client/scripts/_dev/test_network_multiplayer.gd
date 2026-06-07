@@ -18,13 +18,13 @@ func _enter_tree() -> void:
 
 
 func _run_all() -> int:
-	var passed := 0
-	var failed := 0
+	var passed: int = 0
+	var failed: int = 0
 	var fail_names: Array[String] = []
-	for test_pair in _all_tests():
+	for test_pair: Array in _all_tests():
 		var test_name: String = test_pair[0]
 		var fn: Callable = test_pair[1]
-		var ok: bool = fn.call()
+		var ok: bool = fn.call() as bool
 		if ok:
 			passed += 1
 		else:
@@ -36,7 +36,7 @@ func _run_all() -> int:
 	return failed
 
 
-func _all_tests() -> Array:
+func _all_tests() -> Array[Array]:
 	return [
 		["codec_round_trips_submit_state_and_events", _test_codec_round_trip],
 		["hub_create_join_validate_submit_resolve_and_journal", _test_hub_turn_flow],
@@ -78,7 +78,7 @@ func _test_codec_round_trip() -> bool:
 	var decoded_submit: SubmitTurn = payload.get("submit") as SubmitTurn
 	var decoded_state: MatchState = payload.get("match_state") as MatchState
 	var decoded_events: Array = payload.get("events", [])
-	var ok := true
+	var ok: bool = true
 	if decoded.get("kind", "") != "turn_resolved":
 		push_error("decoded message kind should round-trip")
 		ok = false
@@ -143,7 +143,7 @@ func _test_hub_turn_flow() -> bool:
 	var direct: ResolveResult = Resolver.resolve(
 		loaded.state, submit_a, submit_b, loaded.registry, _load_tunables()
 	)
-	var ok := true
+	var ok: bool = true
 	if _state_signature(resolved_state) != _state_signature(direct.new_state):
 		push_error("network session result should match direct local resolver output")
 		ok = false
@@ -184,7 +184,7 @@ func _test_client_submit_guard() -> bool:
 	controller.call("bind_authoritative_state", loaded.state, loaded.registry, 0)
 	var own_submit: SubmitTurn = _submit_attack(loaded.state, 0)
 	var wrong_submit: SubmitTurn = _submit_attack(loaded.state, 1)
-	var ok := true
+	var ok: bool = true
 	if not controller.call("can_submit_turn", own_submit):
 		push_error("client slot 0 should allow its own orders")
 		ok = false
@@ -205,7 +205,7 @@ func _test_network_ui_surface() -> bool:
 		return false
 	var mode: Node = script.new()
 	add_child(mode)
-	var ok := true
+	var ok: bool = true
 	if mode.get_node_or_null("MatchPlaySurface") == null:
 		push_error("network play mode should create a shared MatchPlaySurface")
 		ok = false
@@ -249,12 +249,12 @@ func _load_tunables() -> Tunables:
 
 
 func _submit_attack(state: MatchState, owner: int) -> SubmitTurn:
-	var submit := SubmitTurn.new()
+	var submit: SubmitTurn = SubmitTurn.new()
 	var actor_id: int = _first_entity_id(state, owner)
 	var target_id: int = _first_enemy_entity_id(state, owner)
 	if actor_id < 0:
 		return submit
-	var order := EntityOrder.new()
+	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.ATTACK
 	order.entity_id = actor_id
 	if target_id >= 0:

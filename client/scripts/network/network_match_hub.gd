@@ -13,7 +13,7 @@ var _tunables_path: String = DEFAULT_TUNABLES_PATH
 var _replay_dir: String = DEFAULT_REPLAY_DIR
 var _matches_by_code: Dictionary = {}
 var _match_code_by_peer: Dictionary[int, String] = {}
-var _next_code_index := 1
+var _next_code_index: int = 1
 
 
 func configure(
@@ -36,7 +36,7 @@ func create_match(peer_id: int) -> Dictionary:
 	if loaded == null or tunables == null:
 		return _failure("load_failed")
 	var code: String = _allocate_code()
-	var replay := MatchReplay.new()
+	var replay: MatchReplay = MatchReplay.new()
 	replay.initial_session = _make_session(loaded.state, loaded.registry)
 	replay.frames = []
 	var peers_by_slot: Dictionary[int, int] = {0: peer_id}
@@ -72,6 +72,8 @@ func join_match(peer_id: int, code: String) -> Dictionary:
 	var peers_by_slot: Dictionary = match_data.get("peers_by_slot", {})
 	if peers_by_slot.has(1):
 		return _failure("match_full")
+	if not peers_by_slot.has(0):
+		return _failure("match_orphaned")
 	peers_by_slot[1] = peer_id
 	var slot_by_peer: Dictionary = match_data.get("slot_by_peer", {})
 	slot_by_peer[peer_id] = 1
@@ -159,6 +161,9 @@ func disconnect_peer(peer_id: int) -> Dictionary:
 	var peers_by_slot: Dictionary = match_data.get("peers_by_slot", {})
 	if slot >= 0:
 		peers_by_slot.erase(slot)
+		var pending: Dictionary = match_data.get("pending", {})
+		pending.erase(slot)
+		match_data["pending"] = pending
 	match_data["slot_by_peer"] = slot_by_peer
 	match_data["peers_by_slot"] = peers_by_slot
 	_matches_by_code[code] = match_data
@@ -213,7 +218,7 @@ func _load_scenario() -> LoadedScenario:
 
 
 func _allocate_code() -> String:
-	var code := ""
+	var code: String = ""
 	while code == "" or _matches_by_code.has(code):
 		code = "CL%04d" % _next_code_index
 		_next_code_index += 1
@@ -227,7 +232,7 @@ func _new_replay_path(code: String) -> String:
 
 
 func _make_session(state: MatchState, registry: EntityRegistry) -> SavedSession:
-	var session := SavedSession.new()
+	var session: SavedSession = SavedSession.new()
 	session.state = state.clone() if state != null else null
 	session.registry = registry
 	session.input_snapshot = null
@@ -245,7 +250,7 @@ func _append_replay_frame(
 		)
 		replay.frames = []
 		match_data["replay"] = replay
-	var frame := ReplayTurnFrame.new()
+	var frame: ReplayTurnFrame = ReplayTurnFrame.new()
 	frame.turn_index = turn_index
 	frame.submit_a = submit_a.clone() if submit_a != null else SubmitTurn.new()
 	frame.submit_b = submit_b.clone() if submit_b != null else SubmitTurn.new()
