@@ -107,6 +107,7 @@ func _all_tests() -> Array:
 		],
 		["dev_play_mode_routes_command_card_orders", _test_routes_command_card_orders],
 		["dev_play_mode_pending_target_targets_enemy", _test_pending_target_targets_enemy],
+		["dev_play_mode_a_key_attack_move_mode", _test_a_key_attack_move_mode],
 		["dev_play_mode_left_drag_pans_camera", _test_left_drag_pans_camera],
 		["dev_play_mode_hud_anchors_away_from_start_area", _test_hud_anchors_away_from_start_area],
 		[
@@ -169,8 +170,14 @@ func _test_queues_and_resolves_turn() -> bool:
 		push_error("expected turn index 1 after resolve, got %d" % mode.current_state().turn_index)
 		_free_mode(mode)
 		return false
-	if mode.pending_order_count(0) != 0 or mode.pending_order_count(1) != 0:
-		push_error("resolve_turn should clear both player queues")
+	var queued_after_resolve: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if (
+		queued_after_resolve.size() != 1
+		or queued_after_resolve[0].type != EntityOrder.Type.ATTACK
+		or queued_after_resolve[0].target_priority_chain != ([4] as Array[int])
+		or mode.pending_order_count(1) != 0
+	):
+		push_error("resolve_turn should requeue the unfinished targeted ATTACK for P0 only")
 		_free_mode(mode)
 		return false
 	_free_mode(mode)
@@ -500,6 +507,8 @@ func _test_command_card_shows_costs() -> bool:
 		push_error("expected to select a worker")
 		ok = false
 	else:
+		mode.current_state().get_player(0).minerals = 149
+		mode.select_entity_id(worker_id)
 		var barracks_button: Button = _find_button_with_substring(card, "Barracks")
 		if barracks_button == null:
 			push_error("worker command card should show Barracks")
@@ -1677,6 +1686,60 @@ func _test_pending_target_targets_enemy() -> bool:
 	return true
 
 
+func _test_a_key_attack_move_mode() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	if not mode.select_entity_id(1):
+		push_error("expected to select P0 marine #1")
+		_free_mode(mode)
+		return false
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+	mode.call("_unhandled_input", _key_press(KEY_A))
+	if mode.pending_command_kind() != "move":
+		push_error("A key should enter pending attack-move mode")
+		_free_mode(mode)
+		return false
+	if mode.pending_cursor_shape() != Input.CURSOR_CROSS:
+		push_error("pending attack-move should use the crosshair cursor")
+		_free_mode(mode)
+		return false
+	if not mode.confirm_pending_at_tile(Vector2i(8, 10)):
+		push_error("A-key ground click should queue attack-move")
+		_free_mode(mode)
+		return false
+	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if orders.size() != 1 or orders[0].type != EntityOrder.Type.MOVE:
+		push_error("A-key ground click should queue one MOVE order")
+		_free_mode(mode)
+		return false
+	mode.input_model().clear_submissions()
+	mode.call("_unhandled_input", _key_press(KEY_A))
+	mode.renderer().set_perspective_player_id(1)
+	if not mode.confirm_pending_at_tile(Vector2i(13, 10)):
+		push_error("A-key enemy click should queue targeted ATTACK")
+		_free_mode(mode)
+		return false
+	orders = mode.input_model().submit_for_player(0).orders
+	if (
+		orders.size() != 1
+		or orders[0].type != EntityOrder.Type.ATTACK
+		or orders[0].target_priority_chain != ([4] as Array[int])
+		or orders[0].target_tile != Vector2i(13, 10)
+	):
+		push_error("A-key enemy click should queue ATTACK against #4")
+		_free_mode(mode)
+		return false
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+	_free_mode(mode)
+	return true
+
+
 func _test_left_drag_pans_camera() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -2294,6 +2357,13 @@ func _mouse_motion(relative: Vector2, button_mask: MouseButtonMask) -> InputEven
 func _escape_key() -> InputEventKey:
 	var event := InputEventKey.new()
 	event.keycode = KEY_ESCAPE
+	event.pressed = true
+	return event
+
+
+func _key_press(keycode: Key) -> InputEventKey:
+	var event := InputEventKey.new()
+	event.keycode = keycode
 	event.pressed = true
 	return event
 

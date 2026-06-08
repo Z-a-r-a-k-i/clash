@@ -7,6 +7,8 @@ signal disconnected
 signal message_received(message: Dictionary)
 
 const MESSAGE := preload("res://scripts/network/network_message.gd")
+const WEBSOCKET_BUFFER_SIZE: int = 16 * 1024 * 1024
+const WEBSOCKET_MAX_QUEUED_PACKETS: int = 128
 
 var _peer: WebSocketPeer = null
 var _codec: NetworkV0Codec = NetworkV0Codec.new()
@@ -20,6 +22,7 @@ func connect_to_server(url: String) -> Error:
 	_url = url
 	_match_code = ""
 	_peer = WebSocketPeer.new()
+	_configure_peer(_peer)
 	_open_emitted = false
 	var err: Error = _peer.connect_to_url(url)
 	if err != OK:
@@ -64,6 +67,20 @@ func submit_turn(submit: SubmitTurn) -> Error:
 	)
 
 
+func cancel_submit_turn() -> Error:
+	return send_message(
+		(
+			MESSAGE
+			. make(
+				MESSAGE.CANCEL_SUBMIT_TURN,
+				{
+					"code": _match_code,
+				}
+			)
+		)
+	)
+
+
 func send_message(message: Dictionary) -> Error:
 	if _peer == null:
 		return ERR_UNCONFIGURED
@@ -71,6 +88,12 @@ func send_message(message: Dictionary) -> Error:
 		return ERR_UNAVAILABLE
 	var bytes: PackedByteArray = _codec.encode(message)
 	return _peer.send(bytes, WebSocketPeer.WRITE_MODE_BINARY)
+
+
+func _configure_peer(peer: WebSocketPeer) -> void:
+	peer.inbound_buffer_size = WEBSOCKET_BUFFER_SIZE
+	peer.outbound_buffer_size = WEBSOCKET_BUFFER_SIZE
+	peer.max_queued_packets = WEBSOCKET_MAX_QUEUED_PACKETS
 
 
 func _process(_delta: float) -> void:

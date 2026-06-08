@@ -310,7 +310,13 @@ static func _explicit_move_intent(
 ) -> Dictionary:
 	if order == null:
 		return {}
-	if order.type != EntityOrder.Type.MOVE and order.type != EntityOrder.Type.MOVE_ONLY:
+	if (
+		order.type != EntityOrder.Type.MOVE
+		and order.type != EntityOrder.Type.MOVE_ONLY
+		and order.type != EntityOrder.Type.ATTACK
+	):
+		return {}
+	if order.type == EntityOrder.Type.ATTACK and fired_entity_ids.has(actor.id):
 		return {}
 	if (
 		order.type == EntityOrder.Type.MOVE
@@ -324,7 +330,7 @@ static func _explicit_move_intent(
 	)
 	if not _can_spend_movement(actor, budget):
 		return {}
-	var goal: Dictionary = _move_goal_for_order(state, actor, order)
+	var goal: Dictionary = _goal_for_order(state, actor, order, registry)
 	var target_origin: Vector2i = goal.get("target_origin", order.target_tile)
 	if actor.origin == target_origin and bool(goal.get("exact_origin", true)):
 		return {}
@@ -340,6 +346,14 @@ static func _explicit_move_intent(
 	if goal.has("goal_rect"):
 		intent["goal_rect"] = goal["goal_rect"]
 	return intent
+
+
+static func _goal_for_order(
+	state: MatchState, actor: Entity, order: EntityOrder, registry: EntityRegistry
+) -> Dictionary:
+	if order != null and order.type == EntityOrder.Type.ATTACK:
+		return _attack_goal_for_order(state, actor, order, registry)
+	return _move_goal_for_order(state, actor, order)
 
 
 static func _move_goal_for_order(
@@ -377,6 +391,37 @@ static func _move_goal_for_order(
 	return fallback
 
 
+static func _attack_goal_for_order(
+	state: MatchState, actor: Entity, order: EntityOrder, registry: EntityRegistry
+) -> Dictionary:
+	var fallback: Dictionary = {
+		"target_origin": order.target_tile,
+		"goal_rect": Rect2i(order.target_tile, Vector2i.ONE),
+		"exact_origin": false,
+		"goal_range": _attack_range_for_entity(actor, registry),
+	}
+	if (
+		state == null
+		or state.tile_grid == null
+		or actor == null
+		or order == null
+		or order.target_priority_chain.is_empty()
+	):
+		return fallback
+	var target: Entity = state.get_entity_by_id(order.target_priority_chain[0])
+	if target == null or not _is_attack_targetable(actor, target, registry):
+		return fallback
+	var target_rect: Rect2i = state.tile_grid.entity_rect(target.id)
+	if target_rect.size == Vector2i.ZERO:
+		target_rect = Rect2i(target.origin, _PATHFINDING.entity_footprint(state, target, registry))
+	return {
+		"target_origin": target_rect.position,
+		"goal_rect": target_rect,
+		"exact_origin": false,
+		"goal_range": _attack_range_for_entity(actor, registry),
+	}
+
+
 static func _gather_move_intent(
 	state: MatchState,
 	actor: Entity,
@@ -395,9 +440,16 @@ static func _gather_move_intent(
 	if source == null:
 		GatherSystem.clear_assignment(actor)
 		return {}
-	if not GatherSystem._is_worker_within_source_cap(source_assignments, registry, actor, source):
+	var assigned_source: Entity = GatherSystem.best_source_for_worker(
+		state, registry, actor, source, source_assignments
+	)
+	if assigned_source == null:
 		GatherSystem.clear_assignment(actor)
 		return {}
+	if assigned_source.id != source.id:
+		actor.gather_state.assigned_source_entity_id = assigned_source.id
+		GatherSystem.replace_assignment_in_map(source_assignments, actor.id, assigned_source.id)
+		source = assigned_source
 	if GatherSystem._is_adjacent_to(state, actor, source):
 		actor.gather_state.phase = GatherState.Phase.GATHERING
 		return {}
@@ -918,6 +970,28 @@ static func movement_speed_for_entity(actor: Entity, registry: EntityRegistry) -
 		if buff != null:
 			speed *= buff.speed_mult
 	return max(0, int(round(speed)))
+
+
+static func _attack_range_for_entity(actor: Entity, registry: EntityRegistry) -> int:
+	if actor == null or registry == null:
+		return 0
+	var def: EntityDef = registry.get_by_id(actor.current_def_id)
+	if def == null or def.combat == null:
+		return 0
+	return def.combat.attack_range
+
+
+static func _is_attack_targetable(actor: Entity, target: Entity, registry: EntityRegistry) -> bool:
+	if actor == null or target == null or registry == null:
+		return false
+	if target.current_hp <= 0:
+		return false
+	if target.owner_player_id < 0 or target.owner_player_id == actor.owner_player_id:
+		return false
+	var def: EntityDef = registry.get_by_id(actor.current_def_id)
+	if def == null or def.combat == null:
+		return false
+	return def.combat.target_layers.has(target.current_layer)
 
 
 static func movement_budget_for_entity(

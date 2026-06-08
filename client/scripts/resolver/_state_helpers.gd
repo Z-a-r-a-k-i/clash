@@ -105,6 +105,12 @@ static func _distribute_one(
 		if order.type == EntityOrder.Type.CANCEL:
 			_handle_cancel_order(state, entity, order, registry, events)
 			continue
+		if order.type == EntityOrder.Type.SET_RALLY_POINT:
+			_handle_set_rally_order(state, entity, order, registry, events)
+			continue
+		if order.type == EntityOrder.Type.REPEAT_TRAIN_TOGGLE:
+			_handle_repeat_train_toggle_order(entity, order, registry, events)
+			continue
 		if order.type == EntityOrder.Type.TRAIN:
 			_handle_train_order(entity, order, registry, events)
 			continue
@@ -140,21 +146,27 @@ static func _distribute_one(
 				GatherSystem.clear_assignment(entity)
 				_emit_order_rejected(order.entity_id, "bad_gather_target", events)
 				continue
-			if not GatherSystem.source_has_open_slot(state, registry, source, entity.id):
+			var assigned_source: Entity = GatherSystem.best_source_for_worker(
+				state, registry, entity, source
+			)
+			if assigned_source == null:
 				GatherSystem.clear_assignment(entity)
 				_emit_order_rejected(order.entity_id, "source_saturated", events)
 				continue
-			entity.gather_state.assigned_source_entity_id = order.target_entity_id
+			entity.gather_state.assigned_source_entity_id = assigned_source.id
 			entity.gather_state.carrying_amount = 0
 			entity.gather_state.carrying_resource_type = ""
-			if _is_adjacent_to(state, entity, source):
+			if _is_adjacent_to(state, entity, assigned_source):
 				entity.gather_state.phase = GatherState.Phase.GATHERING
 			else:
 				entity.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
 			continue
 		if order.type == EntityOrder.Type.ATTACK:
 			GatherSystem.clear_assignment(entity)
+			_refresh_attack_target_tile(state, entity, order)
 			_set_focus_target_from_chain(state, entity, order.target_priority_chain)
+			if _can_entity_move(entity, registry):
+				_queue_replacing_move(per_entity, order)
 			continue
 		# Per-tick orders queue up.
 		GatherSystem.clear_assignment(entity)
@@ -162,7 +174,11 @@ static func _distribute_one(
 			_set_focus_target_from_chain(state, entity, order.target_priority_chain)
 		if not per_entity.has(order.entity_id):
 			per_entity[order.entity_id] = []
-		if order.type == EntityOrder.Type.MOVE or order.type == EntityOrder.Type.MOVE_ONLY:
+		if (
+			order.type == EntityOrder.Type.MOVE
+			or order.type == EntityOrder.Type.MOVE_ONLY
+			or order.type == EntityOrder.Type.ATTACK
+		):
 			_queue_replacing_move(per_entity, order)
 		else:
 			per_entity[order.entity_id].append(order)
@@ -192,6 +208,31 @@ static func _set_focus_target_from_chain(
 		return
 
 
+static func _refresh_attack_target_tile(
+	state: MatchState, entity: Entity, order: EntityOrder
+) -> void:
+	if state == null or entity == null or order == null or order.target_priority_chain.is_empty():
+		return
+	var target := state.get_entity_by_id(order.target_priority_chain[0])
+	if target == null or target.current_hp <= 0:
+		return
+	if target.owner_player_id < 0 or target.owner_player_id == entity.owner_player_id:
+		return
+	if state.tile_grid != null:
+		var target_rect: Rect2i = state.tile_grid.entity_rect(target.id)
+		if target_rect.size != Vector2i.ZERO:
+			order.target_tile = target_rect.position
+			return
+	order.target_tile = target.origin
+
+
+static func _can_entity_move(entity: Entity, registry: EntityRegistry) -> bool:
+	if entity == null or registry == null:
+		return false
+	var def: EntityDef = registry.get_by_id(_effective_def_id(entity))
+	return def != null and def.movement != null and def.movement.speed_tiles_per_turn > 0
+
+
 static func _queue_replacing_move(per_entity: Dictionary, order: EntityOrder) -> void:
 	if not per_entity.has(order.entity_id):
 		per_entity[order.entity_id] = []
@@ -203,6 +244,7 @@ static func _queue_replacing_move(per_entity: Dictionary, order: EntityOrder) ->
 			and (
 				existing.type == EntityOrder.Type.MOVE
 				or existing.type == EntityOrder.Type.MOVE_ONLY
+				or existing.type == EntityOrder.Type.ATTACK
 			)
 		):
 			queue.remove_at(i)
@@ -537,6 +579,70 @@ static func _emit_order_rejected(
 	ev.actor_id = actor_id
 	ev.def_id = reason
 	events.append(ev)
+
+
+static func _handle_set_rally_order(
+	state: MatchState,
+	entity: Entity,
+	order: EntityOrder,
+	registry: EntityRegistry,
+	events: Array[ResolverEvent]
+) -> void:
+	if entity.production_state == null:
+		_emit_order_rejected(order.entity_id, "not_a_producer", events)
+		return
+	if order.mode == ProductionState.RALLY_MODE_NONE or order.mode == "":
+		entity.production_state.rally_mode = ProductionState.RALLY_MODE_NONE
+		entity.production_state.rally_target_tile = Vector2i.ZERO
+		entity.production_state.rally_target_entity_id = -1
+		return
+	if order.mode == ProductionState.RALLY_MODE_MOVE:
+		if (
+			state == null
+			or state.tile_grid == null
+			or not state.tile_grid.is_in_bounds(order.target_tile)
+		):
+			_emit_order_rejected(order.entity_id, "bad_rally_tile", events)
+			return
+		entity.production_state.rally_mode = ProductionState.RALLY_MODE_MOVE
+		entity.production_state.rally_target_tile = order.target_tile
+		entity.production_state.rally_target_entity_id = -1
+		return
+	if order.mode == ProductionState.RALLY_MODE_GATHER:
+		var source: Entity = GatherSystem.resolve_source_for_worker(
+			state, registry, order.target_entity_id, entity.owner_player_id
+		)
+		if source == null:
+			_emit_order_rejected(order.entity_id, "bad_rally_gather_target", events)
+			return
+		entity.production_state.rally_mode = ProductionState.RALLY_MODE_GATHER
+		entity.production_state.rally_target_tile = Vector2i.ZERO
+		entity.production_state.rally_target_entity_id = order.target_entity_id
+		return
+	_emit_order_rejected(order.entity_id, "bad_rally_mode", events)
+
+
+static func _handle_repeat_train_toggle_order(
+	entity: Entity, order: EntityOrder, registry: EntityRegistry, events: Array[ResolverEvent]
+) -> void:
+	if entity.production_state == null:
+		_emit_order_rejected(order.entity_id, "not_a_producer", events)
+		return
+	if order.enabled:
+		if order.def_id == "":
+			_emit_order_rejected(order.entity_id, "missing_def_id", events)
+			return
+		if registry != null:
+			var producer_def: EntityDef = registry.get_by_id(entity.current_def_id)
+			if (
+				producer_def == null
+				or producer_def.production == null
+				or not producer_def.production.produces.has(order.def_id)
+			):
+				_emit_order_rejected(order.entity_id, "not_in_produces", events)
+				return
+		entity.production_state.repeat_train_def_id = order.def_id
+	entity.production_state.repeat_train_enabled = order.enabled
 
 
 # CANCEL handler — splits the three semantic flavours per plan node 05:

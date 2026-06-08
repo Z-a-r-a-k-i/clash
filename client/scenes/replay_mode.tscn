@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://emnswyp7g1he"]
+
+[ext_resource type="Script" uid="uid://b67ndelq3d3ex" path="res://scripts/ui/replay_mode.gd" id="1_yyvgv"]
+
+[node name="Node" type="Node" unique_id=1063851697]
+script = ExtResource("1_yyvgv")

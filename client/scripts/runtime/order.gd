@@ -41,6 +41,8 @@ enum Type {
 	CANCEL,
 	GATHER,
 	USE_ABILITY,
+	SET_RALLY_POINT,
+	REPEAT_TRAIN_TOGGLE,
 }
 
 @export var type: Type = Type.INVALID
@@ -72,6 +74,12 @@ enum Type {
 # -1 = unset.
 @export var target_entity_id: int = -1
 
+# SET_RALLY_POINT — ProductionState.RALLY_MODE_*.
+@export var mode: String = ""
+
+# REPEAT_TRAIN_TOGGLE and future binary standing commands.
+@export var enabled: bool = false
+
 
 func clone() -> EntityOrder:
 	var c := EntityOrder.new()
@@ -86,4 +94,6 @@ func clone() -> EntityOrder:
 	c.def_id = def_id
 	c.cancel_index = cancel_index
 	c.target_entity_id = target_entity_id
+	c.mode = mode
+	c.enabled = enabled
 	return c

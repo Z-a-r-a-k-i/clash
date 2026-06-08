@@ -11,7 +11,7 @@ This is the first same-version PvP slice. It is for trusted development playtest
 - Broadcasts the full authoritative `MatchState` and resolver events to both clients.
 - Saves a same-version `MatchReplay` journal under `user://tmp/network_replays` by default.
 
-The v0 wire format is Godot Variant binary with an adapter boundary in `client/scripts/network/network_v0_codec.gd`. It intentionally allows Godot objects and is only compatible with the same client/server code version.
+The v0 wire format is Godot Variant binary with an adapter boundary in `client/scripts/network/network_v0_codec.gd`. The codec normalizes messages into primitive Variant containers and rebuilds a small whitelist of Clash runtime objects. It is only compatible with the same client/server code version.
 
 ## Run A Local Server
 
@@ -28,7 +28,7 @@ Then connect clients to:
 ws://127.0.0.1:9087
 ```
 
-Client UI entry is `res://scripts/network/network_play_mode.gd`. It builds a network HUD plus a shared `MatchPlaySurface`; dev replay and snapshot controls are intentionally absent.
+The project main scene opens `res://scenes/main_menu.tscn`. Choose `Multiplayer` to open the lobby scene. The lobby auto-connects to the last server URL you used, or `ws://127.0.0.1:9087` by default. You can still edit the URL and press `Connect` to use a tunnel or alternate local port. Create/join there, then play in the dedicated network match HUD. Dev replay and snapshot controls stay out of multiplayer.
 
 ## Tunnel Smoke
 
@@ -54,12 +54,22 @@ Use the returned HTTPS forwarding hostname as `wss://...`.
 
 1. Start the headless server.
 2. Open two clients.
-3. Connect both clients to the same server URL.
-4. On client A, create a match and copy the invite code.
-5. On client B, join with that code.
-6. Submit one turn for each player.
-7. Confirm both clients receive the same resolved state and events.
-8. Repeat with one client connecting through the tunnel URL.
+3. Choose `Multiplayer` in both clients.
+4. Connect both clients to the same server URL.
+5. On client A, create a match and copy the invite code.
+6. Confirm client A stays in the lobby and the map does not open yet.
+7. On client B, join with that code.
+8. Confirm both clients enter the match after client B joins.
+9. Queue orders in both clients and verify order previews render.
+10. Toggle `Show All Orders` and verify queued orders from all local units can be shown/hidden.
+11. Toggle `Hide UI` and verify units behind the HUD can be clicked, then toggle `Show UI`.
+12. Toggle `Submit Turn` on, then off before the other player submits, and verify readiness can be cancelled.
+13. Queue a long-distance move or multiple queued orders, submit, and confirm follow-up orders remain queued on the next turn.
+14. Submit one turn for each player.
+15. Confirm both clients receive the same resolved state and events.
+16. Press Escape in a match and confirm the menu can resume, leave back to the multiplayer lobby, or return to the main menu.
+17. Leave from one client during an active match and confirm the remaining player receives the win and a centered `Victory` overlay.
+18. Repeat with one client connecting through the tunnel URL.
 
 ## Current Limits
 

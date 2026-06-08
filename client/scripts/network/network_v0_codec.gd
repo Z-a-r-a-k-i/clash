@@ -171,6 +171,8 @@ func _normalize_entity_order(order: EntityOrder) -> Dictionary:
 		"def_id": order.def_id,
 		"cancel_index": order.cancel_index,
 		"target_entity_id": order.target_entity_id,
+		"mode": order.mode,
+		"enabled": order.enabled,
 	}
 
 
@@ -325,6 +327,8 @@ func _entity_order_from_dict(source: Dictionary) -> EntityOrder:
 	order.def_id = source.get("def_id", "")
 	order.cancel_index = source.get("cancel_index", -1)
 	order.target_entity_id = source.get("target_entity_id", -1)
+	order.mode = source.get("mode", "")
+	order.enabled = source.get("enabled", false)
 	return order
 
 

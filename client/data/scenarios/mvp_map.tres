@@ -148,11 +148,11 @@ script = ExtResource("2_3dyv3")
 starting_resources_per_player = {
 0: {
 "gas": 0,
-"minerals": 50
+"minerals": 150
 },
 1: {
 "gas": 0,
-"minerals": 50
+"minerals": 150
 }
 }
 auto_start_workers_on_minerals = true

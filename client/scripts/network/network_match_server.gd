@@ -3,6 +3,8 @@ extends Node
 
 const MESSAGE := preload("res://scripts/network/network_message.gd")
 const MAX_PACKET_SIZE: int = 65536
+const WEBSOCKET_BUFFER_SIZE: int = 16 * 1024 * 1024
+const WEBSOCKET_MAX_QUEUED_PACKETS: int = 128
 
 @export var bind_address: String = "127.0.0.1"
 @export var port: int = 9087
@@ -52,6 +54,7 @@ func _accept_new_peers() -> void:
 	while _tcp_server.is_connection_available():
 		var stream: StreamPeerTCP = _tcp_server.take_connection()
 		var peer: WebSocketPeer = WebSocketPeer.new()
+		_configure_peer(peer)
 		var err: Error = peer.accept_stream(stream)
 		if err != OK:
 			push_warning("NetworkMatchServer: WebSocket accept failed: %d" % err)
@@ -114,6 +117,12 @@ func _handle_message(peer_id: int, message: Dictionary) -> void:
 				_send(peer_id, MESSAGE.make(MESSAGE.SUBMIT_TURN, {"accepted": true}))
 			else:
 				_send_result_to_peer(peer_id, submitted)
+		MESSAGE.CANCEL_SUBMIT_TURN:
+			var cancelled: Dictionary = _hub.cancel_submit_turn(peer_id, payload.get("code", ""))
+			if cancelled.get("ok", false):
+				_send(peer_id, MESSAGE.make(MESSAGE.CANCEL_SUBMIT_TURN, {"accepted": true}))
+			else:
+				_send_result_to_peer(peer_id, cancelled)
 		_:
 			_send(peer_id, MESSAGE.error("unknown_message", "unknown_message"))
 
@@ -133,6 +142,18 @@ func _send(peer_id: int, message: Dictionary) -> void:
 	var peer: WebSocketPeer = _peers.get(peer_id)
 	if peer == null or peer.get_ready_state() != WebSocketPeer.STATE_OPEN:
 		return
-	var err: Error = peer.send(_codec.encode(message), WebSocketPeer.WRITE_MODE_BINARY)
+	var bytes: PackedByteArray = _codec.encode(message)
+	var err: Error = peer.send(bytes, WebSocketPeer.WRITE_MODE_BINARY)
 	if err != OK:
-		push_warning("NetworkMatchServer: send failed to peer %d: %d" % [peer_id, err])
+		push_warning(
+			(
+				"NetworkMatchServer: send failed to peer %d: %d (%d bytes)"
+				% [peer_id, err, bytes.size()]
+			)
+		)
+
+
+func _configure_peer(peer: WebSocketPeer) -> void:
+	peer.inbound_buffer_size = WEBSOCKET_BUFFER_SIZE
+	peer.outbound_buffer_size = WEBSOCKET_BUFFER_SIZE
+	peer.max_queued_packets = WEBSOCKET_MAX_QUEUED_PACKETS

@@ -35,7 +35,7 @@ max_hp = 175
 
 [sub_resource type="Resource" id="Resource_iefjg"]
 script = ExtResource("8_bnigh")
-speed_tiles_per_turn = 3
+speed_tiles_per_turn = 4
 
 [sub_resource type="Resource" id="Resource_85yrs"]
 script = ExtResource("9_xxnr2")

@@ -191,7 +191,7 @@ func _test_balance_adjustments_are_exported() -> bool:
 	ok = _expect_cell(tank, "health_max_hp", "175") and ok
 	ok = _expect_cell(tank, "combat_damage", "30") and ok
 	ok = _expect_cell(tank, "combat_attack_range", "3") and ok
-	ok = _expect_cell(tank, "movement_speed", "3") and ok
+	ok = _expect_cell(tank, "movement_speed", "4") and ok
 	ok = _expect_cell(tank, "construction_gas_cost", "125") and ok
 
 	var siege_tank := _row_by_id("siege_tank")

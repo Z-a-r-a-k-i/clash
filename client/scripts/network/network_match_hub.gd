@@ -82,7 +82,7 @@ func join_match(peer_id: int, code: String) -> Dictionary:
 	_matches_by_code[code] = match_data
 	_match_code_by_peer[peer_id] = code
 	var messages_by_peer: Dictionary[int, Array] = {}
-	var turn_started: Dictionary = _turn_started_message(match_data)
+	var turn_started: Dictionary = _turn_started_message(match_data, true)
 	messages_by_peer[peers_by_slot[0]] = [turn_started]
 	messages_by_peer[peer_id] = [_match_joined_message(code, 1, 2), turn_started]
 	return {
@@ -135,7 +135,7 @@ func submit_turn(peer_id: int, code: String, submit: SubmitTurn) -> Dictionary:
 	_matches_by_code[code] = match_data
 	var messages_by_peer: Dictionary[int, Array] = {}
 	var resolved_message: Dictionary = _turn_resolved_message(result)
-	var next_turn_message: Dictionary = _turn_started_message(match_data)
+	var next_turn_message: Dictionary = _turn_started_message(match_data, false)
 	for peer in slot_by_peer.keys():
 		var target_peer: int = int(peer)
 		messages_by_peer[target_peer] = [resolved_message, next_turn_message]
@@ -145,6 +145,24 @@ func submit_turn(peer_id: int, code: String, submit: SubmitTurn) -> Dictionary:
 		"slot": slot,
 		"messages_by_peer": messages_by_peer,
 	}
+
+
+func cancel_submit_turn(peer_id: int, code: String) -> Dictionary:
+	code = _resolve_code(peer_id, code)
+	if code == "" or not _matches_by_code.has(code):
+		return _failure("invalid_code")
+	var match_data: Dictionary = _matches_by_code[code]
+	var slot_by_peer: Dictionary = match_data.get("slot_by_peer", {})
+	if not slot_by_peer.has(peer_id):
+		return _failure("peer_not_in_match")
+	var slot: int = slot_by_peer[peer_id]
+	var pending: Dictionary = match_data.get("pending", {})
+	if not pending.has(slot):
+		return _failure("not_submitted")
+	pending.erase(slot)
+	match_data["pending"] = pending
+	_matches_by_code[code] = match_data
+	return {"ok": true, "resolved": false, "slot": slot}
 
 
 func disconnect_peer(peer_id: int) -> Dictionary:
@@ -157,8 +175,9 @@ func disconnect_peer(peer_id: int) -> Dictionary:
 	var match_data: Dictionary = _matches_by_code[code]
 	var slot_by_peer: Dictionary = match_data.get("slot_by_peer", {})
 	var slot: int = slot_by_peer.get(peer_id, -1)
-	slot_by_peer.erase(peer_id)
 	var peers_by_slot: Dictionary = match_data.get("peers_by_slot", {})
+	var was_active_match: bool = peers_by_slot.has(0) and peers_by_slot.has(1)
+	slot_by_peer.erase(peer_id)
 	if slot >= 0:
 		peers_by_slot.erase(slot)
 		var pending: Dictionary = match_data.get("pending", {})
@@ -166,23 +185,33 @@ func disconnect_peer(peer_id: int) -> Dictionary:
 		match_data["pending"] = pending
 	match_data["slot_by_peer"] = slot_by_peer
 	match_data["peers_by_slot"] = peers_by_slot
+	var forfeit_message: Dictionary = {}
+	if was_active_match and slot >= 0:
+		forfeit_message = _resolve_forfeit(match_data, slot)
 	_matches_by_code[code] = match_data
 	var messages_by_peer: Dictionary[int, Array] = {}
 	for peer in slot_by_peer.keys():
 		var target_peer: int = int(peer)
-		messages_by_peer[target_peer] = [
-			(
-				MESSAGE
-				. make(
-					MESSAGE.DISCONNECT_NOTICE,
-					{
-						"code": code,
-						"slot": slot,
-						"peer_id": peer_id,
-					}
+		var messages: Array = []
+		if not forfeit_message.is_empty():
+			messages.append(forfeit_message)
+		(
+			messages
+			. append(
+				(
+					MESSAGE
+					. make(
+						MESSAGE.DISCONNECT_NOTICE,
+						{
+							"code": code,
+							"slot": slot,
+							"peer_id": peer_id,
+						}
+					)
 				)
 			)
-		]
+		)
+		messages_by_peer[target_peer] = messages
 	return {"ok": true, "messages_by_peer": messages_by_peer}
 
 
@@ -206,6 +235,35 @@ func match_replay_path(code: String) -> String:
 	if not _matches_by_code.has(code):
 		return ""
 	return _matches_by_code[code].get("replay_path", "")
+
+
+func _resolve_forfeit(match_data: Dictionary, forfeiting_slot: int) -> Dictionary:
+	var state: MatchState = match_data.get("state") as MatchState
+	if state == null or state.match_over:
+		return {}
+	var submit_a: SubmitTurn = SubmitTurn.new()
+	var submit_b: SubmitTurn = SubmitTurn.new()
+	if forfeiting_slot == 0:
+		submit_a.surrender = true
+	elif forfeiting_slot == 1:
+		submit_b.surrender = true
+	else:
+		return {}
+	var turn_before: int = state.turn_index
+	var result: ResolveResult = Resolver.resolve(
+		state,
+		submit_a,
+		submit_b,
+		match_data.get("registry") as EntityRegistry,
+		match_data.get("tunables") as Tunables
+	)
+	if result == null or result.new_state == null:
+		return {}
+	_append_replay_frame(match_data, turn_before, submit_a, submit_b)
+	match_data["state"] = result.new_state
+	match_data["pending"] = {}
+	_save_replay(match_data)
+	return _turn_resolved_message(result)
 
 
 func _load_scenario() -> LoadedScenario:
@@ -288,11 +346,15 @@ func _validate_submit(match_data: Dictionary, slot: int, submit: SubmitTurn) -> 
 	var state: MatchState = match_data.get("state") as MatchState
 	if state == null:
 		return "missing_state"
-	for order in submit.orders:
+	for order_index in range(submit.orders.size()):
+		var order: EntityOrder = submit.orders[order_index]
 		if order == null:
 			return "invalid_order"
 		var entity: Entity = state.get_entity_by_id(order.entity_id)
 		if entity == null or entity.current_hp <= 0:
+			_log_submit_validation_failure(
+				match_data, slot, order_index, "invalid_order_entity", order, entity
+			)
 			return "invalid_order_entity"
 		if entity.owner_player_id != slot:
 			return "wrong_player_order"
@@ -313,21 +375,17 @@ func _match_joined_message(code: String, slot: int, player_count: int) -> Dictio
 	)
 
 
-func _turn_started_message(match_data: Dictionary) -> Dictionary:
+func _turn_started_message(match_data: Dictionary, include_snapshot: bool = true) -> Dictionary:
 	var state: MatchState = match_data.get("state") as MatchState
 	var registry: EntityRegistry = match_data.get("registry") as EntityRegistry
-	return (
-		MESSAGE
-		. make(
-			MESSAGE.TURN_STARTED,
-			{
-				"code": match_data.get("code", ""),
-				"turn_index": state.turn_index if state != null else -1,
-				"match_state": state.clone() if state != null else null,
-				"registry": registry,
-			}
-		)
-	)
+	var payload: Dictionary = {
+		"code": match_data.get("code", ""),
+		"turn_index": state.turn_index if state != null else -1,
+	}
+	if include_snapshot:
+		payload["match_state"] = state.clone() if state != null else null
+		payload["registry"] = registry
+	return MESSAGE.make(MESSAGE.TURN_STARTED, payload)
 
 
 func _turn_resolved_message(result: ResolveResult) -> Dictionary:
@@ -350,3 +408,38 @@ func _failure(error_code: String) -> Dictionary:
 		"error": error_code,
 		"messages": [MESSAGE.error(error_code, error_code)],
 	}
+
+
+func _log_submit_validation_failure(
+	match_data: Dictionary,
+	slot: int,
+	order_index: int,
+	error_code: String,
+	order: EntityOrder,
+	entity: Entity
+) -> void:
+	var state: MatchState = match_data.get("state") as MatchState
+	var turn_index: int = state.turn_index if state != null else -1
+	var entity_id: int = order.entity_id if order != null else -1
+	var order_type: int = order.type if order != null else -1
+	var entity_owner: int = entity.owner_player_id if entity != null else -1
+	var entity_hp: int = entity.current_hp if entity != null else -1
+	push_warning(
+		(
+			(
+				"NetworkMatchHub: submit rejected code=%s turn=%d slot=%d order=%d "
+				+ "error=%s type=%d entity=%d entity_owner=%d entity_hp=%d"
+			)
+			% [
+				match_data.get("code", ""),
+				turn_index,
+				slot,
+				order_index,
+				error_code,
+				order_type,
+				entity_id,
+				entity_owner,
+				entity_hp,
+			]
+		)
+	)
