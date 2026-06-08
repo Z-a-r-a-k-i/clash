@@ -298,7 +298,11 @@ func issue_cancel_selected(cancel_index: int = -1) -> bool:
 
 
 func issue_train_selected(def_id: String) -> bool:
+	var selected_id: int = _input.selected_entity_id()
+	var repeat_enabled: bool = _input.selected_repeat_train_enabled()
 	var ok: bool = _input.issue_train(def_id)
+	if ok and repeat_enabled:
+		_queue_repeat_train_order(selected_id, true, def_id)
 	_refresh_action_previews()
 	_update_hud()
 	return ok
@@ -1020,6 +1024,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not _match_started or _surface == null or _surface.renderer() == null:
 		return
 	if _escape_menu_panel != null and _escape_menu_panel.visible:
+		_reset_left_empty_drag()
 		return
 	if event is InputEventKey:
 		var key_event: InputEventKey = event as InputEventKey
@@ -1304,12 +1309,14 @@ func _queue_rally_gather_order(entity_id: int, target_entity_id: int) -> void:
 	_queue_network_standing_order(order)
 
 
-func _queue_repeat_train_order(entity_id: int, enabled: bool) -> void:
+func _queue_repeat_train_order(
+	entity_id: int, enabled: bool, preferred_def_id: String = ""
+) -> void:
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.REPEAT_TRAIN_TOGGLE
 	order.entity_id = entity_id
 	order.enabled = enabled
-	order.def_id = _repeat_train_def_id_for_entity(entity_id) if enabled else ""
+	order.def_id = _repeat_train_def_id_for_entity(entity_id, preferred_def_id) if enabled else ""
 	_queue_network_standing_order(order)
 
 
@@ -1334,7 +1341,9 @@ func _standing_order_index(orders: Array[EntityOrder], order: EntityOrder) -> in
 	return -1
 
 
-func _repeat_train_def_id_for_entity(entity_id: int) -> String:
+func _repeat_train_def_id_for_entity(entity_id: int, preferred_def_id: String = "") -> String:
+	if preferred_def_id != "":
+		return preferred_def_id
 	var state: MatchState = _current_state()
 	var entity: Entity = state.get_entity_by_id(entity_id) if state != null else null
 	if (

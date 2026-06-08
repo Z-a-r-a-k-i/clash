@@ -908,6 +908,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _renderer == null or _loaded == null:
 		return
 	if _escape_menu_panel != null and _escape_menu_panel.visible:
+		_reset_left_empty_drag()
 		return
 	if event is InputEventKey:
 		var key_event: InputEventKey = event as InputEventKey

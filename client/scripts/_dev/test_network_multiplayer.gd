@@ -442,7 +442,7 @@ func _test_action_preview_builder() -> bool:
 	var loaded: LoadedScenario = _load_combat()
 	if loaded == null:
 		return false
-	var input := DevTurnInput.new()
+	var input: DevTurnInput = DevTurnInput.new()
 	input.set_active_player_id(0)
 	input.bind_context(loaded.state, loaded.registry)
 	var actor_id: int = _first_entity_id(loaded.state, 0)
@@ -1216,13 +1216,21 @@ func _test_network_authoritative_producer_state() -> bool:
 		return false
 	_give_generous_player_resources(client_loaded.state, 0)
 	_give_generous_player_resources(server_loaded.state, 0)
-	mode.call("bind_authoritative_snapshot", client_loaded.state, client_loaded.registry, 0)
 	var producer_id: int = _first_producer_entity_id(client_loaded.state, client_loaded.registry, 0)
 	if producer_id < 0:
 		push_error("network authoritative producer test requires a producer")
 		remove_child(mode)
 		mode.queue_free()
 		return false
+	if (
+		not _ensure_second_train_option(client_loaded.state, client_loaded.registry, producer_id)
+		or not _ensure_second_train_option(server_loaded.state, server_loaded.registry, producer_id)
+	):
+		push_error("network authoritative producer test requires two train options")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("bind_authoritative_snapshot", client_loaded.state, client_loaded.registry, 0)
 	var rally_tile: Vector2i = _first_open_neighbor(client_loaded.state, producer_id)
 	if rally_tile == Vector2i(-1, -1):
 		push_error("network authoritative producer test requires a rally tile")
@@ -1237,7 +1245,7 @@ func _test_network_authoritative_producer_state() -> bool:
 		remove_child(mode)
 		mode.queue_free()
 		return false
-	var train_def_id: String = train_ids[0]
+	var train_def_id: String = train_ids[1] if train_ids.size() > 1 else train_ids[0]
 	var ok: bool = true
 	if not bool(mode.call("issue_context_at_tile", rally_tile, false)):
 		push_error("network producer should accept move rally before submit")
@@ -1247,6 +1255,12 @@ func _test_network_authoritative_producer_state() -> bool:
 		ok = false
 	if not bool(mode.call("issue_train_selected", train_def_id)):
 		push_error("network producer should queue TRAIN before submit")
+		ok = false
+	var repeat_def_id: String = _repeat_train_order_def_id(
+		input.submit_for_player(0).orders, producer_id
+	)
+	if repeat_def_id != train_def_id:
+		push_error("network repeat train should target the selected train option")
 		ok = false
 	var submit: SubmitTurn = _round_trip_submit_turn(input.submit_for_player(0).clone())
 	if submit == null:
@@ -1268,6 +1282,7 @@ func _test_network_authoritative_producer_state() -> bool:
 		server_producer == null
 		or server_producer.production_state == null
 		or not server_producer.production_state.repeat_train_enabled
+		or server_producer.production_state.repeat_train_def_id != train_def_id
 	):
 		push_error("server should preserve submitted repeat-train state")
 		ok = false
@@ -1308,6 +1323,7 @@ func _test_network_authoritative_producer_state() -> bool:
 			final_producer == null
 			or final_producer.production_state == null
 			or not final_producer.production_state.repeat_train_enabled
+			or final_producer.production_state.repeat_train_def_id != train_def_id
 			or final_producer.production_state.active.is_empty()
 		):
 			push_error(
@@ -1418,7 +1434,7 @@ func _first_enemy_entity_id(state: MatchState, owner: int) -> int:
 func _first_producer_entity_id(state: MatchState, registry: EntityRegistry, owner: int) -> int:
 	if state == null or registry == null:
 		return -1
-	var input := DevTurnInput.new()
+	var input: DevTurnInput = DevTurnInput.new()
 	input.bind_context(state, registry)
 	input.set_active_player_id(owner)
 	for entity: Entity in state.entities_sorted_by_id():
@@ -1431,10 +1447,37 @@ func _first_producer_entity_id(state: MatchState, registry: EntityRegistry, owne
 	return -1
 
 
+func _ensure_second_train_option(
+	state: MatchState, registry: EntityRegistry, producer_id: int
+) -> bool:
+	if state == null or registry == null:
+		return false
+	var producer: Entity = state.get_entity_by_id(producer_id)
+	if producer == null:
+		return false
+	var def_id: String = (
+		producer.current_def_id if producer.current_def_id != "" else producer.def_id
+	)
+	var def: EntityDef = registry.get_by_id(def_id)
+	if def == null or def.production == null:
+		return false
+	if def.production.produces.size() > 1:
+		return true
+	var candidates: Array[String] = ["marine", "worker", "siege_tank", "helicopter"]
+	for candidate_id: String in candidates:
+		if def.production.produces.has(candidate_id):
+			continue
+		if registry.get_by_id(candidate_id) == null:
+			continue
+		def.production.produces.append(candidate_id)
+		return true
+	return def.production.produces.size() > 1
+
+
 func _first_gatherer_entity_id(state: MatchState, registry: EntityRegistry, owner: int) -> int:
 	if state == null or registry == null:
 		return -1
-	var input := DevTurnInput.new()
+	var input: DevTurnInput = DevTurnInput.new()
 	input.bind_context(state, registry)
 	input.set_active_player_id(owner)
 	for entity: Entity in state.entities_sorted_by_id():
@@ -1448,7 +1491,7 @@ func _first_gatherer_entity_id(state: MatchState, registry: EntityRegistry, owne
 func _first_builder_entity_id(state: MatchState, registry: EntityRegistry, owner: int) -> int:
 	if state == null or registry == null:
 		return -1
-	var input := DevTurnInput.new()
+	var input: DevTurnInput = DevTurnInput.new()
 	input.bind_context(state, registry)
 	input.set_active_player_id(owner)
 	for entity: Entity in state.entities_sorted_by_id():
@@ -1462,7 +1505,7 @@ func _first_builder_entity_id(state: MatchState, registry: EntityRegistry, owner
 func _first_movable_entity_id(state: MatchState, registry: EntityRegistry, owner: int) -> int:
 	if state == null or registry == null:
 		return -1
-	var input := DevTurnInput.new()
+	var input: DevTurnInput = DevTurnInput.new()
 	input.bind_context(state, registry)
 	input.set_active_player_id(owner)
 	for entity: Entity in state.entities_sorted_by_id():
@@ -1478,7 +1521,7 @@ func _first_target_capable_entity_id(
 ) -> int:
 	if state == null or registry == null:
 		return -1
-	var input := DevTurnInput.new()
+	var input: DevTurnInput = DevTurnInput.new()
 	input.bind_context(state, registry)
 	input.set_active_player_id(owner)
 	for entity: Entity in state.entities_sorted_by_id():
@@ -1543,6 +1586,18 @@ func _has_gather_order(orders: Array[EntityOrder], entity_id: int, target_entity
 		):
 			return true
 	return false
+
+
+func _repeat_train_order_def_id(orders: Array[EntityOrder], producer_id: int) -> String:
+	for order: EntityOrder in orders:
+		if (
+			order != null
+			and order.entity_id == producer_id
+			and order.type == EntityOrder.Type.REPEAT_TRAIN_TOGGLE
+			and order.enabled
+		):
+			return order.def_id
+	return ""
 
 
 func _has_move_only_order(
