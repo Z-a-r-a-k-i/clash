@@ -1216,6 +1216,13 @@ func _test_network_authoritative_producer_state() -> bool:
 		return false
 	_give_generous_player_resources(client_loaded.state, 0)
 	_give_generous_player_resources(server_loaded.state, 0)
+	client_loaded.registry = _clone_registry_for_test(client_loaded.registry)
+	server_loaded.registry = _clone_registry_for_test(server_loaded.registry)
+	if client_loaded.registry == null or server_loaded.registry == null:
+		push_error("network authoritative producer test requires cloned registries")
+		remove_child(mode)
+		mode.queue_free()
+		return false
 	var producer_id: int = _first_producer_entity_id(client_loaded.state, client_loaded.registry, 0)
 	if producer_id < 0:
 		push_error("network authoritative producer test requires a producer")
@@ -1245,7 +1252,10 @@ func _test_network_authoritative_producer_state() -> bool:
 		remove_child(mode)
 		mode.queue_free()
 		return false
+	var stale_repeat_def_id: String = train_ids[0]
 	var train_def_id: String = train_ids[1] if train_ids.size() > 1 else train_ids[0]
+	_set_repeat_train_state(client_loaded.state, producer_id, true, stale_repeat_def_id)
+	_set_repeat_train_state(server_loaded.state, producer_id, true, stale_repeat_def_id)
 	var ok: bool = true
 	if not bool(mode.call("issue_context_at_tile", rally_tile, false)):
 		push_error("network producer should accept move rally before submit")
@@ -1255,6 +1265,12 @@ func _test_network_authoritative_producer_state() -> bool:
 		ok = false
 	if not bool(mode.call("issue_train_selected", train_def_id)):
 		push_error("network producer should queue TRAIN before submit")
+		ok = false
+	if not bool(mode.call("issue_repeat_train_selected", false)):
+		push_error("network producer should accept repeat train disable before submit")
+		ok = false
+	if not bool(mode.call("issue_repeat_train_selected", true)):
+		push_error("network producer should accept repeat train re-enable before submit")
 		ok = false
 	var repeat_def_id: String = _repeat_train_order_def_id(
 		input.submit_for_player(0).orders, producer_id
@@ -1447,6 +1463,23 @@ func _first_producer_entity_id(state: MatchState, registry: EntityRegistry, owne
 	return -1
 
 
+func _clone_registry_for_test(registry: EntityRegistry) -> EntityRegistry:
+	if registry == null:
+		return null
+	var out: EntityRegistry = EntityRegistry.new()
+	for def: EntityDef in registry.entities:
+		var copied_def: EntityDef = null
+		if def != null:
+			copied_def = def.duplicate(true) as EntityDef
+		out.entities.append(copied_def)
+	for research: ResearchDef in registry.researches:
+		var copied_research: ResearchDef = null
+		if research != null:
+			copied_research = research.duplicate(true) as ResearchDef
+		out.researches.append(copied_research)
+	return out
+
+
 func _ensure_second_train_option(
 	state: MatchState, registry: EntityRegistry, producer_id: int
 ) -> bool:
@@ -1472,6 +1505,18 @@ func _ensure_second_train_option(
 		def.production.produces.append(candidate_id)
 		return true
 	return def.production.produces.size() > 1
+
+
+func _set_repeat_train_state(
+	state: MatchState, producer_id: int, enabled: bool, def_id: String
+) -> void:
+	if state == null:
+		return
+	var producer: Entity = state.get_entity_by_id(producer_id)
+	if producer == null or producer.production_state == null:
+		return
+	producer.production_state.repeat_train_enabled = enabled
+	producer.production_state.repeat_train_def_id = def_id
 
 
 func _first_gatherer_entity_id(state: MatchState, registry: EntityRegistry, owner: int) -> int:

@@ -1344,14 +1344,6 @@ func _standing_order_index(orders: Array[EntityOrder], order: EntityOrder) -> in
 func _repeat_train_def_id_for_entity(entity_id: int, preferred_def_id: String = "") -> String:
 	if preferred_def_id != "":
 		return preferred_def_id
-	var state: MatchState = _current_state()
-	var entity: Entity = state.get_entity_by_id(entity_id) if state != null else null
-	if (
-		entity != null
-		and entity.production_state != null
-		and entity.production_state.repeat_train_def_id != ""
-	):
-		return entity.production_state.repeat_train_def_id
 	var submit: SubmitTurn = _input.submit_for_player(_player_slot) if _player_slot >= 0 else null
 	if submit != null:
 		for i in range(submit.orders.size() - 1, -1, -1):
@@ -1363,6 +1355,14 @@ func _repeat_train_def_id_for_entity(entity_id: int, preferred_def_id: String = 
 				and order.def_id != ""
 			):
 				return order.def_id
+	var state: MatchState = _current_state()
+	var entity: Entity = state.get_entity_by_id(entity_id) if state != null else null
+	if (
+		entity != null
+		and entity.production_state != null
+		and entity.production_state.repeat_train_def_id != ""
+	):
+		return entity.production_state.repeat_train_def_id
 	if entity_id == _input.selected_entity_id():
 		var train_ids: Array[String] = _input.train_option_ids()
 		if not train_ids.is_empty():
