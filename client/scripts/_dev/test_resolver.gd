@@ -168,10 +168,7 @@ func _all_tests() -> Array:
 			"targeted_attack_uses_last_known_tile_when_target_missing",
 			_test_targeted_attack_uses_last_known_tile_when_target_missing
 		],
-		[
-			"targeted_attack_ignores_other_enemies",
-			_test_targeted_attack_ignores_other_enemies
-		],
+		["targeted_attack_ignores_other_enemies", _test_targeted_attack_ignores_other_enemies],
 		["target_chase_ignores_halt_on_sight", _test_target_chase_ignores_halt_on_sight],
 		["idle_unit_auto_attacks_enemy_in_range", _test_idle_unit_auto_attacks_enemy_in_range],
 		# Chunk 5 — end-of-turn system.
@@ -6667,9 +6664,7 @@ func _entity_counts_by_def_id(state: MatchState) -> Dictionary:
 	return counts
 
 
-func _entity_count_by_def_and_owner(
-	state: MatchState, def_id: String, owner_player_id: int
-) -> int:
+func _entity_count_by_def_and_owner(state: MatchState, def_id: String, owner_player_id: int) -> int:
 	var count := 0
 	for entity in state.entities:
 		if entity == null:

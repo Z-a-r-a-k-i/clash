@@ -146,7 +146,9 @@ func _test_entity_order_type_wire_values() -> bool:
 		var actual: int = int(key)
 		var wanted: int = expected[key]
 		if actual != wanted:
-			push_error("EntityOrder.Type wire value changed: expected %d, got %d" % [wanted, actual])
+			push_error(
+				"EntityOrder.Type wire value changed: expected %d, got %d" % [wanted, actual]
+			)
 			return false
 	return true
 
@@ -1028,8 +1030,10 @@ func _test_network_hub_base_trains_worker() -> bool:
 	var after_workers: int = _entity_count_by_def_and_owner(state, "worker", 0)
 	if after_workers != before_workers + 1:
 		push_error(
-			"network worker TRAIN expected %d P0 workers, got %d"
-			% [before_workers + 1, after_workers]
+			(
+				"network worker TRAIN expected %d P0 workers, got %d"
+				% [before_workers + 1, after_workers]
+			)
 		)
 		return false
 	return true
@@ -1808,9 +1812,7 @@ func _events_have_type(events: Array, event_type: ResolverEvent.Type) -> bool:
 	return false
 
 
-func _entity_count_by_def_and_owner(
-	state: MatchState, def_id: String, owner_player_id: int
-) -> int:
+func _entity_count_by_def_and_owner(state: MatchState, def_id: String, owner_player_id: int) -> int:
 	if state == null:
 		return 0
 	var count := 0

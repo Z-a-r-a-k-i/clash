@@ -109,9 +109,8 @@ static func resolve_movement_substep(
 			_PATHFINDING.OPTION_EXACT_ORIGIN: intent.get("exact_origin", true),
 			_PATHFINDING.OPTION_GOAL_RANGE: intent.get("goal_range", 0),
 			_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS: occupancy_blockers_by_layer[actor_layer],
-			_PATHFINDING.OPTION_COMPLETE_BLOCKED_AT_CURRENT: intent.get(
-				"complete_blocked_at_current", false
-			),
+			_PATHFINDING.OPTION_COMPLETE_BLOCKED_AT_CURRENT:
+			intent.get("complete_blocked_at_current", false),
 			_PATHFINDING.OPTION_PROFILE: profile,
 		}
 		if intent.has("goal_rect"):

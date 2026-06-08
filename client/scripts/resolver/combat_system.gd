@@ -154,7 +154,9 @@ static func _select_target(
 		var direct_target := state.get_entity_by_id(order.target_priority_chain[0])
 		if not _is_targetable(attacker, combat, direct_target):
 			return null
-		var direct_distance := _entity_distance_from_rect(state, attacker_rect, direct_target, registry)
+		var direct_distance := _entity_distance_from_rect(
+			state, attacker_rect, direct_target, registry
+		)
 		if direct_distance >= 0 and direct_distance <= combat.attack_range:
 			return direct_target
 		return null
