@@ -233,10 +233,7 @@ func issue_attack_selected(target_entity_id: int, queue_requested: bool = false)
 
 
 func issue_attack_target_selected(target_entity_id: int) -> bool:
-	var selected_id: int = _input.selected_entity_id()
 	var ok: bool = _input.issue_attack_target(target_entity_id)
-	if ok:
-		_queue_attack_target_order(selected_id, target_entity_id)
 	_refresh_action_previews()
 	_update_hud()
 	return ok
@@ -1262,7 +1259,7 @@ func _is_resource_context_target(entity: Entity) -> bool:
 
 func _queue_attack_target_order(entity_id: int, target_entity_id: int) -> void:
 	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.ATTACK
+	order.type = EntityOrder.Type.ATTACK_TARGET
 	order.entity_id = entity_id
 	order.target_priority_chain = [target_entity_id]
 	order.target_tile = _order_target_tile(target_entity_id)

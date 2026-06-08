@@ -141,7 +141,7 @@ func issue_attack(target_entity_id: int) -> bool:
 		_status_message = "%s cannot attack." % _def_id_for_entity(actor)
 		return false
 	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.ATTACK
+	order.type = EntityOrder.Type.ATTACK_TARGET
 	order.entity_id = actor.id
 	order.target_priority_chain = [target_entity_id]
 	order.target_tile = _entity_origin_for_order_target(target)
@@ -166,9 +166,13 @@ func issue_attack_target(target_entity_id: int) -> bool:
 	if def == null or def.combat == null or def.combat.damage <= 0:
 		_status_message = "%s cannot target enemies." % _def_id_for_entity(actor)
 		return false
-	GatherSystem.clear_assignment(actor)
-	actor.focus_target_entity_id = target.id
-	_status_message = "Set TARGET for #%d to #%d." % [actor.id, target.id]
+	var order: EntityOrder = EntityOrder.new()
+	order.type = EntityOrder.Type.ATTACK_TARGET
+	order.entity_id = actor.id
+	order.target_priority_chain = [target_entity_id]
+	order.target_tile = _entity_origin_for_order_target(target)
+	_append_order(order)
+	_status_message = "Queued TARGET for #%d against #%d." % [actor.id, target.id]
 	return true
 
 
@@ -185,7 +189,7 @@ func issue_target_chase(target_entity_id: int) -> bool:
 		_status_message = "Target chase needs a live enemy target."
 		return false
 	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.MOVE
+	order.type = EntityOrder.Type.ATTACK_TARGET
 	order.entity_id = actor.id
 	order.target_tile = _entity_origin_for_order_target(target)
 	order.target_priority_chain = [target_entity_id]
@@ -1016,7 +1020,7 @@ func _remember_move_assist(order: EntityOrder) -> void:
 	if actor == null:
 		_move_assists.erase(order.entity_id)
 		return
-	if order.type == EntityOrder.Type.ATTACK:
+	if _is_direct_attack_order(order.type):
 		_refresh_attack_assist_target_tile(actor, order)
 		if not _can_continue_attack_assist(actor, order):
 			_move_assists.erase(order.entity_id)
@@ -1046,7 +1050,7 @@ func _can_continue_move_assist(entity: Entity, order: EntityOrder) -> bool:
 		return false
 	if entity.current_hp <= 0 or entity.owner_player_id < 0:
 		return false
-	if order.type == EntityOrder.Type.ATTACK:
+	if _is_direct_attack_order(order.type):
 		_refresh_attack_assist_target_tile(entity, order)
 	if (
 		_state == null
@@ -1070,7 +1074,7 @@ func _can_continue_move_assist(entity: Entity, order: EntityOrder) -> bool:
 		return false
 	if entity.ability_cast != null:
 		return false
-	if order.type == EntityOrder.Type.ATTACK:
+	if _is_direct_attack_order(order.type):
 		return _can_continue_attack_assist(entity, order)
 	return true
 
@@ -1078,7 +1082,7 @@ func _can_continue_move_assist(entity: Entity, order: EntityOrder) -> bool:
 func _effective_move_assist_target_tile(entity: Entity, order: EntityOrder) -> Vector2i:
 	if entity == null or order == null:
 		return Vector2i.ZERO
-	if order.type == EntityOrder.Type.ATTACK:
+	if _is_direct_attack_order(order.type):
 		var attack_target: Entity = _live_enemy_from_chain(entity, order.target_priority_chain)
 		if attack_target != null:
 			return _entity_origin_for_order_target(attack_target)
@@ -1094,7 +1098,7 @@ func _effective_move_assist_target_tile(entity: Entity, order: EntityOrder) -> V
 
 
 func _refresh_attack_assist_target_tile(entity: Entity, order: EntityOrder) -> void:
-	if entity == null or order == null or order.type != EntityOrder.Type.ATTACK:
+	if entity == null or order == null or not _is_direct_attack_order(order.type):
 		return
 	var target: Entity = _live_enemy_from_chain(entity, order.target_priority_chain)
 	if target != null:
@@ -1102,7 +1106,7 @@ func _refresh_attack_assist_target_tile(entity: Entity, order: EntityOrder) -> v
 
 
 func _can_continue_attack_assist(entity: Entity, order: EntityOrder) -> bool:
-	if entity == null or order == null or order.type != EntityOrder.Type.ATTACK:
+	if entity == null or order == null or not _is_direct_attack_order(order.type):
 		return false
 	if order.target_priority_chain.is_empty():
 		return false
@@ -1272,7 +1276,7 @@ func _replacement_index_for_order(orders: Array[EntityOrder], order: EntityOrder
 			continue
 		if _is_move_like(order.type) and _is_move_like(existing.type):
 			return i
-		if order.type == EntityOrder.Type.ATTACK and existing.type == EntityOrder.Type.ATTACK:
+		if _is_direct_attack_order(order.type) and _is_direct_attack_order(existing.type):
 			return i
 	return -1
 
@@ -1293,8 +1297,12 @@ func _is_move_like(type: EntityOrder.Type) -> bool:
 	return type == EntityOrder.Type.MOVE or type == EntityOrder.Type.MOVE_ONLY
 
 
+func _is_direct_attack_order(type: EntityOrder.Type) -> bool:
+	return type == EntityOrder.Type.ATTACK or type == EntityOrder.Type.ATTACK_TARGET
+
+
 func _is_continuation_order(type: EntityOrder.Type) -> bool:
-	return _is_move_like(type) or type == EntityOrder.Type.ATTACK
+	return _is_move_like(type) or _is_direct_attack_order(type)
 
 
 func _submission_for(player_id: int) -> SubmitTurn:

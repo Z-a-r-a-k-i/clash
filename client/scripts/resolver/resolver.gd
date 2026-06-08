@@ -193,45 +193,24 @@ static func resolve(
 		if profile != null:
 			profile.add("tick.move_only_ids", profile_step)
 
-		if tick == 0:
-			# Phase 2: attacks. Stable collection by id followed by one batch
-			# application keeps lethal exchanges simultaneous. This phase runs
-			# once from start-of-turn positions; moving into range never grants a
-			# same-turn shot.
-			var attack_intents: Array[Dictionary] = []
-			for entity in sorted_entities:
-				if _ABILITY_SYSTEM.is_casting(entity):
-					continue
-				if fired_entity_ids.has(entity.id):
-					continue
-				if move_only_entity_ids.has(entity.id):
-					continue
-				var attack_lookup_start: int = profile.mark() if profile != null else 0
-				var attack_order := _standing_attack_order(working, entity, registry, false)
-				if profile != null:
-					profile.add("tick.attack_order_lookup", attack_lookup_start)
-					profile.count("attack_order_lookups")
-				if attack_order == null:
-					continue
-				var attack_intent_start: int = profile.mark() if profile != null else 0
-				var intent := CombatSystem.build_attack_intent(
-					working, entity, attack_order, registry, tunables, sorted_entities
-				)
-				if profile != null:
-					profile.add("tick.attack_intent_build", attack_intent_start)
-					profile.count("attack_intent_builds")
-				if not intent.is_empty():
-					attack_intents.append(intent)
-			if profile != null:
-				profile_step = profile.mark()
-			var tick_fired_ids := CombatSystem.apply_attack_intents(
-				working, attack_intents, registry, events
-			)
-			if profile != null:
-				profile.add("tick.attack_apply", profile_step)
-				profile.count("attack_intents", attack_intents.size())
-			for entity_id in tick_fired_ids:
-				fired_entity_ids[entity_id] = true
+		# Phase 2: attacks. Stable collection by id followed by one batch
+		# application keeps lethal exchanges simultaneous. Attack-move also
+		# gets another opportunity after each movement substep, so moving into
+		# weapon range can fire this turn while still limiting each entity to
+		# one shot per resolve.
+		_apply_attack_opportunities(
+			working,
+			per_entity,
+			tick,
+			registry,
+			tunables,
+			events,
+			fired_entity_ids,
+			move_only_entity_ids,
+			sorted_entities,
+			profile,
+			false
+		)
 
 		# Phase 3: movement substeps. A MOVE action is one intent, but
 		# speed_tiles_per_turn is a per-turn distance budget. Iterate
@@ -271,6 +250,19 @@ static func resolve(
 				profile.add("movement.resolve_substep", profile_step)
 			if not moved:
 				break
+			_apply_attack_opportunities(
+				working,
+				per_entity,
+				tick,
+				registry,
+				tunables,
+				events,
+				fired_entity_ids,
+				move_only_entity_ids,
+				sorted_entities,
+				profile,
+				true
+			)
 
 		# Phase 4 extension: gather workers at a source tick yields and
 		# direct resource credit.
@@ -378,6 +370,81 @@ static func _standing_attack_order(
 	):
 		return null
 	return auto_attack
+
+
+static func _apply_attack_opportunities(
+	state: MatchState,
+	per_entity: Dictionary,
+	tick: int,
+	registry: EntityRegistry,
+	tunables: Tunables,
+	events: Array[ResolverEvent],
+	fired_entity_ids: Dictionary,
+	move_only_entity_ids: Dictionary,
+	sorted_entities: Array[Entity],
+	profile: Variant = null,
+	post_movement: bool = false
+) -> void:
+	var attack_intents: Array[Dictionary] = []
+	for entity in sorted_entities:
+		if entity == null or entity.current_hp <= 0:
+			continue
+		if _ABILITY_SYSTEM.is_casting(entity):
+			continue
+		if fired_entity_ids.has(entity.id):
+			continue
+		if move_only_entity_ids.has(entity.id):
+			continue
+		var attack_lookup_start: int = profile.mark() if profile != null else 0
+		var attack_order := _attack_order_for_opportunity(
+			state, per_entity, tick, entity, registry, post_movement
+		)
+		if profile != null:
+			profile.add("tick.attack_order_lookup", attack_lookup_start)
+			profile.count("attack_order_lookups")
+		if attack_order == null:
+			continue
+		var attack_intent_start: int = profile.mark() if profile != null else 0
+		var intent := CombatSystem.build_attack_intent(
+			state, entity, attack_order, registry, tunables, sorted_entities
+		)
+		if profile != null:
+			profile.add("tick.attack_intent_build", attack_intent_start)
+			profile.count("attack_intent_builds")
+		if not intent.is_empty():
+			attack_intents.append(intent)
+	if attack_intents.is_empty():
+		return
+	var apply_start: int = profile.mark() if profile != null else 0
+	var tick_fired_ids := CombatSystem.apply_attack_intents(state, attack_intents, registry, events)
+	if profile != null:
+		profile.add("tick.attack_apply", apply_start)
+		profile.count("attack_intents", attack_intents.size())
+	for entity_id in tick_fired_ids:
+		fired_entity_ids[entity_id] = true
+
+
+static func _attack_order_for_opportunity(
+	state: MatchState,
+	per_entity: Dictionary,
+	tick: int,
+	entity: Entity,
+	registry: EntityRegistry,
+	post_movement: bool
+) -> EntityOrder:
+	var queued_order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
+	if queued_order != null:
+		if queued_order.type == EntityOrder.Type.MOVE_ONLY:
+			return null
+		if queued_order.type == EntityOrder.Type.ATTACK_TARGET:
+			return queued_order
+		if queued_order.type == EntityOrder.Type.ATTACK:
+			return queued_order
+		if queued_order.type == EntityOrder.Type.MOVE:
+			return _standing_attack_order(state, entity, registry, false)
+	if post_movement:
+		return null
+	return _standing_attack_order(state, entity, registry, false)
 
 
 static func _max_live_movement_speed(state: MatchState, registry: EntityRegistry) -> int:

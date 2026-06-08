@@ -96,7 +96,7 @@ static func _distribute_one(
 				)
 			)
 			continue
-		# HALT_ON_SIGHT_TOGGLE, CANCEL, GATHER, and ATTACK focus apply at
+		# HALT_ON_SIGHT_TOGGLE, CANCEL, and GATHER apply at
 		# distribution time, not in the tick loop — they're mode changes /
 		# standing orders, not per-tick actions.
 		if order.type == EntityOrder.Type.HALT_ON_SIGHT_TOGGLE:
@@ -170,6 +170,8 @@ static func _distribute_one(
 			continue
 		# Per-tick orders queue up.
 		GatherSystem.clear_assignment(entity)
+		if order.type == EntityOrder.Type.ATTACK_TARGET:
+			_refresh_attack_target_tile(state, entity, order)
 		if order.type == EntityOrder.Type.MOVE and not order.target_priority_chain.is_empty():
 			_set_focus_target_from_chain(state, entity, order.target_priority_chain)
 		if not per_entity.has(order.entity_id):
@@ -178,6 +180,7 @@ static func _distribute_one(
 			order.type == EntityOrder.Type.MOVE
 			or order.type == EntityOrder.Type.MOVE_ONLY
 			or order.type == EntityOrder.Type.ATTACK
+			or order.type == EntityOrder.Type.ATTACK_TARGET
 		):
 			_queue_replacing_move(per_entity, order)
 		else:
@@ -245,6 +248,7 @@ static func _queue_replacing_move(per_entity: Dictionary, order: EntityOrder) ->
 				existing.type == EntityOrder.Type.MOVE
 				or existing.type == EntityOrder.Type.MOVE_ONLY
 				or existing.type == EntityOrder.Type.ATTACK
+				or existing.type == EntityOrder.Type.ATTACK_TARGET
 			)
 		):
 			queue.remove_at(i)

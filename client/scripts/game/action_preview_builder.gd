@@ -177,6 +177,8 @@ func _preview_for_order(
 				preview = _move_preview(order, kind, start_tile, has_start_tile)
 		EntityOrder.Type.MOVE_ONLY:
 			preview = _move_preview(order, "Move Only", start_tile, has_start_tile)
+		EntityOrder.Type.ATTACK_TARGET:
+			preview = _targeted_attack_preview(order, start_tile, has_start_tile)
 		EntityOrder.Type.ATTACK:
 			var target_id: int = -1
 			if not order.target_priority_chain.is_empty():
@@ -251,6 +253,86 @@ func _move_preview(
 	if not path.is_empty():
 		preview["path"] = path
 	return preview
+
+
+func _targeted_attack_preview(
+	order: EntityOrder, start_tile: Vector2i = Vector2i.ZERO, has_start_tile: bool = false
+) -> Dictionary:
+	var target_id: int = -1
+	if order != null and not order.target_priority_chain.is_empty():
+		target_id = order.target_priority_chain[0]
+	var preview: Dictionary = {
+		"entity_id": order.entity_id,
+		"kind": "Target",
+		"target_entity_id": target_id,
+		"target_tile": order.target_tile,
+	}
+	var actor: Entity = _state.get_entity_by_id(order.entity_id) if _state != null else null
+	if actor == null or _registry == null:
+		return preview
+	var goal: Dictionary = _targeted_attack_preview_goal(order, actor)
+	var target_origin: Vector2i = goal.get("target_origin", order.target_tile)
+	preview["target_tile"] = target_origin
+	if goal.has("target_entity_id"):
+		preview["target_entity_id"] = goal["target_entity_id"]
+	var start_origin: Vector2i = start_tile if has_start_tile else actor.origin
+	if start_origin == target_origin or not _can_preview_spend_movement(actor):
+		return preview
+	var path_actor: Entity = _preview_actor_at(actor, start_tile, has_start_tile)
+	var options: Dictionary = _path_preview_options(actor.owner_player_id)
+	options[PATHFINDING_SCRIPT.OPTION_GOAL_RECT] = goal.get(
+		"goal_rect", Rect2i(target_origin, Vector2i.ONE)
+	)
+	options[PATHFINDING_SCRIPT.OPTION_GOAL_RANGE] = goal.get(
+		"goal_range", _attack_range_for_entity(actor)
+	)
+	options[PATHFINDING_SCRIPT.OPTION_EXACT_ORIGIN] = goal.get("exact_origin", false)
+	var path: Array[Vector2i] = PATHFINDING_SCRIPT.find_path(
+		_state, path_actor, target_origin, _registry, options
+	)
+	if not path.is_empty():
+		preview["path"] = path
+	return preview
+
+
+func _targeted_attack_preview_goal(order: EntityOrder, actor: Entity) -> Dictionary:
+	var fallback_target_id: int = -1
+	if order != null and not order.target_priority_chain.is_empty():
+		fallback_target_id = order.target_priority_chain[0]
+	var fallback: Dictionary = {
+		"target_origin": order.target_tile,
+		"target_entity_id": fallback_target_id,
+		"goal_rect": Rect2i(order.target_tile, Vector2i.ONE),
+		"exact_origin": false,
+		"goal_range": _attack_range_for_entity(actor),
+	}
+	if (
+		order == null
+		or actor == null
+		or order.target_priority_chain.is_empty()
+		or _state == null
+		or _state.tile_grid == null
+	):
+		return fallback
+	var target: Entity = _state.get_entity_by_id(order.target_priority_chain[0])
+	if target == null or target.current_hp <= 0:
+		return fallback
+	if target.owner_player_id < 0 or target.owner_player_id == actor.owner_player_id:
+		return fallback
+	if not _can_attack_layer(actor, target):
+		return fallback
+	var target_rect: Rect2i = _entity_rect(target)
+	if target_rect.size == Vector2i.ZERO:
+		target_rect = Rect2i(
+			target.origin, PATHFINDING_SCRIPT.entity_footprint(_state, target, _registry)
+		)
+	return {
+		"target_origin": target_rect.position,
+		"target_entity_id": target.id,
+		"goal_rect": target_rect,
+		"exact_origin": false,
+		"goal_range": _attack_range_for_entity(actor),
+	}
 
 
 func _move_preview_goal(order: EntityOrder, actor: Entity) -> Dictionary:
@@ -459,6 +541,30 @@ func _is_preview_construction_travel(entity: Entity) -> bool:
 	if building == null or building.current_hp <= 0 or not building.is_constructing:
 		return false
 	return not _are_entities_adjacent(entity, building)
+
+
+func _attack_range_for_entity(actor: Entity) -> int:
+	if actor == null or _registry == null:
+		return 1
+	var def: EntityDef = _registry.get_by_id(
+		actor.current_def_id if actor.current_def_id != "" else actor.def_id
+	)
+	if def == null or def.combat == null:
+		return 1
+	return def.combat.attack_range
+
+
+func _can_attack_layer(actor: Entity, target: Entity) -> bool:
+	if actor == null or target == null or _registry == null:
+		return false
+	var def: EntityDef = _registry.get_by_id(
+		actor.current_def_id if actor.current_def_id != "" else actor.def_id
+	)
+	if def == null or def.combat == null:
+		return false
+	if def.combat.target_layers.size() == 0:
+		return true
+	return def.combat.target_layers.has(target.current_layer)
 
 
 func _can_preview_spend_movement(entity: Entity) -> bool:

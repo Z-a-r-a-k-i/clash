@@ -45,6 +45,7 @@ func _run_all() -> int:
 func _all_tests() -> Array[Array]:
 	return [
 		["codec_round_trips_submit_state_and_events", _test_codec_round_trip],
+		["entity_order_type_wire_values_are_stable", _test_entity_order_type_wire_values],
 		["hub_create_join_validate_submit_resolve_and_journal", _test_hub_turn_flow],
 		["client_controller_rejects_wrong_player_orders", _test_client_submit_guard],
 		["network_play_mode_uses_shared_surface_without_dev_controls", _test_network_ui_surface],
@@ -64,6 +65,7 @@ func _all_tests() -> Array[Array]:
 		],
 		["network_match_over_shows_outcome_overlay", _test_network_match_over_overlay],
 		["network_building_selection_shows_production", _test_network_building_production],
+		["network_hub_base_trains_worker", _test_network_hub_base_trains_worker],
 		["network_context_actions_cover_rally_and_gather", _test_network_context_actions],
 		["network_command_card_wires_pending_commands", _test_network_pending_command_buttons],
 		["network_a_key_attack_move_mode", _test_network_a_key_attack_move_mode],
@@ -121,6 +123,32 @@ func _test_codec_round_trip() -> bool:
 		push_error("Resolver events should round-trip through v0 codec")
 		ok = false
 	return ok
+
+
+func _test_entity_order_type_wire_values() -> bool:
+	var expected: Dictionary = {
+		EntityOrder.Type.INVALID: -1,
+		EntityOrder.Type.MOVE: 0,
+		EntityOrder.Type.MOVE_ONLY: 1,
+		EntityOrder.Type.ATTACK: 2,
+		EntityOrder.Type.HALT_ON_SIGHT_TOGGLE: 3,
+		EntityOrder.Type.BUILD: 4,
+		EntityOrder.Type.TRAIN: 5,
+		EntityOrder.Type.RESEARCH: 6,
+		EntityOrder.Type.CANCEL: 7,
+		EntityOrder.Type.GATHER: 8,
+		EntityOrder.Type.USE_ABILITY: 9,
+		EntityOrder.Type.SET_RALLY_POINT: 10,
+		EntityOrder.Type.REPEAT_TRAIN_TOGGLE: 11,
+		EntityOrder.Type.ATTACK_TARGET: 12,
+	}
+	for key: Variant in expected.keys():
+		var actual: int = int(key)
+		var wanted: int = expected[key]
+		if actual != wanted:
+			push_error("EntityOrder.Type wire value changed: expected %d, got %d" % [wanted, actual])
+			return false
+	return true
 
 
 func _test_hub_turn_flow() -> bool:
@@ -925,6 +953,88 @@ func _test_network_building_production() -> bool:
 	return ok
 
 
+func _test_network_hub_base_trains_worker() -> bool:
+	var hub: Object = _new_script_instance(HUB_PATH)
+	if hub == null:
+		return false
+	hub.call("configure", MVP_SCENARIO_PATH, REGISTRY_PATH, TUNABLES_PATH, TEST_REPLAY_DIR)
+	var created: Dictionary = hub.call("create_match", 101)
+	if not created.get("ok", false):
+		push_error("worker production match create failed: %s" % str(created))
+		return false
+	var code: String = created.get("code", "")
+	var joined: Dictionary = hub.call("join_match", 202, code)
+	if not joined.get("ok", false):
+		push_error("worker production match join failed: %s" % str(joined))
+		return false
+	var state: MatchState = hub.call("match_state_for_code", code)
+	var registry: EntityRegistry = hub.call("match_registry_for_code", code)
+	var producer_id: int = _first_producer_entity_id(state, registry, 0)
+	if producer_id < 0:
+		push_error("worker production network test requires a P0 producer")
+		return false
+	var before_workers: int = _entity_count_by_def_and_owner(state, "worker", 0)
+	var train: EntityOrder = EntityOrder.new()
+	train.type = EntityOrder.Type.TRAIN
+	train.entity_id = producer_id
+	train.def_id = "worker"
+	var submit_a: SubmitTurn = SubmitTurn.new()
+	submit_a.orders = [train] as Array[EntityOrder]
+	var accepted: Dictionary = hub.call("submit_turn", 101, code, submit_a)
+	if not accepted.get("ok", false) or accepted.get("resolved", true):
+		push_error("first worker TRAIN submit should wait for opponent: %s" % str(accepted))
+		return false
+	var resolved: Dictionary = hub.call("submit_turn", 202, code, SubmitTurn.new())
+	if not resolved.get("ok", false) or not resolved.get("resolved", false):
+		push_error("second submit should resolve worker TRAIN: %s" % str(resolved))
+		return false
+	var events: Array = _events_from_peer_messages(resolved.get("messages_by_peer", {}), 101)
+	if _events_have_type(events, ResolverEvent.Type.ORDER_REJECTED):
+		push_error("network worker TRAIN was rejected")
+		return false
+	if _events_have_type(events, ResolverEvent.Type.PRODUCTION_STALLED):
+		push_error("network worker TRAIN stalled")
+		return false
+	if not _events_have_type(events, ResolverEvent.Type.TRAIN_STARTED):
+		push_error("network worker TRAIN did not start")
+		return false
+	var spawned_id: int = -1
+	for _turn in 4:
+		var p0: Dictionary = hub.call("submit_turn", 101, code, SubmitTurn.new())
+		if not p0.get("ok", false) or p0.get("resolved", true):
+			push_error("P0 empty follow-up submit failed: %s" % str(p0))
+			return false
+		var p1: Dictionary = hub.call("submit_turn", 202, code, SubmitTurn.new())
+		if not p1.get("ok", false) or not p1.get("resolved", false):
+			push_error("P1 empty follow-up submit failed: %s" % str(p1))
+			return false
+		events = _events_from_peer_messages(p1.get("messages_by_peer", {}), 101)
+		if _events_have_type(events, ResolverEvent.Type.ORDER_REJECTED):
+			push_error("network worker TRAIN follow-up rejected an order")
+			return false
+		if _events_have_type(events, ResolverEvent.Type.PRODUCTION_STALLED):
+			push_error("network worker TRAIN stalled after starting")
+			return false
+		if _events_have_type(events, ResolverEvent.Type.SPAWN_DEFERRED):
+			push_error("network worker TRAIN spawn deferred")
+			return false
+		spawned_id = _train_completed_target_id(events, producer_id, "worker")
+		if spawned_id >= 0:
+			break
+	if spawned_id < 0:
+		push_error("network worker TRAIN never completed")
+		return false
+	state = hub.call("match_state_for_code", code)
+	var after_workers: int = _entity_count_by_def_and_owner(state, "worker", 0)
+	if after_workers != before_workers + 1:
+		push_error(
+			"network worker TRAIN expected %d P0 workers, got %d"
+			% [before_workers + 1, after_workers]
+		)
+		return false
+	return true
+
+
 func _test_network_context_actions() -> bool:
 	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
 	if script == null:
@@ -1128,8 +1238,17 @@ func _network_pending_target_button_queues_attack_target() -> bool:
 		push_error("network target button should enter pending TARGET and confirm on enemy")
 		ok = false
 	var actor: Entity = loaded.state.get_entity_by_id(actor_id)
-	if actor == null or actor.focus_target_entity_id != enemy_id:
-		push_error("network pending TARGET should set the selected actor focus target")
+	if actor == null or actor.focus_target_entity_id != -1:
+		push_error("network pending TARGET should not mutate focus before resolve")
+		ok = false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if (
+		orders.size() != 1
+		or orders[0].type != EntityOrder.Type.ATTACK_TARGET
+		or orders[0].target_priority_chain != ([enemy_id] as Array[int])
+		or orders[0].target_tile != enemy.origin
+	):
+		push_error("network pending TARGET should queue ATTACK_TARGET")
 		ok = false
 	remove_child(mode)
 	mode.queue_free()
@@ -1188,11 +1307,11 @@ func _test_network_a_key_attack_move_mode() -> bool:
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if (
 		orders.size() != 1
-		or orders[0].type != EntityOrder.Type.ATTACK
+		or orders[0].type != EntityOrder.Type.ATTACK_TARGET
 		or orders[0].target_priority_chain != ([enemy_id] as Array[int])
 		or orders[0].target_tile != enemy.origin
 	):
-		push_error("network A-key enemy click should queue ATTACK against the clicked enemy")
+		push_error("network A-key enemy click should queue ATTACK_TARGET against the clicked enemy")
 		ok = false
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 	remove_child(mode)
@@ -1409,10 +1528,13 @@ func _submit_attack(state: MatchState, owner: int) -> SubmitTurn:
 	if actor_id < 0:
 		return submit
 	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.ATTACK
+	order.type = EntityOrder.Type.ATTACK_TARGET
 	order.entity_id = actor_id
 	if target_id >= 0:
 		order.target_priority_chain = [target_id]
+		var target: Entity = state.get_entity_by_id(target_id)
+		if target != null:
+			order.target_tile = target.origin
 	submit.orders.append(order)
 	return submit
 
@@ -1670,6 +1792,32 @@ func _train_completed_target_id(events: Array, producer_id: int, def_id: String)
 		):
 			return event.target_id
 	return -1
+
+
+func _events_from_peer_messages(messages_by_peer: Dictionary, peer_id: int) -> Array:
+	var message: Dictionary = _message_from_list(messages_by_peer.get(peer_id, []), "turn_resolved")
+	var payload: Dictionary = message.get("payload", {})
+	return payload.get("events", [])
+
+
+func _events_have_type(events: Array, event_type: ResolverEvent.Type) -> bool:
+	for item in events:
+		var event: ResolverEvent = item as ResolverEvent
+		if event != null and event.type == event_type:
+			return true
+	return false
+
+
+func _entity_count_by_def_and_owner(
+	state: MatchState, def_id: String, owner_player_id: int
+) -> int:
+	if state == null:
+		return 0
+	var count := 0
+	for entity: Entity in state.entities_sorted_by_id():
+		if entity != null and entity.def_id == def_id and entity.owner_player_id == owner_player_id:
+			count += 1
+	return count
 
 
 func _give_generous_player_resources(state: MatchState, player_id: int) -> void:

@@ -173,7 +173,7 @@ func _test_queues_and_resolves_turn() -> bool:
 	var queued_after_resolve: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
 	if (
 		queued_after_resolve.size() != 1
-		or queued_after_resolve[0].type != EntityOrder.Type.ATTACK
+		or queued_after_resolve[0].type != EntityOrder.Type.ATTACK_TARGET
 		or queued_after_resolve[0].target_priority_chain != ([4] as Array[int])
 		or mode.pending_order_count(1) != 0
 	):
@@ -211,11 +211,11 @@ func _test_routes_context_actions() -> bool:
 		return false
 	var target_chase: EntityOrder = target_chase_orders[0]
 	if (
-		target_chase.type != EntityOrder.Type.MOVE
+		target_chase.type != EntityOrder.Type.ATTACK_TARGET
 		or target_chase.target_priority_chain != ([4] as Array[int])
 		or target_chase.target_tile != Vector2i(13, 10)
 	):
-		push_error("context enemy action should queue MOVE with target chain for #4")
+		push_error("context enemy action should queue ATTACK_TARGET for #4")
 		_free_mode(mode)
 		return false
 	mode.input_model().clear_submissions()
@@ -1541,18 +1541,24 @@ func _test_routes_command_card_orders() -> bool:
 		return false
 	mode.renderer().set_perspective_player_id(1)
 	if not mode.confirm_pending_at_tile(Vector2i(13, 10)):
-		push_error("pending target click should apply target focus")
+		push_error("pending target click should queue direct attack target")
 		_free_mode(mode)
 		return false
 	var marine: Entity = mode.current_state().get_entity_by_id(1)
-	if marine == null or marine.focus_target_entity_id != 4:
-		push_error("expected immediate target focus after pending target click")
+	if marine == null or marine.focus_target_entity_id != -1:
+		push_error("pending target click should not mutate focus before resolve")
 		_free_mode(mode)
 		return false
-	if mode.pending_order_count(0) != 0:
-		push_error("target focus should not queue a turn order")
+	var target_orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if (
+		target_orders.size() != 1
+		or target_orders[0].type != EntityOrder.Type.ATTACK_TARGET
+		or target_orders[0].target_priority_chain != ([4] as Array[int])
+	):
+		push_error("target command should queue ATTACK_TARGET")
 		_free_mode(mode)
 		return false
+	mode.input_model().clear_submissions()
 	card.emit_signal("move_only_requested")
 	if mode.pending_command_kind() != "move_only":
 		push_error("Move Only signal should enter pending move_only mode")
@@ -1571,13 +1577,8 @@ func _test_routes_command_card_orders() -> bool:
 		)
 		_free_mode(mode)
 		return false
-	if marine == null or marine.focus_target_entity_id != 4:
-		push_error("first cancel signal should keep target focus while cancelling MOVE_ONLY")
-		_free_mode(mode)
-		return false
-	card.emit_signal("cancel_requested", -1)
 	if marine == null or marine.focus_target_entity_id != -1:
-		push_error("second cancel signal should immediately clear target focus")
+		push_error("direct target command should not leave focus state")
 		_free_mode(mode)
 		return false
 	if not marine.halt_on_sight:
@@ -1670,16 +1671,21 @@ func _test_pending_target_targets_enemy() -> bool:
 	card.emit_signal("target_requested")
 	mode.renderer().set_perspective_player_id(1)
 	if not mode.confirm_pending_at_tile(Vector2i(13, 10)):
-		push_error("pending target click on enemy should apply targeted intent")
+		push_error("pending target click on enemy should queue direct target attack")
 		_free_mode(mode)
 		return false
 	var marine: Entity = mode.current_state().get_entity_by_id(1)
-	if marine == null or marine.focus_target_entity_id != 4:
-		push_error("pending enemy click should immediately set target focus to #4")
+	if marine == null or marine.focus_target_entity_id != -1:
+		push_error("pending target click should not mutate focus before resolve")
 		_free_mode(mode)
 		return false
-	if mode.pending_order_count(0) != 0:
-		push_error("pending enemy click should not queue ATTACK focus")
+	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if (
+		orders.size() != 1
+		or orders[0].type != EntityOrder.Type.ATTACK_TARGET
+		or orders[0].target_priority_chain != ([4] as Array[int])
+	):
+		push_error("pending enemy click should queue ATTACK_TARGET")
 		_free_mode(mode)
 		return false
 	_free_mode(mode)
@@ -1727,12 +1733,12 @@ func _test_a_key_attack_move_mode() -> bool:
 		ok
 		and (
 			orders.size() != 1
-			or orders[0].type != EntityOrder.Type.ATTACK
+			or orders[0].type != EntityOrder.Type.ATTACK_TARGET
 			or orders[0].target_priority_chain != ([4] as Array[int])
 			or orders[0].target_tile != Vector2i(13, 10)
 		)
 	):
-		push_error("A-key enemy click should queue ATTACK against #4")
+		push_error("A-key enemy click should queue ATTACK_TARGET against #4")
 		ok = false
 	Input.set_default_cursor_shape(original_cursor_shape)
 	_free_mode(mode)

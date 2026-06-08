@@ -237,7 +237,7 @@ func _orders_for_units(
 			orders.append(ability)
 
 		var move := EntityOrder.new()
-		move.type = EntityOrder.Type.MOVE
+		move.type = EntityOrder.Type.MOVE_ONLY
 		move.entity_id = unit.id
 		move.target_tile = Vector2i(target_x, _target_y(unit.origin.y, index))
 		orders.append(move)

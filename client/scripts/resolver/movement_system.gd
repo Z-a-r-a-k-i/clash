@@ -88,6 +88,7 @@ static func resolve_movement_substep(
 			_count_profile(profile, "movement.intent.inexact")
 
 	var proposals: Array[Dictionary] = []
+	var completed_at_origin := false
 	var occupancy_blockers_by_layer: Dictionary = {}
 	for intent in intents:
 		var actor: Entity = intent.get("actor") as Entity
@@ -108,6 +109,9 @@ static func resolve_movement_substep(
 			_PATHFINDING.OPTION_EXACT_ORIGIN: intent.get("exact_origin", true),
 			_PATHFINDING.OPTION_GOAL_RANGE: intent.get("goal_range", 0),
 			_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS: occupancy_blockers_by_layer[actor_layer],
+			_PATHFINDING.OPTION_COMPLETE_BLOCKED_AT_CURRENT: intent.get(
+				"complete_blocked_at_current", false
+			),
 			_PATHFINDING.OPTION_PROFILE: profile,
 		}
 		if intent.has("goal_rect"):
@@ -130,6 +134,10 @@ static func resolve_movement_substep(
 			_count_profile(profile, "movement.path_cache_hit")
 		if step.is_empty():
 			continue
+		if step.get("completed_at_origin", false):
+			_emit_completed_at_origin(actor, intent, events)
+			completed_at_origin = true
+			continue
 		var next_origin: Vector2i = step.get("next_origin", actor.origin)
 		if next_origin == actor.origin:
 			continue
@@ -149,7 +157,7 @@ static func resolve_movement_substep(
 			)
 		)
 	if proposals.is_empty():
-		return false
+		return completed_at_origin
 	_count_profile(profile, "movement.proposals", proposals.size())
 
 	var winners: Array[Dictionary] = _winning_proposals(state, proposals, registry, events)
@@ -314,9 +322,13 @@ static func _explicit_move_intent(
 		order.type != EntityOrder.Type.MOVE
 		and order.type != EntityOrder.Type.MOVE_ONLY
 		and order.type != EntityOrder.Type.ATTACK
+		and order.type != EntityOrder.Type.ATTACK_TARGET
 	):
 		return {}
-	if order.type == EntityOrder.Type.ATTACK and fired_entity_ids.has(actor.id):
+	if (
+		(order.type == EntityOrder.Type.ATTACK or order.type == EntityOrder.Type.ATTACK_TARGET)
+		and fired_entity_ids.has(actor.id)
+	):
 		return {}
 	if (
 		order.type == EntityOrder.Type.MOVE
@@ -342,6 +354,7 @@ static func _explicit_move_intent(
 		"exact_origin": goal.get("exact_origin", true),
 		"goal_range": goal.get("goal_range", 0),
 		"movement_budget": budget,
+		"complete_blocked_at_current": order.type == EntityOrder.Type.MOVE_ONLY,
 	}
 	if goal.has("goal_rect"):
 		intent["goal_rect"] = goal["goal_rect"]
@@ -351,7 +364,10 @@ static func _explicit_move_intent(
 static func _goal_for_order(
 	state: MatchState, actor: Entity, order: EntityOrder, registry: EntityRegistry
 ) -> Dictionary:
-	if order != null and order.type == EntityOrder.Type.ATTACK:
+	if (
+		order != null
+		and (order.type == EntityOrder.Type.ATTACK or order.type == EntityOrder.Type.ATTACK_TARGET)
+	):
 		return _attack_goal_for_order(state, actor, order, registry)
 	return _move_goal_for_order(state, actor, order)
 
@@ -789,6 +805,21 @@ static func _emit_completed_tied_moves(
 		events.append(ev)
 
 
+static func _emit_completed_at_origin(
+	actor: Entity, intent: Dictionary, events: Array[ResolverEvent]
+) -> void:
+	if actor == null:
+		return
+	var movement_budget: int = int(intent.get("movement_budget", actor.moves_used_this_turn))
+	actor.moves_used_this_turn = max(actor.moves_used_this_turn, movement_budget)
+	var ev := ResolverEvent.new()
+	ev.type = ResolverEvent.Type.MOVE_COMPLETED
+	ev.actor_id = actor.id
+	ev.from_origin = actor.origin
+	ev.to_origin = actor.origin
+	events.append(ev)
+
+
 static func _proposal_conflict_component(start_id: int, remaining: Dictionary) -> Array[int]:
 	var component: Array[int] = []
 	var queue: Array[int] = [start_id]
@@ -1000,10 +1031,6 @@ static func movement_budget_for_entity(
 	var speed: int = movement_speed_for_entity(actor, registry)
 	if speed <= 0:
 		return 0
-	if move_only or not fired_this_turn:
-		return speed
-	var def: EntityDef = registry.get_by_id(actor.current_def_id) if registry != null else null
-	var fraction: float = 0.5
-	if def != null and def.movement != null:
-		fraction = clampf(def.movement.post_shot_move_fraction, 0.0, 1.0)
-	return max(0, int(floor(float(speed) * fraction)))
+	if fired_this_turn and not move_only:
+		return 0
+	return speed

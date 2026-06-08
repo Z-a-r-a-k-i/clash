@@ -183,7 +183,7 @@ func _test_queues_attack_against_enemy() -> bool:
 		push_error("expected ATTACK to queue against enemy marine")
 		return false
 	var order: EntityOrder = input.submit_for_player(0).orders[0]
-	if not _expect_order(order, EntityOrder.Type.ATTACK, 5, Vector2i(7, 1), -1, [2]):
+	if not _expect_order(order, EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(7, 1), -1, [2]):
 		return false
 	if input.issue_attack(3):
 		push_error("neutral mineral patch should not be a valid attack target")
@@ -203,17 +203,17 @@ func _test_applies_persistent_attack_target_immediately() -> bool:
 		push_error("DevTurnInput should expose persistent targeted attack intent")
 		return false
 	if not input.call("issue_attack_target", 2):
-		push_error("expected attack target to apply for selected marine")
+		push_error("expected attack target to queue for selected marine")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
-	if orders.size() != 0:
-		push_error("target focus should not queue an order, got %d" % orders.size())
+	if orders.size() != 1:
+		push_error("target command should queue one direct attack order, got %d" % orders.size())
 		return false
 	var actor: Entity = setup.state.get_entity_by_id(5)
-	if actor == null or actor.focus_target_entity_id != 2:
-		push_error("target focus should immediately set focus_target_entity_id to #2")
+	if actor == null or actor.focus_target_entity_id != -1:
+		push_error("target command should not mutate focus before resolver distribution")
 		return false
-	return true
+	return _expect_order(orders[0], EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(7, 1), -1, [2])
 
 
 func _test_replaces_duplicate_move_and_target() -> bool:
@@ -241,7 +241,7 @@ func _test_replaces_duplicate_move_and_target() -> bool:
 	if orders.size() != 1:
 		push_error("expected latest normal command to replace prior orders, got %d" % orders.size())
 		return false
-	return _expect_order(orders[0], EntityOrder.Type.ATTACK, 5, Vector2i(9, 7), -1, [8])
+	return _expect_order(orders[0], EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(9, 7), -1, [8])
 
 
 func _test_queues_gather() -> bool:
@@ -306,9 +306,6 @@ func _test_queues_move_only_and_applies_state_changes() -> bool:
 	if not input.call("issue_move_only", Vector2i(7, 7)):
 		push_error("expected MOVE_ONLY to replace selected marine MOVE")
 		return false
-	if not input.issue_attack_target(2):
-		push_error("expected target focus to apply for selected marine")
-		return false
 	if not input.issue_halt_on_sight_toggle(true):
 		push_error("expected halt-on-sight to apply for selected marine")
 		return false
@@ -326,14 +323,8 @@ func _test_queues_move_only_and_applies_state_changes() -> bool:
 	if actor == null:
 		push_error("expected selected marine to exist")
 		return false
-	if actor.focus_target_entity_id != 2:
-		push_error("first CANCEL should keep target focus while cancelling queued order")
-		return false
-	if not input.issue_cancel():
-		push_error("second CANCEL should clear selected marine target focus")
-		return false
 	if actor.focus_target_entity_id != -1:
-		push_error("second CANCEL should immediately clear target focus")
+		push_error("MOVE_ONLY/CANCEL flow should not create target focus")
 		return false
 	if not actor.halt_on_sight:
 		push_error("halt-on-sight should remain immediately enabled")
@@ -381,7 +372,7 @@ func _test_queues_target_chase_atomically() -> bool:
 	if orders.size() != 1:
 		push_error("target chase should be one atomic order, got %d" % orders.size())
 		return false
-	if not _expect_order(orders[0], EntityOrder.Type.MOVE, 5, Vector2i(7, 1), -1, [2]):
+	if not _expect_order(orders[0], EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(7, 1), -1, [2]):
 		return false
 	input.set_queue_modifier_active(true)
 	if not input.issue_target_chase(2):
@@ -391,7 +382,7 @@ func _test_queues_target_chase_atomically() -> bool:
 		push_error("shift target chase should append one future atomic order")
 		return false
 	var future: Array[EntityOrder] = input.future_orders_for_entity(5)
-	return _expect_order(future[0], EntityOrder.Type.MOVE, 5, Vector2i(7, 1), -1, [2])
+	return _expect_order(future[0], EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(7, 1), -1, [2])
 
 
 func _test_requeues_unfinished_move_assist() -> bool:
@@ -432,7 +423,7 @@ func _test_requeues_unfinished_attack_assist() -> bool:
 		push_error("expected ATTACK to queue for selected marine")
 		return false
 	var first_order: EntityOrder = input.submit_for_player(0).orders[0]
-	if not _expect_order(first_order, EntityOrder.Type.ATTACK, 5, Vector2i(7, 1), -1, [2]):
+	if not _expect_order(first_order, EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(7, 1), -1, [2]):
 		return false
 	setup.state.tile_grid.move(2, Vector2i(8, 1))
 	var target: Entity = setup.state.get_entity_by_id(2)
@@ -443,7 +434,7 @@ func _test_requeues_unfinished_attack_assist() -> bool:
 	if orders.size() != 1:
 		push_error("unfinished attack assist should requeue one order, got %d" % orders.size())
 		return false
-	return _expect_order(orders[0], EntityOrder.Type.ATTACK, 5, Vector2i(8, 1), -1, [2])
+	return _expect_order(orders[0], EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(8, 1), -1, [2])
 
 
 func _test_drops_completed_move_assist() -> bool:
