@@ -63,6 +63,10 @@ func _all_tests() -> Array[Array]:
 			"network_turn_started_resets_submit_and_allows_next_move",
 			_test_network_turn_started_resets_submit_and_allows_next_move
 		],
+		[
+			"network_disconnect_resets_local_match_state",
+			_test_network_disconnect_resets_local_match_state
+		],
 		["network_match_over_shows_outcome_overlay", _test_network_match_over_overlay],
 		["network_building_selection_shows_production", _test_network_building_production],
 		["network_hub_base_trains_worker", _test_network_hub_base_trains_worker],
@@ -856,6 +860,65 @@ func _test_network_turn_started_resets_submit_and_allows_next_move() -> bool:
 		if moved == null or moved.origin == start_origin:
 			push_error("authoritative network Move Only submit should move the selected unit")
 			ok = false
+	remove_child(mode)
+	mode.queue_free()
+	return ok
+
+
+func _test_network_disconnect_resets_local_match_state() -> bool:
+	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
+		return false
+	var mode: Node = script.new()
+	add_child(mode)
+	mode.call("ensure_initialized")
+	var loaded: LoadedScenario = _load_combat()
+	if loaded == null:
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
+	var actor_id: int = _first_movable_entity_id(loaded.state, loaded.registry, 0)
+	var target_tile: Vector2i = _first_open_neighbor(loaded.state, actor_id)
+	if actor_id < 0 or target_tile == Vector2i(-1, -1):
+		push_error("disconnect reset test requires a movable entity and open tile")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("select_entity_id", actor_id)
+	if not bool(mode.call("issue_move_only_selected", target_tile, false)):
+		push_error("disconnect reset test should queue a pre-reset move")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	(
+		mode
+		. call(
+			"_handle_network_message",
+			{
+				"kind": "submit_turn",
+				"payload": {"accepted": true},
+			}
+		)
+	)
+	var input: DevTurnInput = mode.call("input_model") as DevTurnInput
+	var stale_submit: SubmitTurn = input.submit_for_player(0).clone() if input != null else null
+	mode.call("_reset_local_match_state")
+	var submit_button: Button = mode.find_child("SubmitTurn", true, false) as Button
+	var ok: bool = true
+	if int(mode.call("player_slot")) != -1:
+		push_error("disconnect reset should clear player slot")
+		ok = false
+	if input == null or not input.submit_for_player(0).orders.is_empty():
+		push_error("disconnect reset should clear queued input")
+		ok = false
+	if bool(mode.call("can_submit_turn", stale_submit)):
+		push_error("disconnect reset should invalidate stale submits")
+		ok = false
+	if submit_button == null or submit_button.button_pressed or submit_button.text != "Submit Turn":
+		push_error("disconnect reset should clear submit pending HUD state")
+		ok = false
 	remove_child(mode)
 	mode.queue_free()
 	return ok

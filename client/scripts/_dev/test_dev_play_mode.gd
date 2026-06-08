@@ -1717,6 +1717,7 @@ func _test_a_key_attack_move_mode() -> bool:
 		ok = false
 	if ok and not mode.confirm_pending_at_tile(Vector2i(8, 10)):
 		push_error("A-key ground click should queue attack-move")
+		ok = false
 	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
 	if ok and (orders.size() != 1 or orders[0].type != EntityOrder.Type.MOVE):
 		push_error("A-key ground click should queue one MOVE order")

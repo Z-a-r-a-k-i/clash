@@ -802,7 +802,7 @@ func _connect_pressed() -> void:
 			func() -> void: set_connection_status("Connected. Create match or enter a code.")
 		)
 		_client.message_received.connect(_handle_network_message)
-		_client.disconnected.connect(func() -> void: set_connection_status("Disconnected"))
+		_client.disconnected.connect(func() -> void: _reset_local_match_state())
 		add_child(_client)
 	var url: String = _url_edit.text.strip_edges()
 	if url == "":
@@ -837,13 +837,17 @@ func _join_pressed() -> void:
 func _leave_match_pressed() -> void:
 	if _client != null:
 		_client.disconnect_from_server()
+	_reset_local_match_state()
+
+
+func _reset_local_match_state() -> void:
 	_player_slot = -1
 	_registry = null
 	_match_code = ""
 	_match_started = false
 	_show_all_orders = false
 	_interface_hidden = false
-	_client_controller.mark_submit_pending(false)
+	_client_controller.bind_authoritative_state(null, null, -1)
 	_input.clear_submissions()
 	_clear_pending_command()
 	_reset_left_empty_drag()

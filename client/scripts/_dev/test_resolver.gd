@@ -168,6 +168,10 @@ func _all_tests() -> Array:
 			"targeted_attack_uses_last_known_tile_when_target_missing",
 			_test_targeted_attack_uses_last_known_tile_when_target_missing
 		],
+		[
+			"targeted_attack_rejects_unattackable_layer",
+			_test_targeted_attack_rejects_unattackable_layer
+		],
 		["targeted_attack_ignores_other_enemies", _test_targeted_attack_ignores_other_enemies],
 		["target_chase_ignores_halt_on_sight", _test_target_chase_ignores_halt_on_sight],
 		["idle_unit_auto_attacks_enemy_in_range", _test_idle_unit_auto_attacks_enemy_in_range],
@@ -1840,7 +1844,7 @@ func _test_attack_move_fires_after_moving_into_range() -> bool:
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
 	var dummy := _make_entity(state, "marine", 0, Vector2i(0, 0), 50, "ground")
-	var enemy := _make_entity(state, "marine", 1, Vector2i(11, 5), 50, "ground")
+	var enemy := _make_entity(state, "marine", 1, Vector2i(10, 5), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
 	state.tile_grid.place(dummy.id, Rect2i(0, 0, 1, 1))
 	state.tile_grid.place(enemy.id, Rect2i(10, 5, 1, 1))
@@ -2061,6 +2065,37 @@ func _test_targeted_attack_uses_last_known_tile_when_target_missing() -> bool:
 	)
 	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
 	return new_actor.origin == Vector2i(5, 1)
+
+
+func _test_targeted_attack_rejects_unattackable_layer() -> bool:
+	var registry: EntityRegistry = _combat_mover_registry(6, 3, 4)
+	var state: MatchState = _state_with_grid(20, 20)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var target: Entity = _make_entity(state, "marine", 1, Vector2i(8, 1), 50, "flying")
+	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(target.id, Rect2i(8, 1, 1, 1))
+
+	var attack: EntityOrder = EntityOrder.new()
+	attack.type = EntityOrder.Type.ATTACK_TARGET
+	attack.entity_id = actor.id
+	attack.target_priority_chain = [target.id]
+	attack.target_tile = target.origin
+
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([attack] as Array[EntityOrder]), _submit(), registry, null
+	)
+	if not _has_rejection(result.events, actor.id, "bad_attack_target"):
+		push_error("direct target on unattackable layer should reject before queueing")
+		return false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			push_error("rejected direct target should not move")
+			return false
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
+			push_error("rejected direct target should not deal damage")
+			return false
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	return new_actor != null and new_actor.origin == actor.origin
 
 
 func _test_targeted_attack_ignores_other_enemies() -> bool:

@@ -171,6 +171,9 @@ static func _distribute_one(
 		# Per-tick orders queue up.
 		GatherSystem.clear_assignment(entity)
 		if order.type == EntityOrder.Type.ATTACK_TARGET:
+			if not _can_attack_known_target(state, entity, order, registry):
+				_emit_order_rejected(order.entity_id, "bad_attack_target", events)
+				continue
 			_refresh_attack_target_tile(state, entity, order)
 		if order.type == EntityOrder.Type.MOVE and not order.target_priority_chain.is_empty():
 			_set_focus_target_from_chain(state, entity, order.target_priority_chain)
@@ -227,6 +230,26 @@ static func _refresh_attack_target_tile(
 			order.target_tile = target_rect.position
 			return
 	order.target_tile = target.origin
+
+
+static func _can_attack_known_target(
+	state: MatchState, entity: Entity, order: EntityOrder, registry: EntityRegistry
+) -> bool:
+	if state == null or entity == null or order == null or registry == null:
+		return false
+	if order.target_priority_chain.is_empty():
+		return false
+	var target: Entity = state.get_entity_by_id(order.target_priority_chain[0])
+	if target == null:
+		return true
+	if target.current_hp <= 0:
+		return false
+	if target.owner_player_id < 0 or target.owner_player_id == entity.owner_player_id:
+		return false
+	var def: EntityDef = registry.get_by_id(_effective_def_id(entity))
+	if def == null or def.combat == null:
+		return false
+	return def.combat.target_layers.has(target.current_layer)
 
 
 static func _can_entity_move(entity: Entity, registry: EntityRegistry) -> bool:

@@ -396,7 +396,7 @@ static func _apply_attack_opportunities(
 		if move_only_entity_ids.has(entity.id):
 			continue
 		var attack_lookup_start: int = profile.mark() if profile != null else 0
-		var attack_order := _attack_order_for_opportunity(
+		var attack_order: EntityOrder = _attack_order_for_opportunity(
 			state, per_entity, tick, entity, registry, post_movement
 		)
 		if profile != null:
@@ -405,7 +405,7 @@ static func _apply_attack_opportunities(
 		if attack_order == null:
 			continue
 		var attack_intent_start: int = profile.mark() if profile != null else 0
-		var intent := CombatSystem.build_attack_intent(
+		var intent: Dictionary = CombatSystem.build_attack_intent(
 			state, entity, attack_order, registry, tunables, sorted_entities
 		)
 		if profile != null:
@@ -416,7 +416,9 @@ static func _apply_attack_opportunities(
 	if attack_intents.is_empty():
 		return
 	var apply_start: int = profile.mark() if profile != null else 0
-	var tick_fired_ids := CombatSystem.apply_attack_intents(state, attack_intents, registry, events)
+	var tick_fired_ids: Dictionary = CombatSystem.apply_attack_intents(
+		state, attack_intents, registry, events
+	)
 	if profile != null:
 		profile.add("tick.attack_apply", apply_start)
 		profile.count("attack_intents", attack_intents.size())
@@ -432,7 +434,7 @@ static func _attack_order_for_opportunity(
 	registry: EntityRegistry,
 	post_movement: bool
 ) -> EntityOrder:
-	var queued_order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
+	var queued_order: EntityOrder = _STATE_HELPERS.action_at(per_entity, entity.id, tick)
 	if queued_order != null:
 		if queued_order.type == EntityOrder.Type.MOVE_ONLY:
 			return null
