@@ -270,7 +270,7 @@ func _test_queues_gather() -> bool:
 	if input.submit_for_player(0).orders.size() != 1:
 		push_error("rejected raw-gas gather should not append an order")
 		return false
-	var refinery := Entity.new()
+	var refinery: Entity = Entity.new()
 	refinery.id = setup.state.allocate_entity_id()
 	refinery.def_id = "refinery"
 	refinery.current_def_id = "refinery"
@@ -616,7 +616,7 @@ func _test_queues_spawned_unit_rally_orders() -> bool:
 	base.production_state.rally_mode = ProductionState.RALLY_MODE_MOVE
 	base.production_state.rally_target_tile = Vector2i(9, 9)
 	_add_entity(state, 12, "worker", 0, Vector2i(4, 8), Vector2i(1, 1), 40)
-	var move_event := ResolverEvent.new()
+	var move_event: ResolverEvent = ResolverEvent.new()
 	move_event.type = ResolverEvent.Type.TRAIN_COMPLETED
 	move_event.actor_id = 11
 	move_event.target_id = 12
@@ -631,7 +631,7 @@ func _test_queues_spawned_unit_rally_orders() -> bool:
 	base.production_state.rally_mode = ProductionState.RALLY_MODE_GATHER
 	base.production_state.rally_target_entity_id = 3
 	_add_entity(state, 13, "worker", 0, Vector2i(4, 9), Vector2i(1, 1), 40)
-	var gather_event := ResolverEvent.new()
+	var gather_event: ResolverEvent = ResolverEvent.new()
 	gather_event.type = ResolverEvent.Type.TRAIN_COMPLETED
 	gather_event.actor_id = 11
 	gather_event.target_id = 13
@@ -652,6 +652,7 @@ func _test_rally_gather_retargets_when_source_full() -> bool:
 	var registry: EntityRegistry = setup.registry
 	var mineral_def: EntityDef = registry.get_by_id("mineral_patch")
 	if mineral_def == null or mineral_def.resource_source == null:
+		push_error("expected mineral_patch resource_source definition in test registry")
 		return false
 	mineral_def.resource_source.max_gatherers = 1
 	input.bind_context(state, registry)
@@ -664,7 +665,7 @@ func _test_rally_gather_retargets_when_source_full() -> bool:
 	_add_entity(state, 13, "worker", 0, Vector2i(4, 9), Vector2i(1, 1), 40)
 	_add_entity(state, 14, "mineral_patch", -1, Vector2i(6, 4), Vector2i(1, 1), 0)
 	state.get_entity_by_id(14).current_resource_amount = 500
-	var gather_event := ResolverEvent.new()
+	var gather_event: ResolverEvent = ResolverEvent.new()
 	gather_event.type = ResolverEvent.Type.TRAIN_COMPLETED
 	gather_event.actor_id = 11
 	gather_event.target_id = 13
@@ -763,15 +764,15 @@ func _test_standing_orders_do_not_block_future_promotion() -> bool:
 		push_error("expected second move to queue as future order")
 		return false
 	input.clear_submissions(false, false)
-	var standing_order := EntityOrder.new()
+	var standing_order: EntityOrder = EntityOrder.new()
 	standing_order.type = EntityOrder.Type.HALT_ON_SIGHT_TOGGLE
 	standing_order.entity_id = 5
 	standing_order.halt_on_sight = true
 	input.submit_for_player(0).orders.append(standing_order)
 	input.promote_future_orders_for_next_turn()
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
-	var saw_standing_order := false
-	var saw_promoted_action := false
+	var saw_standing_order: bool = false
+	var saw_promoted_action: bool = false
 	for order in orders:
 		if order == null:
 			continue
@@ -1182,7 +1183,7 @@ func _test_snapshot_restore() -> bool:
 	var restored: DevTurnInput = _make_input()
 	var restored_state: MatchState = setup.state.clone()
 	restored.restore_snapshot(snapshot, restored_state, setup.registry)
-	var ok := true
+	var ok: bool = true
 	if restored.active_player_id() != 1:
 		push_error("snapshot restore should preserve active player")
 		ok = false

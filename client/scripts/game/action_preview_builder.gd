@@ -8,6 +8,7 @@ var _registry: EntityRegistry = null
 var _input: DevTurnInput = null
 var _player_id: int = 0
 var _renderer: MatchRenderer = null
+var _visibility_by_player: Dictionary[int, VisionSystem.Visibility] = {}
 
 
 func build(
@@ -24,6 +25,7 @@ func build(
 	_input = input
 	_player_id = player_id
 	_renderer = renderer
+	_visibility_by_player.clear()
 	var previews: Array[Dictionary] = []
 	previews.append_array(_previews_for_entity(selected_entity_id))
 	if include_all_friendly:
@@ -332,7 +334,7 @@ func _build_preview(
 	var footprint: Vector2i = def.footprint if def != null else Vector2i.ONE
 	if footprint == Vector2i.ZERO:
 		footprint = Vector2i.ONE
-	var build_rect := Rect2i(order.target_tile, footprint)
+	var build_rect: Rect2i = Rect2i(order.target_tile, footprint)
 	var options: Dictionary = _path_preview_options(actor.owner_player_id)
 	options[PATHFINDING_SCRIPT.OPTION_GOAL_RECT] = build_rect
 	options[PATHFINDING_SCRIPT.OPTION_GOAL_RANGE] = 1
@@ -531,9 +533,7 @@ func _can_preview_attack(entity: Entity) -> bool:
 func _visible_enemy_for_entity(actor: Entity) -> int:
 	if actor == null or _state == null or _registry == null:
 		return -1
-	var visibility := VisionSystem.compute_player_visibility(
-		_state, _registry, actor.owner_player_id
-	)
+	var visibility: VisionSystem.Visibility = _visibility_for_player(actor.owner_player_id)
 	for candidate in _state.entities_sorted_by_id():
 		if candidate == null or candidate.current_hp <= 0:
 			continue
@@ -544,6 +544,18 @@ func _visible_enemy_for_entity(actor: Entity) -> int:
 		):
 			return candidate.id
 	return -1
+
+
+func _visibility_for_player(player_id: int) -> VisionSystem.Visibility:
+	if _state == null or _registry == null:
+		return null
+	if _visibility_by_player.has(player_id):
+		return _visibility_by_player[player_id]
+	var visibility: VisionSystem.Visibility = VisionSystem.compute_player_visibility(
+		_state, _registry, player_id
+	)
+	_visibility_by_player[player_id] = visibility
+	return visibility
 
 
 func _is_attack_target_in_range(actor: Entity, target: Entity, combat: CombatDef) -> bool:

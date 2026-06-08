@@ -907,11 +907,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _renderer == null or _loaded == null:
 		return
-	if (
-		_escape_menu_panel != null
-		and _escape_menu_panel.visible
-		and (event is InputEventMouseButton or event is InputEventMouseMotion)
-	):
+	if _escape_menu_panel != null and _escape_menu_panel.visible:
 		return
 	if event is InputEventKey:
 		var key_event: InputEventKey = event as InputEventKey

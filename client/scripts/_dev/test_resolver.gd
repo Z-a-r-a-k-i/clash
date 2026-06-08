@@ -1957,27 +1957,27 @@ func _test_move_with_target_chain_chases_live_target() -> bool:
 
 
 func _test_targeted_attack_moves_into_weapon_range() -> bool:
-	var registry := _combat_mover_registry(6, 3, 4)
-	var state := _state_with_grid(20, 20)
-	var actor := _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
-	var target := _make_entity(state, "marine", 1, Vector2i(8, 1), 50, "ground")
+	var registry: EntityRegistry = _combat_mover_registry(6, 3, 4)
+	var state: MatchState = _state_with_grid(20, 20)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var target: Entity = _make_entity(state, "marine", 1, Vector2i(8, 1), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
 	state.tile_grid.place(target.id, Rect2i(8, 1, 1, 1))
 
-	var attack := EntityOrder.new()
+	var attack: EntityOrder = EntityOrder.new()
 	attack.type = EntityOrder.Type.ATTACK
 	attack.entity_id = actor.id
 	attack.target_priority_chain = [target.id]
 	attack.target_tile = target.origin
 
-	var result := Resolver.resolve(
+	var result: ResolveResult = Resolver.resolve(
 		state, _submit([attack] as Array[EntityOrder]), _submit(), registry, null
 	)
 	for ev in result.events:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
 			push_error("out-of-range targeted attack should not fire before moving")
 			return false
-	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
 	return (
 		new_actor.focus_target_entity_id == target.id
 		and new_actor.origin == Vector2i(5, 1)
@@ -1992,21 +1992,21 @@ func _test_targeted_attack_moves_into_weapon_range() -> bool:
 
 
 func _test_targeted_attack_uses_last_known_tile_when_target_missing() -> bool:
-	var registry := _combat_mover_registry(6, 3, 4)
-	var state := _state_with_grid(20, 20)
-	var actor := _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var registry: EntityRegistry = _combat_mover_registry(6, 3, 4)
+	var state: MatchState = _state_with_grid(20, 20)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
 
-	var attack := EntityOrder.new()
+	var attack: EntityOrder = EntityOrder.new()
 	attack.type = EntityOrder.Type.ATTACK
 	attack.entity_id = actor.id
 	attack.target_priority_chain = [999]
 	attack.target_tile = Vector2i(8, 1)
 
-	var result := Resolver.resolve(
+	var result: ResolveResult = Resolver.resolve(
 		state, _submit([attack] as Array[EntityOrder]), _submit(), registry, null
 	)
-	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
 	return new_actor.origin == Vector2i(5, 1)
 
 
@@ -5303,7 +5303,7 @@ func _test_helicopter_damage_at_data_values() -> bool:
 
 
 func _test_registry_playtest_retune_values() -> bool:
-	var registry := _load_data_registry()
+	var registry: EntityRegistry = _load_data_registry()
 	if registry == null:
 		return false
 	var expected_hp: Dictionary = {
@@ -5315,7 +5315,7 @@ func _test_registry_playtest_retune_values() -> bool:
 	}
 	for def_id: String in expected_hp.keys():
 		var def: EntityDef = registry.get_by_id(def_id)
-		var actual_hp := def.health.max_hp if def != null and def.health != null else -1
+		var actual_hp: int = def.health.max_hp if def != null and def.health != null else -1
 		if actual_hp != int(expected_hp[def_id]):
 			push_error(
 				"expected %s max_hp %d, got %d" % [def_id, int(expected_hp[def_id]), actual_hp]
@@ -5329,7 +5329,7 @@ func _test_registry_playtest_retune_values() -> bool:
 	}
 	for def_id: String in expected_speed.keys():
 		var def: EntityDef = registry.get_by_id(def_id)
-		var actual_speed := (
+		var actual_speed: int = (
 			def.movement.speed_tiles_per_turn if def != null and def.movement != null else -1
 		)
 		if actual_speed != int(expected_speed[def_id]):

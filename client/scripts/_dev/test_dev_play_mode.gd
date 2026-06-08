@@ -1687,57 +1687,56 @@ func _test_pending_target_targets_enemy() -> bool:
 
 
 func _test_a_key_attack_move_mode() -> bool:
+	var original_cursor_shape: int = Input.get_current_cursor_shape()
 	var mode: Node = _make_mode()
 	if mode == null:
 		return false
 	add_child(mode)
+	var ok: bool = true
 	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
-		_free_mode(mode)
-		return false
-	mode.set_active_player_id(0)
-	if not mode.select_entity_id(1):
-		push_error("expected to select P0 marine #1")
-		_free_mode(mode)
-		return false
-	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
-	mode.call("_unhandled_input", _key_press(KEY_A))
-	if mode.pending_command_kind() != "move":
-		push_error("A key should enter pending attack-move mode")
-		_free_mode(mode)
-		return false
-	if mode.pending_cursor_shape() != Input.CURSOR_CROSS:
+		ok = false
+	if ok:
+		mode.set_active_player_id(0)
+		if not mode.select_entity_id(1):
+			push_error("expected to select P0 marine #1")
+			ok = false
+	if ok:
+		Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+		mode.call("_unhandled_input", _key_press(KEY_A))
+		if mode.pending_command_kind() != "move":
+			push_error("A key should enter pending attack-move mode")
+			ok = false
+	if ok and mode.pending_cursor_shape() != Input.CURSOR_CROSS:
 		push_error("pending attack-move should use the crosshair cursor")
-		_free_mode(mode)
-		return false
-	if not mode.confirm_pending_at_tile(Vector2i(8, 10)):
+		ok = false
+	if ok and not mode.confirm_pending_at_tile(Vector2i(8, 10)):
 		push_error("A-key ground click should queue attack-move")
-		_free_mode(mode)
-		return false
 	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
-	if orders.size() != 1 or orders[0].type != EntityOrder.Type.MOVE:
+	if ok and (orders.size() != 1 or orders[0].type != EntityOrder.Type.MOVE):
 		push_error("A-key ground click should queue one MOVE order")
-		_free_mode(mode)
-		return false
-	mode.input_model().clear_submissions()
-	mode.call("_unhandled_input", _key_press(KEY_A))
-	mode.renderer().set_perspective_player_id(1)
-	if not mode.confirm_pending_at_tile(Vector2i(13, 10)):
-		push_error("A-key enemy click should queue targeted ATTACK")
-		_free_mode(mode)
-		return false
-	orders = mode.input_model().submit_for_player(0).orders
+		ok = false
+	if ok:
+		mode.input_model().clear_submissions()
+		mode.call("_unhandled_input", _key_press(KEY_A))
+		mode.renderer().set_perspective_player_id(1)
+		if not mode.confirm_pending_at_tile(Vector2i(13, 10)):
+			push_error("A-key enemy click should queue targeted ATTACK")
+			ok = false
+		orders = mode.input_model().submit_for_player(0).orders
 	if (
-		orders.size() != 1
-		or orders[0].type != EntityOrder.Type.ATTACK
-		or orders[0].target_priority_chain != ([4] as Array[int])
-		or orders[0].target_tile != Vector2i(13, 10)
+		ok
+		and (
+			orders.size() != 1
+			or orders[0].type != EntityOrder.Type.ATTACK
+			or orders[0].target_priority_chain != ([4] as Array[int])
+			or orders[0].target_tile != Vector2i(13, 10)
+		)
 	):
 		push_error("A-key enemy click should queue ATTACK against #4")
-		_free_mode(mode)
-		return false
-	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+		ok = false
+	Input.set_default_cursor_shape(original_cursor_shape)
 	_free_mode(mode)
-	return true
+	return ok
 
 
 func _test_left_drag_pans_camera() -> bool:
@@ -2340,7 +2339,7 @@ func _load_registry() -> EntityRegistry:
 func _mouse_button(
 	button_index: MouseButton, pressed: bool, position: Vector2
 ) -> InputEventMouseButton:
-	var event := InputEventMouseButton.new()
+	var event: InputEventMouseButton = InputEventMouseButton.new()
 	event.button_index = button_index
 	event.pressed = pressed
 	event.position = position
@@ -2348,21 +2347,21 @@ func _mouse_button(
 
 
 func _mouse_motion(relative: Vector2, button_mask: MouseButtonMask) -> InputEventMouseMotion:
-	var event := InputEventMouseMotion.new()
+	var event: InputEventMouseMotion = InputEventMouseMotion.new()
 	event.relative = relative
 	event.button_mask = button_mask
 	return event
 
 
 func _escape_key() -> InputEventKey:
-	var event := InputEventKey.new()
+	var event: InputEventKey = InputEventKey.new()
 	event.keycode = KEY_ESCAPE
 	event.pressed = true
 	return event
 
 
 func _key_press(keycode: Key) -> InputEventKey:
-	var event := InputEventKey.new()
+	var event: InputEventKey = InputEventKey.new()
 	event.keycode = keycode
 	event.pressed = true
 	return event

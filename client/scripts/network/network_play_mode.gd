@@ -158,7 +158,7 @@ func remember_server_url(url: String) -> void:
 	var normalized: String = url.strip_edges()
 	if normalized == "":
 		return
-	var config := ConfigFile.new()
+	var config: ConfigFile = ConfigFile.new()
 	config.set_value(SERVER_URL_CONFIG_SECTION, SERVER_URL_CONFIG_KEY, normalized)
 	var absolute_dir: String = (
 		ProjectSettings.globalize_path(_server_url_config_path).get_base_dir()
@@ -1019,11 +1019,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if not _match_started or _surface == null or _surface.renderer() == null:
 		return
-	if (
-		_escape_menu_panel != null
-		and _escape_menu_panel.visible
-		and (event is InputEventMouseButton or event is InputEventMouseMotion)
-	):
+	if _escape_menu_panel != null and _escape_menu_panel.visible:
 		return
 	if event is InputEventKey:
 		var key_event: InputEventKey = event as InputEventKey
@@ -1260,7 +1256,7 @@ func _is_resource_context_target(entity: Entity) -> bool:
 
 
 func _queue_attack_target_order(entity_id: int, target_entity_id: int) -> void:
-	var order := EntityOrder.new()
+	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.ATTACK
 	order.entity_id = entity_id
 	order.target_priority_chain = [target_entity_id]
@@ -1283,7 +1279,7 @@ func _order_target_tile(target_entity_id: int) -> Vector2i:
 
 
 func _queue_halt_on_sight_order(entity_id: int, enabled: bool) -> void:
-	var order := EntityOrder.new()
+	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.HALT_ON_SIGHT_TOGGLE
 	order.entity_id = entity_id
 	order.halt_on_sight = enabled
@@ -1291,7 +1287,7 @@ func _queue_halt_on_sight_order(entity_id: int, enabled: bool) -> void:
 
 
 func _queue_rally_move_order(entity_id: int, tile: Vector2i) -> void:
-	var order := EntityOrder.new()
+	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.SET_RALLY_POINT
 	order.entity_id = entity_id
 	order.mode = ProductionState.RALLY_MODE_MOVE
@@ -1300,7 +1296,7 @@ func _queue_rally_move_order(entity_id: int, tile: Vector2i) -> void:
 
 
 func _queue_rally_gather_order(entity_id: int, target_entity_id: int) -> void:
-	var order := EntityOrder.new()
+	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.SET_RALLY_POINT
 	order.entity_id = entity_id
 	order.mode = ProductionState.RALLY_MODE_GATHER
@@ -1309,7 +1305,7 @@ func _queue_rally_gather_order(entity_id: int, target_entity_id: int) -> void:
 
 
 func _queue_repeat_train_order(entity_id: int, enabled: bool) -> void:
-	var order := EntityOrder.new()
+	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.REPEAT_TRAIN_TOGGLE
 	order.entity_id = entity_id
 	order.enabled = enabled
@@ -1406,7 +1402,7 @@ func _auto_connect_default_server() -> void:
 
 
 func _remembered_server_url() -> String:
-	var config := ConfigFile.new()
+	var config: ConfigFile = ConfigFile.new()
 	var err: Error = config.load(_server_url_config_path)
 	if err != OK:
 		return _default_server_url()

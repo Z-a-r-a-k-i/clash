@@ -26,39 +26,39 @@ func ensure_initialized() -> void:
 	offset_right = 0.0
 	offset_bottom = 0.0
 
-	var background := ColorRect.new()
+	var background: ColorRect = ColorRect.new()
 	background.name = "Background"
 	background.color = Color(0.07, 0.08, 0.09, 1.0)
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
 
-	var center := CenterContainer.new()
+	var center: CenterContainer = CenterContainer.new()
 	center.name = "Center"
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(center)
 
-	var root := VBoxContainer.new()
+	var root: VBoxContainer = VBoxContainer.new()
 	root.name = "Menu"
 	root.custom_minimum_size = Vector2(MENU_WIDTH, 0.0)
 	root.add_theme_constant_override("separation", 12)
 	center.add_child(root)
 
-	var title := Label.new()
+	var title: Label = Label.new()
 	title.name = "Title"
 	title.text = "Clash"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 34)
 	root.add_child(title)
 
-	var solo_button := _menu_button("Solo", "SoloButton")
+	var solo_button: Button = _menu_button("Solo", "SoloButton")
 	solo_button.pressed.connect(_solo_pressed)
 	root.add_child(solo_button)
 
-	var multiplayer_button := _menu_button("Multiplayer", "MultiplayerButton")
+	var multiplayer_button: Button = _menu_button("Multiplayer", "MultiplayerButton")
 	multiplayer_button.pressed.connect(_multiplayer_pressed)
 	root.add_child(multiplayer_button)
 
-	var replay_button := _menu_button("Replay", "ReplayButton")
+	var replay_button: Button = _menu_button("Replay", "ReplayButton")
 	replay_button.pressed.connect(_replay_pressed)
 	root.add_child(replay_button)
 
@@ -94,7 +94,7 @@ func _change_scene(path: String) -> void:
 
 
 func _menu_button(label: String, node_name: String) -> Button:
-	var button := Button.new()
+	var button: Button = Button.new()
 	button.name = node_name
 	button.text = label
 	button.custom_minimum_size = Vector2(MENU_WIDTH, BUTTON_HEIGHT)

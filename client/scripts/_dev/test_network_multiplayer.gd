@@ -21,7 +21,6 @@ const TEST_SERVER_URL_CONFIG := "user://tmp/network_server_url_test.cfg"
 func _enter_tree() -> void:
 	if not Engine.is_editor_hint():
 		return
-	_run_all()
 
 
 func _run_all() -> int:
@@ -599,23 +598,25 @@ func _test_network_left_empty_drag_pans_camera() -> bool:
 		remove_child(mode)
 		mode.queue_free()
 		return false
-	var empty_world: Vector2 = Vector2(empty_tile) * 32.0 + Vector2(16.0, 16.0)
-	var press := InputEventMouseButton.new()
+	var tile_size: float = float(_load_tunables().tile_pixel_size)
+	var empty_world: Vector2 = Vector2(empty_tile) * tile_size + Vector2.ONE * (tile_size * 0.5)
+	var drag_delta: Vector2 = Vector2(tile_size * -1.25, 0.0)
+	var press: InputEventMouseButton = InputEventMouseButton.new()
 	press.button_index = MOUSE_BUTTON_LEFT
 	press.pressed = true
 	press.position = empty_world
 	mode.call("_unhandled_input", press)
-	var motion := InputEventMouseMotion.new()
+	var motion: InputEventMouseMotion = InputEventMouseMotion.new()
 	motion.button_mask = MOUSE_BUTTON_MASK_LEFT
-	motion.position = empty_world + Vector2(-40.0, 0.0)
-	motion.relative = Vector2(-40.0, 0.0)
+	motion.position = empty_world + drag_delta
+	motion.relative = drag_delta
 	mode.call("_unhandled_input", motion)
 	var drag_moved: bool = bool(mode.get("_left_empty_drag_moved"))
 	var panning_active: bool = bool(mode.get("_is_panning_camera"))
-	var release := InputEventMouseButton.new()
+	var release: InputEventMouseButton = InputEventMouseButton.new()
 	release.button_index = MOUSE_BUTTON_LEFT
 	release.pressed = false
-	release.position = empty_world + Vector2(-40.0, 0.0)
+	release.position = empty_world + drag_delta
 	mode.call("_unhandled_input", release)
 	var ok: bool = drag_moved and panning_active
 	if not ok:
@@ -1327,7 +1328,7 @@ func _new_script_instance(path: String) -> Object:
 
 
 func _key_press(keycode: Key) -> InputEventKey:
-	var event := InputEventKey.new()
+	var event: InputEventKey = InputEventKey.new()
 	event.keycode = keycode
 	event.pressed = true
 	return event
