@@ -864,9 +864,9 @@ static func _proposal_id_less(a: Dictionary, b: Dictionary) -> bool:
 
 
 static func _target_tile_for_order(
-	state: MatchState, actor: Entity, order: EntityOrder
+	_state: MatchState, _actor: Entity, order: EntityOrder
 ) -> Vector2i:
-	return _move_goal_for_order(state, actor, order).get("target_origin", order.target_tile)
+	return _move_goal_for_order(order).get("target_origin", order.target_tile)
 
 
 # Try to advance one tile toward `target_tile`. Returns true on success.

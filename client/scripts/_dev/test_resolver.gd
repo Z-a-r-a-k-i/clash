@@ -1168,16 +1168,29 @@ func _test_move_to_enemy_occupied_tile_fires_and_moves_to_nearest_open() -> bool
 		registry,
 		null
 	)
-	var damaged: bool = false
-	for ev in result.events:
-		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
-			damaged = ev.target_id == target.id
+	var damaged_idx: int = -1
+	var moved_idx: int = -1
+	for i in result.events.size():
+		var ev: ResolverEvent = result.events[i]
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == actor.id
+			and ev.target_id == target.id
+		):
+			if damaged_idx < 0:
+				damaged_idx = i
+		elif ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			if moved_idx < 0:
+				moved_idx = i
 	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
 	var new_target: Entity = result.new_state.get_entity_by_id(target.id)
 	if new_actor.origin != Vector2i(4, 1):
 		push_error("Move should stop at nearest open tile, got %s" % str(new_actor.origin))
 		return false
-	if not damaged or new_target.current_hp != target.current_hp - 6:
+	if damaged_idx < 0 or moved_idx < 0 or damaged_idx >= moved_idx:
+		push_error("Move should damage before moving toward the enemy-occupied tile")
+		return false
+	if new_target.current_hp != target.current_hp - 6:
 		push_error("Move should fire before moving toward the enemy-occupied tile")
 		return false
 	return true
@@ -1810,17 +1823,25 @@ func _test_move_shoots_before_moving() -> bool:
 	var result := Resolver.resolve(
 		state, _submit([move_order] as Array[EntityOrder]), _submit([]), registry, null
 	)
-	var actor_damaged_enemy := false
-	for ev in result.events:
+	var damaged_idx := -1
+	var moved_idx := -1
+	for i in result.events.size():
+		var ev: ResolverEvent = result.events[i]
 		if (
 			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
 			and ev.actor_id == actor.id
 			and ev.target_id == enemy.id
 		):
-			actor_damaged_enemy = true
+			if damaged_idx < 0:
+				damaged_idx = i
+		elif ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			if moved_idx < 0:
+				moved_idx = i
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
 	return (
-		actor_damaged_enemy
+		damaged_idx >= 0
+		and moved_idx >= 0
+		and damaged_idx < moved_idx
 		and new_actor.origin == Vector2i(7, 5)
 		and new_actor.persistent_order == null
 	)
@@ -2800,15 +2821,25 @@ func _test_order_builder_fan_out_target() -> bool:
 	var orders := OrderBuilder.fan_out_target(ids, chain)
 	if orders.size() != 3:
 		return false
-	for i in 3:
+	for i in ids.size():
 		var o: EntityOrder = orders[i]
 		if o.type != EntityOrder.Type.TARGET:
 			return false
 		if o.entity_id != ids[i]:
 			return false
+		if o.target_entity_id != chain[0]:
+			return false
 		if o.target_priority_chain != chain:
 			return false
-	return true
+	chain.append(99)
+	var expected_chain: Array[int] = [42]
+	if orders[0].target_priority_chain != expected_chain:
+		return false
+	orders[0].target_priority_chain.append(7)
+	return (
+		orders[1].target_priority_chain == expected_chain
+		and orders[2].target_priority_chain == expected_chain
+	)
 
 
 func _test_order_builder_fan_out_cancel() -> bool:

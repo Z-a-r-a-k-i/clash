@@ -7,6 +7,16 @@ extends RefCounted
 # immediately, while turn actions still queue for resolver submission.
 
 const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
+const _FIRING_TILE_NEIGHBORS: Array[Vector2i] = [
+	Vector2i(1, 0),
+	Vector2i(1, 1),
+	Vector2i(0, 1),
+	Vector2i(-1, 1),
+	Vector2i(-1, 0),
+	Vector2i(-1, -1),
+	Vector2i(0, -1),
+	Vector2i(1, -1),
+]
 
 var _state: MatchState = null
 var _registry: EntityRegistry = null
@@ -1134,18 +1144,17 @@ func _best_firing_tile_for_target(actor: Entity, target: Entity, combat: CombatD
 	var best_tile := Vector2i(-1, -1)
 	var best_target_distance := -1
 	var best_path_distance := 0
-	for y in _state.tile_grid.height:
-		for x in _state.tile_grid.width:
-			var candidate := Vector2i(x, y)
-			if not PathfindingSystem.can_occupy_origin(_state, actor, candidate, _registry):
-				continue
-			var candidate_rect := Rect2i(candidate, footprint)
-			var target_distance: int = TileGrid.distance_between_rects(candidate_rect, target_rect)
-			if target_distance > combat.attack_range:
-				continue
-			var path_distance: int = _path_distance_to_origin(actor, candidate)
-			if path_distance < 0:
-				continue
+	var queue: Array[Vector2i] = [actor.origin]
+	var path_distances: Dictionary = {}
+	path_distances[actor.origin] = 0
+	var cursor := 0
+	while cursor < queue.size():
+		var candidate: Vector2i = queue[cursor]
+		cursor += 1
+		var path_distance: int = int(path_distances[candidate])
+		var candidate_rect := Rect2i(candidate, footprint)
+		var target_distance: int = TileGrid.distance_between_rects(candidate_rect, target_rect)
+		if target_distance <= combat.attack_range:
 			if (
 				best_tile == Vector2i(-1, -1)
 				or target_distance > best_target_distance
@@ -1166,18 +1175,15 @@ func _best_firing_tile_for_target(actor: Entity, target: Entity, combat: CombatD
 				best_tile = candidate
 				best_target_distance = target_distance
 				best_path_distance = path_distance
+		for delta in _FIRING_TILE_NEIGHBORS:
+			var next: Vector2i = candidate + delta
+			if path_distances.has(next):
+				continue
+			if not PathfindingSystem.can_occupy_origin(_state, actor, next, _registry):
+				continue
+			path_distances[next] = path_distance + 1
+			queue.append(next)
 	return best_tile
-
-
-func _path_distance_to_origin(actor: Entity, origin: Vector2i) -> int:
-	if actor == null:
-		return -1
-	if actor.origin == origin:
-		return 0
-	var path: Array[Vector2i] = PathfindingSystem.find_path(_state, actor, origin, _registry)
-	if path.is_empty() or path[path.size() - 1] != origin:
-		return -1
-	return path.size()
 
 
 func _target_rect(target: Entity) -> Rect2i:

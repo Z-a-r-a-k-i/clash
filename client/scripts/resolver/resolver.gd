@@ -272,6 +272,7 @@ static func resolve(
 static func _has_standing_work(
 	state: MatchState, registry: EntityRegistry, profile: Variant = null
 ) -> bool:
+	var visibility_by_player: Dictionary = {}
 	for e in state.entities:
 		if e == null or e.current_hp <= 0:
 			continue
@@ -296,7 +297,7 @@ static func _has_standing_work(
 				profile.count("standing_work.constructing")
 			return true
 		var attack_lookup_start: int = profile.mark() if profile != null else 0
-		if _standing_attack_order(state, e, registry) != null:
+		if _standing_attack_order(state, e, registry, true, visibility_by_player) != null:
 			if profile != null:
 				profile.add("standing_work.attack_order_lookup", attack_lookup_start)
 				profile.count("standing_work.attack_order_lookups")
@@ -309,7 +310,11 @@ static func _has_standing_work(
 
 
 static func _standing_attack_order(
-	state: MatchState, entity: Entity, registry: EntityRegistry, require_ready_target: bool = true
+	state: MatchState,
+	entity: Entity,
+	registry: EntityRegistry,
+	require_ready_target: bool,
+	visibility_by_player: Dictionary
 ) -> EntityOrder:
 	if entity == null or entity.current_hp <= 0:
 		return null
@@ -336,7 +341,9 @@ static func _standing_attack_order(
 			or focus.current_hp <= 0
 			or focus.owner_player_id < 0
 			or focus.owner_player_id == entity.owner_player_id
-			or not _is_visible_to_player(state, registry, focus, entity.owner_player_id)
+			or not _is_visible_to_player(
+				state, registry, focus, entity.owner_player_id, visibility_by_player
+			)
 		):
 			entity.focus_target_entity_id = -1
 		else:
@@ -362,6 +369,7 @@ static func _apply_attack_opportunities(
 	profile: Variant = null
 ) -> void:
 	var attack_intents: Array[Dictionary] = []
+	var visibility_by_player: Dictionary = {}
 	for entity in sorted_entities:
 		if entity == null or entity.current_hp <= 0:
 			continue
@@ -371,7 +379,7 @@ static func _apply_attack_opportunities(
 			continue
 		var attack_lookup_start: int = profile.mark() if profile != null else 0
 		var attack_order: EntityOrder = _attack_order_for_opportunity(
-			state, per_entity, tick, entity, registry
+			state, per_entity, tick, entity, registry, visibility_by_player
 		)
 		if profile != null:
 			profile.add("tick.attack_order_lookup", attack_lookup_start)
@@ -401,7 +409,12 @@ static func _apply_attack_opportunities(
 
 
 static func _attack_order_for_opportunity(
-	state: MatchState, per_entity: Dictionary, tick: int, entity: Entity, registry: EntityRegistry
+	state: MatchState,
+	per_entity: Dictionary,
+	tick: int,
+	entity: Entity,
+	registry: EntityRegistry,
+	visibility_by_player: Dictionary
 ) -> EntityOrder:
 	var queued_order: EntityOrder = _STATE_HELPERS.action_at(per_entity, entity.id, tick)
 	if queued_order != null:
@@ -411,8 +424,8 @@ static func _attack_order_for_opportunity(
 			queued_order.type == EntityOrder.Type.MOVE
 			or queued_order.type == EntityOrder.Type.ATTACK_MOVE
 		):
-			return _standing_attack_order(state, entity, registry, false)
-	return _standing_attack_order(state, entity, registry, false)
+			return _standing_attack_order(state, entity, registry, false, visibility_by_player)
+	return _standing_attack_order(state, entity, registry, false, visibility_by_player)
 
 
 static func _max_live_movement_speed(state: MatchState, registry: EntityRegistry) -> int:
@@ -436,13 +449,16 @@ static func _attack_move_halted_entity_ids(
 	var out: Dictionary = {}
 	if state == null or registry == null:
 		return out
+	var visibility_by_player: Dictionary = {}
 	for entity in sorted_entities:
 		if entity == null or entity.current_hp <= 0:
 			continue
 		var order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
 		if order == null or order.type != EntityOrder.Type.ATTACK_MOVE:
 			continue
-		var attack_order: EntityOrder = _standing_attack_order(state, entity, registry, false)
+		var attack_order: EntityOrder = _standing_attack_order(
+			state, entity, registry, false, visibility_by_player
+		)
 		if (
 			attack_order != null
 			and CombatSystem.can_attack_now(state, entity, attack_order, registry, sorted_entities)
@@ -452,13 +468,22 @@ static func _attack_move_halted_entity_ids(
 
 
 static func _is_visible_to_player(
-	state: MatchState, registry: EntityRegistry, entity: Entity, player_id: int
+	state: MatchState,
+	registry: EntityRegistry,
+	entity: Entity,
+	player_id: int,
+	visibility_by_player: Dictionary
 ) -> bool:
 	if entity == null or player_id < 0:
 		return false
 	if state == null or state.tile_grid == null:
 		return true
-	var visibility := VisionSystem.compute_player_visibility(state, registry, player_id)
+	var visibility: VisionSystem.Visibility = null
+	if visibility_by_player.has(player_id):
+		visibility = visibility_by_player[player_id] as VisionSystem.Visibility
+	else:
+		visibility = VisionSystem.compute_player_visibility(state, registry, player_id)
+		visibility_by_player[player_id] = visibility
 	return VisionSystem.is_entity_visible_to_player(entity, state, registry, player_id, visibility)
 
 

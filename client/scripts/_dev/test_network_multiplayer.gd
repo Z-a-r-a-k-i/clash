@@ -1607,6 +1607,7 @@ func _submit_attack(state: MatchState, owner: int) -> SubmitTurn:
 	order.entity_id = actor_id
 	if target_id >= 0:
 		order.target_priority_chain = [target_id]
+		order.target_entity_id = target_id
 		var target: Entity = state.get_entity_by_id(target_id)
 		if target != null:
 			order.target_tile = target.origin

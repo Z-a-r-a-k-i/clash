@@ -525,7 +525,7 @@ static func _rally_worker_probe_for_producer(
 		var unit_def: EntityDef = registry.get_by_id(def_id) if registry != null else null
 		if unit_def == null or unit_def.gather == null:
 			continue
-		var spawn_tile: Vector2i = _PRODUCTION._find_spawn_tile(state, registry, producer, unit_def)
+		var spawn_tile: Vector2i = _PRODUCTION.find_spawn_tile(state, registry, producer, unit_def)
 		if spawn_tile == Vector2i(-1, -1):
 			continue
 		var probe := Entity.new()

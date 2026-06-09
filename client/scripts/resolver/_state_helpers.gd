@@ -638,12 +638,6 @@ static func _handle_set_rally_order(
 		entity.production_state.rally_target_entity_id = -1
 		return
 	if order.mode == ProductionState.RALLY_MODE_GATHER:
-		var source: Entity = GatherSystem.resolve_source_for_worker(
-			state, registry, order.target_entity_id, entity.owner_player_id
-		)
-		if source == null:
-			_emit_order_rejected(order.entity_id, "bad_rally_gather_target", events)
-			return
 		if (
 			GatherSystem.rally_gather_source_for_producer(
 				state, registry, entity, order.target_entity_id
