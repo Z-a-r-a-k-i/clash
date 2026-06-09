@@ -66,8 +66,10 @@ const _VIEWPORT_HEIGHT_SETTING := "display/window/size/viewport_height"
 const _BUILDING_MEMORY_ENTITY := "entity"
 const _BUILDING_MEMORY_RECT := "rect"
 const _ZOOM_DEBUG_NODE_NAME := "ZoomDebug"
-const _ZOOM_DEBUG_POSITION := Vector2(12.0, 12.0)
-const _ZOOM_DEBUG_SIZE := Vector2(360.0, 72.0)
+const _ZOOM_DEBUG_OFFSET_LEFT := 12.0
+const _ZOOM_DEBUG_OFFSET_TOP := -96.0
+const _ZOOM_DEBUG_OFFSET_RIGHT := 372.0
+const _ZOOM_DEBUG_OFFSET_BOTTOM := -20.0
 const _ZOOM_DEBUG_FONT_SIZE := 18
 
 # Hit flash applied to the target sprite for ~150 ms when ENTITY_DAMAGED
@@ -583,14 +585,26 @@ func _resolve_internal_nodes() -> void:
 		if hud != null:
 			_zoom_debug = Label.new()
 			_zoom_debug.name = _ZOOM_DEBUG_NODE_NAME
-			_zoom_debug.position = _ZOOM_DEBUG_POSITION
-			_zoom_debug.size = _ZOOM_DEBUG_SIZE
 			_zoom_debug.add_theme_font_size_override("font_size", _ZOOM_DEBUG_FONT_SIZE)
 			_zoom_debug.add_theme_color_override("font_color", Color(0.92, 0.94, 1.0, 1.0))
 			_zoom_debug.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
 			_zoom_debug.add_theme_constant_override("shadow_offset_x", 1)
 			_zoom_debug.add_theme_constant_override("shadow_offset_y", 1)
 			hud.add_child(_zoom_debug)
+	if _zoom_debug != null:
+		_configure_zoom_debug_label()
+
+
+func _configure_zoom_debug_label() -> void:
+	_zoom_debug.anchor_left = 0.0
+	_zoom_debug.anchor_right = 0.0
+	_zoom_debug.anchor_top = 1.0
+	_zoom_debug.anchor_bottom = 1.0
+	_zoom_debug.offset_left = _ZOOM_DEBUG_OFFSET_LEFT
+	_zoom_debug.offset_right = _ZOOM_DEBUG_OFFSET_RIGHT
+	_zoom_debug.offset_top = _ZOOM_DEBUG_OFFSET_TOP
+	_zoom_debug.offset_bottom = _ZOOM_DEBUG_OFFSET_BOTTOM
+	_zoom_debug.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
 func _clear_existing_views() -> void:

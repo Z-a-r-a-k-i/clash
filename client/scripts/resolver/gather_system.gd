@@ -19,6 +19,7 @@ extends RefCounted
 
 const _SOURCE_TYPE_MINERALS := "minerals"
 const _SOURCE_TYPE_GAS := "gas"
+const _PATHFINDING := preload("res://scripts/resolver/pathfinding_system.gd")
 
 
 # Phase 2 hook — called per tick alongside MOVE resolution.
@@ -80,16 +81,51 @@ static func _step_to_source(
 		# Source destroyed / refinery missing — idle in place.
 		clear_assignment(actor)
 		return
-	if not _is_worker_within_source_cap(source_assignments, registry, actor, source):
+	var assigned_source: Entity = best_source_for_worker(
+		state, registry, actor, source, source_assignments
+	)
+	if assigned_source == null:
 		clear_assignment(actor)
 		return
+	if assigned_source.id != source.id:
+		actor.gather_state.assigned_source_entity_id = assigned_source.id
+		replace_assignment_in_map(source_assignments, actor.id, assigned_source.id)
+		source = assigned_source
 	if _is_adjacent_to(state, actor, source):
 		actor.gather_state.phase = GatherState.Phase.GATHERING
 		return
 	if not _can_step(actor, registry):
 		return
-	var target_tile := _approach_tile_for(state, source)
-	if MovementSystem.step_toward(state, actor, target_tile, events):
+	var source_rect: Rect2i = state.tile_grid.entity_rect(source.id)
+	if source_rect.size == Vector2i.ZERO:
+		return
+	var step: Dictionary = (
+		_PATHFINDING
+		. find_next_step(
+			state,
+			actor,
+			source_rect.position,
+			registry,
+			{
+				_PATHFINDING.OPTION_GOAL_RECT: source_rect,
+				_PATHFINDING.OPTION_GOAL_RANGE: 1,
+				_PATHFINDING.OPTION_EXACT_ORIGIN: false,
+			}
+		)
+	)
+	if step.is_empty():
+		return
+	var new_origin: Vector2i = step.get("next_origin", actor.origin)
+	if new_origin == actor.origin:
+		return
+	if state.tile_grid.move(actor.id, new_origin):
+		var ev := ResolverEvent.new()
+		ev.type = ResolverEvent.Type.ENTITY_MOVED
+		ev.actor_id = actor.id
+		ev.from_origin = actor.origin
+		ev.to_origin = new_origin
+		actor.origin = new_origin
+		events.append(ev)
 		actor.moves_used_this_turn += 1
 		# Re-check adjacency after the step so we transition the same tick
 		# we land in range.
@@ -193,6 +229,70 @@ static func source_has_open_slot(
 	return _assigned_gatherer_count_for_source(source_assignments, source.id, actor_id) < cap
 
 
+static func best_source_for_worker(
+	state: MatchState,
+	registry: EntityRegistry,
+	actor: Entity,
+	requested_source: Entity,
+	source_assignments: Dictionary[int, Array] = {}
+) -> Entity:
+	if state == null or registry == null or actor == null or requested_source == null:
+		return null
+	var assignments: Dictionary[int, Array] = (
+		source_assignments
+		if not source_assignments.is_empty()
+		else _source_assignments_by_source(state, registry)
+	)
+	if _source_is_available_to_worker(state, registry, actor, requested_source, assignments):
+		return requested_source
+	var requested_type: String = _resource_type_for_source(registry, requested_source)
+	if requested_type == "":
+		return null
+	var best: Entity = null
+	var best_distance: int = -1
+	for candidate in state.entities_sorted_by_id():
+		if candidate == null or candidate.id == requested_source.id:
+			continue
+		var source: Entity = _resolve_source(state, registry, candidate.id, actor.owner_player_id)
+		if source == null or source.id != candidate.id:
+			continue
+		if _resource_type_for_source(registry, source) != requested_type:
+			continue
+		var distance: int = _path_distance_to_source(state, registry, actor, source)
+		if distance < 0:
+			continue
+		var cap: int = source_gatherer_cap(registry, source)
+		if cap <= 0:
+			continue
+		if _assigned_gatherer_count_for_source(assignments, source.id, actor.id) >= cap:
+			continue
+		if (
+			best == null
+			or distance < best_distance
+			or (distance == best_distance and source.id < best.id)
+		):
+			best = source
+			best_distance = distance
+	return best
+
+
+static func replace_assignment_in_map(
+	source_assignments: Dictionary[int, Array], actor_id: int, source_id: int
+) -> void:
+	for key in source_assignments.keys():
+		var worker_ids: Array = source_assignments[key]
+		worker_ids.erase(actor_id)
+		source_assignments[key] = worker_ids
+	if source_id < 0:
+		return
+	if not source_assignments.has(source_id):
+		source_assignments[source_id] = []
+	var assigned: Array = source_assignments[source_id]
+	if not assigned.has(actor_id):
+		assigned.append(actor_id)
+	source_assignments[source_id] = assigned
+
+
 static func source_gatherer_cap(registry: EntityRegistry, source: Entity) -> int:
 	if registry == null or source == null:
 		return 0
@@ -287,6 +387,55 @@ static func _assigned_gatherer_count_for_source(
 	if excluded_actor_id >= 0 and worker_ids.has(excluded_actor_id):
 		count -= 1
 	return count
+
+
+static func _source_is_available_to_worker(
+	state: MatchState,
+	registry: EntityRegistry,
+	actor: Entity,
+	source: Entity,
+	source_assignments: Dictionary[int, Array]
+) -> bool:
+	var cap: int = source_gatherer_cap(registry, source)
+	if cap <= 0:
+		return false
+	if _assigned_gatherer_count_for_source(source_assignments, source.id, actor.id) >= cap:
+		return false
+	return _path_distance_to_source(state, registry, actor, source) >= 0
+
+
+static func _resource_type_for_source(registry: EntityRegistry, source: Entity) -> String:
+	if registry == null or source == null:
+		return ""
+	var def: EntityDef = registry.get_by_id(source.current_def_id)
+	if def == null or def.resource_source == null:
+		return ""
+	return def.resource_source.resource_type
+
+
+static func _path_distance_to_source(
+	state: MatchState, registry: EntityRegistry, actor: Entity, source: Entity
+) -> int:
+	if state == null or state.tile_grid == null or actor == null or source == null:
+		return -1
+	var actor_rect: Rect2i = state.tile_grid.entity_rect(actor.id)
+	var source_rect: Rect2i = state.tile_grid.entity_rect(source.id)
+	if actor_rect.size == Vector2i.ZERO or source_rect.size == Vector2i.ZERO:
+		return -1
+	if TileGrid.distance_between_rects(actor_rect, source_rect) <= 1:
+		return 0
+	var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, registry)
+	if movement == null:
+		return -1
+	var options: Dictionary = {
+		_PATHFINDING.OPTION_GOAL_RECT: source_rect,
+		_PATHFINDING.OPTION_GOAL_RANGE: 1,
+		_PATHFINDING.OPTION_EXACT_ORIGIN: false,
+	}
+	var path: Array[Vector2i] = _PATHFINDING.find_path(
+		state, actor, source_rect.position, registry, options
+	)
+	return path.size() if not path.is_empty() else -1
 
 
 static func _is_worker_within_source_cap(

@@ -4,10 +4,10 @@
 
 Clash is a turn-based PvP strategy game. Two players queue actions during a shared turn timer; when both submit (or the timer expires), the resolver applies all queued actions deterministically and produces the resolved frame.
 
-The architecture changes by milestone:
+The architecture changes by milestone. A same-version Godot WebSocket slice now exists for dev playtests before the production M2 server decision:
 
 ```text
-M0 (current): no network, dev-only
+M0/M1 baseline: local/dev play
 +---------------------------+
 |  Godot client (GDScript)  |
 |  - Renders board          |
@@ -16,9 +16,15 @@ M0 (current): no network, dev-only
 |    both players           |
 +---------------------------+
 
-M1: AI opponent added (still all client-side)
+First network slice: trusted Godot WebSocket playtest
++---------------------------+      Variant v0      +---------------------------+
+|  Godot client             | <------------------> |  Headless Godot server    |
+|  - Renders authoritative  |                       |  - Invite-code sessions   |
+|    MatchState             |                       |  - Resolver authoritative |
+|  - Submits own slot only  |                       |  - Replay journal capture |
++---------------------------+                       +---------------------------+
 
-M2: network play, server-authoritative (server tech / protocol picked then)
+M2: production network play, server-authoritative (server tech / protocol picked then)
 +---------------+    wire protocol (TBD)    +---------------+
 |  Godot client | <-----------------------> |  Server (TBD) |
 |  (GDScript)   |  action queue / events    |               |
@@ -40,15 +46,21 @@ Godot 4.6+ project. GDScript only (per ADR 0020). Responsibilities:
 
 The resolver itself is a pure GDScript function over plain-data structures (see the design spec). At M0/M1 it runs in-client; at M2 it runs in whatever server stack is chosen. If the server stays Godot/GDScript, the resolver code is reused unchanged; otherwise a port is needed (the design's plain-data shape keeps that port mechanical).
 
+### Network playtest (`client/scripts/network/`)
+
+The first PvP implementation is a headless Godot server that runs from the existing `client/` project. This keeps scenario loading, Resources, registries, resolver code, and replay/session types identical across client and server while the game is still pre-production.
+
+It uses a v0 Godot Variant WebSocket codec behind an adapter boundary. This is not a compatibility promise; it is a same-code-version playtest path that can later be replaced by Go + protobuf, headless Godot, Nakama, or another M2 server choice.
+
 ### Server (`server/`)
 
-Empty at M0. Populated at M2 once the server stack is chosen. Likely responsibilities:
+Still reserved for the production M2 server stack once that technology is chosen. Likely responsibilities:
 
 - **Matchmaker**: lobby, queue, pairing.
 - **Resolver**: deterministic application of action queues against the current state (the same code as the client's M0 resolver if the server is headless Godot/GDScript, or a port if the server stack differs).
 - **Connection hub**: lifecycle, encryption, message routing.
 
-Stateless across matches except for in-memory match state. No DB at M0/M1 (defer until persistence is needed for ranking, accounts, replay storage).
+Stateless across matches except for in-memory match state. No DB until persistence is needed for ranking, accounts, replay storage, or reconnect windows.
 
 ### Protocol (`proto/`)
 

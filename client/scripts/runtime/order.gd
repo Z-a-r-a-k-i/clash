@@ -32,15 +32,18 @@ extends Resource
 enum Type {
 	INVALID = -1,
 	MOVE = 0,
-	MOVE_ONLY,
-	ATTACK,
-	HALT_ON_SIGHT_TOGGLE,
-	BUILD,
-	TRAIN,
-	RESEARCH,
-	CANCEL,
-	GATHER,
-	USE_ABILITY,
+	MOVE_ONLY = 1,
+	ATTACK = 2,
+	HALT_ON_SIGHT_TOGGLE = 3,
+	BUILD = 4,
+	TRAIN = 5,
+	RESEARCH = 6,
+	CANCEL = 7,
+	GATHER = 8,
+	USE_ABILITY = 9,
+	SET_RALLY_POINT = 10,
+	REPEAT_TRAIN_TOGGLE = 11,
+	ATTACK_TARGET = 12,
 }
 
 @export var type: Type = Type.INVALID
@@ -72,6 +75,12 @@ enum Type {
 # -1 = unset.
 @export var target_entity_id: int = -1
 
+# SET_RALLY_POINT — ProductionState.RALLY_MODE_*.
+@export var mode: String = ""
+
+# REPEAT_TRAIN_TOGGLE and future binary standing commands.
+@export var enabled: bool = false
+
 
 func clone() -> EntityOrder:
 	var c := EntityOrder.new()
@@ -86,4 +95,6 @@ func clone() -> EntityOrder:
 	c.def_id = def_id
 	c.cancel_index = cancel_index
 	c.target_entity_id = target_entity_id
+	c.mode = mode
+	c.enabled = enabled
 	return c

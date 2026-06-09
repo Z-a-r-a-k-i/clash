@@ -148,6 +148,19 @@ static func _select_target(
 	if attacker_rect.size == Vector2i.ZERO:
 		return null
 
+	if order != null and order.type == EntityOrder.Type.ATTACK_TARGET:
+		if order.target_priority_chain.is_empty():
+			return null
+		var direct_target: Entity = state.get_entity_by_id(order.target_priority_chain[0])
+		if not _is_targetable(attacker, combat, direct_target):
+			return null
+		var direct_distance: int = _entity_distance_from_rect(
+			state, attacker_rect, direct_target, registry
+		)
+		if direct_distance >= 0 and direct_distance <= combat.attack_range:
+			return direct_target
+		return null
+
 	# Priority chain.
 	if order != null:
 		for target_id in order.target_priority_chain:

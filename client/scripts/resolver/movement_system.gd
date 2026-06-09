@@ -88,6 +88,7 @@ static func resolve_movement_substep(
 			_count_profile(profile, "movement.intent.inexact")
 
 	var proposals: Array[Dictionary] = []
+	var completed_at_origin := false
 	var occupancy_blockers_by_layer: Dictionary = {}
 	for intent in intents:
 		var actor: Entity = intent.get("actor") as Entity
@@ -108,6 +109,8 @@ static func resolve_movement_substep(
 			_PATHFINDING.OPTION_EXACT_ORIGIN: intent.get("exact_origin", true),
 			_PATHFINDING.OPTION_GOAL_RANGE: intent.get("goal_range", 0),
 			_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS: occupancy_blockers_by_layer[actor_layer],
+			_PATHFINDING.OPTION_COMPLETE_BLOCKED_AT_CURRENT:
+			intent.get("complete_blocked_at_current", false),
 			_PATHFINDING.OPTION_PROFILE: profile,
 		}
 		if intent.has("goal_rect"):
@@ -130,6 +133,10 @@ static func resolve_movement_substep(
 			_count_profile(profile, "movement.path_cache_hit")
 		if step.is_empty():
 			continue
+		if step.get("completed_at_origin", false):
+			_emit_completed_at_origin(actor, intent, events)
+			completed_at_origin = true
+			continue
 		var next_origin: Vector2i = step.get("next_origin", actor.origin)
 		if next_origin == actor.origin:
 			continue
@@ -149,7 +156,7 @@ static func resolve_movement_substep(
 			)
 		)
 	if proposals.is_empty():
-		return false
+		return completed_at_origin
 	_count_profile(profile, "movement.proposals", proposals.size())
 
 	var winners: Array[Dictionary] = _winning_proposals(state, proposals, registry, events)
@@ -310,7 +317,17 @@ static func _explicit_move_intent(
 ) -> Dictionary:
 	if order == null:
 		return {}
-	if order.type != EntityOrder.Type.MOVE and order.type != EntityOrder.Type.MOVE_ONLY:
+	if (
+		order.type != EntityOrder.Type.MOVE
+		and order.type != EntityOrder.Type.MOVE_ONLY
+		and order.type != EntityOrder.Type.ATTACK
+		and order.type != EntityOrder.Type.ATTACK_TARGET
+	):
+		return {}
+	if (
+		(order.type == EntityOrder.Type.ATTACK or order.type == EntityOrder.Type.ATTACK_TARGET)
+		and fired_entity_ids.has(actor.id)
+	):
 		return {}
 	if (
 		order.type == EntityOrder.Type.MOVE
@@ -324,7 +341,7 @@ static func _explicit_move_intent(
 	)
 	if not _can_spend_movement(actor, budget):
 		return {}
-	var goal: Dictionary = _move_goal_for_order(state, actor, order)
+	var goal: Dictionary = _goal_for_order(state, actor, order, registry)
 	var target_origin: Vector2i = goal.get("target_origin", order.target_tile)
 	if actor.origin == target_origin and bool(goal.get("exact_origin", true)):
 		return {}
@@ -336,10 +353,22 @@ static func _explicit_move_intent(
 		"exact_origin": goal.get("exact_origin", true),
 		"goal_range": goal.get("goal_range", 0),
 		"movement_budget": budget,
+		"complete_blocked_at_current": order.type == EntityOrder.Type.MOVE_ONLY,
 	}
 	if goal.has("goal_rect"):
 		intent["goal_rect"] = goal["goal_rect"]
 	return intent
+
+
+static func _goal_for_order(
+	state: MatchState, actor: Entity, order: EntityOrder, registry: EntityRegistry
+) -> Dictionary:
+	if (
+		order != null
+		and (order.type == EntityOrder.Type.ATTACK or order.type == EntityOrder.Type.ATTACK_TARGET)
+	):
+		return _attack_goal_for_order(state, actor, order, registry)
+	return _move_goal_for_order(state, actor, order)
 
 
 static func _move_goal_for_order(
@@ -377,6 +406,37 @@ static func _move_goal_for_order(
 	return fallback
 
 
+static func _attack_goal_for_order(
+	state: MatchState, actor: Entity, order: EntityOrder, registry: EntityRegistry
+) -> Dictionary:
+	var fallback: Dictionary = {
+		"target_origin": order.target_tile,
+		"goal_rect": Rect2i(order.target_tile, Vector2i.ONE),
+		"exact_origin": false,
+		"goal_range": _attack_range_for_entity(actor, registry),
+	}
+	if (
+		state == null
+		or state.tile_grid == null
+		or actor == null
+		or order == null
+		or order.target_priority_chain.is_empty()
+	):
+		return fallback
+	var target: Entity = state.get_entity_by_id(order.target_priority_chain[0])
+	if target == null or not _is_attack_targetable(actor, target, registry):
+		return fallback
+	var target_rect: Rect2i = state.tile_grid.entity_rect(target.id)
+	if target_rect.size == Vector2i.ZERO:
+		target_rect = Rect2i(target.origin, _PATHFINDING.entity_footprint(state, target, registry))
+	return {
+		"target_origin": target_rect.position,
+		"goal_rect": target_rect,
+		"exact_origin": false,
+		"goal_range": _attack_range_for_entity(actor, registry),
+	}
+
+
 static func _gather_move_intent(
 	state: MatchState,
 	actor: Entity,
@@ -395,9 +455,16 @@ static func _gather_move_intent(
 	if source == null:
 		GatherSystem.clear_assignment(actor)
 		return {}
-	if not GatherSystem._is_worker_within_source_cap(source_assignments, registry, actor, source):
+	var assigned_source: Entity = GatherSystem.best_source_for_worker(
+		state, registry, actor, source, source_assignments
+	)
+	if assigned_source == null:
 		GatherSystem.clear_assignment(actor)
 		return {}
+	if assigned_source.id != source.id:
+		actor.gather_state.assigned_source_entity_id = assigned_source.id
+		GatherSystem.replace_assignment_in_map(source_assignments, actor.id, assigned_source.id)
+		source = assigned_source
 	if GatherSystem._is_adjacent_to(state, actor, source):
 		actor.gather_state.phase = GatherState.Phase.GATHERING
 		return {}
@@ -737,6 +804,21 @@ static func _emit_completed_tied_moves(
 		events.append(ev)
 
 
+static func _emit_completed_at_origin(
+	actor: Entity, intent: Dictionary, events: Array[ResolverEvent]
+) -> void:
+	if actor == null:
+		return
+	var movement_budget: int = int(intent.get("movement_budget", actor.moves_used_this_turn))
+	actor.moves_used_this_turn = max(actor.moves_used_this_turn, movement_budget)
+	var ev := ResolverEvent.new()
+	ev.type = ResolverEvent.Type.MOVE_COMPLETED
+	ev.actor_id = actor.id
+	ev.from_origin = actor.origin
+	ev.to_origin = actor.origin
+	events.append(ev)
+
+
 static func _proposal_conflict_component(start_id: int, remaining: Dictionary) -> Array[int]:
 	var component: Array[int] = []
 	var queue: Array[int] = [start_id]
@@ -920,16 +1002,34 @@ static func movement_speed_for_entity(actor: Entity, registry: EntityRegistry) -
 	return max(0, int(round(speed)))
 
 
+static func _attack_range_for_entity(actor: Entity, registry: EntityRegistry) -> int:
+	if actor == null or registry == null:
+		return 0
+	var def: EntityDef = registry.get_by_id(actor.current_def_id)
+	if def == null or def.combat == null:
+		return 0
+	return def.combat.attack_range
+
+
+static func _is_attack_targetable(actor: Entity, target: Entity, registry: EntityRegistry) -> bool:
+	if actor == null or target == null or registry == null:
+		return false
+	if target.current_hp <= 0:
+		return false
+	if target.owner_player_id < 0 or target.owner_player_id == actor.owner_player_id:
+		return false
+	var def: EntityDef = registry.get_by_id(actor.current_def_id)
+	if def == null or def.combat == null:
+		return false
+	return def.combat.target_layers.has(target.current_layer)
+
+
 static func movement_budget_for_entity(
 	actor: Entity, registry: EntityRegistry, fired_this_turn: bool, move_only: bool
 ) -> int:
 	var speed: int = movement_speed_for_entity(actor, registry)
 	if speed <= 0:
 		return 0
-	if move_only or not fired_this_turn:
-		return speed
-	var def: EntityDef = registry.get_by_id(actor.current_def_id) if registry != null else null
-	var fraction: float = 0.5
-	if def != null and def.movement != null:
-		fraction = clampf(def.movement.post_shot_move_fraction, 0.0, 1.0)
-	return max(0, int(floor(float(speed) * fraction)))
+	if fired_this_turn and not move_only:
+		return 0
+	return speed

@@ -10,6 +10,7 @@ const OPTION_GOAL_RECT := "goal_rect"
 const OPTION_GOAL_RANGE := "goal_range"
 const OPTION_EXACT_ORIGIN := "exact_origin"
 const OPTION_OCCUPANCY_BLOCKERS := "occupancy_blockers"
+const OPTION_COMPLETE_BLOCKED_AT_CURRENT := "complete_blocked_at_current"
 const OPTION_PROFILE := "_profile"
 
 const _NEIGHBORS: Array[Vector2i] = [
@@ -195,6 +196,7 @@ static func find_next_step(
 	var goal_rect: Rect2i = options.get(OPTION_GOAL_RECT, Rect2i(target_origin, footprint))
 	var goal_range: int = options.get(OPTION_GOAL_RANGE, 0)
 	var exact_origin: bool = options.get(OPTION_EXACT_ORIGIN, true)
+	var complete_blocked_at_current: bool = options.get(OPTION_COMPLETE_BLOCKED_AT_CURRENT, false)
 	var profile: Variant = options.get(OPTION_PROFILE, null)
 	var occupancy_blockers: Dictionary = options.get(OPTION_OCCUPANCY_BLOCKERS, {})
 	if occupancy_blockers.is_empty():
@@ -222,7 +224,14 @@ static func find_next_step(
 		)
 	):
 		_count_profile(profile, "pathfinding.exact_blocked_adjacent_no_progress")
-		return {}
+		if not complete_blocked_at_current:
+			return {}
+		return {
+			"next_origin": start,
+			"path_distance": 0,
+			"path": [],
+			"completed_at_origin": true,
+		}
 
 	var direct_path: Array[Vector2i] = _monotonic_path(
 		state.tile_grid,

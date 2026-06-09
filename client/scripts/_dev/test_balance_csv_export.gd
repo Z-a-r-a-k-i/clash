@@ -181,17 +181,21 @@ func _test_balance_adjustments_are_exported() -> bool:
 		return false
 	var ok := true
 
+	var worker := _row_by_id("worker")
+	ok = _expect_cell(worker, "movement_speed", "6") and ok
+
 	var marine := _row_by_id("marine")
 	ok = _expect_cell(marine, "health_max_hp", "45") and ok
 	ok = _expect_cell(marine, "combat_damage", "18") and ok
 	ok = _expect_cell(marine, "combat_attack_range", "3") and ok
+	ok = _expect_cell(marine, "movement_speed", "10") and ok
 	ok = _expect_cell(marine, "vision_sight_radius", "4") and ok
 
 	var tank := _row_by_id("tank")
 	ok = _expect_cell(tank, "health_max_hp", "175") and ok
 	ok = _expect_cell(tank, "combat_damage", "30") and ok
 	ok = _expect_cell(tank, "combat_attack_range", "3") and ok
-	ok = _expect_cell(tank, "movement_speed", "3") and ok
+	ok = _expect_cell(tank, "movement_speed", "8") and ok
 	ok = _expect_cell(tank, "construction_gas_cost", "125") and ok
 
 	var siege_tank := _row_by_id("siege_tank")
@@ -202,6 +206,7 @@ func _test_balance_adjustments_are_exported() -> bool:
 	var helicopter := _row_by_id("helicopter")
 	ok = _expect_cell(helicopter, "combat_damage", "25") and ok
 	ok = _expect_cell(helicopter, "combat_attack_range", "3") and ok
+	ok = _expect_cell(helicopter, "movement_speed", "14") and ok
 	ok = _expect_cell(helicopter, "vision_sight_radius", "4") and ok
 	ok = _expect_cell(helicopter, "combat_attack_modifiers", "") and ok
 

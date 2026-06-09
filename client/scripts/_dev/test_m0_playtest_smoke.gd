@@ -204,10 +204,10 @@ func _assert_baseline_map(state: MatchState) -> bool:
 	if player_0 == null or player_1 == null:
 		push_error("[m0_playtest_smoke] expected both player states")
 		return false
-	if player_0.minerals != 50 or player_1.minerals != 50:
+	if player_0.minerals != 150 or player_1.minerals != 150:
 		push_error(
 			(
-				"[m0_playtest_smoke] expected starting minerals 50/50, got %d/%d"
+				"[m0_playtest_smoke] expected starting minerals 150/150, got %d/%d"
 				% [player_0.minerals, player_1.minerals]
 			)
 		)

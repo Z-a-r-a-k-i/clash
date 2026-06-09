@@ -12,7 +12,7 @@ extends Resource
 
 # Match start defaults
 @export var starting_workers: int = 4
-@export var starting_minerals: int = 50
+@export var starting_minerals: int = 150
 @export var starting_gas: int = 0
 @export var default_turn_timer_ms: int = 30000
 

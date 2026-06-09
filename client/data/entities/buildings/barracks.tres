@@ -14,7 +14,7 @@ built_by_tag = "worker"
 
 [sub_resource type="Resource" id="Resource_q7wg8"]
 script = ExtResource("2_q7wg8")
-max_hp = 600
+max_hp = 200
 
 [sub_resource type="Resource" id="Resource_es67m"]
 script = ExtResource("3_es67m")
