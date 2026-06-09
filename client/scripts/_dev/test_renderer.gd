@@ -1502,7 +1502,7 @@ func _test_action_preview_polyline_path() -> bool:
 			[
 				{
 					"entity_id": 1,
-					"kind": "Move Only",
+					"kind": "Move",
 					"target_tile": Vector2i(4, 3),
 					"path": [Vector2i(2, 1), Vector2i(3, 2), Vector2i(4, 3)],
 				},

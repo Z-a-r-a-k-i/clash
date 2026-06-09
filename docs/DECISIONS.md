@@ -117,10 +117,9 @@ A movement destination issued to a unit is carried by the client/input layer acr
 
 Movement and combat are independent in the current playable model:
 
-- **Move:** advances toward the destination and does not stop just because combat is available.
-- **Target focus:** stores a preferred enemy target. If that enemy is in range, the unit shoots it first; otherwise it falls back to the closest in-range enemy.
-- **Move Only:** move-without-shooting intent. If the helper carries it across turns, it re-submits Move Only each turn, so the unit keeps skipping its shot until the destination is reached, cancelled, or replaced.
-- **Halt on Sight:** movement stance. The unit still shoots normally, but the order resolver blocks submitted normal Move orders while an enemy is visible. Move Only ignores this stance.
+- **Move:** force-moves toward the destination and settles at the closest reachable open tile if the exact tile is occupied or blocked. It never stops early because an enemy is in range.
+- **Attack on ground:** queues `ATTACK_MOVE`; the unit moves toward the tile but stops when a targetable enemy visible through fog of war is already in weapon range. Moving into range does not create a second shot that turn.
+- **Attack on enemy:** queues `TARGET`; the enemy becomes the preferred shot target. If no existing user-authored movement ends in weapon range, input also creates a generated `MOVE` to the farthest reachable firing tile still inside weapon range. If that target disappears into fog, target focus is cleared and the generated move continues as a normal move to its last tile.
 
 Post-shot movement is per-unit tunable; M0 defaults to 50 percent of normal movement.
 

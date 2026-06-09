@@ -121,7 +121,7 @@ func _test_snapshot_round_trip() -> bool:
 		return false
 	mode.set_active_player_id(0)
 	mode.select_entity_id(1)
-	mode.issue_move_only_selected(Vector2i(9, 10))
+	mode.issue_move_selected(Vector2i(9, 10))
 	if not mode.save_snapshot_to_path(SNAPSHOT_PATH):
 		return _fail_mode(mode, "snapshot save failed")
 	var session: SavedSession = MatchSaver.load_from(SNAPSHOT_PATH)
@@ -197,7 +197,7 @@ func _test_replay_mode_rejects_edits() -> bool:
 	if mode.select_entity_id(2):
 		push_error("replay mode should reject selection edits")
 		ok = false
-	if mode.issue_attack_target_selected(4):
+	if mode.issue_attack_selected(4):
 		push_error("replay mode should reject state-mutating commands")
 		ok = false
 	if marine.focus_target_entity_id != -1:
@@ -390,7 +390,13 @@ func _queue_attack(mode: Node) -> void:
 
 
 func _make_loaded_mode() -> Node:
-	return _make_loaded_mode_for(COMBAT_SCENARIO_PATH)
+	var mode: Node = _make_loaded_mode_for(COMBAT_SCENARIO_PATH)
+	if mode == null:
+		return null
+	if not _move_entity_to(mode.current_state(), 4, Vector2i(8, 10)):
+		_free_mode(mode)
+		return null
+	return mode
 
 
 func _make_loaded_mode_for(path: String) -> Node:
@@ -402,6 +408,18 @@ func _make_loaded_mode_for(path: String) -> Node:
 		_free_mode(mode)
 		return null
 	return mode
+
+
+func _move_entity_to(state: MatchState, entity_id: int, origin: Vector2i) -> bool:
+	var entity: Entity = state.get_entity_by_id(entity_id) if state != null else null
+	if entity == null or state.tile_grid == null:
+		push_error("test setup could not find entity #%d to move" % entity_id)
+		return false
+	if not state.tile_grid.move(entity_id, origin):
+		push_error("test setup could not move entity #%d to %s" % [entity_id, str(origin)])
+		return false
+	entity.origin = origin
+	return true
 
 
 func _make_mode(auto_save_replays_enabled: bool = false) -> Node:
@@ -489,7 +507,6 @@ func _entity_signature(entity: Entity, state: MatchState) -> Dictionary:
 		"hp": entity.current_hp,
 		"moves": entity.moves_used_this_turn,
 		"focus": entity.focus_target_entity_id,
-		"halt": entity.halt_on_sight,
 		"hidden": entity.is_hidden,
 		"resource": entity.current_resource_amount,
 		"constructing": entity.is_constructing,
@@ -521,7 +538,6 @@ func _orders_signature(orders: Array[EntityOrder]) -> Array[Dictionary]:
 						"entity": order.entity_id,
 						"tile": order.target_tile,
 						"chain": order.target_priority_chain.duplicate(),
-						"halt": order.halt_on_sight,
 						"def": order.def_id,
 						"cancel": order.cancel_index,
 						"target": order.target_entity_id,

@@ -15,7 +15,7 @@ extends RefCounted
 #
 # Algorithm summary (full text in plan/m0/02-tick-based-resolver.md):
 #   1. Apply player-level orders (surrender flag) — short-circuits if set.
-#   2. Distribute per-entity orders; HALT_ON_SIGHT_TOGGLE / CANCEL apply now.
+#   2. Distribute per-entity orders; CANCEL applies now.
 #   3. For tick in 1..N:
 #        Phase 1: self-target abilities.
 #        Phase 2: every combat unit may fire once if it has a target in range.
@@ -114,9 +114,8 @@ static func resolve(
 			profile.finish()
 		return result
 
-	# 3. Distribute orders into per-entity queues. HALT_ON_SIGHT_TOGGLE and
-	#    CANCEL apply during distribution (they're mode changes, not
-	#    actions).
+	# 3. Distribute orders into per-entity queues. CANCEL and standing focus
+	#    orders apply during distribution.
 	var orders_a: Array[EntityOrder] = (
 		safe_submit_a.orders if safe_submit_a != null else [] as Array[EntityOrder]
 	)
@@ -187,17 +186,9 @@ static func resolve(
 		if profile != null:
 			profile.add("tick.abilities", profile_step)
 
-		if profile != null:
-			profile_step = profile.mark()
-		var move_only_entity_ids: Dictionary = _move_only_entity_ids_at_tick(per_entity, tick)
-		if profile != null:
-			profile.add("tick.move_only_ids", profile_step)
-
 		# Phase 2: attacks. Stable collection by id followed by one batch
-		# application keeps lethal exchanges simultaneous. Attack-move also
-		# gets another opportunity after each movement substep, so moving into
-		# weapon range can fire this turn while still limiting each entity to
-		# one shot per resolve.
+		# application keeps lethal exchanges simultaneous. Movement into range
+		# never creates another shot until the next resolve.
 		_apply_attack_opportunities(
 			working,
 			per_entity,
@@ -206,10 +197,8 @@ static func resolve(
 			tunables,
 			events,
 			fired_entity_ids,
-			move_only_entity_ids,
 			sorted_entities,
-			profile,
-			false
+			profile
 		)
 
 		# Phase 3: movement substeps. A MOVE action is one intent, but
@@ -227,8 +216,8 @@ static func resolve(
 			if profile != null:
 				profile.count("movement.substep_attempts")
 				profile_step = profile.mark()
-			var halted_entity_ids: Dictionary = _halted_entity_ids(
-				working, registry, sorted_entities
+			var halted_entity_ids: Dictionary = _attack_move_halted_entity_ids(
+				working, registry, sorted_entities, per_entity, tick
 			)
 			if profile != null:
 				profile.add("movement.halted_entity_ids", profile_step)
@@ -250,19 +239,6 @@ static func resolve(
 				profile.add("movement.resolve_substep", profile_step)
 			if not moved:
 				break
-			_apply_attack_opportunities(
-				working,
-				per_entity,
-				tick,
-				registry,
-				tunables,
-				events,
-				fired_entity_ids,
-				move_only_entity_ids,
-				sorted_entities,
-				profile,
-				true
-			)
 
 		# Phase 4 extension: gather workers at a source tick yields and
 		# direct resource credit.
@@ -351,7 +327,7 @@ static func _standing_attack_order(
 	if def == null or def.combat == null:
 		return null
 	var auto_attack := EntityOrder.new()
-	auto_attack.type = EntityOrder.Type.ATTACK
+	auto_attack.type = EntityOrder.Type.TARGET
 	auto_attack.entity_id = entity.id
 	if entity.focus_target_entity_id >= 0:
 		var focus := state.get_entity_by_id(entity.focus_target_entity_id)
@@ -360,10 +336,12 @@ static func _standing_attack_order(
 			or focus.current_hp <= 0
 			or focus.owner_player_id < 0
 			or focus.owner_player_id == entity.owner_player_id
+			or not _is_visible_to_player(state, registry, focus, entity.owner_player_id)
 		):
 			entity.focus_target_entity_id = -1
 		else:
 			auto_attack.target_priority_chain = [entity.focus_target_entity_id]
+			auto_attack.target_entity_id = entity.focus_target_entity_id
 	if (
 		require_ready_target
 		and not CombatSystem.can_attack_now(state, entity, auto_attack, registry)
@@ -380,10 +358,8 @@ static func _apply_attack_opportunities(
 	tunables: Tunables,
 	events: Array[ResolverEvent],
 	fired_entity_ids: Dictionary,
-	move_only_entity_ids: Dictionary,
 	sorted_entities: Array[Entity],
-	profile: Variant = null,
-	post_movement: bool = false
+	profile: Variant = null
 ) -> void:
 	var attack_intents: Array[Dictionary] = []
 	for entity in sorted_entities:
@@ -393,11 +369,9 @@ static func _apply_attack_opportunities(
 			continue
 		if fired_entity_ids.has(entity.id):
 			continue
-		if move_only_entity_ids.has(entity.id):
-			continue
 		var attack_lookup_start: int = profile.mark() if profile != null else 0
 		var attack_order: EntityOrder = _attack_order_for_opportunity(
-			state, per_entity, tick, entity, registry, post_movement
+			state, per_entity, tick, entity, registry
 		)
 		if profile != null:
 			profile.add("tick.attack_order_lookup", attack_lookup_start)
@@ -427,25 +401,17 @@ static func _apply_attack_opportunities(
 
 
 static func _attack_order_for_opportunity(
-	state: MatchState,
-	per_entity: Dictionary,
-	tick: int,
-	entity: Entity,
-	registry: EntityRegistry,
-	post_movement: bool
+	state: MatchState, per_entity: Dictionary, tick: int, entity: Entity, registry: EntityRegistry
 ) -> EntityOrder:
 	var queued_order: EntityOrder = _STATE_HELPERS.action_at(per_entity, entity.id, tick)
 	if queued_order != null:
-		if queued_order.type == EntityOrder.Type.MOVE_ONLY:
-			return null
-		if queued_order.type == EntityOrder.Type.ATTACK_TARGET:
+		if queued_order.type == EntityOrder.Type.TARGET:
 			return queued_order
-		if queued_order.type == EntityOrder.Type.ATTACK:
-			return queued_order
-		if queued_order.type == EntityOrder.Type.MOVE:
+		if (
+			queued_order.type == EntityOrder.Type.MOVE
+			or queued_order.type == EntityOrder.Type.ATTACK_MOVE
+		):
 			return _standing_attack_order(state, entity, registry, false)
-	if post_movement:
-		return null
 	return _standing_attack_order(state, entity, registry, false)
 
 
@@ -460,55 +426,40 @@ static func _max_live_movement_speed(state: MatchState, registry: EntityRegistry
 	return max_speed
 
 
-static func _move_only_entity_ids_at_tick(per_entity: Dictionary, tick: int) -> Dictionary:
-	var out: Dictionary = {}
-	for entity_id in per_entity:
-		var order := _STATE_HELPERS.action_at(per_entity, entity_id, tick)
-		if order != null and order.type == EntityOrder.Type.MOVE_ONLY:
-			out[entity_id] = true
-	return out
-
-
-static func _halted_entity_ids(
-	state: MatchState, registry: EntityRegistry, sorted_entities: Array[Entity]
+static func _attack_move_halted_entity_ids(
+	state: MatchState,
+	registry: EntityRegistry,
+	sorted_entities: Array[Entity],
+	per_entity: Dictionary,
+	tick: int
 ) -> Dictionary:
 	var out: Dictionary = {}
 	if state == null or registry == null:
 		return out
-	var visibility_by_player: Dictionary = {}
 	for entity in sorted_entities:
 		if entity == null or entity.current_hp <= 0:
 			continue
-		if not entity.halt_on_sight:
+		var order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
+		if order == null or order.type != EntityOrder.Type.ATTACK_MOVE:
 			continue
-		if _has_visible_enemy(state, registry, sorted_entities, entity, visibility_by_player):
+		var attack_order: EntityOrder = _standing_attack_order(state, entity, registry, false)
+		if (
+			attack_order != null
+			and CombatSystem.can_attack_now(state, entity, attack_order, registry, sorted_entities)
+		):
 			out[entity.id] = true
 	return out
 
 
-static func _has_visible_enemy(
-	state: MatchState,
-	registry: EntityRegistry,
-	sorted_entities: Array[Entity],
-	viewer: Entity,
-	visibility_by_player: Dictionary
+static func _is_visible_to_player(
+	state: MatchState, registry: EntityRegistry, entity: Entity, player_id: int
 ) -> bool:
-	if viewer == null or viewer.owner_player_id < 0:
+	if entity == null or player_id < 0:
 		return false
-	var visibility: VisionSystem.Visibility = visibility_by_player.get(viewer.owner_player_id)
-	if visibility == null:
-		visibility = VisionSystem.compute_player_visibility(state, registry, viewer.owner_player_id)
-		visibility_by_player[viewer.owner_player_id] = visibility
-	for candidate in sorted_entities:
-		if candidate == null or candidate.current_hp <= 0:
-			continue
-		if candidate.owner_player_id < 0 or candidate.owner_player_id == viewer.owner_player_id:
-			continue
-		if VisionSystem.is_entity_visible_to_player(
-			candidate, state, registry, viewer.owner_player_id, visibility
-		):
-			return true
-	return false
+	if state == null or state.tile_grid == null:
+		return true
+	var visibility := VisionSystem.compute_player_visibility(state, registry, player_id)
+	return VisionSystem.is_entity_visible_to_player(entity, state, registry, player_id, visibility)
 
 
 static func _clear_deprecated_persistent_orders(state: MatchState) -> void:

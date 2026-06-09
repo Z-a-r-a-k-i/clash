@@ -24,39 +24,30 @@ static func fan_out_move(entity_ids: Array[int], target_tile: Vector2i) -> Array
 	return out
 
 
-static func fan_out_move_only(entity_ids: Array[int], target_tile: Vector2i) -> Array[EntityOrder]:
+static func fan_out_attack_move(
+	entity_ids: Array[int], target_tile: Vector2i
+) -> Array[EntityOrder]:
 	var out: Array[EntityOrder] = []
 	for id in entity_ids:
 		var o := EntityOrder.new()
-		o.type = EntityOrder.Type.MOVE_ONLY
+		o.type = EntityOrder.Type.ATTACK_MOVE
 		o.entity_id = id
 		o.target_tile = target_tile
 		out.append(o)
 	return out
 
 
-static func fan_out_attack(
+static func fan_out_target(
 	entity_ids: Array[int], target_priority_chain: Array[int]
 ) -> Array[EntityOrder]:
 	var out: Array[EntityOrder] = []
 	for id in entity_ids:
 		var o := EntityOrder.new()
-		o.type = EntityOrder.Type.ATTACK
+		o.type = EntityOrder.Type.TARGET
 		o.entity_id = id
 		o.target_priority_chain = target_priority_chain.duplicate()
-		out.append(o)
-	return out
-
-
-static func fan_out_halt_on_sight_toggle(
-	entity_ids: Array[int], halt_on_sight: bool
-) -> Array[EntityOrder]:
-	var out: Array[EntityOrder] = []
-	for id in entity_ids:
-		var o := EntityOrder.new()
-		o.type = EntityOrder.Type.HALT_ON_SIGHT_TOGGLE
-		o.entity_id = id
-		o.halt_on_sight = halt_on_sight
+		if not target_priority_chain.is_empty():
+			o.target_entity_id = target_priority_chain[0]
 		out.append(o)
 	return out
 

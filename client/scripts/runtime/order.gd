@@ -32,18 +32,16 @@ extends Resource
 enum Type {
 	INVALID = -1,
 	MOVE = 0,
-	MOVE_ONLY = 1,
-	ATTACK = 2,
-	HALT_ON_SIGHT_TOGGLE = 3,
-	BUILD = 4,
-	TRAIN = 5,
-	RESEARCH = 6,
-	CANCEL = 7,
-	GATHER = 8,
-	USE_ABILITY = 9,
-	SET_RALLY_POINT = 10,
-	REPEAT_TRAIN_TOGGLE = 11,
-	ATTACK_TARGET = 12,
+	ATTACK_MOVE = 1,
+	TARGET = 2,
+	BUILD = 3,
+	TRAIN = 4,
+	RESEARCH = 5,
+	CANCEL = 6,
+	GATHER = 7,
+	USE_ABILITY = 8,
+	SET_RALLY_POINT = 9,
+	REPEAT_TRAIN_TOGGLE = 10,
 }
 
 @export var type: Type = Type.INVALID
@@ -52,17 +50,13 @@ enum Type {
 # player's id and drops orders that don't match.
 @export var entity_id: int = -1
 
-# MOVE / MOVE_ONLY / BUILD — destination tile.
+# MOVE / ATTACK_MOVE / BUILD — destination tile.
 @export var target_tile: Vector2i = Vector2i.ZERO
 
-# ATTACK — priority list. Resolver fires at the first live entity in this
-# list; if the target is invalid or out of range, falls back to closest enemy
-# in range. Primary target lives at index 0; the chain is a single list per
-# plan/m0/02-tick-based-resolver.md "Target chain resolution".
+# TARGET — priority list. Resolver fires at the first live, visible entity in
+# this list; if the target is invalid or out of range, falls back to closest
+# visible enemy in range. Primary target lives at index 0.
 @export var target_priority_chain: Array[int] = []
-
-# HALT_ON_SIGHT_TOGGLE — desired movement halt state.
-@export var halt_on_sight: bool = false
 
 # BUILD / TRAIN / RESEARCH / USE_ABILITY — what to produce or use, by string id.
 @export var def_id: String = ""
@@ -70,8 +64,9 @@ enum Type {
 # CANCEL — index into the entity's order_queue, or -1 to clear standing intent.
 @export var cancel_index: int = -1
 
-# GATHER — entity to gather from. Can be a ResourceSource (mineral patch /
-# geyser) or a refinery (the resolver translates to the underlying geyser).
+# GATHER / TARGET-generated MOVE — target entity id. For GATHER this can be a
+# ResourceSource (mineral patch / geyser) or a refinery. For MOVE, non-negative
+# means the input layer generated the move to reach that target's weapon range.
 # -1 = unset.
 @export var target_entity_id: int = -1
 
@@ -91,7 +86,6 @@ func clone() -> EntityOrder:
 	# independent so a caller mutating the clone's chain doesn't leak into
 	# the original.
 	c.target_priority_chain = target_priority_chain.duplicate()
-	c.halt_on_sight = halt_on_sight
 	c.def_id = def_id
 	c.cancel_index = cancel_index
 	c.target_entity_id = target_entity_id

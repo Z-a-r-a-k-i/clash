@@ -85,9 +85,6 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 		out.append(
 			{"entity_id": entity.id, "kind": "Idle + Shoot", "target_entity_id": shot_target_id}
 		)
-	elif _will_halt_on_sight(entity.id):
-		var visible_enemy_id: int = _visible_enemy_for_entity(entity)
-		out.append({"entity_id": entity.id, "kind": "Halted", "target_entity_id": visible_enemy_id})
 	if entity.focus_target_entity_id >= 0:
 		(
 			out
@@ -165,27 +162,22 @@ func _preview_for_order(
 	var preview: Dictionary = {}
 	match order.type:
 		EntityOrder.Type.MOVE:
-			var kind: String = "Attack and Move"
-			if _will_halt_on_sight(order.entity_id) and order.target_priority_chain.is_empty():
-				kind = (
-					"Shoot + Hold" if _attack_target_for_entity(order.entity_id) >= 0 else "Halted"
-				)
-				preview = _halted_move_preview(order.entity_id, kind)
+			var kind: String = "Move"
+			if order.target_entity_id >= 0:
+				preview = _move_preview(order, "Attack", start_tile, has_start_tile)
 			elif _attack_target_for_entity(order.entity_id) >= 0:
 				preview = _move_preview(order, "Shoot + Move", start_tile, has_start_tile)
 			else:
 				preview = _move_preview(order, kind, start_tile, has_start_tile)
-		EntityOrder.Type.MOVE_ONLY:
-			preview = _move_preview(order, "Move Only", start_tile, has_start_tile)
-		EntityOrder.Type.ATTACK_TARGET:
-			preview = _targeted_attack_preview(order, start_tile, has_start_tile)
-		EntityOrder.Type.ATTACK:
+		EntityOrder.Type.ATTACK_MOVE:
+			preview = _move_preview(order, "Attack", start_tile, has_start_tile)
+		EntityOrder.Type.TARGET:
 			var target_id: int = -1
 			if not order.target_priority_chain.is_empty():
 				target_id = order.target_priority_chain[0]
 			preview = {
 				"entity_id": order.entity_id,
-				"kind": "Target",
+				"kind": "Attack",
 				"target_entity_id": target_id,
 			}
 		EntityOrder.Type.GATHER:
@@ -202,20 +194,6 @@ func _preview_for_order(
 			preview = {}
 	if not preview.is_empty() and has_start_tile:
 		preview["start_tile"] = start_tile
-	return preview
-
-
-func _halted_move_preview(entity_id: int, kind: String) -> Dictionary:
-	var preview: Dictionary = {
-		"entity_id": entity_id,
-		"kind": kind,
-	}
-	var target_id: int = _attack_target_for_entity(entity_id)
-	if target_id < 0:
-		var actor: Entity = _state.get_entity_by_id(entity_id) if _state != null else null
-		target_id = _visible_enemy_for_entity(actor)
-	if target_id >= 0:
-		preview["target_entity_id"] = target_id
 	return preview
 
 
@@ -263,7 +241,7 @@ func _targeted_attack_preview(
 		target_id = order.target_priority_chain[0]
 	var preview: Dictionary = {
 		"entity_id": order.entity_id,
-		"kind": "Target",
+		"kind": "Attack",
 		"target_entity_id": target_id,
 		"target_tile": order.target_tile,
 	}
@@ -345,10 +323,31 @@ func _move_preview_goal(order: EntityOrder, actor: Entity) -> Dictionary:
 		order == null
 		or actor == null
 		or order.type != EntityOrder.Type.MOVE
-		or order.target_priority_chain.is_empty()
 		or _state == null
 		or _state.tile_grid == null
 	):
+		return fallback
+	if order.target_entity_id >= 0:
+		var generated_target: Entity = _state.get_entity_by_id(order.target_entity_id)
+		if (
+			generated_target != null
+			and generated_target.current_hp > 0
+			and generated_target.owner_player_id >= 0
+			and generated_target.owner_player_id != actor.owner_player_id
+			and _can_attack_layer(actor, generated_target)
+			and _is_visible_to_actor(actor, generated_target)
+		):
+			var generated_rect: Rect2i = _entity_rect(generated_target)
+			if generated_rect.size == Vector2i.ZERO:
+				generated_rect = Rect2i(generated_target.origin, Vector2i.ONE)
+			return {
+				"target_origin": generated_rect.position,
+				"target_entity_id": generated_target.id,
+				"goal_rect": generated_rect,
+				"exact_origin": false,
+				"goal_range": _attack_range_for_entity(actor),
+			}
+	if order.target_priority_chain.is_empty():
 		return fallback
 	for target_id in order.target_priority_chain:
 		var target: Entity = _state.get_entity_by_id(target_id)
@@ -450,12 +449,6 @@ func _should_preview_move_path(
 		return false
 	if actor.ability_cast != null:
 		return false
-	if (
-		order.type == EntityOrder.Type.MOVE
-		and _will_halt_on_sight(actor.id)
-		and order.target_priority_chain.is_empty()
-	):
-		return false
 	return start_origin != target_origin
 
 
@@ -512,14 +505,12 @@ func _preview_passable_entity_ids() -> Dictionary:
 
 
 func _is_preview_explicit_mover(order: EntityOrder) -> bool:
-	if order.type != EntityOrder.Type.MOVE and order.type != EntityOrder.Type.MOVE_ONLY:
+	if order.type != EntityOrder.Type.MOVE and order.type != EntityOrder.Type.ATTACK_MOVE:
 		return false
 	var actor: Entity = _state.get_entity_by_id(order.entity_id) if _state != null else null
 	if not _can_preview_spend_movement(actor):
 		return false
 	if actor.ability_cast != null:
-		return false
-	if order.type == EntityOrder.Type.MOVE and _will_halt_on_sight(actor.id):
 		return false
 	return actor.origin != order.target_tile
 
@@ -611,15 +602,6 @@ func _attack_target_for_entity(entity_id: int) -> int:
 	return closest_id
 
 
-func _will_halt_on_sight(entity_id: int) -> bool:
-	if _state == null or _registry == null:
-		return false
-	var actor: Entity = _state.get_entity_by_id(entity_id)
-	if not _can_preview_attack(actor) or not actor.halt_on_sight:
-		return false
-	return _visible_enemy_for_entity(actor) >= 0
-
-
 func _can_preview_attack(entity: Entity) -> bool:
 	if entity == null or entity.current_hp <= 0:
 		return false
@@ -673,8 +655,19 @@ func _is_attack_target_in_range(actor: Entity, target: Entity, combat: CombatDef
 		return false
 	if not combat.target_layers.has(target.current_layer):
 		return false
+	if not _is_visible_to_actor(actor, target):
+		return false
 	var dist: int = _entity_distance(actor, target)
 	return dist >= 0 and dist <= combat.attack_range
+
+
+func _is_visible_to_actor(actor: Entity, target: Entity) -> bool:
+	if actor == null or target == null or _state == null or _registry == null:
+		return false
+	var visibility: VisionSystem.Visibility = _visibility_for_player(actor.owner_player_id)
+	return VisionSystem.is_entity_visible_to_player(
+		target, _state, _registry, actor.owner_player_id, visibility
+	)
 
 
 func _entity_distance(a: Entity, b: Entity) -> int:

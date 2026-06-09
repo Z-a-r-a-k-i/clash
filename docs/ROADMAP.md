@@ -15,8 +15,8 @@ Long-horizon view of clash. Concrete near-term work lives in the plan tree (`pla
 
 - **Next M0 PR:** run a manual playtest against the simplified command model and
   turn the first concrete fun/readability blocker into the next plan node. The
-  current M0 command surface is Move, Move Only, Target, Halt on Sight, Gather,
-  Build, Train, Research, Ability, Cancel, Resolve.
+  current M0 command surface is Move, Attack, Gather, Build, Train, Research,
+  Ability, Cancel, Repeat Train, Resolve.
 
 ## Speculative
 

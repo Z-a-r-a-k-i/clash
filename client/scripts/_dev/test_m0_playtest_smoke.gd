@@ -370,7 +370,7 @@ func _train_order(entity_id: int, def_id: String) -> EntityOrder:
 
 func _attack_order(entity_id: int, target_entity_id: int) -> EntityOrder:
 	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.ATTACK
+	order.type = EntityOrder.Type.TARGET
 	order.entity_id = entity_id
 	order.target_priority_chain = [target_entity_id]
 	return order

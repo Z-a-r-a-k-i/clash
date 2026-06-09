@@ -72,7 +72,7 @@ func _all_tests() -> Array[Array]:
 		["network_hub_base_trains_worker", _test_network_hub_base_trains_worker],
 		["network_context_actions_cover_rally_and_gather", _test_network_context_actions],
 		["network_command_card_wires_pending_commands", _test_network_pending_command_buttons],
-		["network_a_key_attack_move_mode", _test_network_a_key_attack_move_mode],
+		["network_a_key_attack_mode", _test_network_a_key_attack_mode],
 		[
 			"network_submit_persists_repeat_rally_and_spawn_orders",
 			_test_network_authoritative_producer_state
@@ -133,18 +133,16 @@ func _test_entity_order_type_wire_values() -> bool:
 	var expected: Dictionary = {
 		EntityOrder.Type.INVALID: -1,
 		EntityOrder.Type.MOVE: 0,
-		EntityOrder.Type.MOVE_ONLY: 1,
-		EntityOrder.Type.ATTACK: 2,
-		EntityOrder.Type.HALT_ON_SIGHT_TOGGLE: 3,
-		EntityOrder.Type.BUILD: 4,
-		EntityOrder.Type.TRAIN: 5,
-		EntityOrder.Type.RESEARCH: 6,
-		EntityOrder.Type.CANCEL: 7,
-		EntityOrder.Type.GATHER: 8,
-		EntityOrder.Type.USE_ABILITY: 9,
-		EntityOrder.Type.SET_RALLY_POINT: 10,
-		EntityOrder.Type.REPEAT_TRAIN_TOGGLE: 11,
-		EntityOrder.Type.ATTACK_TARGET: 12,
+		EntityOrder.Type.ATTACK_MOVE: 1,
+		EntityOrder.Type.TARGET: 2,
+		EntityOrder.Type.BUILD: 3,
+		EntityOrder.Type.TRAIN: 4,
+		EntityOrder.Type.RESEARCH: 5,
+		EntityOrder.Type.CANCEL: 6,
+		EntityOrder.Type.GATHER: 7,
+		EntityOrder.Type.USE_ABILITY: 8,
+		EntityOrder.Type.SET_RALLY_POINT: 9,
+		EntityOrder.Type.REPEAT_TRAIN_TOGGLE: 10,
 	}
 	for key: Variant in expected.keys():
 		var actual: int = int(key)
@@ -487,7 +485,7 @@ func _test_action_preview_builder() -> bool:
 	if not input.select_entity(actor_id):
 		push_error("preview test should select actor")
 		return false
-	if not input.issue_move_only(target_tile):
+	if not input.issue_move(target_tile):
 		push_error("preview test should queue a move order")
 		return false
 	var previews: Array = builder.call(
@@ -579,7 +577,7 @@ func _test_network_order_preview_toggle() -> bool:
 		mode.queue_free()
 		return false
 	mode.call("select_entity_id", actor_id)
-	mode.call("issue_move_only_selected", target_tile)
+	mode.call("issue_move_selected", target_tile)
 	mode.call("select_entity_id", second_id)
 	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
 	var renderer: MatchRenderer = surface.renderer() if surface != null else null
@@ -730,12 +728,12 @@ func _test_network_preserves_orders_after_next_turn_started() -> bool:
 		mode.queue_free()
 		return false
 	mode.call("select_entity_id", actor_id)
-	if not mode.call("issue_move_only_selected", far_tile, false):
+	if not mode.call("issue_move_selected", far_tile, false):
 		push_error("expected long move order to queue for the current turn")
 		remove_child(mode)
 		mode.queue_free()
 		return false
-	mode.call("issue_move_only_selected", future_tile, true)
+	mode.call("issue_move_selected", future_tile, true)
 	if input.future_order_count_for_entity(actor_id) != 1:
 		push_error("expected queued future order before resolve")
 		remove_child(mode)
@@ -844,13 +842,13 @@ func _test_network_turn_started_resets_submit_and_allows_next_move() -> bool:
 		return false
 	var start_origin: Vector2i = loaded.state.get_entity_by_id(actor_id).origin
 	mode.call("select_entity_id", actor_id)
-	if not bool(mode.call("issue_move_only_selected", target_tile, false)):
-		push_error("network move test should queue Move Only after turn_started")
+	if not bool(mode.call("issue_move_selected", target_tile, false)):
+		push_error("network move test should queue Move after turn_started")
 		ok = false
 	var input: DevTurnInput = mode.call("input_model") as DevTurnInput
 	var submit: SubmitTurn = input.submit_for_player(0).clone() if input != null else null
 	if not bool(mode.call("can_submit_turn", submit)):
-		push_error("turn_started should allow the next turn's queued Move Only submit")
+		push_error("turn_started should allow the next turn's queued Move submit")
 		ok = false
 	if submit != null:
 		var result: ResolveResult = Resolver.resolve(
@@ -858,7 +856,7 @@ func _test_network_turn_started_resets_submit_and_allows_next_move() -> bool:
 		)
 		var moved: Entity = result.new_state.get_entity_by_id(actor_id) if result != null else null
 		if moved == null or moved.origin == start_origin:
-			push_error("authoritative network Move Only submit should move the selected unit")
+			push_error("authoritative network Move submit should move the selected unit")
 			ok = false
 	remove_child(mode)
 	mode.queue_free()
@@ -887,7 +885,7 @@ func _test_network_disconnect_resets_local_match_state() -> bool:
 		mode.queue_free()
 		return false
 	mode.call("select_entity_id", actor_id)
-	if not bool(mode.call("issue_move_only_selected", target_tile, false)):
+	if not bool(mode.call("issue_move_selected", target_tile, false)):
 		push_error("disconnect reset test should queue a pre-reset move")
 		remove_child(mode)
 		mode.queue_free()
@@ -1251,12 +1249,12 @@ func _test_network_pending_command_buttons() -> bool:
 		var move_tile: Vector2i = _first_open_neighbor(loaded.state, gatherer_id)
 		card.emit_signal("move_requested")
 		if not bool(mode.call("confirm_pending_at_tile", move_tile, false)):
-			push_error("network move button should enter pending Attack and Move")
+			push_error("network move button should enter pending Move")
 			ok = false
 		if not _has_order_type(
 			input.submit_for_player(0).orders, gatherer_id, EntityOrder.Type.MOVE
 		):
-			push_error("network pending Attack and Move should queue a MOVE order")
+			push_error("network pending Move should queue a MOVE order")
 			ok = false
 	remove_child(mode)
 	mode.queue_free()
@@ -1286,7 +1284,7 @@ func _network_pending_target_button_queues_attack_target() -> bool:
 			enemy.origin = visible_enemy_origin
 	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
 	if not mode.has_method("confirm_pending_at_tile"):
-		push_error("network play mode should confirm pending TARGET")
+		push_error("network play mode should confirm pending Attack")
 		remove_child(mode)
 		mode.queue_free()
 		return false
@@ -1302,27 +1300,28 @@ func _network_pending_target_button_queues_attack_target() -> bool:
 	card.emit_signal("target_requested")
 	var ok: bool = true
 	if not bool(mode.call("confirm_pending_at_tile", enemy.origin, false)):
-		push_error("network target button should enter pending TARGET and confirm on enemy")
+		push_error("network attack button should enter pending Attack and confirm on enemy")
 		ok = false
 	var actor: Entity = loaded.state.get_entity_by_id(actor_id)
 	if actor == null or actor.focus_target_entity_id != -1:
-		push_error("network pending TARGET should not mutate focus before resolve")
+		push_error("network pending Attack should not mutate focus before resolve")
 		ok = false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if (
 		orders.size() != 1
-		or orders[0].type != EntityOrder.Type.ATTACK_TARGET
+		or orders[0].type != EntityOrder.Type.TARGET
 		or orders[0].target_priority_chain != ([enemy_id] as Array[int])
+		or orders[0].target_entity_id != enemy_id
 		or orders[0].target_tile != enemy.origin
 	):
-		push_error("network pending TARGET should queue ATTACK_TARGET")
+		push_error("network pending Attack should queue TARGET")
 		ok = false
 	remove_child(mode)
 	mode.queue_free()
 	return ok
 
 
-func _test_network_a_key_attack_move_mode() -> bool:
+func _test_network_a_key_attack_mode() -> bool:
 	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
 	if script == null:
 		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
@@ -1354,31 +1353,40 @@ func _test_network_a_key_attack_move_mode() -> bool:
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 	mode.call("_unhandled_input", _key_press(KEY_A))
 	var ok: bool = true
-	if mode.call("pending_command_kind") != "move":
-		push_error("network A key should enter pending attack-move mode")
+	if mode.call("pending_command_kind") != "target":
+		push_error("network A key should enter pending attack mode")
 		ok = false
 	if int(mode.call("pending_cursor_shape")) != Input.CURSOR_CROSS:
-		push_error("network pending attack-move should use crosshair cursor")
+		push_error("network pending attack should use crosshair cursor")
 		ok = false
 	if not bool(mode.call("confirm_pending_at_tile", move_tile, false)):
-		push_error("network A-key ground click should queue attack-move")
+		push_error("network A-key ground click should queue attack movement")
 		ok = false
-	if not _has_order_type(input.submit_for_player(0).orders, actor_id, EntityOrder.Type.MOVE):
-		push_error("network A-key ground click should queue MOVE")
+	var ground_orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if (
+		ground_orders.size() != 1
+		or ground_orders[0].type != EntityOrder.Type.ATTACK_MOVE
+		or ground_orders[0].target_tile != move_tile
+	):
+		push_error("network A-key ground click should queue ATTACK_MOVE")
+		ok = false
+	if mode.call("pending_command_kind") != "":
+		push_error("network A-key ground click should clear pending attack mode after queuing")
 		ok = false
 	input.clear_submissions()
 	mode.call("_unhandled_input", _key_press(KEY_A))
 	if not bool(mode.call("confirm_pending_at_tile", enemy.origin, false)):
-		push_error("network A-key enemy click should queue targeted ATTACK")
+		push_error("network A-key enemy click should queue TARGET")
 		ok = false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if (
 		orders.size() != 1
-		or orders[0].type != EntityOrder.Type.ATTACK_TARGET
+		or orders[0].type != EntityOrder.Type.TARGET
 		or orders[0].target_priority_chain != ([enemy_id] as Array[int])
+		or orders[0].target_entity_id != enemy_id
 		or orders[0].target_tile != enemy.origin
 	):
-		push_error("network A-key enemy click should queue ATTACK_TARGET against the clicked enemy")
+		push_error("network A-key enemy click should queue TARGET against the clicked enemy")
 		ok = false
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 	remove_child(mode)
@@ -1517,8 +1525,8 @@ func _test_network_authoritative_producer_state() -> bool:
 		ok = false
 	else:
 		var rally_orders: Array[EntityOrder] = input.submit_for_player(0).orders
-		if not _has_move_only_order(rally_orders, spawned_id, rally_tile):
-			push_error("client should queue spawned unit MOVE_ONLY from authoritative rally state")
+		if not _has_move_order(rally_orders, spawned_id, rally_tile):
+			push_error("client should queue spawned unit MOVE from authoritative rally state")
 			ok = false
 		var final_producer: Entity = server_state.get_entity_by_id(producer_id)
 		if (
@@ -1595,7 +1603,7 @@ func _submit_attack(state: MatchState, owner: int) -> SubmitTurn:
 	if actor_id < 0:
 		return submit
 	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.ATTACK_TARGET
+	order.type = EntityOrder.Type.TARGET
 	order.entity_id = actor_id
 	if target_id >= 0:
 		order.target_priority_chain = [target_id]
@@ -1745,7 +1753,7 @@ func _first_movable_entity_id(state: MatchState, registry: EntityRegistry, owner
 	for entity: Entity in state.entities_sorted_by_id():
 		if entity == null or entity.owner_player_id != owner or entity.current_hp <= 0:
 			continue
-		if input.select_entity(entity.id) and input.can_issue_move_only():
+		if input.select_entity(entity.id) and input.can_issue_move():
 			return entity.id
 	return -1
 
@@ -1761,7 +1769,7 @@ func _first_target_capable_entity_id(
 	for entity: Entity in state.entities_sorted_by_id():
 		if entity == null or entity.owner_player_id != owner or entity.current_hp <= 0:
 			continue
-		if input.select_entity(entity.id) and input.can_issue_attack_target():
+		if input.select_entity(entity.id) and input.can_issue_target():
 			return entity.id
 	return -1
 
@@ -1834,14 +1842,12 @@ func _repeat_train_order_def_id(orders: Array[EntityOrder], producer_id: int) ->
 	return ""
 
 
-func _has_move_only_order(
-	orders: Array[EntityOrder], entity_id: int, target_tile: Vector2i
-) -> bool:
+func _has_move_order(orders: Array[EntityOrder], entity_id: int, target_tile: Vector2i) -> bool:
 	for order: EntityOrder in orders:
 		if (
 			order != null
 			and order.entity_id == entity_id
-			and order.type == EntityOrder.Type.MOVE_ONLY
+			and order.type == EntityOrder.Type.MOVE
 			and order.target_tile == target_tile
 		):
 			return true
@@ -2049,7 +2055,6 @@ func _submit_signature(submit: SubmitTurn) -> Dictionary:
 						"entity": order.entity_id,
 						"tile": order.target_tile,
 						"chain": order.target_priority_chain.duplicate(),
-						"halt": order.halt_on_sight,
 						"def": order.def_id,
 						"cancel": order.cancel_index,
 						"target": order.target_entity_id,

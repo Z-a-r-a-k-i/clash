@@ -86,12 +86,8 @@ func _all_tests() -> Array:
 			_test_shift_click_routes_future_gather_and_build_orders
 		],
 		[
-			"dev_play_mode_halt_on_sight_move_preview_does_not_route",
-			_test_halt_on_sight_move_preview_does_not_route
-		],
-		[
-			"dev_play_mode_target_chase_preview_tracks_live_target",
-			_test_target_chase_preview_tracks_live_target
+			"dev_play_mode_direct_attack_preview_tracks_live_target",
+			_test_direct_attack_preview_tracks_live_target
 		],
 		[
 			"dev_play_mode_pending_build_updates_placement_preview",
@@ -107,7 +103,7 @@ func _all_tests() -> Array:
 		],
 		["dev_play_mode_routes_command_card_orders", _test_routes_command_card_orders],
 		["dev_play_mode_pending_target_targets_enemy", _test_pending_target_targets_enemy],
-		["dev_play_mode_a_key_attack_move_mode", _test_a_key_attack_move_mode],
+		["dev_play_mode_a_key_attack_mode", _test_a_key_attack_mode],
 		["dev_play_mode_left_drag_pans_camera", _test_left_drag_pans_camera],
 		["dev_play_mode_hud_anchors_away_from_start_area", _test_hud_anchors_away_from_start_area],
 		[
@@ -149,6 +145,9 @@ func _test_queues_and_resolves_turn() -> bool:
 	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
 		_free_mode(mode)
 		return false
+	if not _move_entity_to(mode.current_state(), 4, Vector2i(8, 10)):
+		_free_mode(mode)
+		return false
 	mode.set_active_player_id(0)
 	if not mode.select_entity_id(1):
 		push_error("expected P0 marine #1 to be selectable")
@@ -171,13 +170,13 @@ func _test_queues_and_resolves_turn() -> bool:
 		_free_mode(mode)
 		return false
 	var queued_after_resolve: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
-	if (
-		queued_after_resolve.size() != 1
-		or queued_after_resolve[0].type != EntityOrder.Type.ATTACK_TARGET
-		or queued_after_resolve[0].target_priority_chain != ([4] as Array[int])
-		or mode.pending_order_count(1) != 0
-	):
-		push_error("resolve_turn should requeue the unfinished targeted ATTACK for P0 only")
+	var marine_after: Entity = mode.current_state().get_entity_by_id(1)
+	if queued_after_resolve.size() != 0 or mode.pending_order_count(1) != 0:
+		push_error("resolve_turn should clear submitted TARGET orders after distribution")
+		_free_mode(mode)
+		return false
+	if marine_after == null or marine_after.focus_target_entity_id != 4:
+		push_error("resolve_turn should persist TARGET focus in resolved state")
 		_free_mode(mode)
 		return false
 	_free_mode(mode)
@@ -192,11 +191,14 @@ func _test_routes_context_actions() -> bool:
 	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
 		_free_mode(mode)
 		return false
+	if not _move_entity_to(mode.current_state(), 4, Vector2i(8, 10)):
+		_free_mode(mode)
+		return false
 	mode.set_active_player_id(0)
 	mode.select_entity_id(1)
-	mode.renderer().set_perspective_player_id(1)
-	if not mode.issue_context_at_tile(Vector2i(13, 10)):
-		push_error("right-clicking visible enemy-occupied tile should queue target chase")
+	mode.renderer().set_perspective_player_id(0)
+	if not mode.issue_context_at_tile(Vector2i(8, 10)):
+		push_error("right-clicking visible enemy-occupied tile should queue direct attack")
 		_free_mode(mode)
 		return false
 	var marine: Entity = mode.current_state().get_entity_by_id(1)
@@ -204,30 +206,31 @@ func _test_routes_context_actions() -> bool:
 		push_error("context enemy action should not mutate focus before resolve")
 		_free_mode(mode)
 		return false
-	var target_chase_orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
-	if target_chase_orders.size() != 1:
+	var attack_orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	if attack_orders.size() != 1:
 		push_error("context enemy target should queue one atomic order")
 		_free_mode(mode)
 		return false
-	var target_chase: EntityOrder = target_chase_orders[0]
+	var attack_order: EntityOrder = attack_orders[0]
 	if (
-		target_chase.type != EntityOrder.Type.ATTACK_TARGET
-		or target_chase.target_priority_chain != ([4] as Array[int])
-		or target_chase.target_tile != Vector2i(13, 10)
+		attack_order.type != EntityOrder.Type.TARGET
+		or attack_order.target_priority_chain != ([4] as Array[int])
+		or attack_order.target_entity_id != 4
+		or attack_order.target_tile != Vector2i(8, 10)
 	):
-		push_error("context enemy action should queue ATTACK_TARGET for #4")
+		push_error("context enemy action should queue TARGET for #4")
 		_free_mode(mode)
 		return false
 	mode.input_model().clear_submissions()
 	mode.set_active_player_id(0)
 	mode.select_entity_id(1)
-	if not mode.issue_context_at_tile(Vector2i(9, 10)):
-		push_error("right-clicking empty tile should queue MOVE_ONLY")
+	if not mode.issue_context_at_tile(Vector2i(7, 10)):
+		push_error("right-clicking empty tile should queue Move")
 		_free_mode(mode)
 		return false
 	var move_order: EntityOrder = mode.input_model().submit_for_player(0).orders[0]
-	if move_order.type != EntityOrder.Type.MOVE_ONLY or move_order.target_tile != Vector2i(9, 10):
-		push_error("context empty-tile action should be MOVE_ONLY to (9, 10)")
+	if move_order.type != EntityOrder.Type.MOVE or move_order.target_tile != Vector2i(7, 10):
+		push_error("context empty-tile action should be Move to (7, 10)")
 		_free_mode(mode)
 		return false
 	_free_mode(mode)
@@ -248,17 +251,17 @@ func _test_context_cursor_classifier() -> bool:
 	var enemy_context: Dictionary = mode.context_action_at_tile(Vector2i(13, 10))
 	var ok := true
 	if (
-		enemy_context.get("action", "") != "target_chase"
+		enemy_context.get("action", "") != "attack"
 		or enemy_context.get("cursor_shape", -1) != Input.CURSOR_CROSS
 	):
-		push_error("enemy hover should classify as target chase with cross cursor")
+		push_error("enemy hover should classify as attack with cross cursor")
 		ok = false
 	var empty_context: Dictionary = mode.context_action_at_tile(Vector2i(9, 10))
 	if (
-		empty_context.get("action", "") != "move_only"
+		empty_context.get("action", "") != "move"
 		or empty_context.get("cursor_shape", -1) != Input.CURSOR_MOVE
 	):
-		push_error("empty hover should classify as move-only with move cursor")
+		push_error("empty hover should classify as move with move cursor")
 		ok = false
 	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
 		_free_mode(mode)
@@ -386,20 +389,20 @@ func _test_command_card_actions_and_state_changes_are_separate_rows() -> bool:
 	if card == null:
 		return false
 	add_child(card)
-	_set_command_card_state(card, true, true, true, true, true, true)
-	var move_button: Button = _find_exact_button(card, "Attack and Move")
-	var move_only_button: Button = _find_exact_button(card, "Move Only")
+	_set_command_card_state(card, true, true, true, true)
+	var move_button: Button = _find_exact_button(card, "Move")
 	var gather_button: Button = _find_exact_button(card, "Gather")
-	var target_button: Button = _find_exact_button(card, "Target")
-	var halt_button: Button = _find_exact_button(card, "Halt on Sight: Off")
+	var target_button: Button = _find_exact_button(card, "Attack")
 	var cancel_button: Button = _find_exact_button(card, "Cancel")
 	var ok: bool = true
+	for removed_label in ["Move Only", "Attack and Move", "Target", "Halt on Sight: Off"]:
+		if _find_exact_button(card, removed_label) != null:
+			push_error("command card should not expose %s" % removed_label)
+			ok = false
 	if (
 		move_button == null
-		or move_only_button == null
 		or gather_button == null
 		or target_button == null
-		or halt_button == null
 		or cancel_button == null
 	):
 		push_error("command card should expose action and state buttons")
@@ -407,21 +410,14 @@ func _test_command_card_actions_and_state_changes_are_separate_rows() -> bool:
 	else:
 		var action_parent: Node = move_button.get_parent()
 		var state_parent: Node = target_button.get_parent()
-		if (
-			action_parent != move_only_button.get_parent()
-			or action_parent != gather_button.get_parent()
-		):
-			push_error("Attack and Move, Move Only, and Gather should share the action row")
+		if action_parent != gather_button.get_parent():
+			push_error("Move and Gather should share the action row")
 			ok = false
-		if (
-			action_parent.get_child(0) != move_only_button
-			or action_parent.get_child(1) != move_button
-			or action_parent.get_child(2) != gather_button
-		):
-			push_error("action row should order Move Only before Attack and Move")
+		if action_parent.get_child(0) != move_button or action_parent.get_child(1) != gather_button:
+			push_error("action row should order Move before Gather")
 			ok = false
-		if state_parent != halt_button.get_parent() or state_parent != cancel_button.get_parent():
-			push_error("Target, Halt on Sight, and Cancel should share the state row")
+		if state_parent != cancel_button.get_parent():
+			push_error("Attack and Cancel should share the state row")
 			ok = false
 		if action_parent == state_parent:
 			push_error("actions and state changes should be on separate rows")
@@ -431,9 +427,6 @@ func _test_command_card_actions_and_state_changes_are_separate_rows() -> bool:
 			ok = false
 		if move_button.size_flags_horizontal != Control.SIZE_EXPAND_FILL:
 			push_error("Move button should expand within the action row")
-			ok = false
-		if move_only_button.size_flags_horizontal != Control.SIZE_EXPAND_FILL:
-			push_error("Move Only button should expand within the action row")
 			ok = false
 	_free_mode(card)
 	return ok
@@ -445,38 +438,30 @@ func _test_command_card_primary_visibility_tracks_each_command() -> bool:
 		return false
 	add_child(card)
 	var ok: bool = true
-	_set_command_card_state(card, false, false, false, false, false, false)
+	_set_command_card_state(card, false, false, false, false)
 	if card.visible:
 		push_error("command card should hide when no command section has visible actions")
 		ok = false
 
-	_set_command_card_state(card, true, true, false, false, false, false)
-	if not _expect_button_visibility(card, "Attack and Move", true):
-		ok = false
-	if not _expect_button_visibility(card, "Move Only", true):
+	_set_command_card_state(card, true, false, false, false)
+	if not _expect_button_visibility(card, "Move", true):
 		ok = false
 	if not _expect_button_visibility(card, "Gather", false):
 		ok = false
 
-	_set_command_card_state(card, true, false, false, false, false, false)
-	if not _expect_button_visibility(card, "Attack and Move", true):
-		ok = false
-	if not _expect_button_visibility(card, "Move Only", false):
+	_set_command_card_state(card, true, false, false, false)
+	if not _expect_button_visibility(card, "Move", true):
 		ok = false
 
-	_set_command_card_state(card, false, true, false, false, false, false)
-	if not _expect_button_visibility(card, "Attack and Move", false):
-		ok = false
-	if not _expect_button_visibility(card, "Move Only", true):
+	_set_command_card_state(card, false, false, false, false)
+	if not _expect_button_visibility(card, "Move", false):
 		ok = false
 
-	_set_command_card_state(card, false, false, true, true, true, true)
-	for label in ["Target", "Halt on Sight: Off", "Gather", "Cancel"]:
+	_set_command_card_state(card, false, true, true, true)
+	for label in ["Attack", "Gather", "Cancel"]:
 		if not _expect_button_visibility(card, label, true):
 			ok = false
-	if not _expect_button_visibility(card, "Attack and Move", false):
-		ok = false
-	if not _expect_button_visibility(card, "Move Only", false):
+	if not _expect_button_visibility(card, "Move", false):
 		ok = false
 	if not card.visible:
 		push_error("command card should show when non-move commands are visible")
@@ -1188,51 +1173,7 @@ func _test_shift_click_routes_future_gather_and_build_orders() -> bool:
 	return ok
 
 
-func _test_halt_on_sight_move_preview_does_not_route() -> bool:
-	var mode: Node = _make_mode()
-	if mode == null:
-		return false
-	add_child(mode)
-	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
-		_free_mode(mode)
-		return false
-	mode.set_active_player_id(0)
-	var state: MatchState = mode.current_state()
-	var marine_id: int = _find_entity_id(state, "marine", 0)
-	var actor: Entity = state.get_entity_by_id(marine_id) if state != null else null
-	var renderer: MatchRenderer = mode.renderer()
-	if actor == null or state.tile_grid == null or renderer == null:
-		push_error("expected marine actor and renderer for halt preview test")
-		_free_mode(mode)
-		return false
-	var enemy_id: int = -1
-	for delta in [Vector2i(0, 1), Vector2i(1, 0), Vector2i(0, -1), Vector2i(-1, 0)]:
-		var enemy_origin: Vector2i = actor.origin + delta
-		enemy_id = _add_runtime_entity(state, "marine", 1, enemy_origin)
-		if enemy_id >= 0:
-			break
-	if enemy_id < 0:
-		push_error("expected to place enemy beside actor for halt preview test")
-		_free_mode(mode)
-		return false
-	actor.halt_on_sight = true
-	renderer.bind_state(state, _load_registry())
-	if (
-		not mode.select_entity_id(actor.id)
-		or not mode.issue_move_selected(actor.origin + Vector2i(6, 0))
-	):
-		push_error("expected halted marine MOVE preview to queue")
-		_free_mode(mode)
-		return false
-	var point_count: int = renderer.call("action_preview_line_point_count", 0)
-	_free_mode(mode)
-	if point_count > 2:
-		push_error("halt-on-sight MOVE preview should not draw a routed movement path")
-		return false
-	return true
-
-
-func _test_target_chase_preview_tracks_live_target() -> bool:
+func _test_direct_attack_preview_tracks_live_target() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
 		return false
@@ -1248,16 +1189,21 @@ func _test_target_chase_preview_tracks_live_target() -> bool:
 	var target: Entity = state.get_entity_by_id(target_id) if state != null else null
 	var renderer: MatchRenderer = mode.renderer()
 	if actor == null or target == null or state.tile_grid == null or renderer == null:
-		push_error("expected opposing marines and renderer for target-chase preview test")
+		push_error("expected opposing marines and renderer for direct attack preview test")
 		_free_mode(mode)
 		return false
-	actor.halt_on_sight = true
-	if not mode.select_entity_id(actor.id) or not mode.issue_target_chase_selected(target.id):
-		push_error("expected target chase order to queue")
+	if not _move_entity_to(state, actor.id, Vector2i(6, 10)):
+		_free_mode(mode)
+		return false
+	if not _move_entity_to(state, target.id, Vector2i(10, 14)):
+		_free_mode(mode)
+		return false
+	if not mode.select_entity_id(actor.id) or not mode.issue_attack_selected(target.id):
+		push_error("expected direct attack order to queue")
 		_free_mode(mode)
 		return false
 	var stale_target_tile: Vector2i = target.origin
-	var live_target_tile: Vector2i = stale_target_tile + Vector2i(0, 4)
+	var live_target_tile: Vector2i = stale_target_tile + Vector2i(0, -4)
 	if not state.tile_grid.is_rect_clear(Rect2i(live_target_tile, Vector2i.ONE)):
 		live_target_tile = _find_clear_rect_origin_near(state, live_target_tile, Vector2i.ONE)
 	if not state.tile_grid.move(target.id, live_target_tile):
@@ -1277,16 +1223,16 @@ func _test_target_chase_preview_tracks_live_target() -> bool:
 		else null
 	)
 	if preview_line == null or preview_line.points.size() < 2:
-		push_error("target chase preview should draw a routed path")
+		push_error("direct attack preview should draw a routed path")
 		_free_mode(mode)
 		return false
 	var end_point: Vector2 = preview_line.points[preview_line.points.size() - 1]
 	var ok: bool = true
 	if end_point.distance_to(stale_target_center) <= 0.5:
-		push_error("target chase preview should not end at the stale fallback target tile")
+		push_error("direct attack preview should not end at the stale fallback target tile")
 		ok = false
 	if end_point.distance_to(live_target_center) >= end_point.distance_to(stale_target_center):
-		push_error("target chase preview should route toward the live target tile")
+		push_error("direct attack preview should route toward the live target tile")
 		ok = false
 	_free_mode(mode)
 	return ok
@@ -1502,12 +1448,12 @@ func _test_routes_command_card_orders() -> bool:
 		_free_mode(mode)
 		return false
 	if not mode.confirm_pending_at_tile(Vector2i(9, 22)):
-		push_error("pending move click should queue MOVE")
+		push_error("pending move click should queue Move")
 		_free_mode(mode)
 		return false
 	var move_order: EntityOrder = mode.input_model().submit_for_player(0).orders[0]
 	if move_order.type != EntityOrder.Type.MOVE:
-		push_error("expected MOVE after pending click")
+		push_error("expected MOVE after pending Move click")
 		_free_mode(mode)
 		return false
 	if not _expect_button_visibility(card, "Cancel", true):
@@ -1516,12 +1462,15 @@ func _test_routes_command_card_orders() -> bool:
 		return false
 	card.emit_signal("cancel_requested", -1)
 	if mode.pending_order_count(0) != 0:
-		push_error("Cancel should remove the selected worker's queued MOVE")
+		push_error("Cancel should remove the selected worker's queued Move")
 		_free_mode(mode)
 		return false
 	mode.input_model().clear_submissions()
 	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
 		push_error("expected combat scenario reload for target command")
+		_free_mode(mode)
+		return false
+	if not _move_entity_to(mode.current_state(), 4, Vector2i(8, 10)):
 		_free_mode(mode)
 		return false
 	card = mode.command_card()
@@ -1536,53 +1485,47 @@ func _test_routes_command_card_orders() -> bool:
 		return false
 	card.emit_signal("target_requested")
 	if mode.pending_command_kind() != "target":
-		push_error("target signal should enter pending target mode")
+		push_error("attack signal should enter pending attack mode")
 		_free_mode(mode)
 		return false
-	mode.renderer().set_perspective_player_id(1)
-	if not mode.confirm_pending_at_tile(Vector2i(13, 10)):
-		push_error("pending target click should queue direct attack target")
+	mode.renderer().set_perspective_player_id(0)
+	if not mode.confirm_pending_at_tile(Vector2i(8, 10)):
+		push_error("pending attack click should queue direct attack target")
 		_free_mode(mode)
 		return false
 	var marine: Entity = mode.current_state().get_entity_by_id(1)
 	if marine == null or marine.focus_target_entity_id != -1:
-		push_error("pending target click should not mutate focus before resolve")
+		push_error("pending attack click should not mutate focus before resolve")
 		_free_mode(mode)
 		return false
 	var target_orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
 	if (
 		target_orders.size() != 1
-		or target_orders[0].type != EntityOrder.Type.ATTACK_TARGET
+		or target_orders[0].type != EntityOrder.Type.TARGET
 		or target_orders[0].target_priority_chain != ([4] as Array[int])
+		or target_orders[0].target_entity_id != 4
 	):
-		push_error("target command should queue ATTACK_TARGET")
+		push_error("attack command should queue TARGET")
 		_free_mode(mode)
 		return false
 	mode.input_model().clear_submissions()
-	card.emit_signal("move_only_requested")
-	if mode.pending_command_kind() != "move_only":
-		push_error("Move Only signal should enter pending move_only mode")
+	card.emit_signal("move_requested")
+	if mode.pending_command_kind() != "move":
+		push_error("Move signal should enter pending move mode")
 		_free_mode(mode)
 		return false
 	if not mode.confirm_pending_at_tile(Vector2i(8, 10)):
-		push_error("pending Move Only click should queue MOVE_ONLY")
+		push_error("pending Move click should queue MOVE")
 		_free_mode(mode)
 		return false
-	card.emit_signal("halt_on_sight_requested", true)
 	card.emit_signal("cancel_requested", -1)
 	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
 	if orders.size() != 0:
-		push_error(
-			"Cancel should remove the selected marine's queued MOVE_ONLY, got %d" % orders.size()
-		)
+		push_error("Cancel should remove the selected marine's queued Move, got %d" % orders.size())
 		_free_mode(mode)
 		return false
 	if marine == null or marine.focus_target_entity_id != -1:
-		push_error("direct target command should not leave focus state")
-		_free_mode(mode)
-		return false
-	if not marine.halt_on_sight:
-		push_error("halt-on-sight signal should immediately enable halt-on-sight")
+		push_error("TARGET command should not leave focus state before resolve")
 		_free_mode(mode)
 		return false
 	mode.input_model().clear_submissions()
@@ -1662,6 +1605,9 @@ func _test_pending_target_targets_enemy() -> bool:
 	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
 		_free_mode(mode)
 		return false
+	if not _move_entity_to(mode.current_state(), 4, Vector2i(8, 10)):
+		_free_mode(mode)
+		return false
 	mode.set_active_player_id(0)
 	if not mode.select_entity_id(1):
 		push_error("expected to select P0 marine #1")
@@ -1669,9 +1615,9 @@ func _test_pending_target_targets_enemy() -> bool:
 		return false
 	var card: Control = mode.command_card()
 	card.emit_signal("target_requested")
-	mode.renderer().set_perspective_player_id(1)
-	if not mode.confirm_pending_at_tile(Vector2i(13, 10)):
-		push_error("pending target click on enemy should queue direct target attack")
+	mode.renderer().set_perspective_player_id(0)
+	if not mode.confirm_pending_at_tile(Vector2i(8, 10)):
+		push_error("pending target click on enemy should queue TARGET")
 		_free_mode(mode)
 		return false
 	var marine: Entity = mode.current_state().get_entity_by_id(1)
@@ -1682,17 +1628,18 @@ func _test_pending_target_targets_enemy() -> bool:
 	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
 	if (
 		orders.size() != 1
-		or orders[0].type != EntityOrder.Type.ATTACK_TARGET
+		or orders[0].type != EntityOrder.Type.TARGET
 		or orders[0].target_priority_chain != ([4] as Array[int])
+		or orders[0].target_entity_id != 4
 	):
-		push_error("pending enemy click should queue ATTACK_TARGET")
+		push_error("pending enemy click should queue TARGET")
 		_free_mode(mode)
 		return false
 	_free_mode(mode)
 	return true
 
 
-func _test_a_key_attack_move_mode() -> bool:
+func _test_a_key_attack_mode() -> bool:
 	var original_cursor_shape: int = Input.get_current_cursor_shape()
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -1709,37 +1656,52 @@ func _test_a_key_attack_move_mode() -> bool:
 	if ok:
 		Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 		mode.call("_unhandled_input", _key_press(KEY_A))
-		if mode.pending_command_kind() != "move":
-			push_error("A key should enter pending attack-move mode")
+		if mode.pending_command_kind() != "target":
+			push_error("A key should enter pending attack mode")
 			ok = false
 	if ok and mode.pending_cursor_shape() != Input.CURSOR_CROSS:
-		push_error("pending attack-move should use the crosshair cursor")
-		ok = false
-	if ok and not mode.confirm_pending_at_tile(Vector2i(8, 10)):
-		push_error("A-key ground click should queue attack-move")
+		push_error("pending attack should use the crosshair cursor")
 		ok = false
 	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
-	if ok and (orders.size() != 1 or orders[0].type != EntityOrder.Type.MOVE):
-		push_error("A-key ground click should queue one MOVE order")
+	if ok and not mode.confirm_pending_at_tile(Vector2i(8, 10)):
+		push_error("A-key ground click should queue attack movement")
+		ok = false
+	orders = mode.input_model().submit_for_player(0).orders
+	if (
+		ok
+		and (
+			orders.size() != 1
+			or orders[0].type != EntityOrder.Type.ATTACK_MOVE
+			or orders[0].target_tile != Vector2i(8, 10)
+		)
+	):
+		push_error("A-key ground click should queue ATTACK_MOVE")
+		ok = false
+	if ok and mode.pending_command_kind() != "":
+		push_error("A-key ground click should clear pending attack mode after queuing")
 		ok = false
 	if ok:
 		mode.input_model().clear_submissions()
+		if not _move_entity_to(mode.current_state(), 4, Vector2i(8, 10)):
+			ok = false
+	if ok:
 		mode.call("_unhandled_input", _key_press(KEY_A))
-		mode.renderer().set_perspective_player_id(1)
-		if not mode.confirm_pending_at_tile(Vector2i(13, 10)):
-			push_error("A-key enemy click should queue targeted ATTACK")
+		mode.renderer().set_perspective_player_id(0)
+		if not mode.confirm_pending_at_tile(Vector2i(8, 10)):
+			push_error("A-key enemy click should queue TARGET")
 			ok = false
 		orders = mode.input_model().submit_for_player(0).orders
 	if (
 		ok
 		and (
 			orders.size() != 1
-			or orders[0].type != EntityOrder.Type.ATTACK_TARGET
+			or orders[0].type != EntityOrder.Type.TARGET
 			or orders[0].target_priority_chain != ([4] as Array[int])
-			or orders[0].target_tile != Vector2i(13, 10)
+			or orders[0].target_entity_id != 4
+			or orders[0].target_tile != Vector2i(8, 10)
 		)
 	):
-		push_error("A-key enemy click should queue ATTACK_TARGET against #4")
+		push_error("A-key enemy click should queue TARGET against #4")
 		ok = false
 	Input.set_default_cursor_shape(original_cursor_shape)
 	_free_mode(mode)
@@ -2079,13 +2041,7 @@ func _make_command_card() -> Control:
 
 
 func _set_command_card_state(
-	card: Control,
-	can_move: bool,
-	can_move_only: bool,
-	can_target: bool,
-	can_halt_on_sight: bool,
-	can_gather: bool,
-	can_cancel: bool
+	card: Control, can_move: bool, can_target: bool, can_gather: bool, can_cancel: bool
 ) -> void:
 	var build_options: Array[Dictionary] = []
 	var train_options: Array[Dictionary] = []
@@ -2095,11 +2051,8 @@ func _set_command_card_state(
 		"set_command_state",
 		"Selection",
 		can_move,
-		can_move_only,
 		can_target,
-		can_halt_on_sight,
 		can_gather,
-		false,
 		build_options,
 		train_options,
 		research_options,
@@ -2151,6 +2104,18 @@ func _find_clear_rect_origin_near(
 				if state.tile_grid.is_rect_in_bounds(rect) and state.tile_grid.is_rect_clear(rect):
 					return origin
 	return Vector2i.ZERO
+
+
+func _move_entity_to(state: MatchState, entity_id: int, origin: Vector2i) -> bool:
+	var entity: Entity = state.get_entity_by_id(entity_id) if state != null else null
+	if entity == null or state.tile_grid == null:
+		push_error("test setup could not find entity #%d to move" % entity_id)
+		return false
+	if not state.tile_grid.move(entity_id, origin):
+		push_error("test setup could not move entity #%d to %s" % [entity_id, str(origin)])
+		return false
+	entity.origin = origin
+	return true
 
 
 func _add_runtime_entity(state: MatchState, def_id: String, owner: int, origin: Vector2i) -> int:

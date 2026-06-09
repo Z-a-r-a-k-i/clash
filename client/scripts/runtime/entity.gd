@@ -33,7 +33,6 @@ extends Resource
 @export var active_buffs: Array[ActiveBuff] = []
 @export var ability_cast: AbilityCastState
 @export var is_hidden: bool = false  # recomputed each turn
-@export var halt_on_sight: bool = false  # toggled by HALT_ON_SIGHT_TOGGLE order
 
 # Per-turn move budget. Reset to 0 at end-of-turn; incremented by the
 # movement system on each successful step. Compared against
@@ -104,7 +103,6 @@ func clone() -> Entity:
 			c.active_buffs.append(b.clone())
 	c.ability_cast = ability_cast.clone() if ability_cast != null else null
 	c.is_hidden = is_hidden
-	c.halt_on_sight = halt_on_sight
 	c.moves_used_this_turn = moves_used_this_turn
 	c.current_resource_amount = current_resource_amount
 	c.is_constructing = is_constructing
