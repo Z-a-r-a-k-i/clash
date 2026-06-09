@@ -217,17 +217,11 @@ func _orders_for_units(
 	for index in range(units.size()):
 		var unit: Entity = units[index]
 		var attack := EntityOrder.new()
-		attack.type = EntityOrder.Type.ATTACK
+		attack.type = EntityOrder.Type.TARGET
 		attack.entity_id = unit.id
 		attack.target_priority_chain = _rotating_chain(enemy_back_ids, index, 5)
 		attack.target_priority_chain.append_array(_rotating_chain(enemy_front_ids, index, 5))
 		orders.append(attack)
-
-		var halt := EntityOrder.new()
-		halt.type = EntityOrder.Type.HALT_ON_SIGHT_TOGGLE
-		halt.entity_id = unit.id
-		halt.halt_on_sight = false
-		orders.append(halt)
 
 		for _i in range(_ABILITY_ORDERS_PER_UNIT):
 			var ability := EntityOrder.new()
@@ -237,7 +231,7 @@ func _orders_for_units(
 			orders.append(ability)
 
 		var move := EntityOrder.new()
-		move.type = EntityOrder.Type.MOVE_ONLY
+		move.type = EntityOrder.Type.MOVE
 		move.entity_id = unit.id
 		move.target_tile = Vector2i(target_x, _target_y(unit.origin.y, index))
 		orders.append(move)

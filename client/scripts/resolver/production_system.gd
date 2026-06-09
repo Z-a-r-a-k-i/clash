@@ -234,7 +234,7 @@ static func _finalize_train(
 		# Bad def — drop the active slot so we don't deadlock.
 		producer.production_state.active = {}
 		return
-	var spawn_tile := _find_spawn_tile(state, registry, producer, unit_def)
+	var spawn_tile := find_spawn_tile(state, registry, producer, unit_def)
 	if spawn_tile == Vector2i(-1, -1):
 		# No adjacent tile free — defer. Keep active in place with
 		# turns_remaining = 0 so we'll retry next turn.
@@ -268,6 +268,12 @@ static func _finalize_research(
 # Find the first free tile adjacent to `producer`'s footprint by walking
 # the perimeter clockwise from the top-left corner. Returns
 # Vector2i(-1, -1) if none.
+static func find_spawn_tile(
+	state: MatchState, registry: EntityRegistry, producer: Entity, unit_def: EntityDef
+) -> Vector2i:
+	return _find_spawn_tile(state, registry, producer, unit_def)
+
+
 static func _find_spawn_tile(
 	state: MatchState, registry: EntityRegistry, producer: Entity, unit_def: EntityDef
 ) -> Vector2i:

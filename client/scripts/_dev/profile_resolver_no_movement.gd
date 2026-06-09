@@ -83,7 +83,7 @@ func _filter_attack_orders(submit: SubmitTurn) -> SubmitTurn:
 	var out := SubmitTurn.new()
 	var orders: Array[EntityOrder] = []
 	for order in submit.orders:
-		if order != null and order.type == EntityOrder.Type.ATTACK:
+		if order != null and order.type == EntityOrder.Type.TARGET:
 			orders.append(order)
 	out.orders = orders
 	return out

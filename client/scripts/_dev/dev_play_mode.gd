@@ -20,13 +20,12 @@ const COMMAND_OPTION_BUILDER := preload("res://scripts/game/command_option_build
 const PATHFINDING_SCRIPT := preload("res://scripts/resolver/pathfinding_system.gd")
 const PENDING_NONE := ""
 const PENDING_MOVE := "move"
-const PENDING_MOVE_ONLY := "move_only"
 const PENDING_TARGET := "target"
 const PENDING_BUILD := "build"
 const PENDING_GATHER := "gather"
 const CONTEXT_NONE := "none"
-const CONTEXT_MOVE_ONLY := "move_only"
-const CONTEXT_TARGET_CHASE := "target_chase"
+const CONTEXT_MOVE := "move"
+const CONTEXT_ATTACK := "attack"
 const CONTEXT_GATHER := "gather"
 const CONTEXT_RALLY_MOVE := "rally_move"
 const CONTEXT_RALLY_GATHER := "rally_gather"
@@ -230,11 +229,11 @@ func issue_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
 	return ok
 
 
-func issue_move_only_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
+func issue_attack_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
 	if _replay_mode_active:
 		return _reject_replay_edit()
 	_input.set_queue_modifier_active(queue_requested)
-	var ok: bool = _input.issue_move_only(tile)
+	var ok: bool = _input.issue_attack_move(tile)
 	_input.set_queue_modifier_active(false)
 	_update_hud()
 	return ok
@@ -244,25 +243,7 @@ func issue_attack_selected(target_entity_id: int, queue_requested: bool = false)
 	if _replay_mode_active:
 		return _reject_replay_edit()
 	_input.set_queue_modifier_active(queue_requested)
-	var ok: bool = _input.issue_attack(target_entity_id)
-	_input.set_queue_modifier_active(false)
-	_update_hud()
-	return ok
-
-
-func issue_attack_target_selected(target_entity_id: int) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	var ok: bool = _input.issue_attack_target(target_entity_id)
-	_update_hud()
-	return ok
-
-
-func issue_target_chase_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	_input.set_queue_modifier_active(queue_requested)
-	var ok: bool = _input.issue_target_chase(target_entity_id)
+	var ok: bool = _input.issue_target(target_entity_id)
 	_input.set_queue_modifier_active(false)
 	_update_hud()
 	return ok
@@ -290,14 +271,6 @@ func issue_rally_gather_selected(target_entity_id: int) -> bool:
 	if _replay_mode_active:
 		return _reject_replay_edit()
 	var ok: bool = _input.issue_rally_gather(target_entity_id)
-	_update_hud()
-	return ok
-
-
-func issue_halt_on_sight_selected(enabled: bool) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	var ok: bool = _input.issue_halt_on_sight_toggle(enabled)
 	_update_hud()
 	return ok
 
@@ -357,10 +330,10 @@ func issue_context_at_tile(tile: Vector2i, queue_requested: bool = false) -> boo
 		return _reject_replay_edit()
 	var context: Dictionary = context_action_at_tile(tile)
 	var action: String = context.get("action", CONTEXT_NONE)
-	if action == CONTEXT_MOVE_ONLY:
-		return issue_move_only_selected(tile, queue_requested)
-	if action == CONTEXT_TARGET_CHASE:
-		return issue_target_chase_selected(context.get("target_entity_id", -1), queue_requested)
+	if action == CONTEXT_MOVE:
+		return issue_move_selected(tile, queue_requested)
+	if action == CONTEXT_ATTACK:
+		return issue_attack_selected(context.get("target_entity_id", -1), queue_requested)
 	if action == CONTEXT_GATHER:
 		return issue_gather_selected(context.get("target_entity_id", -1), queue_requested)
 	if action == CONTEXT_RALLY_MOVE:
@@ -390,12 +363,12 @@ func context_action_at_tile(tile: Vector2i) -> Dictionary:
 		if target == null:
 			return _context_result(CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Invalid target.")
 		if _is_enemy_target(target):
-			if _input.can_issue_target_chase():
+			if _input.can_issue_target():
 				return _context_result(
-					CONTEXT_TARGET_CHASE, Input.CURSOR_CROSS, "", {"target_entity_id": target_id}
+					CONTEXT_ATTACK, Input.CURSOR_CROSS, "", {"target_entity_id": target_id}
 				)
 			return _context_result(
-				CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Selected entity cannot chase targets."
+				CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Selected entity cannot attack."
 			)
 		if _is_resource_context_target(target):
 			if _selected_can_gather_from(target_id):
@@ -417,8 +390,8 @@ func context_action_at_tile(tile: Vector2i) -> Dictionary:
 		return _context_result(CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Target tile is occupied.")
 	if _input.can_issue_rally_move():
 		return _context_result(CONTEXT_RALLY_MOVE, Input.CURSOR_MOVE, "")
-	if _input.can_issue_move_only():
-		return _context_result(CONTEXT_MOVE_ONLY, Input.CURSOR_MOVE, "")
+	if _input.can_issue_move():
+		return _context_result(CONTEXT_MOVE, Input.CURSOR_MOVE, "")
 	return _context_result(CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Selected entity cannot move.")
 
 
@@ -432,41 +405,27 @@ func begin_move() -> void:
 		_reject_replay_edit()
 		return
 	if not _input.can_issue_move():
-		_update_hud("Select a movable unit before Attack and Move.")
+		_update_hud("Select a movable unit before Move.")
 		return
 	_clear_build_placement_preview()
 	_pending_command = PENDING_MOVE
 	_pending_build_def_id = ""
 	_set_pending_cursor()
-	_update_hud("Click a target tile for Attack and Move.")
-
-
-func begin_move_only() -> void:
-	if _replay_mode_active:
-		_reject_replay_edit()
-		return
-	if not _input.can_issue_move_only():
-		_update_hud("Select a movable unit before MOVE ONLY.")
-		return
-	_clear_build_placement_preview()
-	_pending_command = PENDING_MOVE_ONLY
-	_pending_build_def_id = ""
-	_reset_context_cursor()
-	_update_hud("Click a target tile for MOVE ONLY. Unit will not shoot this turn.")
+	_update_hud("Click a target tile for Move.")
 
 
 func begin_target() -> void:
 	if _replay_mode_active:
 		_reject_replay_edit()
 		return
-	if not _input.can_issue_attack_target():
-		_update_hud("Select a combat unit before TARGET.")
+	if not _input.can_issue_target():
+		_update_hud("Select a combat unit before Attack.")
 		return
 	_clear_build_placement_preview()
 	_pending_command = PENDING_TARGET
 	_pending_build_def_id = ""
-	_reset_context_cursor()
-	_update_hud("Click an enemy for TARGET.")
+	_set_pending_cursor()
+	_update_hud("Click an enemy or destination tile for Attack.")
 
 
 func begin_build(def_id: String) -> void:
@@ -487,29 +446,11 @@ func confirm_pending_at_tile(tile: Vector2i, queue_requested: bool = false) -> b
 	if _replay_mode_active:
 		return _reject_replay_edit()
 	if _pending_command == PENDING_MOVE:
-		var attack_target_id: int = _entity_id_at_tile(tile)
-		var attack_target: Entity = (
-			_loaded.state.get_entity_by_id(attack_target_id)
-			if _loaded != null and _loaded.state != null
-			else null
-		)
-		if _is_enemy_target(attack_target):
-			var attack_ok: bool = issue_attack_selected(attack_target_id, queue_requested)
-			if attack_ok:
-				_clear_pending_command()
-				_update_hud()
-			return attack_ok
 		var move_ok: bool = issue_move_selected(tile, queue_requested)
 		if move_ok:
 			_clear_pending_command()
 			_update_hud()
 		return move_ok
-	if _pending_command == PENDING_MOVE_ONLY:
-		var move_only_ok: bool = issue_move_only_selected(tile, queue_requested)
-		if move_only_ok:
-			_clear_pending_command()
-			_update_hud()
-		return move_only_ok
 	if _pending_command == PENDING_TARGET:
 		var target_id: int = (
 			_renderer.entity_id_at_tile(tile)
@@ -518,17 +459,20 @@ func confirm_pending_at_tile(tile: Vector2i, queue_requested: bool = false) -> b
 		)
 		var target: Entity = _loaded.state.get_entity_by_id(target_id)
 		if (
-			target == null
-			or target.owner_player_id < 0
-			or target.owner_player_id == _input.active_player_id()
+			target != null
+			and target.owner_player_id >= 0
+			and target.owner_player_id != _input.active_player_id()
 		):
-			_update_hud("Click an enemy to set TARGET.")
-			return false
-		var target_ok: bool = issue_attack_target_selected(target_id)
-		if target_ok:
+			var target_ok: bool = issue_attack_selected(target_id, queue_requested)
+			if target_ok:
+				_clear_pending_command()
+				_update_hud()
+			return target_ok
+		var attack_move_ok: bool = issue_attack_move_selected(tile, queue_requested)
+		if attack_move_ok:
 			_clear_pending_command()
 			_update_hud()
-		return target_ok
+		return attack_move_ok
 	if _pending_command == PENDING_BUILD:
 		var build_ok: bool = issue_build_selected(_pending_build_def_id, tile, queue_requested)
 		if build_ok:
@@ -913,7 +857,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var key_event: InputEventKey = event as InputEventKey
 		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_A:
-			begin_move()
+			begin_target()
 			var viewport: Viewport = get_viewport()
 			if viewport != null:
 				viewport.set_input_as_handled()
@@ -1304,9 +1248,7 @@ func _build_hud() -> void:
 
 	_command_card = COMMAND_CARD_SCRIPT.new() as Control
 	_command_card.connect("move_requested", Callable(self, "begin_move"))
-	_command_card.connect("move_only_requested", Callable(self, "begin_move_only"))
 	_command_card.connect("target_requested", Callable(self, "begin_target"))
-	_command_card.connect("halt_on_sight_requested", Callable(self, "issue_halt_on_sight_selected"))
 	_command_card.connect("gather_requested", Callable(self, "begin_gather"))
 	_command_card.connect("build_requested", Callable(self, "begin_build"))
 	_command_card.connect("train_requested", Callable(self, "issue_train_selected"))
@@ -1516,10 +1458,10 @@ func _sync_mode_ui() -> void:
 		_replay_play_button.text = "Pause" if _replay_playing else "Play"
 
 
-func _file_dialog(name: String, current_dir: String, callback: Callable) -> FileDialog:
+func _file_dialog(dialog_name: String, current_dir: String, callback: Callable) -> FileDialog:
 	_ensure_dir(current_dir)
 	var dialog: FileDialog = FileDialog.new()
-	dialog.name = name
+	dialog.name = dialog_name
 	dialog.access = FileDialog.ACCESS_USERDATA
 	dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	dialog.current_dir = current_dir
@@ -1703,11 +1645,9 @@ func _update_hud(override_status: String = "") -> void:
 		):
 			_status_label.text = status_message
 		elif _pending_command == PENDING_MOVE:
-			_status_label.text = "Pending Attack and Move: click target tile."
-		elif _pending_command == PENDING_MOVE_ONLY:
-			_status_label.text = "Pending MOVE ONLY: click target tile. Unit will not shoot."
+			_status_label.text = "Pending Move: click target tile."
 		elif _pending_command == PENDING_TARGET:
-			_status_label.text = "Pending TARGET: click an enemy."
+			_status_label.text = "Pending Attack: click an enemy or destination tile."
 		elif _pending_command == PENDING_BUILD:
 			_status_label.text = "Pending BUILD %s: click placement tile." % _pending_build_def_id
 		elif _pending_command == PENDING_GATHER:
@@ -1740,7 +1680,7 @@ func _set_pending_cursor() -> void:
 
 
 func _pending_cursor_shape() -> int:
-	if _pending_command == PENDING_MOVE:
+	if _pending_command == PENDING_TARGET:
 		return Input.CURSOR_CROSS
 	return Input.CURSOR_ARROW
 
@@ -1784,9 +1724,7 @@ func _selected_can_gather_from(target_entity_id: int) -> bool:
 
 
 func _selected_can_rally_gather_to(target_entity_id: int) -> bool:
-	if not _input.can_issue_rally_gather():
-		return false
-	return _selected_can_gather_target_valid(target_entity_id)
+	return _input.can_issue_rally_gather_to(target_entity_id)
 
 
 func _selected_can_gather_target_valid(target_entity_id: int) -> bool:
@@ -1866,9 +1804,6 @@ func _refresh_command_card() -> void:
 			false,
 			false,
 			false,
-			false,
-			false,
-			false,
 			empty_options,
 			empty_options,
 			empty_options,
@@ -1882,11 +1817,8 @@ func _refresh_command_card() -> void:
 		"set_command_state",
 		_input.selected_entity_label(),
 		_input.can_issue_move(),
-		_input.can_issue_move_only(),
-		_input.can_issue_attack_target(),
-		_input.can_issue_halt_on_sight_toggle(),
+		_input.can_issue_target(),
 		_input.can_issue_gather(),
-		_input.selected_halt_on_sight(),
 		COMMAND_OPTION_BUILDER.build_options(_input, _input.build_option_ids()),
 		COMMAND_OPTION_BUILDER.entity_options(_input, _input.train_option_ids()),
 		COMMAND_OPTION_BUILDER.research_options(_input, _input.research_option_ids()),

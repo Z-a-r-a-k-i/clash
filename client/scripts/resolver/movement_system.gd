@@ -1,13 +1,11 @@
 class_name MovementSystem
 extends RefCounted
 
-# Movement system — resolves submitted MOVE and MOVE_ONLY orders.
+# Movement system — resolves submitted MOVE and ATTACK_MOVE orders.
 #
 # Per-tick semantics (called from Phase 3 of the resolver tick loop):
-# - MOVE / MOVE_ONLY: advance one tile toward order.target_tile if the entity has
+# - MOVE / ATTACK_MOVE: advance one tile toward order.target_tile if the entity has
 #   move budget remaining. Ignores enemies along the path.
-# - MOVE with target_priority_chain chases the first live enemy in the chain and
-#   falls back to order.target_tile if none is still alive.
 #
 # Per-turn budget: an entity can move at most `def.movement.speed_tiles_per_turn`
 # tiles in one turn, accumulated across all ticks. Tracked via
@@ -279,7 +277,7 @@ static func _movement_intents(
 			continue
 		var order: EntityOrder = _action_at(per_entity, actor.id, tick)
 		var explicit_intent: Dictionary = _explicit_move_intent(
-			state, actor, order, registry, fired_entity_ids, halted_entity_ids
+			actor, order, registry, fired_entity_ids, halted_entity_ids
 		)
 		if not explicit_intent.is_empty():
 			intents.append(explicit_intent)
@@ -308,7 +306,6 @@ static func _movement_intents(
 
 
 static func _explicit_move_intent(
-	state: MatchState,
 	actor: Entity,
 	order: EntityOrder,
 	registry: EntityRegistry,
@@ -317,31 +314,14 @@ static func _explicit_move_intent(
 ) -> Dictionary:
 	if order == null:
 		return {}
-	if (
-		order.type != EntityOrder.Type.MOVE
-		and order.type != EntityOrder.Type.MOVE_ONLY
-		and order.type != EntityOrder.Type.ATTACK
-		and order.type != EntityOrder.Type.ATTACK_TARGET
-	):
+	if order.type != EntityOrder.Type.MOVE and order.type != EntityOrder.Type.ATTACK_MOVE:
 		return {}
-	if (
-		(order.type == EntityOrder.Type.ATTACK or order.type == EntityOrder.Type.ATTACK_TARGET)
-		and fired_entity_ids.has(actor.id)
-	):
+	if order.type == EntityOrder.Type.ATTACK_MOVE and halted_entity_ids.has(actor.id):
 		return {}
-	if (
-		order.type == EntityOrder.Type.MOVE
-		and halted_entity_ids.has(actor.id)
-		and order.target_priority_chain.is_empty()
-	):
-		return {}
-	var move_only: bool = order.type == EntityOrder.Type.MOVE_ONLY
-	var budget: int = movement_budget_for_entity(
-		actor, registry, fired_entity_ids.has(actor.id), move_only
-	)
+	var budget: int = movement_budget_for_entity(actor, registry, fired_entity_ids.has(actor.id))
 	if not _can_spend_movement(actor, budget):
 		return {}
-	var goal: Dictionary = _goal_for_order(state, actor, order, registry)
+	var goal: Dictionary = _goal_for_order(order)
 	var target_origin: Vector2i = goal.get("target_origin", order.target_tile)
 	if actor.origin == target_origin and bool(goal.get("exact_origin", true)):
 		return {}
@@ -353,88 +333,24 @@ static func _explicit_move_intent(
 		"exact_origin": goal.get("exact_origin", true),
 		"goal_range": goal.get("goal_range", 0),
 		"movement_budget": budget,
-		"complete_blocked_at_current": order.type == EntityOrder.Type.MOVE_ONLY,
+		"complete_blocked_at_current": true,
 	}
 	if goal.has("goal_rect"):
 		intent["goal_rect"] = goal["goal_rect"]
 	return intent
 
 
-static func _goal_for_order(
-	state: MatchState, actor: Entity, order: EntityOrder, registry: EntityRegistry
-) -> Dictionary:
-	if (
-		order != null
-		and (order.type == EntityOrder.Type.ATTACK or order.type == EntityOrder.Type.ATTACK_TARGET)
-	):
-		return _attack_goal_for_order(state, actor, order, registry)
-	return _move_goal_for_order(state, actor, order)
+static func _goal_for_order(order: EntityOrder) -> Dictionary:
+	return _move_goal_for_order(order)
 
 
-static func _move_goal_for_order(
-	state: MatchState, actor: Entity, order: EntityOrder
-) -> Dictionary:
+static func _move_goal_for_order(order: EntityOrder) -> Dictionary:
 	var fallback: Dictionary = {
 		"target_origin": order.target_tile,
 		"exact_origin": true,
 		"goal_range": 0,
 	}
-	if (
-		state == null
-		or state.tile_grid == null
-		or actor == null
-		or order == null
-		or order.type != EntityOrder.Type.MOVE
-		or order.target_priority_chain.is_empty()
-	):
-		return fallback
-	for target_id in order.target_priority_chain:
-		var target: Entity = state.get_entity_by_id(target_id)
-		if target == null or target.current_hp <= 0:
-			continue
-		if target.owner_player_id < 0 or target.owner_player_id == actor.owner_player_id:
-			continue
-		var target_rect: Rect2i = state.tile_grid.entity_rect(target.id)
-		if target_rect.size == Vector2i.ZERO:
-			target_rect = Rect2i(target.origin, Vector2i.ONE)
-		return {
-			"target_origin": target_rect.position,
-			"goal_rect": target_rect,
-			"exact_origin": false,
-			"goal_range": 1,
-		}
 	return fallback
-
-
-static func _attack_goal_for_order(
-	state: MatchState, actor: Entity, order: EntityOrder, registry: EntityRegistry
-) -> Dictionary:
-	var fallback: Dictionary = {
-		"target_origin": order.target_tile,
-		"goal_rect": Rect2i(order.target_tile, Vector2i.ONE),
-		"exact_origin": false,
-		"goal_range": _attack_range_for_entity(actor, registry),
-	}
-	if (
-		state == null
-		or state.tile_grid == null
-		or actor == null
-		or order == null
-		or order.target_priority_chain.is_empty()
-	):
-		return fallback
-	var target: Entity = state.get_entity_by_id(order.target_priority_chain[0])
-	if target == null or not _is_attack_targetable(actor, target, registry):
-		return fallback
-	var target_rect: Rect2i = state.tile_grid.entity_rect(target.id)
-	if target_rect.size == Vector2i.ZERO:
-		target_rect = Rect2i(target.origin, _PATHFINDING.entity_footprint(state, target, registry))
-	return {
-		"target_origin": target_rect.position,
-		"goal_rect": target_rect,
-		"exact_origin": false,
-		"goal_range": _attack_range_for_entity(actor, registry),
-	}
 
 
 static func _gather_move_intent(
@@ -948,9 +864,9 @@ static func _proposal_id_less(a: Dictionary, b: Dictionary) -> bool:
 
 
 static func _target_tile_for_order(
-	state: MatchState, actor: Entity, order: EntityOrder
+	_state: MatchState, _actor: Entity, order: EntityOrder
 ) -> Vector2i:
-	return _move_goal_for_order(state, actor, order).get("target_origin", order.target_tile)
+	return _move_goal_for_order(order).get("target_origin", order.target_tile)
 
 
 # Try to advance one tile toward `target_tile`. Returns true on success.
@@ -1002,34 +918,15 @@ static func movement_speed_for_entity(actor: Entity, registry: EntityRegistry) -
 	return max(0, int(round(speed)))
 
 
-static func _attack_range_for_entity(actor: Entity, registry: EntityRegistry) -> int:
-	if actor == null or registry == null:
-		return 0
-	var def: EntityDef = registry.get_by_id(actor.current_def_id)
-	if def == null or def.combat == null:
-		return 0
-	return def.combat.attack_range
-
-
-static func _is_attack_targetable(actor: Entity, target: Entity, registry: EntityRegistry) -> bool:
-	if actor == null or target == null or registry == null:
-		return false
-	if target.current_hp <= 0:
-		return false
-	if target.owner_player_id < 0 or target.owner_player_id == actor.owner_player_id:
-		return false
-	var def: EntityDef = registry.get_by_id(actor.current_def_id)
-	if def == null or def.combat == null:
-		return false
-	return def.combat.target_layers.has(target.current_layer)
-
-
 static func movement_budget_for_entity(
-	actor: Entity, registry: EntityRegistry, fired_this_turn: bool, move_only: bool
+	actor: Entity, registry: EntityRegistry, fired_this_turn: bool
 ) -> int:
 	var speed: int = movement_speed_for_entity(actor, registry)
 	if speed <= 0:
 		return 0
-	if fired_this_turn and not move_only:
-		return 0
+	if fired_this_turn:
+		var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, registry)
+		if movement == null:
+			return 0
+		return int(ceil(float(speed) * movement.post_shot_move_fraction))
 	return speed

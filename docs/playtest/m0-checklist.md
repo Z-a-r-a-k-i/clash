@@ -29,14 +29,11 @@ Purpose: get a complete, repeatable pass through the current playable loop so th
 - `Surrender` queues surrender for the active player.
 - The HUD shows the active player's minerals, gas, population, and queued
   action count when there is something queued.
-- The command card exposes available move, Move Only, target, halt-on-sight,
-  build, train, research, ability, gather, and cancel actions for the selected entity. Empty
-  sections are hidden.
-- Move and Target are independent: a unit can shoot once at an in-range enemy,
-  then execute a reduced post-shot move. Target prioritizes the focused enemy
-  when it is in range, otherwise the unit falls back to the closest in-range
-  enemy. Move Only skips the shot and uses full movement. Halt on Sight blocks
-  normal movement while an enemy is visible but still allows shooting.
+- The command card exposes available Move, Attack, build, train, research,
+  ability, gather, cancel, and repeat-train actions for the selected entity.
+  Empty sections are hidden.
+- Move and Attack are independent: Move skips shooting and uses full movement;
+  Attack queues a direct enemy target and chases into weapon range when needed.
 - The selected unit's intent is always shown on the map. Enable `Show all
   friendly orders` to show every active-player friendly queued/current intent.
 
@@ -100,8 +97,8 @@ The M0 smoke runner covers the mechanical path that should exist before a human 
 
 ### First Fight
 
-- Queue a marine Target against a visible enemy.
-- Queue Move, Move Only, Target, and Halt on Sight in nearby turns.
+- Queue a marine Attack against a visible enemy.
+- Queue Move and Attack in nearby turns.
 - Toggle all-friendly order indicators on and off during the fight.
 - Use stim after research is available if the pass reaches that point.
 - Note whether damage, target choice, and unit state are readable.

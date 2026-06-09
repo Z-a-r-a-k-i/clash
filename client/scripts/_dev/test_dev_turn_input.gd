@@ -35,19 +35,25 @@ func _all_tests() -> Array:
 		["dev_input_queues_move_for_active_player", _test_queues_move_for_active_player],
 		["dev_input_queues_attack_against_enemy", _test_queues_attack_against_enemy],
 		[
-			"dev_input_applies_persistent_attack_target_immediately",
-			_test_applies_persistent_attack_target_immediately
+			"dev_input_target_generates_firing_move_when_needed",
+			_test_target_generates_firing_move_when_needed
 		],
 		["dev_input_replaces_duplicate_move_and_target", _test_replaces_duplicate_move_and_target],
 		["dev_input_queues_gather_for_worker_resource_target", _test_queues_gather],
 		[
-			"dev_input_queues_move_only_and_applies_state_changes",
-			_test_queues_move_only_and_applies_state_changes
+			"dev_input_queues_move_and_applies_state_changes",
+			_test_queues_move_and_applies_state_changes
 		],
-		["dev_input_move_only_allows_noncombat_movers", _test_move_only_allows_noncombat_movers],
-		["dev_input_queues_target_chase_atomically", _test_queues_target_chase_atomically],
+		["dev_input_move_allows_noncombat_movers", _test_move_allows_noncombat_movers],
+		[
+			"dev_input_target_preserves_existing_move_that_ends_in_range",
+			_test_target_preserves_existing_move_that_ends_in_range
+		],
 		["dev_input_requeues_unfinished_move_assist", _test_requeues_unfinished_move_assist],
-		["dev_input_requeues_unfinished_attack_assist", _test_requeues_unfinished_attack_assist],
+		[
+			"dev_input_requeues_unfinished_target_move_assist",
+			_test_requeues_unfinished_target_move_assist
+		],
 		["dev_input_drops_completed_move_assist", _test_drops_completed_move_assist],
 		["dev_input_cancel_clears_move_assist", _test_cancel_clears_move_assist],
 		[
@@ -68,6 +74,11 @@ func _all_tests() -> Array:
 			"dev_input_rally_gather_retargets_when_source_full",
 			_test_rally_gather_retargets_when_source_full
 		],
+		[
+			"dev_input_rally_gather_idles_when_local_sources_full",
+			_test_rally_gather_idles_when_local_sources_full
+		],
+		["dev_input_rejects_far_gather_rally", _test_rejects_far_gather_rally],
 		[
 			"dev_input_cancel_removes_future_before_current",
 			_test_cancel_removes_future_before_current
@@ -160,7 +171,7 @@ func _test_queues_move_for_active_player() -> bool:
 	input.set_active_player_id(0)
 	input.select_entity(1)
 	if not input.issue_move(Vector2i(8, 8)):
-		push_error("expected MOVE to queue for selected worker")
+		push_error("expected Move to queue for selected worker")
 		return false
 	var submit_0: SubmitTurn = input.submit_for_player(0)
 	var submit_1: SubmitTurn = input.submit_for_player(1)
@@ -178,20 +189,22 @@ func _test_queues_attack_against_enemy() -> bool:
 	var setup: Dictionary = _make_input_setup()
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
+	if not _move_entity(setup.state, 2, Vector2i(6, 1)):
+		return false
 	input.select_entity(5)
-	if not input.issue_attack(2):
+	if not input.issue_target(2):
 		push_error("expected ATTACK to queue against enemy marine")
 		return false
 	var order: EntityOrder = input.submit_for_player(0).orders[0]
-	if not _expect_order(order, EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(7, 1), -1, [2]):
+	if not _expect_order(order, EntityOrder.Type.TARGET, 5, Vector2i(6, 1), 2, [2]):
 		return false
-	if input.issue_attack(3):
+	if input.issue_target(3):
 		push_error("neutral mineral patch should not be a valid attack target")
 		return false
 	return true
 
 
-func _test_applies_persistent_attack_target_immediately() -> bool:
+func _test_target_generates_firing_move_when_needed() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
@@ -199,21 +212,23 @@ func _test_applies_persistent_attack_target_immediately() -> bool:
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
-	if not input.has_method("issue_attack_target"):
+	if not input.has_method("issue_target"):
 		push_error("DevTurnInput should expose persistent targeted attack intent")
 		return false
-	if not input.call("issue_attack_target", 2):
+	if not input.call("issue_target", 2):
 		push_error("expected attack target to queue for selected marine")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
-	if orders.size() != 1:
-		push_error("target command should queue one direct attack order, got %d" % orders.size())
+	if orders.size() != 2:
+		push_error("out-of-range target command should queue move + target, got %d" % orders.size())
 		return false
 	var actor: Entity = setup.state.get_entity_by_id(5)
 	if actor == null or actor.focus_target_entity_id != -1:
 		push_error("target command should not mutate focus before resolver distribution")
 		return false
-	return _expect_order(orders[0], EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(7, 1), -1, [2])
+	if not _expect_generated_target_move(orders[0], setup.state, setup.registry, 5, 2):
+		return false
+	return _expect_order(orders[1], EntityOrder.Type.TARGET, 5, Vector2i(7, 1), 2, [2])
 
 
 func _test_replaces_duplicate_move_and_target() -> bool:
@@ -231,17 +246,19 @@ func _test_replaces_duplicate_move_and_target() -> bool:
 	if not input.issue_move(Vector2i(8, 8)):
 		push_error("expected second MOVE to replace first")
 		return false
-	if not input.issue_attack(2):
+	if not input.issue_target(2):
 		push_error("expected first target to queue")
 		return false
-	if not input.issue_attack(8):
+	if not input.issue_target(8):
 		push_error("expected second target to replace first")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
-	if orders.size() != 1:
-		push_error("expected latest normal command to replace prior orders, got %d" % orders.size())
+	if orders.size() != 2:
+		push_error("expected latest target to replace prior move + target, got %d" % orders.size())
 		return false
-	return _expect_order(orders[0], EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(9, 7), -1, [8])
+	if not _expect_generated_target_move(orders[0], setup.state, setup.registry, 5, 8):
+		return false
+	return _expect_order(orders[1], EntityOrder.Type.TARGET, 5, Vector2i(9, 7), 8, [8])
 
 
 func _test_queues_gather() -> bool:
@@ -289,7 +306,7 @@ func _test_queues_gather() -> bool:
 	return true
 
 
-func _test_queues_move_only_and_applies_state_changes() -> bool:
+func _test_queues_move_and_applies_state_changes() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
@@ -298,41 +315,32 @@ func _test_queues_move_only_and_applies_state_changes() -> bool:
 	input.set_active_player_id(0)
 	input.select_entity(5)
 	if not input.issue_move(Vector2i(6, 6)):
-		push_error("expected MOVE to queue for selected marine")
+		push_error("expected Move to queue for selected marine")
 		return false
-	if not input.has_method("issue_move_only"):
-		push_error("DevTurnInput should expose MOVE_ONLY as the move-without-shooting command")
-		return false
-	if not input.call("issue_move_only", Vector2i(7, 7)):
-		push_error("expected MOVE_ONLY to replace selected marine MOVE")
-		return false
-	if not input.issue_halt_on_sight_toggle(true):
-		push_error("expected halt-on-sight to apply for selected marine")
+	if input.has_method("issue_move_only"):
+		push_error("DevTurnInput should not expose legacy issue_move_only")
 		return false
 	if not input.issue_cancel():
 		push_error("expected CANCEL to clear selected marine state")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if orders.size() != 0:
-		push_error("expected queued MOVE_ONLY to be cancelled, got %d orders" % orders.size())
+		push_error("expected queued Move to be cancelled, got %d orders" % orders.size())
 		return false
-	if not EntityOrder.Type.has("MOVE_ONLY"):
-		push_error("EntityOrder.Type should define MOVE_ONLY")
+	if EntityOrder.Type.has("MOVE_ONLY"):
+		push_error("EntityOrder.Type should not define MOVE_ONLY")
 		return false
 	var actor: Entity = setup.state.get_entity_by_id(5)
 	if actor == null:
 		push_error("expected selected marine to exist")
 		return false
 	if actor.focus_target_entity_id != -1:
-		push_error("MOVE_ONLY/CANCEL flow should not create target focus")
-		return false
-	if not actor.halt_on_sight:
-		push_error("halt-on-sight should remain immediately enabled")
+		push_error("Move/CANCEL flow should not create target focus")
 		return false
 	return true
 
 
-func _test_move_only_allows_noncombat_movers() -> bool:
+func _test_move_allows_noncombat_movers() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
@@ -340,20 +348,20 @@ func _test_move_only_allows_noncombat_movers() -> bool:
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(9)
-	if not input.can_issue_move_only():
-		push_error("noncombat mover should be allowed to use MOVE_ONLY")
+	if not input.can_issue_move():
+		push_error("noncombat mover should be allowed to use Move")
 		return false
-	if not input.issue_move_only(Vector2i(11, 11)):
-		push_error("expected noncombat mover MOVE_ONLY to queue")
+	if not input.issue_move(Vector2i(11, 11)):
+		push_error("expected noncombat mover Move to queue")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if orders.size() != 1:
 		push_error("expected one noncombat mover order, got %d" % orders.size())
 		return false
-	return _expect_order(orders[0], EntityOrder.Type.MOVE_ONLY, 9, Vector2i(11, 11), -1, [])
+	return _expect_order(orders[0], EntityOrder.Type.MOVE, 9, Vector2i(11, 11), -1, [])
 
 
-func _test_queues_target_chase_atomically() -> bool:
+func _test_target_preserves_existing_move_that_ends_in_range() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
@@ -361,28 +369,28 @@ func _test_queues_target_chase_atomically() -> bool:
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
-	if not input.issue_target_chase(2):
-		push_error("expected target chase to queue for selected marine")
+	if not input.issue_move(Vector2i(4, 1)):
+		push_error("expected Move ending in range to queue for selected marine")
+		return false
+	if not input.issue_target(2):
+		push_error("expected target to queue for selected marine")
 		return false
 	var actor: Entity = setup.state.get_entity_by_id(5)
 	if actor.focus_target_entity_id != -1:
-		push_error("target chase should not mutate focus before resolver distribution")
+		push_error("target command should not mutate focus before resolver distribution")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
-	if orders.size() != 1:
-		push_error("target chase should be one atomic order, got %d" % orders.size())
+	if orders.size() != 2:
+		push_error(
+			(
+				"target command should preserve the existing move and add TARGET, got %d"
+				% orders.size()
+			)
+		)
 		return false
-	if not _expect_order(orders[0], EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(7, 1), -1, [2]):
+	if not _expect_order(orders[0], EntityOrder.Type.MOVE, 5, Vector2i(4, 1), -1, []):
 		return false
-	input.set_queue_modifier_active(true)
-	if not input.issue_target_chase(2):
-		push_error("expected shift target chase to append as future order")
-		return false
-	if input.submit_for_player(0).orders.size() != 1 or input.future_order_count_for_entity(5) != 1:
-		push_error("shift target chase should append one future atomic order")
-		return false
-	var future: Array[EntityOrder] = input.future_orders_for_entity(5)
-	return _expect_order(future[0], EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(7, 1), -1, [2])
+	return _expect_order(orders[1], EntityOrder.Type.TARGET, 5, Vector2i(7, 1), 2, [2])
 
 
 func _test_requeues_unfinished_move_assist() -> bool:
@@ -393,8 +401,8 @@ func _test_requeues_unfinished_move_assist() -> bool:
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
-	if not input.issue_move_only(Vector2i(9, 1)):
-		push_error("expected MOVE_ONLY to queue for selected marine")
+	if not input.issue_move(Vector2i(9, 1)):
+		push_error("expected Move to queue for selected marine")
 		return false
 	if not input.has_method("queue_move_assists_for_next_turn"):
 		push_error("DevTurnInput should expose move-assist requeue")
@@ -408,10 +416,10 @@ func _test_requeues_unfinished_move_assist() -> bool:
 	if orders.size() != 1:
 		push_error("unfinished move assist should requeue one order, got %d" % orders.size())
 		return false
-	return _expect_order(orders[0], EntityOrder.Type.MOVE_ONLY, 5, Vector2i(9, 1), -1, [])
+	return _expect_order(orders[0], EntityOrder.Type.MOVE, 5, Vector2i(9, 1), -1, [])
 
 
-func _test_requeues_unfinished_attack_assist() -> bool:
+func _test_requeues_unfinished_target_move_assist() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
 		return false
@@ -419,22 +427,28 @@ func _test_requeues_unfinished_attack_assist() -> bool:
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
-	if not input.issue_attack(2):
-		push_error("expected ATTACK to queue for selected marine")
+	if not input.issue_target(2):
+		push_error("expected TARGET to queue for selected marine")
 		return false
-	var first_order: EntityOrder = input.submit_for_player(0).orders[0]
-	if not _expect_order(first_order, EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(7, 1), -1, [2]):
+	var first_orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if first_orders.size() != 2:
+		push_error(
+			"target assist should start as generated move + TARGET, got %d" % first_orders.size()
+		)
 		return false
-	setup.state.tile_grid.move(2, Vector2i(8, 1))
-	var target: Entity = setup.state.get_entity_by_id(2)
-	target.origin = Vector2i(8, 1)
+	if not _expect_generated_target_move(first_orders[0], setup.state, setup.registry, 5, 2):
+		return false
+	if not _expect_order(first_orders[1], EntityOrder.Type.TARGET, 5, Vector2i(7, 1), 2, [2]):
+		return false
+	if not _move_entity(setup.state, 2, Vector2i(8, 1)):
+		return false
 	input.clear_submissions(false, false)
 	input.queue_move_assists_for_next_turn()
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if orders.size() != 1:
-		push_error("unfinished attack assist should requeue one order, got %d" % orders.size())
+		push_error("unfinished target move assist should requeue one order, got %d" % orders.size())
 		return false
-	return _expect_order(orders[0], EntityOrder.Type.ATTACK_TARGET, 5, Vector2i(8, 1), -1, [2])
+	return _expect_generated_target_move(orders[0], setup.state, setup.registry, 5, 2)
 
 
 func _test_drops_completed_move_assist() -> bool:
@@ -446,7 +460,7 @@ func _test_drops_completed_move_assist() -> bool:
 	input.set_active_player_id(0)
 	input.select_entity(5)
 	if not input.issue_move(Vector2i(9, 1)):
-		push_error("expected MOVE to queue for selected marine")
+		push_error("expected Move to queue for selected marine")
 		return false
 	if not input.has_method("queue_move_assists_for_next_turn"):
 		push_error("DevTurnInput should expose move-assist requeue")
@@ -471,7 +485,7 @@ func _test_cancel_clears_move_assist() -> bool:
 	input.set_active_player_id(0)
 	input.select_entity(5)
 	if not input.issue_move(Vector2i(9, 1)):
-		push_error("expected MOVE to queue for selected marine")
+		push_error("expected Move to queue for selected marine")
 		return false
 	if not input.issue_cancel():
 		push_error("expected cancel to clear queued move")
@@ -493,7 +507,7 @@ func _test_non_move_command_replaces_requeued_move_assist() -> bool:
 	input.set_active_player_id(0)
 	input.select_entity(1)
 	if not input.issue_move(Vector2i(10, 10)):
-		push_error("expected MOVE to queue for selected worker")
+		push_error("expected Move to queue for selected worker")
 		return false
 	input.call("clear_submissions", false)
 	input.call("queue_move_assists_for_next_turn")
@@ -522,7 +536,7 @@ func _test_queue_modifier_appends_future_orders() -> bool:
 		push_error("expected first command to queue for this turn")
 		return false
 	input.set_queue_modifier_active(true)
-	if not input.issue_move_only(Vector2i(8, 8)):
+	if not input.issue_move(Vector2i(8, 8)):
 		push_error("expected queue-modified command to append as future order")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
@@ -535,7 +549,7 @@ func _test_queue_modifier_appends_future_orders() -> bool:
 	var future: Array[EntityOrder] = input.future_orders_for_entity(5)
 	return (
 		_expect_order(orders[0], EntityOrder.Type.MOVE, 5, Vector2i(6, 6), -1, [])
-		and _expect_order(future[0], EntityOrder.Type.MOVE_ONLY, 5, Vector2i(8, 8), -1, [])
+		and _expect_order(future[0], EntityOrder.Type.MOVE, 5, Vector2i(8, 8), -1, [])
 	)
 
 
@@ -549,7 +563,7 @@ func _test_normal_order_replaces_current_and_future() -> bool:
 	input.select_entity(5)
 	input.issue_move(Vector2i(6, 6))
 	input.set_queue_modifier_active(true)
-	input.issue_move_only(Vector2i(8, 8))
+	input.issue_move(Vector2i(8, 8))
 	if not input.issue_move(Vector2i(9, 9)):
 		push_error("expected normal command after future queue to queue")
 		return false
@@ -616,7 +630,7 @@ func _test_queues_spawned_unit_rally_orders() -> bool:
 	if orders.size() != 1:
 		push_error("move rally should queue one spawned-unit order, got %d" % orders.size())
 		return false
-	if not _expect_order(orders[0], EntityOrder.Type.MOVE_ONLY, 12, Vector2i(9, 9), -1, []):
+	if not _expect_order(orders[0], EntityOrder.Type.MOVE, 12, Vector2i(9, 9), -1, []):
 		return false
 	input.clear_submissions()
 	base.production_state.rally_mode = ProductionState.RALLY_MODE_GATHER
@@ -672,6 +686,67 @@ func _test_rally_gather_retargets_when_source_full() -> bool:
 	)
 
 
+func _test_rally_gather_idles_when_local_sources_full() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	var state: MatchState = setup.state
+	var registry: EntityRegistry = setup.registry
+	var mineral_def: EntityDef = registry.get_by_id("mineral_patch")
+	if mineral_def == null or mineral_def.resource_source == null:
+		push_error("expected mineral_patch resource_source definition in test registry")
+		return false
+	mineral_def.resource_source.max_gatherers = 1
+	input.bind_context(state, registry)
+	var base: Entity = state.get_entity_by_id(11)
+	base.production_state.rally_mode = ProductionState.RALLY_MODE_GATHER
+	base.production_state.rally_target_entity_id = 3
+	var occupying_worker: Entity = state.get_entity_by_id(1)
+	occupying_worker.gather_state.assigned_source_entity_id = 3
+	occupying_worker.gather_state.phase = GatherState.Phase.GATHERING
+	_add_entity(state, 13, "worker", 0, Vector2i(4, 9), Vector2i(1, 1), 40)
+	var gather_event: ResolverEvent = ResolverEvent.new()
+	gather_event.type = ResolverEvent.Type.TRAIN_COMPLETED
+	gather_event.actor_id = 11
+	gather_event.target_id = 13
+	input.queue_rally_orders_for_train_completed([gather_event])
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if not orders.is_empty():
+		push_error("full local rally sources should leave spawned worker idle")
+		return false
+	return true
+
+
+func _test_rejects_far_gather_rally() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var base_setup: Dictionary = _make_input_setup()
+	var registry: EntityRegistry = base_setup.registry
+	var state: MatchState = MatchState.new()
+	state.tile_grid = TileGrid.new(40, 20)
+	state.next_entity_id = 1
+	for player_id in [0, 1]:
+		var player: PlayerState = PlayerState.new()
+		player.player_id = player_id
+		state.players.append(player)
+	_add_entity(state, 11, "base", 0, Vector2i(1, 8), Vector2i(3, 3), 1500)
+	state.get_entity_by_id(11).production_state = ProductionState.new()
+	_add_entity(state, 3, "mineral_patch", -1, Vector2i(30, 8), Vector2i(1, 1), 0)
+	state.get_entity_by_id(3).current_resource_amount = 500
+	input.bind_context(state, registry)
+	input.set_active_player_id(0)
+	input.select_entity(11)
+	if input.issue_rally_gather(3):
+		push_error("far gather rally target should be rejected")
+		return false
+	if state.get_entity_by_id(11).production_state.rally_mode != ProductionState.RALLY_MODE_NONE:
+		push_error("rejected far gather rally should not mutate producer rally state")
+		return false
+	return input.status_message().find("too far") >= 0
+
+
 func _test_cancel_removes_future_before_current() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
@@ -682,7 +757,7 @@ func _test_cancel_removes_future_before_current() -> bool:
 	input.select_entity(5)
 	input.issue_move(Vector2i(6, 6))
 	input.set_queue_modifier_active(true)
-	input.issue_move_only(Vector2i(8, 8))
+	input.issue_move(Vector2i(8, 8))
 	if not input.issue_cancel():
 		push_error("first cancel should remove future order")
 		return false
@@ -751,14 +826,15 @@ func _test_standing_orders_do_not_block_future_promotion() -> bool:
 		push_error("expected first move to queue")
 		return false
 	input.set_queue_modifier_active(true)
-	if not input.issue_move_only(Vector2i(8, 8)):
+	if not input.issue_move(Vector2i(8, 8)):
 		push_error("expected second move to queue as future order")
 		return false
 	input.clear_submissions(false, false)
 	var standing_order: EntityOrder = EntityOrder.new()
-	standing_order.type = EntityOrder.Type.HALT_ON_SIGHT_TOGGLE
+	standing_order.type = EntityOrder.Type.TARGET
 	standing_order.entity_id = 5
-	standing_order.halt_on_sight = true
+	standing_order.target_entity_id = 2
+	standing_order.target_priority_chain = [2]
 	input.submit_for_player(0).orders.append(standing_order)
 	input.promote_future_orders_for_next_turn()
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
@@ -767,10 +843,10 @@ func _test_standing_orders_do_not_block_future_promotion() -> bool:
 	for order in orders:
 		if order == null:
 			continue
-		if order.type == EntityOrder.Type.HALT_ON_SIGHT_TOGGLE and order.entity_id == 5:
+		if order.type == EntityOrder.Type.TARGET and order.entity_id == 5:
 			saw_standing_order = true
 		if (
-			order.type == EntityOrder.Type.MOVE_ONLY
+			order.type == EntityOrder.Type.MOVE
 			and order.entity_id == 5
 			and order.target_tile == Vector2i(8, 8)
 		):
@@ -797,23 +873,23 @@ func _test_waits_to_promote_future_order_while_gathering() -> bool:
 		return false
 	input.set_queue_modifier_active(true)
 	if not input.issue_move(Vector2i(8, 8)):
-		push_error("expected MOVE to queue as future order behind GATHER")
+		push_error("expected Move to queue as future order behind GATHER")
 		return false
 	var worker: Entity = setup.state.get_entity_by_id(1)
 	worker.gather_state.phase = GatherState.Phase.GATHERING
 	input.clear_submissions(false, false)
 	input.promote_future_orders_for_next_turn()
 	if input.submit_for_player(0).orders.size() != 0:
-		push_error("future MOVE should wait while worker is actively gathering")
+		push_error("future Move should wait while worker is actively gathering")
 		return false
 	if input.future_order_count_for_entity(1) != 1:
-		push_error("future MOVE should remain queued while worker is gathering")
+		push_error("future Move should remain queued while worker is gathering")
 		return false
 	worker.gather_state.phase = GatherState.Phase.IDLE
 	input.promote_future_orders_for_next_turn()
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if orders.size() != 1:
-		push_error("future MOVE should promote once worker is idle, got %d" % orders.size())
+		push_error("future Move should promote once worker is idle, got %d" % orders.size())
 		return false
 	return _expect_order(orders[0], EntityOrder.Type.MOVE, 1, Vector2i(8, 8), -1, [])
 
@@ -1065,16 +1141,13 @@ func _test_derives_command_options() -> bool:
 	if not input.can_issue_move():
 		push_error("non-combat mover should expose Move")
 		return false
-	if not input.can_issue_move_only():
-		push_error("non-combat mover should expose Move Only")
+	if not input.can_issue_move():
+		push_error("non-combat mover should expose Move")
 		return false
 	input.select_entity(5)
 	setup.state.get_entity_by_id(5).focus_target_entity_id = 2
-	if not input.can_issue_move_only():
-		push_error("movable unit should expose Move Only")
-		return false
-	if not input.can_issue_halt_on_sight_toggle():
-		push_error("combat unit should expose halt-on-sight")
+	if not input.can_issue_move():
+		push_error("movable unit should expose Move")
 		return false
 	if not input.can_issue_cancel():
 		push_error("selected unit with focus target should expose cancel")
@@ -1107,7 +1180,7 @@ func _test_cancel_removes_selected_unit_queued_order() -> bool:
 	input.set_active_player_id(0)
 	input.select_entity(1)
 	if not input.issue_move(Vector2i(6, 6)):
-		push_error("expected MOVE to queue for selected worker")
+		push_error("expected Move to queue for selected worker")
 		return false
 	if not input.can_issue_cancel():
 		push_error("selected worker with a queued order should expose cancel")
@@ -1163,12 +1236,12 @@ func _test_snapshot_restore() -> bool:
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
-	input.issue_move_only(Vector2i(9, 1))
+	input.issue_move(Vector2i(9, 1))
 	input.set_queue_modifier_active(true)
 	input.issue_move(Vector2i(8, 1))
 	input.set_active_player_id(1)
 	input.select_entity(2)
-	input.issue_move_only(Vector2i(6, 1))
+	input.issue_move(Vector2i(6, 1))
 	input.set_queue_modifier_active(true)
 	var snapshot: DevInputSnapshot = input.create_snapshot()
 	var restored: DevTurnInput = _make_input()
@@ -1211,7 +1284,7 @@ func _test_snapshot_restore_skips_malformed_order_entries() -> bool:
 	valid_assist.entity_id = 5
 	valid_assist.target_tile = Vector2i(6, 1)
 	var valid_future: EntityOrder = EntityOrder.new()
-	valid_future.type = EntityOrder.Type.MOVE_ONLY
+	valid_future.type = EntityOrder.Type.MOVE
 	valid_future.entity_id = 5
 	valid_future.target_tile = Vector2i(8, 1)
 	var snapshot: DevInputSnapshot = DevInputSnapshot.new()
@@ -1365,6 +1438,9 @@ func _make_def(
 	combat.attack_range = 3
 	combat.target_layers = ["ground"]
 	def.combat = combat
+	var vision: VisionDef = VisionDef.new()
+	vision.sight_radius = 99
+	def.vision = vision
 	if can_gather:
 		var gather: GatherDef = GatherDef.new()
 		gather.accepts_resource_types = ["minerals", "gas"]
@@ -1506,6 +1582,78 @@ func _add_entity(
 	state.entities.append(e)
 	state.next_entity_id = max(state.next_entity_id, id + 1)
 	state.tile_grid.place(id, Rect2i(origin, footprint))
+
+
+func _move_entity(state: MatchState, entity_id: int, origin: Vector2i) -> bool:
+	var entity: Entity = state.get_entity_by_id(entity_id) if state != null else null
+	if entity == null or state.tile_grid == null:
+		push_error("test setup could not find entity #%d to move" % entity_id)
+		return false
+	if not state.tile_grid.move(entity_id, origin):
+		push_error("test setup could not move entity #%d to %s" % [entity_id, str(origin)])
+		return false
+	entity.origin = origin
+	return true
+
+
+func _expect_generated_target_move(
+	order: EntityOrder,
+	state: MatchState,
+	registry: EntityRegistry,
+	expected_entity_id: int,
+	expected_target_entity_id: int
+) -> bool:
+	if order == null:
+		push_error("generated target move is null")
+		return false
+	if order.type != EntityOrder.Type.MOVE:
+		push_error("generated target move should use MOVE, got %d" % order.type)
+		return false
+	if order.entity_id != expected_entity_id:
+		push_error("generated target move entity_id should be %d" % expected_entity_id)
+		return false
+	if order.target_entity_id != expected_target_entity_id:
+		push_error(
+			(
+				"generated target move should track target #%d, got #%d"
+				% [expected_target_entity_id, order.target_entity_id]
+			)
+		)
+		return false
+	if not order.target_priority_chain.is_empty():
+		push_error("generated target move should not carry a target chain")
+		return false
+	var actor: Entity = state.get_entity_by_id(expected_entity_id) if state != null else null
+	var target: Entity = (
+		state.get_entity_by_id(expected_target_entity_id) if state != null else null
+	)
+	var actor_def: EntityDef = registry.get_by_id(actor.current_def_id) if actor != null else null
+	if actor == null or target == null or actor_def == null or actor_def.combat == null:
+		push_error("generated target move test needs actor, target, and combat def")
+		return false
+	if not PathfindingSystem.can_occupy_origin(state, actor, order.target_tile, registry):
+		push_error("generated target move tile %s is not occupiable" % str(order.target_tile))
+		return false
+	var footprint: Vector2i = PathfindingSystem.entity_footprint(state, actor, registry)
+	var target_rect: Rect2i = state.tile_grid.entity_rect(expected_target_entity_id)
+	var distance: int = TileGrid.distance_between_rects(
+		Rect2i(order.target_tile, footprint), target_rect
+	)
+	if distance != actor_def.combat.attack_range:
+		push_error(
+			(
+				"generated target move should choose farthest in-range distance %d, got %d"
+				% [actor_def.combat.attack_range, distance]
+			)
+		)
+		return false
+	var path: Array[Vector2i] = PathfindingSystem.find_path(
+		state, actor, order.target_tile, registry
+	)
+	if path.is_empty() or path[path.size() - 1] != order.target_tile:
+		push_error("generated target move tile %s is not reachable" % str(order.target_tile))
+		return false
+	return true
 
 
 func _expect_order(

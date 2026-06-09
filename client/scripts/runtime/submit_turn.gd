@@ -19,8 +19,7 @@ extends Resource
 
 func clone() -> SubmitTurn:
 	# Deep clone — each EntityOrder is independently copied so a caller
-	# can mutate the clone's orders (or any field inside them, including
-	# target_priority_chain) without affecting the original.
+	# can mutate the clone's orders without affecting the original.
 	var c := SubmitTurn.new()
 	c.orders = []
 	for o in orders:

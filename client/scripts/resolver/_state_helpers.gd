@@ -16,9 +16,9 @@ extends RefCounted
 # player doesn't own are dropped with a push_warning (M0 — at M2 this
 # would be a wire-validation error).
 #
-# HALT_ON_SIGHT_TOGGLE, CANCEL, GATHER, TRAIN, RESEARCH, and ATTACK focus
-# apply immediately during distribution (state mutation, no tick —
-# they're mode changes / standing orders, not per-tick actions). Movement
+# CANCEL, GATHER, TRAIN, RESEARCH, and TARGET focus apply immediately during
+# distribution (state mutation, no tick — they're mode changes / standing
+# orders, not per-tick actions). Movement
 # orders accumulate into per-entity arrays for the tick loop to consume.
 # Duplicate move-like orders for the same entity collapse to the latest target.
 # The caller
@@ -96,12 +96,8 @@ static func _distribute_one(
 				)
 			)
 			continue
-		# HALT_ON_SIGHT_TOGGLE, CANCEL, and GATHER apply at
-		# distribution time, not in the tick loop — they're mode changes /
-		# standing orders, not per-tick actions.
-		if order.type == EntityOrder.Type.HALT_ON_SIGHT_TOGGLE:
-			entity.halt_on_sight = order.halt_on_sight
-			continue
+		# CANCEL and standing orders apply at distribution time, not in the
+		# tick loop.
 		if order.type == EntityOrder.Type.CANCEL:
 			_handle_cancel_order(state, entity, order, registry, events)
 			continue
@@ -161,30 +157,25 @@ static func _distribute_one(
 			else:
 				entity.gather_state.phase = GatherState.Phase.MOVING_TO_SOURCE
 			continue
-		if order.type == EntityOrder.Type.ATTACK:
+		if order.type == EntityOrder.Type.TARGET:
 			GatherSystem.clear_assignment(entity)
+			if not _can_target_visible_enemy(state, entity, order, registry):
+				_emit_order_rejected(order.entity_id, "bad_target", events)
+				continue
 			_refresh_attack_target_tile(state, entity, order)
 			_set_focus_target_from_chain(state, entity, order.target_priority_chain)
-			if _can_entity_move(entity, registry):
-				_queue_replacing_move(per_entity, order)
 			continue
 		# Per-tick orders queue up.
 		GatherSystem.clear_assignment(entity)
-		if order.type == EntityOrder.Type.ATTACK_TARGET:
-			if not _can_attack_known_target(state, entity, order, registry):
-				_emit_order_rejected(order.entity_id, "bad_attack_target", events)
-				continue
-			_refresh_attack_target_tile(state, entity, order)
-		if order.type == EntityOrder.Type.MOVE and not order.target_priority_chain.is_empty():
-			_set_focus_target_from_chain(state, entity, order.target_priority_chain)
+		if (
+			(order.type == EntityOrder.Type.MOVE or order.type == EntityOrder.Type.ATTACK_MOVE)
+			and order.target_entity_id < 0
+			and order.target_priority_chain.is_empty()
+		):
+			entity.focus_target_entity_id = -1
 		if not per_entity.has(order.entity_id):
 			per_entity[order.entity_id] = []
-		if (
-			order.type == EntityOrder.Type.MOVE
-			or order.type == EntityOrder.Type.MOVE_ONLY
-			or order.type == EntityOrder.Type.ATTACK
-			or order.type == EntityOrder.Type.ATTACK_TARGET
-		):
+		if order.type == EntityOrder.Type.MOVE or order.type == EntityOrder.Type.ATTACK_MOVE:
 			_queue_replacing_move(per_entity, order)
 		else:
 			per_entity[order.entity_id].append(order)
@@ -232,7 +223,7 @@ static func _refresh_attack_target_tile(
 	order.target_tile = target.origin
 
 
-static func _can_attack_known_target(
+static func _can_target_visible_enemy(
 	state: MatchState, entity: Entity, order: EntityOrder, registry: EntityRegistry
 ) -> bool:
 	if state == null or entity == null or order == null or registry == null:
@@ -241,10 +232,12 @@ static func _can_attack_known_target(
 		return false
 	var target: Entity = state.get_entity_by_id(order.target_priority_chain[0])
 	if target == null:
-		return true
+		return false
 	if target.current_hp <= 0:
 		return false
 	if target.owner_player_id < 0 or target.owner_player_id == entity.owner_player_id:
+		return false
+	if not _is_visible_to_player(state, registry, target, entity.owner_player_id):
 		return false
 	var def: EntityDef = registry.get_by_id(_effective_def_id(entity))
 	if def == null or def.combat == null:
@@ -269,13 +262,22 @@ static func _queue_replacing_move(per_entity: Dictionary, order: EntityOrder) ->
 			existing != null
 			and (
 				existing.type == EntityOrder.Type.MOVE
-				or existing.type == EntityOrder.Type.MOVE_ONLY
-				or existing.type == EntityOrder.Type.ATTACK
-				or existing.type == EntityOrder.Type.ATTACK_TARGET
+				or existing.type == EntityOrder.Type.ATTACK_MOVE
 			)
 		):
 			queue.remove_at(i)
 	queue.append(order)
+
+
+static func _is_visible_to_player(
+	state: MatchState, registry: EntityRegistry, entity: Entity, player_id: int
+) -> bool:
+	if entity == null or player_id < 0:
+		return false
+	if state == null or state.tile_grid == null:
+		return true
+	var visibility := VisionSystem.compute_player_visibility(state, registry, player_id)
+	return VisionSystem.is_entity_visible_to_player(entity, state, registry, player_id, visibility)
 
 
 # BUILD handler — eager-deduct (cost is paid up front). Two paths:
@@ -636,10 +638,12 @@ static func _handle_set_rally_order(
 		entity.production_state.rally_target_entity_id = -1
 		return
 	if order.mode == ProductionState.RALLY_MODE_GATHER:
-		var source: Entity = GatherSystem.resolve_source_for_worker(
-			state, registry, order.target_entity_id, entity.owner_player_id
-		)
-		if source == null:
+		if (
+			GatherSystem.rally_gather_source_for_producer(
+				state, registry, entity, order.target_entity_id
+			)
+			== null
+		):
 			_emit_order_rejected(order.entity_id, "bad_rally_gather_target", events)
 			return
 		entity.production_state.rally_mode = ProductionState.RALLY_MODE_GATHER

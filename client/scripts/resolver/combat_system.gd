@@ -1,10 +1,10 @@
 class_name CombatSystem
 extends RefCounted
 
-# Combat system — resolves ATTACK focus. Walks the target priority chain
+# Combat system — resolves TARGET focus. Walks the target priority chain
 # per plan/m0/02-tick-based-resolver.md "Target chain resolution":
-# 1. For each id in priority list: if alive, in-range, and targetable, fire at it.
-# 2. If list exhausted: fire at closest enemy in range (ties broken by id).
+# 1. For each id in priority list: if alive, visible, in-range, and targetable, fire at it.
+# 2. If list exhausted: fire at closest visible enemy in range (ties broken by id).
 #
 # Damage is base damage × any matching AttackModifier multipliers from
 # CombatDef.attack_modifiers, × any active buff damage multipliers on
@@ -133,9 +133,9 @@ static func can_attack_now(
 
 # Returns the entity the attacker fires at this tick, or null if no fire.
 # Order of resolution:
-# 1. Walk the priority chain in order, return first live, in-range,
+# 1. Walk the priority chain in order, return first live, visible, in-range,
 #    valid-layer enemy.
-# 2. If chain exhausted: closest enemy in range, ties broken by id.
+# 2. If chain exhausted: closest visible enemy in range, ties broken by id.
 static func _select_target(
 	state: MatchState,
 	attacker: Entity,
@@ -147,25 +147,19 @@ static func _select_target(
 	var attacker_rect := _resolve_rect(state, attacker, registry)
 	if attacker_rect.size == Vector2i.ZERO:
 		return null
-
-	if order != null and order.type == EntityOrder.Type.ATTACK_TARGET:
-		if order.target_priority_chain.is_empty():
-			return null
-		var direct_target: Entity = state.get_entity_by_id(order.target_priority_chain[0])
-		if not _is_targetable(attacker, combat, direct_target):
-			return null
-		var direct_distance: int = _entity_distance_from_rect(
-			state, attacker_rect, direct_target, registry
+	var visibility: VisionSystem.Visibility = null
+	if attacker.owner_player_id >= 0:
+		visibility = VisionSystem.compute_player_visibility(
+			state, registry, attacker.owner_player_id
 		)
-		if direct_distance >= 0 and direct_distance <= combat.attack_range:
-			return direct_target
-		return null
 
 	# Priority chain.
 	if order != null:
 		for target_id in order.target_priority_chain:
 			var candidate := state.get_entity_by_id(target_id)
 			if not _is_targetable(attacker, combat, candidate):
+				continue
+			if not _is_visible_to_attacker(state, attacker, candidate, registry, visibility):
 				continue
 			var d := _entity_distance_from_rect(state, attacker_rect, candidate, registry)
 			if d >= 0 and d <= combat.attack_range:
@@ -182,6 +176,8 @@ static func _select_target(
 		var candidate: Entity = item as Entity
 		if not _is_targetable(attacker, combat, candidate):
 			continue
+		if not _is_visible_to_attacker(state, attacker, candidate, registry, visibility):
+			continue
 		var d := _entity_distance_from_rect(state, attacker_rect, candidate, registry)
 		if d < 0 or d > combat.attack_range:
 			continue
@@ -189,6 +185,22 @@ static func _select_target(
 			closest = candidate
 			closest_dist = d
 	return closest
+
+
+static func _is_visible_to_attacker(
+	state: MatchState,
+	attacker: Entity,
+	candidate: Entity,
+	registry: EntityRegistry,
+	visibility: VisionSystem.Visibility
+) -> bool:
+	if attacker == null or candidate == null or attacker.owner_player_id < 0:
+		return false
+	if state == null or state.tile_grid == null:
+		return true
+	return VisionSystem.is_entity_visible_to_player(
+		candidate, state, registry, attacker.owner_player_id, visibility
+	)
 
 
 static func _is_targetable(attacker: Entity, combat: CombatDef, candidate: Entity) -> bool:

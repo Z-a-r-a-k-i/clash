@@ -19,7 +19,9 @@ extends RefCounted
 
 const _SOURCE_TYPE_MINERALS := "minerals"
 const _SOURCE_TYPE_GAS := "gas"
+const RALLY_GATHER_MAX_PATH_TILES := 12
 const _PATHFINDING := preload("res://scripts/resolver/pathfinding_system.gd")
+const _PRODUCTION := preload("res://scripts/resolver/production_system.gd")
 
 
 # Phase 2 hook — called per tick alongside MOVE resolution.
@@ -236,6 +238,48 @@ static func best_source_for_worker(
 	requested_source: Entity,
 	source_assignments: Dictionary[int, Array] = {}
 ) -> Entity:
+	return _best_source_for_worker(state, registry, actor, requested_source, source_assignments, -1)
+
+
+static func best_rally_source_for_worker(
+	state: MatchState,
+	registry: EntityRegistry,
+	actor: Entity,
+	requested_source: Entity,
+	source_assignments: Dictionary[int, Array] = {}
+) -> Entity:
+	return _best_source_for_worker(
+		state, registry, actor, requested_source, source_assignments, RALLY_GATHER_MAX_PATH_TILES
+	)
+
+
+static func rally_gather_source_for_producer(
+	state: MatchState, registry: EntityRegistry, producer: Entity, target_entity_id: int
+) -> Entity:
+	if state == null or registry == null or producer == null:
+		return null
+	var source: Entity = resolve_source_for_worker(
+		state, registry, target_entity_id, producer.owner_player_id
+	)
+	if source == null:
+		return null
+	var probe: Entity = _rally_worker_probe_for_producer(state, registry, producer)
+	if probe == null:
+		return null
+	var distance: int = _path_distance_to_source(state, registry, probe, source)
+	if distance < 0 or distance > RALLY_GATHER_MAX_PATH_TILES:
+		return null
+	return source
+
+
+static func _best_source_for_worker(
+	state: MatchState,
+	registry: EntityRegistry,
+	actor: Entity,
+	requested_source: Entity,
+	source_assignments: Dictionary[int, Array],
+	max_path_tiles: int
+) -> Entity:
 	if state == null or registry == null or actor == null or requested_source == null:
 		return null
 	var assignments: Dictionary[int, Array] = (
@@ -243,7 +287,9 @@ static func best_source_for_worker(
 		if not source_assignments.is_empty()
 		else _source_assignments_by_source(state, registry)
 	)
-	if _source_is_available_to_worker(state, registry, actor, requested_source, assignments):
+	if _source_is_available_to_worker(
+		state, registry, actor, requested_source, assignments, max_path_tiles
+	):
 		return requested_source
 	var requested_type: String = _resource_type_for_source(registry, requested_source)
 	if requested_type == "":
@@ -260,6 +306,8 @@ static func best_source_for_worker(
 			continue
 		var distance: int = _path_distance_to_source(state, registry, actor, source)
 		if distance < 0:
+			continue
+		if max_path_tiles >= 0 and distance > max_path_tiles:
 			continue
 		var cap: int = source_gatherer_cap(registry, source)
 		if cap <= 0:
@@ -394,14 +442,18 @@ static func _source_is_available_to_worker(
 	registry: EntityRegistry,
 	actor: Entity,
 	source: Entity,
-	source_assignments: Dictionary[int, Array]
+	source_assignments: Dictionary[int, Array],
+	max_path_tiles: int = -1
 ) -> bool:
 	var cap: int = source_gatherer_cap(registry, source)
 	if cap <= 0:
 		return false
 	if _assigned_gatherer_count_for_source(source_assignments, source.id, actor.id) >= cap:
 		return false
-	return _path_distance_to_source(state, registry, actor, source) >= 0
+	var distance: int = _path_distance_to_source(state, registry, actor, source)
+	if distance < 0:
+		return false
+	return max_path_tiles < 0 or distance <= max_path_tiles
 
 
 static func _resource_type_for_source(registry: EntityRegistry, source: Entity) -> String:
@@ -418,7 +470,7 @@ static func _path_distance_to_source(
 ) -> int:
 	if state == null or state.tile_grid == null or actor == null or source == null:
 		return -1
-	var actor_rect: Rect2i = state.tile_grid.entity_rect(actor.id)
+	var actor_rect: Rect2i = _entity_rect_for_pathing(state, registry, actor)
 	var source_rect: Rect2i = state.tile_grid.entity_rect(source.id)
 	if actor_rect.size == Vector2i.ZERO or source_rect.size == Vector2i.ZERO:
 		return -1
@@ -436,6 +488,60 @@ static func _path_distance_to_source(
 		state, actor, source_rect.position, registry, options
 	)
 	return path.size() if not path.is_empty() else -1
+
+
+static func _entity_rect_for_pathing(
+	state: MatchState, registry: EntityRegistry, entity: Entity
+) -> Rect2i:
+	if state == null or entity == null:
+		return Rect2i()
+	if state.tile_grid != null:
+		var placed_rect: Rect2i = state.tile_grid.entity_rect(entity.id)
+		if placed_rect.size != Vector2i.ZERO:
+			return placed_rect
+	var footprint := Vector2i.ONE
+	if registry != null:
+		var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
+		var def: EntityDef = registry.get_by_id(def_id)
+		if def != null and def.footprint != Vector2i.ZERO:
+			footprint = def.footprint
+	return Rect2i(entity.origin, footprint)
+
+
+static func _rally_worker_probe_for_producer(
+	state: MatchState, registry: EntityRegistry, producer: Entity
+) -> Entity:
+	var producer_def_id: String = (
+		producer.current_def_id if producer != null and producer.current_def_id != "" else ""
+	)
+	if producer_def_id == "" and producer != null:
+		producer_def_id = producer.def_id
+	var producer_def: EntityDef = (
+		registry.get_by_id(producer_def_id) if registry != null and producer != null else null
+	)
+	if producer_def == null or producer_def.production == null:
+		return null
+	for def_id in producer_def.production.produces:
+		var unit_def: EntityDef = registry.get_by_id(def_id) if registry != null else null
+		if unit_def == null or unit_def.gather == null:
+			continue
+		var spawn_tile: Vector2i = _PRODUCTION.find_spawn_tile(state, registry, producer, unit_def)
+		if spawn_tile == Vector2i(-1, -1):
+			continue
+		var probe := Entity.new()
+		probe.id = -1000000 - producer.id
+		probe.def_id = unit_def.id
+		probe.current_def_id = unit_def.id
+		probe.owner_player_id = producer.owner_player_id
+		probe.origin = spawn_tile
+		probe.current_hp = 1
+		probe.current_layer = (
+			unit_def.movement.default_layer
+			if unit_def.movement != null and unit_def.movement.default_layer != ""
+			else "ground"
+		)
+		return probe
+	return null
 
 
 static func _is_worker_within_source_cap(

@@ -7,6 +7,16 @@ extends RefCounted
 # immediately, while turn actions still queue for resolver submission.
 
 const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
+const _FIRING_TILE_NEIGHBORS: Array[Vector2i] = [
+	Vector2i(1, 0),
+	Vector2i(1, 1),
+	Vector2i(0, 1),
+	Vector2i(-1, 1),
+	Vector2i(-1, 0),
+	Vector2i(-1, -1),
+	Vector2i(0, -1),
+	Vector2i(1, -1),
+]
 
 var _state: MatchState = null
 var _registry: EntityRegistry = null
@@ -80,10 +90,10 @@ func clear_selection() -> void:
 func issue_move(target_tile: Vector2i) -> bool:
 	var actor: Entity = _selected_entity()
 	if actor == null:
-		_status_message = "Select a unit before issuing Attack and Move."
+		_status_message = "Select a unit before issuing Move."
 		return false
 	if _state == null or _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
-		_status_message = "Attack and Move target is outside the map."
+		_status_message = "Move target is outside the map."
 		return false
 	if not _can_entity_move(actor):
 		_status_message = "%s cannot move." % _def_id_for_entity(actor)
@@ -92,38 +102,22 @@ func issue_move(target_tile: Vector2i) -> bool:
 	order.type = EntityOrder.Type.MOVE
 	order.entity_id = actor.id
 	order.target_tile = target_tile
+	actor.focus_target_entity_id = -1
 	_append_order(order)
-	_status_message = "Queued Attack and Move for #%d to %s." % [actor.id, str(target_tile)]
+	_status_message = "Queued Move for #%d to %s." % [actor.id, str(target_tile)]
 	return true
 
 
-func issue_move_only(target_tile: Vector2i) -> bool:
+func issue_attack_move(target_tile: Vector2i) -> bool:
 	var actor: Entity = _selected_entity()
 	if actor == null:
-		_status_message = "Select a unit before issuing MOVE ONLY."
+		_status_message = "Select a unit before issuing Attack."
 		return false
 	if _state == null or _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
-		_status_message = "MOVE ONLY target is outside the map."
+		_status_message = "Attack target is outside the map."
 		return false
 	if not _can_entity_move(actor):
 		_status_message = "%s cannot move." % _def_id_for_entity(actor)
-		return false
-	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.MOVE_ONLY
-	order.entity_id = actor.id
-	order.target_tile = target_tile
-	_append_order(order)
-	_status_message = (
-		"Queued MOVE ONLY for #%d to %s. Unit will not shoot this turn."
-		% [actor.id, str(target_tile)]
-	)
-	return true
-
-
-func issue_attack(target_entity_id: int) -> bool:
-	var actor: Entity = _selected_entity()
-	if actor == null:
-		_status_message = "Select a unit before issuing ATTACK."
 		return false
 	if (
 		ConstructionSystem.has_pending_build(actor)
@@ -132,85 +126,69 @@ func issue_attack(target_entity_id: int) -> bool:
 	):
 		_status_message = "%s cannot attack." % _def_id_for_entity(actor)
 		return false
-	var target: Entity = _live_enemy_entity(target_entity_id)
-	if target == null:
-		_status_message = "ATTACK needs a live enemy target."
-		return false
 	var def: EntityDef = _def_for_entity(actor)
 	if def == null or def.combat == null or def.combat.damage <= 0:
 		_status_message = "%s cannot attack." % _def_id_for_entity(actor)
 		return false
 	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.ATTACK_TARGET
+	order.type = EntityOrder.Type.ATTACK_MOVE
 	order.entity_id = actor.id
-	order.target_priority_chain = [target_entity_id]
-	order.target_tile = _entity_origin_for_order_target(target)
+	order.target_tile = target_tile
+	actor.focus_target_entity_id = -1
 	_append_order(order)
-	_status_message = "Queued ATTACK for #%d against #%d." % [actor.id, target_entity_id]
+	_status_message = "Queued Attack for #%d to %s." % [actor.id, str(target_tile)]
 	return true
 
 
-func issue_attack_target(target_entity_id: int) -> bool:
+func issue_target(target_entity_id: int) -> bool:
 	var actor: Entity = _selected_entity()
 	if actor == null:
-		_status_message = "Select a combat unit before setting TARGET."
+		_status_message = "Select a combat unit before issuing Attack."
 		return false
-	if not can_issue_attack_target():
-		_status_message = "%s cannot target enemies." % _def_id_for_entity(actor)
+	if not can_issue_target():
+		_status_message = "%s cannot attack enemies." % _def_id_for_entity(actor)
 		return false
 	var target: Entity = _live_enemy_entity(target_entity_id)
 	if target == null:
-		_status_message = "Attack target needs a live enemy target."
+		_status_message = "Attack needs a live enemy target."
+		return false
+	if not _is_entity_visible_to_player(target, actor.owner_player_id):
+		_status_message = "Attack target is not visible."
 		return false
 	var def: EntityDef = _def_for_entity(actor)
 	if def == null or def.combat == null or def.combat.damage <= 0:
-		_status_message = "%s cannot target enemies." % _def_id_for_entity(actor)
+		_status_message = "%s cannot attack enemies." % _def_id_for_entity(actor)
 		return false
-	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.ATTACK_TARGET
-	order.entity_id = actor.id
-	order.target_priority_chain = [target_entity_id]
-	order.target_tile = _entity_origin_for_order_target(target)
-	_append_order(order)
-	_status_message = "Queued TARGET for #%d against #%d." % [actor.id, target.id]
-	return true
-
-
-func issue_target_chase(target_entity_id: int) -> bool:
-	var actor: Entity = _selected_entity()
-	if actor == null:
-		_status_message = "Select a combat unit before issuing target chase."
+	if not def.combat.target_layers.has(target.current_layer):
+		_status_message = "Attack target cannot be hit by %s." % _def_id_for_entity(actor)
 		return false
-	if not can_issue_target_chase():
-		_status_message = "%s cannot chase targets." % _def_id_for_entity(actor)
-		return false
-	var target: Entity = _live_enemy_entity(target_entity_id)
-	if target == null:
-		_status_message = "Target chase needs a live enemy target."
-		return false
-	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.ATTACK_TARGET
-	order.entity_id = actor.id
-	order.target_tile = _entity_origin_for_order_target(target)
-	order.target_priority_chain = [target_entity_id]
-	_append_order(order)
-	_status_message = "Queued target chase for #%d against #%d." % [actor.id, target_entity_id]
-	return true
-
-
-func issue_halt_on_sight_toggle(enabled: bool) -> bool:
-	var actor: Entity = _selected_entity()
-	if actor == null:
-		_status_message = "Select a combat entity before issuing HALT_ON_SIGHT_TOGGLE."
-		return false
-	if not can_issue_halt_on_sight_toggle():
-		_status_message = "%s cannot use halt on sight." % _def_id_for_entity(actor)
-		return false
-	actor.halt_on_sight = enabled
-	_status_message = (
-		("Halt on Sight enabled for #%d." if enabled else "Halt on Sight disabled for #%d.")
-		% actor.id
+	var has_user_move: bool = _has_user_move_for_actor(actor)
+	var current_origin_in_range: bool = _is_target_in_range_from_origin(
+		actor, actor.origin, target, def.combat
 	)
+	var needs_generated_move := (
+		not _has_user_move_ending_in_range(actor, target, def.combat)
+		and (has_user_move or not current_origin_in_range)
+	)
+	if needs_generated_move:
+		var firing_tile: Vector2i = _best_firing_tile_for_target(actor, target, def.combat)
+		if firing_tile == Vector2i(-1, -1):
+			_status_message = "No reachable firing position for Attack."
+			return false
+		var move_order: EntityOrder = EntityOrder.new()
+		move_order.type = EntityOrder.Type.MOVE
+		move_order.entity_id = actor.id
+		move_order.target_tile = firing_tile
+		move_order.target_entity_id = target.id
+		_append_order(move_order)
+	var order: EntityOrder = EntityOrder.new()
+	order.type = EntityOrder.Type.TARGET
+	order.entity_id = actor.id
+	order.target_entity_id = target_entity_id
+	order.target_priority_chain = [target_entity_id]
+	order.target_tile = _entity_origin_for_order_target(target)
+	_append_order(order)
+	_status_message = "Queued Attack target for #%d against #%d." % [actor.id, target.id]
 	return true
 
 
@@ -459,6 +437,9 @@ func apply_resolve_events(events: Array[ResolverEvent]) -> void:
 func queue_rally_orders_for_train_completed(events: Array[ResolverEvent]) -> void:
 	if _state == null or _registry == null:
 		return
+	var source_assignments: Dictionary[int, Array] = GatherSystem._source_assignments_by_source(
+		_state, _registry
+	)
 	for ev in events:
 		if ev == null or ev.type != ResolverEvent.Type.TRAIN_COMPLETED:
 			continue
@@ -468,7 +449,7 @@ func queue_rally_orders_for_train_completed(events: Array[ResolverEvent]) -> voi
 			continue
 		if producer.production_state == null:
 			continue
-		_queue_rally_order_for_spawn(producer, spawned)
+		_queue_rally_order_for_spawn(producer, spawned, source_assignments)
 
 
 func promote_future_orders_for_next_turn() -> void:
@@ -532,22 +513,12 @@ func selected_entity_label() -> String:
 	return label_for_entity_def_id(def_id)
 
 
-func selected_halt_on_sight() -> bool:
-	var actor: Entity = _selected_entity()
-	return actor != null and actor.halt_on_sight
-
-
 func can_issue_move() -> bool:
 	var actor: Entity = _selected_entity()
 	return _can_entity_move(actor)
 
 
-func can_issue_move_only() -> bool:
-	var actor: Entity = _selected_entity()
-	return _can_entity_move(actor)
-
-
-func can_issue_attack_target() -> bool:
+func can_issue_attack_move() -> bool:
 	var actor: Entity = _selected_entity()
 	if (
 		actor == null
@@ -560,31 +531,13 @@ func can_issue_attack_target() -> bool:
 	return def != null and def.combat != null and def.combat.damage > 0
 
 
-func can_issue_target_chase() -> bool:
+func can_issue_target() -> bool:
 	var actor: Entity = _selected_entity()
 	if (
 		actor == null
 		or ConstructionSystem.has_pending_build(actor)
 		or actor.locked_to_building_id >= 0
 		or actor.is_constructing
-	):
-		return false
-	var def: EntityDef = _def_for_entity(actor)
-	return (
-		def != null
-		and def.combat != null
-		and def.combat.damage > 0
-		and def.movement != null
-		and def.movement.speed_tiles_per_turn > 0
-	)
-
-
-func can_issue_halt_on_sight_toggle() -> bool:
-	var actor: Entity = _selected_entity()
-	if (
-		actor == null
-		or ConstructionSystem.has_pending_build(actor)
-		or actor.locked_to_building_id >= 0
 	):
 		return false
 	var def: EntityDef = _def_for_entity(actor)
@@ -693,11 +646,27 @@ func issue_rally_gather(target_entity_id: int) -> bool:
 	if source == null:
 		_status_message = "Gather rally needs an owned refinery for that gas source."
 		return false
+	if (
+		GatherSystem.rally_gather_source_for_producer(_state, _registry, actor, target_entity_id)
+		== null
+	):
+		_status_message = "Gather rally target is too far from this producer."
+		return false
 	actor.production_state.rally_mode = ProductionState.RALLY_MODE_GATHER
 	actor.production_state.rally_target_tile = Vector2i.ZERO
 	actor.production_state.rally_target_entity_id = target_entity_id
 	_status_message = "Set gather rally for #%d to #%d." % [actor.id, target_entity_id]
 	return true
+
+
+func can_issue_rally_gather_to(target_entity_id: int) -> bool:
+	var actor: Entity = _selected_entity()
+	if actor == null or not can_issue_rally_gather():
+		return false
+	return (
+		GatherSystem.rally_gather_source_for_producer(_state, _registry, actor, target_entity_id)
+		!= null
+	)
 
 
 func can_afford_build(def_id: String) -> bool:
@@ -972,7 +941,9 @@ func _clone_future_order_dictionary(source: Variant) -> Dictionary[int, Array]:
 	return out
 
 
-func _queue_rally_order_for_spawn(producer: Entity, spawned: Entity) -> void:
+func _queue_rally_order_for_spawn(
+	producer: Entity, spawned: Entity, source_assignments: Dictionary[int, Array]
+) -> void:
 	if producer == null or spawned == null or producer.production_state == null:
 		return
 	if spawned.current_hp <= 0 or spawned.owner_player_id != producer.owner_player_id:
@@ -985,7 +956,7 @@ func _queue_rally_order_for_spawn(producer: Entity, spawned: Entity) -> void:
 		if _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
 			return
 		var move_order := EntityOrder.new()
-		move_order.type = EntityOrder.Type.MOVE_ONLY
+		move_order.type = EntityOrder.Type.MOVE
 		move_order.entity_id = spawned.id
 		move_order.target_tile = target_tile
 		_append_order_to_submit(_submission_for(spawned.owner_player_id), move_order)
@@ -999,11 +970,17 @@ func _queue_rally_order_for_spawn(producer: Entity, spawned: Entity) -> void:
 		)
 		if source == null:
 			return
+		var assigned_source: Entity = GatherSystem.best_rally_source_for_worker(
+			_state, _registry, spawned, source, source_assignments
+		)
+		if assigned_source == null:
+			return
 		var gather_order := EntityOrder.new()
 		gather_order.type = EntityOrder.Type.GATHER
 		gather_order.entity_id = spawned.id
-		gather_order.target_entity_id = target_entity_id
+		gather_order.target_entity_id = assigned_source.id
 		_append_order_to_submit(_submission_for(spawned.owner_player_id), gather_order)
+		GatherSystem.replace_assignment_in_map(source_assignments, spawned.id, assigned_source.id)
 		_clear_move_assist(spawned.id)
 
 
@@ -1020,12 +997,8 @@ func _remember_move_assist(order: EntityOrder) -> void:
 	if actor == null:
 		_move_assists.erase(order.entity_id)
 		return
-	if _is_direct_attack_order(order.type):
-		_refresh_attack_assist_target_tile(actor, order)
-		if not _can_continue_attack_assist(actor, order):
-			_move_assists.erase(order.entity_id)
-			return
-	elif actor.origin == order.target_tile:
+	_refresh_generated_target_move(actor, order)
+	if actor.origin == order.target_tile:
 		_move_assists.erase(order.entity_id)
 		return
 	_move_assists[order.entity_id] = order.clone()
@@ -1050,8 +1023,7 @@ func _can_continue_move_assist(entity: Entity, order: EntityOrder) -> bool:
 		return false
 	if entity.current_hp <= 0 or entity.owner_player_id < 0:
 		return false
-	if _is_direct_attack_order(order.type):
-		_refresh_attack_assist_target_tile(entity, order)
+	_refresh_generated_target_move(entity, order)
 	if (
 		_state == null
 		or _state.tile_grid == null
@@ -1074,63 +1046,154 @@ func _can_continue_move_assist(entity: Entity, order: EntityOrder) -> bool:
 		return false
 	if entity.ability_cast != null:
 		return false
-	if _is_direct_attack_order(order.type):
-		return _can_continue_attack_assist(entity, order)
 	return true
 
 
 func _effective_move_assist_target_tile(entity: Entity, order: EntityOrder) -> Vector2i:
 	if entity == null or order == null:
 		return Vector2i.ZERO
-	if _is_direct_attack_order(order.type):
-		var attack_target: Entity = _live_enemy_from_chain(entity, order.target_priority_chain)
-		if attack_target != null:
-			return _entity_origin_for_order_target(attack_target)
-		return order.target_tile
-	if order.type == EntityOrder.Type.MOVE and not order.target_priority_chain.is_empty():
-		var target: Entity = _live_enemy_from_chain(entity, order.target_priority_chain)
-		if target != null:
-			var target_rect: Rect2i = _state.tile_grid.entity_rect(target.id)
-			if target_rect.size != Vector2i.ZERO:
-				return target_rect.position
-			return target.origin
 	return order.target_tile
 
 
-func _refresh_attack_assist_target_tile(entity: Entity, order: EntityOrder) -> void:
-	if entity == null or order == null or not _is_direct_attack_order(order.type):
+func _refresh_generated_target_move(entity: Entity, order: EntityOrder) -> void:
+	if entity == null or order == null or order.type != EntityOrder.Type.MOVE:
 		return
-	var target: Entity = _live_enemy_from_chain(entity, order.target_priority_chain)
-	if target != null:
-		order.target_tile = _entity_origin_for_order_target(target)
-
-
-func _can_continue_attack_assist(entity: Entity, order: EntityOrder) -> bool:
-	if entity == null or order == null or not _is_direct_attack_order(order.type):
-		return false
-	if order.target_priority_chain.is_empty():
-		return false
+	if order.target_entity_id < 0:
+		return
+	var target_id: int = order.target_entity_id
+	var target: Entity = _live_enemy_for_actor(entity, target_id)
+	if target == null or not _is_entity_visible_to_player(target, entity.owner_player_id):
+		if entity.focus_target_entity_id == target_id:
+			entity.focus_target_entity_id = -1
+		order.target_entity_id = -1
+		return
 	var def: EntityDef = _def_for_entity(entity)
-	if def == null or def.combat == null or def.movement == null:
-		return false
-	if def.movement.speed_tiles_per_turn <= 0:
-		return false
-	var target: Entity = _live_enemy_from_chain(entity, order.target_priority_chain)
-	if target != null:
-		return true
-	return not _is_attack_tile_in_range(entity, order.target_tile, def.combat.attack_range)
+	if def == null or def.combat == null:
+		return
+	var firing_tile: Vector2i = _best_firing_tile_for_target(entity, target, def.combat)
+	if firing_tile != Vector2i(-1, -1):
+		order.target_tile = firing_tile
 
 
-func _is_attack_tile_in_range(entity: Entity, target_tile: Vector2i, attack_range: int) -> bool:
-	if entity == null or _state == null or _state.tile_grid == null:
+func _has_user_move_ending_in_range(actor: Entity, target: Entity, combat: CombatDef) -> bool:
+	if actor == null:
 		return false
-	var actor_rect: Rect2i = _state.tile_grid.entity_rect(entity.id)
-	if actor_rect.size == Vector2i.ZERO:
-		actor_rect = Rect2i(entity.origin, Vector2i.ONE)
+	var submit: SubmitTurn = _submission_for(_active_player_id)
+	for order in submit.orders:
+		if _is_user_move_order_for_entity(order, actor.id):
+			return _move_order_ends_in_range(actor, order, target, combat)
+	return false
+
+
+func _has_user_move_for_actor(actor: Entity) -> bool:
+	if actor == null:
+		return false
+	var submit: SubmitTurn = _submission_for(_active_player_id)
+	for order in submit.orders:
+		if _is_user_move_order_for_entity(order, actor.id):
+			return true
+	return false
+
+
+func _is_user_move_order_for_entity(order: EntityOrder, entity_id: int) -> bool:
 	return (
-		TileGrid.distance_between_rects(actor_rect, Rect2i(target_tile, Vector2i.ONE))
-		<= attack_range
+		order != null
+		and order.entity_id == entity_id
+		and _is_move_like(order.type)
+		and order.target_entity_id < 0
 	)
+
+
+func _move_order_ends_in_range(
+	actor: Entity, order: EntityOrder, target: Entity, combat: CombatDef
+) -> bool:
+	if actor == null or order == null or target == null or combat == null:
+		return false
+	return _is_target_in_range_from_origin(actor, order.target_tile, target, combat)
+
+
+func _is_target_in_range_from_origin(
+	actor: Entity, origin: Vector2i, target: Entity, combat: CombatDef
+) -> bool:
+	if actor == null or target == null or combat == null or _state == null:
+		return false
+	var footprint: Vector2i = PathfindingSystem.entity_footprint(_state, actor, _registry)
+	var target_rect: Rect2i = _target_rect(target)
+	if target_rect.size == Vector2i.ZERO:
+		return false
+	return (
+		TileGrid.distance_between_rects(Rect2i(origin, footprint), target_rect)
+		<= combat.attack_range
+	)
+
+
+func _best_firing_tile_for_target(actor: Entity, target: Entity, combat: CombatDef) -> Vector2i:
+	if (
+		actor == null
+		or target == null
+		or combat == null
+		or _state == null
+		or _state.tile_grid == null
+		or _registry == null
+	):
+		return Vector2i(-1, -1)
+	var target_rect: Rect2i = _target_rect(target)
+	if target_rect.size == Vector2i.ZERO:
+		return Vector2i(-1, -1)
+	var footprint: Vector2i = PathfindingSystem.entity_footprint(_state, actor, _registry)
+	var best_tile := Vector2i(-1, -1)
+	var best_target_distance := -1
+	var best_path_distance := 0
+	var queue: Array[Vector2i] = [actor.origin]
+	var path_distances: Dictionary = {}
+	path_distances[actor.origin] = 0
+	var cursor := 0
+	while cursor < queue.size():
+		var candidate: Vector2i = queue[cursor]
+		cursor += 1
+		var path_distance: int = int(path_distances[candidate])
+		var candidate_rect := Rect2i(candidate, footprint)
+		var target_distance: int = TileGrid.distance_between_rects(candidate_rect, target_rect)
+		if target_distance <= combat.attack_range:
+			if (
+				best_tile == Vector2i(-1, -1)
+				or target_distance > best_target_distance
+				or (
+					target_distance == best_target_distance
+					and (
+						path_distance < best_path_distance
+						or (
+							path_distance == best_path_distance
+							and (
+								candidate.y < best_tile.y
+								or (candidate.y == best_tile.y and candidate.x < best_tile.x)
+							)
+						)
+					)
+				)
+			):
+				best_tile = candidate
+				best_target_distance = target_distance
+				best_path_distance = path_distance
+		for delta in _FIRING_TILE_NEIGHBORS:
+			var next: Vector2i = candidate + delta
+			if path_distances.has(next):
+				continue
+			if not PathfindingSystem.can_occupy_origin(_state, actor, next, _registry):
+				continue
+			path_distances[next] = path_distance + 1
+			queue.append(next)
+	return best_tile
+
+
+func _target_rect(target: Entity) -> Rect2i:
+	if target == null:
+		return Rect2i()
+	if _state != null and _state.tile_grid != null:
+		var rect: Rect2i = _state.tile_grid.entity_rect(target.id)
+		if rect.size != Vector2i.ZERO:
+			return rect
+	return Rect2i(target.origin, PathfindingSystem.entity_footprint(_state, target, _registry))
 
 
 func _has_queued_order_for_entity(entity_id: int) -> bool:
@@ -1204,6 +1267,7 @@ func _prune_future_orders() -> void:
 				queue.remove_at(i)
 				continue
 			var order: EntityOrder = raw_order
+			_refresh_restorable_order_target(entity, order)
 			_prune_missing_order_targets(order)
 			if (
 				order.entity_id != entity_id
@@ -1224,6 +1288,8 @@ func _prune_submissions() -> void:
 			continue
 		for i in range(submit.orders.size() - 1, -1, -1):
 			var order: EntityOrder = submit.orders[i]
+			var actor: Entity = _state.get_entity_by_id(order.entity_id) if order != null else null
+			_refresh_restorable_order_target(actor, order)
 			_prune_missing_order_targets(order)
 			if not _is_restorable_order(order, player_id):
 				submit.orders.remove_at(i)
@@ -1239,7 +1305,23 @@ func _is_restorable_order(order: EntityOrder, player_id: int) -> bool:
 		return false
 	if order.target_entity_id >= 0 and _state.get_entity_by_id(order.target_entity_id) == null:
 		return false
+	if order.type == EntityOrder.Type.TARGET and order.target_entity_id < 0:
+		return false
 	return true
+
+
+func _refresh_restorable_order_target(actor: Entity, order: EntityOrder) -> void:
+	if actor == null or order == null:
+		return
+	if order.type == EntityOrder.Type.MOVE:
+		_refresh_generated_target_move(actor, order)
+	elif order.type == EntityOrder.Type.TARGET:
+		var target: Entity = _live_enemy_for_actor(actor, order.target_entity_id)
+		if target == null or not _is_entity_visible_to_player(target, actor.owner_player_id):
+			if actor.focus_target_entity_id == order.target_entity_id:
+				actor.focus_target_entity_id = -1
+			order.target_entity_id = -1
+			order.target_priority_chain.clear()
 
 
 func _prune_missing_order_targets(order: EntityOrder) -> void:
@@ -1268,6 +1350,16 @@ func _can_promote_future_order_for_entity(entity: Entity) -> bool:
 
 
 func _replacement_index_for_order(orders: Array[EntityOrder], order: EntityOrder) -> int:
+	if order != null and order.type == EntityOrder.Type.TARGET:
+		for i in orders.size():
+			var existing_target: EntityOrder = orders[i]
+			if (
+				existing_target != null
+				and existing_target.type == EntityOrder.Type.TARGET
+				and existing_target.entity_id == order.entity_id
+			):
+				return i
+		return -1
 	if not _is_action_queue_order(order):
 		return -1
 	for i in orders.size():
@@ -1275,8 +1367,6 @@ func _replacement_index_for_order(orders: Array[EntityOrder], order: EntityOrder
 		if not _is_action_queue_order(existing) or existing.entity_id != order.entity_id:
 			continue
 		if _is_move_like(order.type) and _is_move_like(existing.type):
-			return i
-		if _is_direct_attack_order(order.type) and _is_direct_attack_order(existing.type):
 			return i
 	return -1
 
@@ -1287,22 +1377,18 @@ func _is_action_queue_order(order: EntityOrder) -> bool:
 
 func _is_standing_submit_order(type: EntityOrder.Type) -> bool:
 	return (
-		type == EntityOrder.Type.HALT_ON_SIGHT_TOGGLE
+		type == EntityOrder.Type.TARGET
 		or type == EntityOrder.Type.SET_RALLY_POINT
 		or type == EntityOrder.Type.REPEAT_TRAIN_TOGGLE
 	)
 
 
 func _is_move_like(type: EntityOrder.Type) -> bool:
-	return type == EntityOrder.Type.MOVE or type == EntityOrder.Type.MOVE_ONLY
-
-
-func _is_direct_attack_order(type: EntityOrder.Type) -> bool:
-	return type == EntityOrder.Type.ATTACK or type == EntityOrder.Type.ATTACK_TARGET
+	return type == EntityOrder.Type.MOVE or type == EntityOrder.Type.ATTACK_MOVE
 
 
 func _is_continuation_order(type: EntityOrder.Type) -> bool:
-	return _is_move_like(type) or _is_direct_attack_order(type)
+	return _is_move_like(type)
 
 
 func _submission_for(player_id: int) -> SubmitTurn:
@@ -1342,6 +1428,24 @@ func _live_enemy_entity(entity_id: int) -> Entity:
 	if entity.owner_player_id < 0 or entity.owner_player_id == _active_player_id:
 		return null
 	return entity
+
+
+func _live_enemy_for_actor(actor: Entity, entity_id: int) -> Entity:
+	var entity: Entity = _live_entity(entity_id)
+	if actor == null or entity == null:
+		return null
+	if entity.owner_player_id < 0 or entity.owner_player_id == actor.owner_player_id:
+		return null
+	return entity
+
+
+func _is_entity_visible_to_player(entity: Entity, player_id: int) -> bool:
+	if _state == null or _registry == null or player_id < 0:
+		return false
+	var visibility := VisionSystem.compute_player_visibility(_state, _registry, player_id)
+	return VisionSystem.is_entity_visible_to_player(
+		entity, _state, _registry, player_id, visibility
+	)
 
 
 func _live_enemy_from_chain(actor: Entity, target_priority_chain: Array[int]) -> Entity:

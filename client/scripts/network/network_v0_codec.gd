@@ -167,7 +167,6 @@ func _normalize_entity_order(order: EntityOrder) -> Dictionary:
 		"entity_id": order.entity_id,
 		"target_tile": order.target_tile,
 		"target_priority_chain": order.target_priority_chain.duplicate(),
-		"halt_on_sight": order.halt_on_sight,
 		"def_id": order.def_id,
 		"cancel_index": order.cancel_index,
 		"target_entity_id": order.target_entity_id,
@@ -220,7 +219,6 @@ func _normalize_entity(entity: Entity) -> Dictionary:
 		"active_buffs": _normalize(entity.active_buffs),
 		"ability_cast": _normalize(entity.ability_cast),
 		"is_hidden": entity.is_hidden,
-		"halt_on_sight": entity.halt_on_sight,
 		"moves_used_this_turn": entity.moves_used_this_turn,
 		"current_resource_amount": entity.current_resource_amount,
 		"is_constructing": entity.is_constructing,
@@ -323,7 +321,6 @@ func _entity_order_from_dict(source: Dictionary) -> EntityOrder:
 	order.entity_id = source.get("entity_id", -1)
 	order.target_tile = source.get("target_tile", Vector2i.ZERO)
 	order.target_priority_chain = _int_array(source.get("target_priority_chain", []))
-	order.halt_on_sight = source.get("halt_on_sight", false)
 	order.def_id = source.get("def_id", "")
 	order.cancel_index = source.get("cancel_index", -1)
 	order.target_entity_id = source.get("target_entity_id", -1)
@@ -374,7 +371,6 @@ func _entity_from_dict(source: Dictionary) -> Entity:
 	entity.active_buffs = _active_buff_array(source.get("active_buffs", []))
 	entity.ability_cast = (_denormalize(source.get("ability_cast", null)) as AbilityCastState)
 	entity.is_hidden = source.get("is_hidden", false)
-	entity.halt_on_sight = source.get("halt_on_sight", false)
 	entity.moves_used_this_turn = source.get("moves_used_this_turn", 0)
 	entity.current_resource_amount = source.get("current_resource_amount", -1)
 	entity.is_constructing = source.get("is_constructing", false)
