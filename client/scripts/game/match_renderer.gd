@@ -387,6 +387,8 @@ func set_selected_entity_ids(entity_ids: Array) -> void:
 	_selected_entity_ids.clear()
 	for raw_entity_id in entity_ids:
 		var entity_id: int = int(raw_entity_id)
+		if entity_id < 0:
+			continue
 		if _selected_entity_ids.has(entity_id):
 			continue
 		_selected_entity_ids.append(entity_id)

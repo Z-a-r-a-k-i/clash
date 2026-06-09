@@ -116,6 +116,10 @@ func _all_tests() -> Array:
 			"dev_play_mode_drag_box_replace_shift_toggle_and_shift_box_add",
 			_test_drag_box_replace_shift_toggle_and_shift_box_add
 		],
+		[
+			"dev_play_mode_click_selection_uses_press_modifier",
+			_test_click_selection_uses_press_modifier
+		],
 		["dev_play_mode_group_right_click_orders", _test_group_right_click_orders],
 		[
 			"dev_play_mode_left_drag_box_does_not_pan_camera",
@@ -1888,6 +1892,55 @@ func _test_drag_box_replace_shift_toggle_and_shift_box_add() -> bool:
 	expected_after_add.append(ids[0])
 	if selected != expected_after_add:
 		push_error("shift drag-box should add boxed owned movers, got %s" % str(selected))
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_click_selection_uses_press_modifier() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var ids: Array[int] = _find_entity_ids(mode.current_state(), "marine", 0)
+	if ids.size() < 2:
+		push_error("combat scenario should have at least two P0 marines")
+		_free_mode(mode)
+		return false
+	if not mode.select_entity_id(ids[0]):
+		push_error("expected first marine to be selectable")
+		_free_mode(mode)
+		return false
+	var second_pos: Vector2 = _tile_center_px(mode.current_state().get_entity_by_id(ids[1]).origin)
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, second_pos, true))
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, second_pos, false))
+	var selected: Array[int] = _selected_ids_for_test(mode.input_model())
+	var expected_add: Array[int] = [ids[0], ids[1]]
+	var ok := true
+	if selected != expected_add:
+		push_error(
+			(
+				"shift-down click should stay additive even if Shift is released, got %s"
+				% str(selected)
+			)
+		)
+		ok = false
+	var first_pos: Vector2 = _tile_center_px(mode.current_state().get_entity_by_id(ids[0]).origin)
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, first_pos, false))
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, first_pos, true))
+	selected = _selected_ids_for_test(mode.input_model())
+	var expected_replace: Array[int] = [ids[0]]
+	if selected != expected_replace:
+		push_error(
+			(
+				"plain-down click should replace even if Shift is pressed on release, got %s"
+				% str(selected)
+			)
+		)
 		ok = false
 	_free_mode(mode)
 	return ok

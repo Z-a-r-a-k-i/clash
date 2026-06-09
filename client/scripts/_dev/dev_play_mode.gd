@@ -916,7 +916,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					var release_tile: Vector2i = _renderer.world_to_tile(
 						_event_world_position(button)
 					)
-					_apply_click_selection(release_tile, button.shift_pressed)
+					_apply_click_selection(release_tile, release.get("additive", false))
 				return
 			_reset_selection_drag()
 		if not button.pressed:
@@ -1021,7 +1021,7 @@ func _bind_session(session: SavedSession, replay_mode: bool, status_message: Str
 	_input.restore_snapshot(session.input_snapshot, _loaded.state, _loaded.registry)
 	if _renderer != null:
 		_renderer.set_perspective_player_id(_input.active_player_id())
-		_renderer.set_selected_entity_id(_input.selected_entity_id())
+		_sync_selection_highlights()
 	_clear_pending_command()
 	_replay_mode_active = replay_mode
 	_replay_cursor_turn = _loaded.state.turn_index

@@ -7,7 +7,9 @@ const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
 const COMMAND_OPTION_BUILDER := preload("res://scripts/game/command_option_builder.gd")
 const SERVER_SCRIPT := preload("res://scripts/network/network_match_server.gd")
 const ACTION_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/action_preview_builder.gd")
-const SELECTION_DRAG_CONTROLLER_SCRIPT := preload("res://scripts/game/selection_drag_controller.gd")
+const SELECTION_DRAG_CONTROLLER_SCRIPT: Script = preload(
+	"res://scripts/game/selection_drag_controller.gd"
+)
 
 const LOBBY_WIDTH: float = 460.0
 const HUD_WIDTH: float = 420.0
@@ -1026,7 +1028,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					var release_tile: Vector2i = _surface.renderer().world_to_tile(
 						_event_world_position(button)
 					)
-					_apply_click_selection(release_tile, button.shift_pressed)
+					_apply_click_selection(release_tile, release.get("additive", false))
 				return
 			_reset_selection_drag()
 		if not button.pressed:
