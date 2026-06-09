@@ -53,7 +53,11 @@ func _all_tests() -> Array[Array]:
 		["shared_action_preview_builder_drives_network_previews", _test_action_preview_builder],
 		["network_play_mode_splits_lobby_match_and_escape_ui", _test_network_ui_flow],
 		["network_order_preview_toggle_shows_all_local_orders", _test_network_order_preview_toggle],
-		["network_left_empty_drag_pans_camera", _test_network_left_empty_drag_pans_camera],
+		[
+			"network_drag_box_selects_without_panning",
+			_test_network_drag_box_selects_without_panning
+		],
+		["network_group_right_click_fans_out", _test_network_group_orders],
 		["network_lobby_remembers_last_server_url", _test_network_lobby_remembers_url],
 		[
 			"network_next_turn_started_preserves_queued_orders",
@@ -584,7 +588,7 @@ func _test_network_order_preview_toggle() -> bool:
 	return ok
 
 
-func _test_network_left_empty_drag_pans_camera() -> bool:
+func _test_network_drag_box_selects_without_panning() -> bool:
 	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
 	if script == null:
 		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
@@ -604,39 +608,73 @@ func _test_network_left_empty_drag_pans_camera() -> bool:
 		renderer.get_node_or_null("Camera2D") as Camera2D if renderer != null else null
 	)
 	if renderer == null or camera == null:
-		push_error("camera drag test requires a renderer camera")
+		push_error("selection drag test requires a renderer camera")
 		remove_child(mode)
 		mode.queue_free()
 		return false
-	var empty_tile: Vector2i = _first_empty_tile(loaded.state)
-	if empty_tile == Vector2i(-1, -1):
-		push_error("camera drag test requires an empty tile")
+	var ids: Array[int] = _entity_ids_by_def_owner(loaded.state, "marine", 0)
+	if ids.size() < 2:
+		push_error("combat scenario should have at least two P0 marines")
 		remove_child(mode)
 		mode.queue_free()
 		return false
-	var tile_size: float = float(_load_tunables().tile_pixel_size)
-	var empty_world: Vector2 = Vector2(empty_tile) * tile_size + Vector2.ONE * (tile_size * 0.5)
-	var drag_delta: Vector2 = Vector2(tile_size * -1.25, 0.0)
-	var press: InputEventMouseButton = InputEventMouseButton.new()
-	press.button_index = MOUSE_BUTTON_LEFT
-	press.pressed = true
-	press.position = empty_world
-	mode.call("_unhandled_input", press)
-	var motion: InputEventMouseMotion = InputEventMouseMotion.new()
-	motion.button_mask = MOUSE_BUTTON_MASK_LEFT
-	motion.position = empty_world + drag_delta
-	motion.relative = drag_delta
-	mode.call("_unhandled_input", motion)
-	var drag_moved: bool = bool(mode.get("_left_empty_drag_moved"))
-	var panning_active: bool = bool(mode.get("_is_panning_camera"))
-	var release: InputEventMouseButton = InputEventMouseButton.new()
-	release.button_index = MOUSE_BUTTON_LEFT
-	release.pressed = false
-	release.position = empty_world + drag_delta
-	mode.call("_unhandled_input", release)
-	var ok: bool = drag_moved and panning_active
+	var original_position: Vector2 = camera.position
+	_drag_box(mode, _world_box_for_entities(loaded.state, ids), false)
+	var selected: Array[int] = _selected_ids_for_test(mode.call("input_model") as DevTurnInput)
+	var ok: bool = selected == ids
 	if not ok:
-		push_error("left-dragging empty map space should pan the network camera")
+		push_error("network drag-box should select boxed owned movers, got %s" % str(selected))
+	if camera.position != original_position:
+		push_error("network left drag-box should not pan the camera")
+		ok = false
+	remove_child(mode)
+	mode.queue_free()
+	return ok
+
+
+func _test_network_group_orders() -> bool:
+	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
+		return false
+	var mode: Node = script.new()
+	add_child(mode)
+	mode.call("ensure_initialized")
+	var loaded: LoadedScenario = _load_combat()
+	if loaded == null:
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
+	var input: DevTurnInput = mode.call("input_model") as DevTurnInput
+	var ids: Array[int] = _entity_ids_by_def_owner(loaded.state, "marine", 0)
+	if ids.size() < 2:
+		push_error("combat scenario should have at least two P0 marines")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	if not _select_entities_for_test(input, ids):
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var renderer: MatchRenderer = surface.renderer() if surface != null else null
+	if renderer != null:
+		renderer.call("set_selected_entity_ids", ids)
+	var target_tile: Vector2i = _first_empty_tile(loaded.state)
+	mode.call(
+		"_unhandled_input", _mouse_button(MOUSE_BUTTON_RIGHT, true, _tile_center_px(target_tile))
+	)
+	var ok := true
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != ids.size():
+		push_error("network group right-click should queue one flat order per unit")
+		ok = false
+	else:
+		for i in orders.size():
+			if not _has_move_order([orders[i]], ids[i], target_tile):
+				push_error("expected MOVE for selected unit #%d" % ids[i])
+				ok = false
 	remove_child(mode)
 	mode.queue_free()
 	return ok
@@ -1655,6 +1693,21 @@ func _first_entity_id(state: MatchState, owner: int) -> int:
 	return _nth_entity_id(state, owner, 0)
 
 
+func _entity_ids_by_def_owner(state: MatchState, def_id: String, owner: int) -> Array[int]:
+	var out: Array[int] = []
+	if state == null:
+		return out
+	for entity: Entity in state.entities_sorted_by_id():
+		if (
+			entity != null
+			and entity.def_id == def_id
+			and entity.owner_player_id == owner
+			and entity.current_hp > 0
+		):
+			out.append(entity.id)
+	return out
+
+
 func _nth_entity_id(state: MatchState, owner: int, index: int) -> int:
 	if state == null:
 		return -1
@@ -1971,6 +2024,92 @@ func _first_empty_tile(state: MatchState) -> Vector2i:
 			if state.tile_grid.entity_at(tile) < 0:
 				return tile
 	return Vector2i(-1, -1)
+
+
+func _select_entities_for_test(input: DevTurnInput, ids: Array[int]) -> bool:
+	if input == null:
+		return false
+	if not input.has_method("select_entities"):
+		push_error("DevTurnInput should expose select_entities")
+		return false
+	return input.call("select_entities", ids)
+
+
+func _selected_ids_for_test(input: DevTurnInput) -> Array[int]:
+	var out: Array[int] = []
+	if input == null:
+		return out
+	if not input.has_method("selected_entity_ids"):
+		push_error("DevTurnInput should expose selected_entity_ids")
+		return out
+	var raw: Array = input.call("selected_entity_ids")
+	for item in raw:
+		out.append(int(item))
+	return out
+
+
+func _world_box_for_entities(state: MatchState, entity_ids: Array[int]) -> Rect2:
+	if state == null or entity_ids.is_empty():
+		return Rect2()
+	var min_tile := Vector2i(100000, 100000)
+	var max_tile := Vector2i(-100000, -100000)
+	for entity_id in entity_ids:
+		var entity: Entity = state.get_entity_by_id(entity_id)
+		if entity == null:
+			continue
+		var rect: Rect2i = (
+			state.tile_grid.entity_rect(entity.id) if state.tile_grid != null else Rect2i()
+		)
+		if rect.size == Vector2i.ZERO:
+			rect = Rect2i(entity.origin, Vector2i.ONE)
+		min_tile.x = mini(min_tile.x, rect.position.x)
+		min_tile.y = mini(min_tile.y, rect.position.y)
+		max_tile.x = maxi(max_tile.x, rect.position.x + rect.size.x)
+		max_tile.y = maxi(max_tile.y, rect.position.y + rect.size.y)
+	var tile_size: float = float(_load_tunables().tile_pixel_size)
+	var start := (Vector2(min_tile) - Vector2(0.25, 0.25)) * tile_size
+	var end := (Vector2(max_tile) + Vector2(0.25, 0.25)) * tile_size
+	return Rect2(start, end - start)
+
+
+func _drag_box(mode: Node, box: Rect2, shift_pressed: bool) -> void:
+	mode.call(
+		"_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, box.position, shift_pressed)
+	)
+	mode.call(
+		"_unhandled_input", _mouse_motion(box.size, MOUSE_BUTTON_MASK_LEFT, box.end, shift_pressed)
+	)
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, box.end, shift_pressed))
+
+
+func _tile_center_px(tile: Vector2i) -> Vector2:
+	var tile_size: float = float(_load_tunables().tile_pixel_size)
+	return (Vector2(tile) + Vector2(0.5, 0.5)) * tile_size
+
+
+func _mouse_button(
+	button_index: MouseButton, pressed: bool, position: Vector2, shift_pressed: bool = false
+) -> InputEventMouseButton:
+	var event: InputEventMouseButton = InputEventMouseButton.new()
+	event.button_index = button_index
+	event.pressed = pressed
+	event.position = position
+	event.shift_pressed = shift_pressed
+	return event
+
+
+func _mouse_motion(
+	relative: Vector2,
+	button_mask: MouseButtonMask,
+	position: Vector2 = Vector2.ZERO,
+	shift_pressed: bool = false
+) -> InputEventMouseMotion:
+	var event: InputEventMouseMotion = InputEventMouseMotion.new()
+	event.relative = relative
+	event.button_mask = button_mask
+	event.position = position
+	event.shift_pressed = shift_pressed
+	return event
 
 
 func _far_open_tile(state: MatchState, entity_id: int) -> Vector2i:

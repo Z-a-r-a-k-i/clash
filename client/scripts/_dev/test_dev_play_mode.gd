@@ -112,7 +112,15 @@ func _all_tests() -> Array:
 		["dev_play_mode_routes_command_card_orders", _test_routes_command_card_orders],
 		["dev_play_mode_pending_target_targets_enemy", _test_pending_target_targets_enemy],
 		["dev_play_mode_a_key_attack_mode", _test_a_key_attack_mode],
-		["dev_play_mode_left_drag_pans_camera", _test_left_drag_pans_camera],
+		[
+			"dev_play_mode_drag_box_replace_shift_toggle_and_shift_box_add",
+			_test_drag_box_replace_shift_toggle_and_shift_box_add
+		],
+		["dev_play_mode_group_right_click_orders", _test_group_right_click_orders],
+		[
+			"dev_play_mode_left_drag_box_does_not_pan_camera",
+			_test_left_drag_box_does_not_pan_camera
+		],
 		[
 			"dev_play_mode_switching_player_keeps_camera_bounded",
 			_test_switching_player_keeps_camera_bounded
@@ -934,6 +942,14 @@ func _test_selected_and_friendly_target_intents() -> bool:
 		return false
 	if renderer.call("target_intent_preview_count") != 1:
 		push_error("all-friendly target intents should be off by default")
+		_free_mode(mode)
+		return false
+	if not _select_entities_for_test(mode.input_model(), [marines[0], marines[1]]):
+		_free_mode(mode)
+		return false
+	mode.call("_update_hud")
+	if renderer.call("target_intent_preview_count") != 2:
+		push_error("multi-selected target intents should show one preview per selected unit")
 		_free_mode(mode)
 		return false
 	mode.call("set_show_all_friendly_action_previews", true)
@@ -1817,7 +1833,104 @@ func _test_a_key_attack_mode() -> bool:
 	return ok
 
 
-func _test_left_drag_pans_camera() -> bool:
+func _test_drag_box_replace_shift_toggle_and_shift_box_add() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var ids: Array[int] = _find_entity_ids(mode.current_state(), "marine", 0)
+	if ids.size() < 2:
+		push_error("combat scenario should have at least two P0 marines")
+		_free_mode(mode)
+		return false
+	_drag_box(mode, _world_box_for_entities(mode.current_state(), ids), false)
+	var selected: Array[int] = _selected_ids_for_test(mode.input_model())
+	var ok := true
+	if selected != ids:
+		push_error(
+			(
+				"plain drag-box should replace selection with boxed owned movers, got %s"
+				% str(selected)
+			)
+		)
+		ok = false
+	mode.call(
+		"_unhandled_input",
+		_mouse_button(
+			MOUSE_BUTTON_LEFT,
+			true,
+			_tile_center_px(mode.current_state().get_entity_by_id(ids[0]).origin),
+			true
+		)
+	)
+	mode.call(
+		"_unhandled_input",
+		_mouse_button(
+			MOUSE_BUTTON_LEFT,
+			false,
+			_tile_center_px(mode.current_state().get_entity_by_id(ids[0]).origin),
+			true
+		)
+	)
+	selected = _selected_ids_for_test(mode.input_model())
+	var expected_after_toggle: Array[int] = ids.duplicate()
+	expected_after_toggle.remove_at(0)
+	if selected != expected_after_toggle:
+		push_error("shift-click should toggle one owned movable unit out, got %s" % str(selected))
+		ok = false
+	_drag_box(mode, _world_box_for_entities(mode.current_state(), [ids[0]]), true)
+	selected = _selected_ids_for_test(mode.input_model())
+	var expected_after_add: Array[int] = expected_after_toggle.duplicate()
+	expected_after_add.append(ids[0])
+	if selected != expected_after_add:
+		push_error("shift drag-box should add boxed owned movers, got %s" % str(selected))
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_group_right_click_orders() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var ids: Array[int] = _find_entity_ids(mode.current_state(), "marine", 0)
+	if ids.size() < 2:
+		push_error("combat scenario should have at least two P0 marines")
+		_free_mode(mode)
+		return false
+	if not _select_entities_for_test(mode.input_model(), ids):
+		_free_mode(mode)
+		return false
+	mode.renderer().call("set_selected_entity_ids", ids)
+	var target_tile: Vector2i = _first_empty_tile(mode.current_state())
+	mode.call(
+		"_unhandled_input", _mouse_button(MOUSE_BUTTON_RIGHT, true, _tile_center_px(target_tile))
+	)
+	var orders: Array[EntityOrder] = mode.input_model().submit_for_player(0).orders
+	var ok := true
+	if orders.size() != ids.size():
+		push_error(
+			"group right-click should queue one order per selected mover, got %d" % orders.size()
+		)
+		ok = false
+	else:
+		for i in orders.size():
+			if not _expect_order(orders[i], EntityOrder.Type.MOVE, ids[i], target_tile):
+				ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_left_drag_box_does_not_pan_camera() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
 		return false
@@ -1837,14 +1950,17 @@ func _test_left_drag_pans_camera() -> bool:
 		return false
 	var original_position: Vector2 = camera.position
 	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, Vector2(8.0, 8.0)))
-	mode.call("_unhandled_input", _mouse_motion(Vector2(0.0, 96.0), MOUSE_BUTTON_MASK_LEFT))
+	mode.call(
+		"_unhandled_input",
+		_mouse_motion(Vector2(0.0, 96.0), MOUSE_BUTTON_MASK_LEFT, Vector2(8.0, 104.0))
+	)
 	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, Vector2(8.0, 104.0)))
 	var ok := true
-	if camera.position == original_position:
-		push_error("left-dragging empty map space should pan the camera")
+	if camera.position != original_position:
+		push_error("left-dragging should draw a selection box, not pan the camera")
 		ok = false
 	if mode.pending_command_kind() != "":
-		push_error("camera drag should not leave a pending command")
+		push_error("selection drag should not leave a pending command")
 		ok = false
 	_free_mode(mode)
 	return ok
@@ -1998,6 +2114,73 @@ func _find_entity_ids(state: MatchState, def_id: String, owner: int) -> Array[in
 		if entity.def_id == def_id and entity.owner_player_id == owner and entity.current_hp > 0:
 			out.append(entity.id)
 	return out
+
+
+func _select_entities_for_test(input: DevTurnInput, ids: Array[int]) -> bool:
+	if input == null:
+		return false
+	if not input.has_method("select_entities"):
+		push_error("DevTurnInput should expose select_entities")
+		return false
+	return input.call("select_entities", ids)
+
+
+func _selected_ids_for_test(input: DevTurnInput) -> Array[int]:
+	var out: Array[int] = []
+	if input == null:
+		return out
+	if not input.has_method("selected_entity_ids"):
+		push_error("DevTurnInput should expose selected_entity_ids")
+		return out
+	var raw: Array = input.call("selected_entity_ids")
+	for item in raw:
+		out.append(int(item))
+	return out
+
+
+func _world_box_for_entities(state: MatchState, entity_ids: Array[int]) -> Rect2:
+	if state == null or entity_ids.is_empty():
+		return Rect2()
+	var min_tile := Vector2i(100000, 100000)
+	var max_tile := Vector2i(-100000, -100000)
+	for entity_id in entity_ids:
+		var entity: Entity = state.get_entity_by_id(entity_id)
+		if entity == null:
+			continue
+		var rect: Rect2i = (
+			state.tile_grid.entity_rect(entity.id) if state.tile_grid != null else Rect2i()
+		)
+		if rect.size == Vector2i.ZERO:
+			rect = Rect2i(entity.origin, Vector2i.ONE)
+		min_tile.x = mini(min_tile.x, rect.position.x)
+		min_tile.y = mini(min_tile.y, rect.position.y)
+		max_tile.x = maxi(max_tile.x, rect.position.x + rect.size.x)
+		max_tile.y = maxi(max_tile.y, rect.position.y + rect.size.y)
+	var tile_size: float = _test_tile_size()
+	var start := (Vector2(min_tile) - Vector2(0.25, 0.25)) * tile_size
+	var end := (Vector2(max_tile) + Vector2(0.25, 0.25)) * tile_size
+	return Rect2(start, end - start)
+
+
+func _drag_box(mode: Node, box: Rect2, shift_pressed: bool) -> void:
+	mode.call(
+		"_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, box.position, shift_pressed)
+	)
+	mode.call(
+		"_unhandled_input", _mouse_motion(box.size, MOUSE_BUTTON_MASK_LEFT, box.end, shift_pressed)
+	)
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, box.end, shift_pressed))
+
+
+func _first_empty_tile(state: MatchState) -> Vector2i:
+	if state == null or state.tile_grid == null:
+		return Vector2i(-1, -1)
+	for y in range(state.tile_grid.height):
+		for x in range(state.tile_grid.width):
+			var tile := Vector2i(x, y)
+			if state.tile_grid.entity_at(tile) < 0:
+				return tile
+	return Vector2i(-1, -1)
 
 
 func _find_clear_rect_origin_near(
@@ -2260,19 +2443,27 @@ func _load_registry() -> EntityRegistry:
 
 
 func _mouse_button(
-	button_index: MouseButton, pressed: bool, position: Vector2
+	button_index: MouseButton, pressed: bool, position: Vector2, shift_pressed: bool = false
 ) -> InputEventMouseButton:
 	var event: InputEventMouseButton = InputEventMouseButton.new()
 	event.button_index = button_index
 	event.pressed = pressed
 	event.position = position
+	event.shift_pressed = shift_pressed
 	return event
 
 
-func _mouse_motion(relative: Vector2, button_mask: MouseButtonMask) -> InputEventMouseMotion:
+func _mouse_motion(
+	relative: Vector2,
+	button_mask: MouseButtonMask,
+	position: Vector2 = Vector2.ZERO,
+	shift_pressed: bool = false
+) -> InputEventMouseMotion:
 	var event: InputEventMouseMotion = InputEventMouseMotion.new()
 	event.relative = relative
 	event.button_mask = button_mask
+	event.position = position
+	event.shift_pressed = shift_pressed
 	return event
 
 

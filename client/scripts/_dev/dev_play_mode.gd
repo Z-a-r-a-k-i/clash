@@ -18,6 +18,7 @@ const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
 const ACTION_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/action_preview_builder.gd")
 const TACTICAL_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/tactical_preview_builder.gd")
 const COMMAND_OPTION_BUILDER := preload("res://scripts/game/command_option_builder.gd")
+const SELECTION_DRAG_CONTROLLER_SCRIPT := preload("res://scripts/game/selection_drag_controller.gd")
 const PATHFINDING_SCRIPT := preload("res://scripts/resolver/pathfinding_system.gd")
 const PENDING_NONE := ""
 const PENDING_MOVE := "move"
@@ -73,9 +74,7 @@ var _command_card: Control = null
 var _pending_command: String = PENDING_NONE
 var _pending_build_def_id: String = ""
 var _is_panning_camera: bool = false
-var _left_empty_drag_candidate: bool = false
-var _left_empty_drag_moved: bool = false
-var _left_empty_drag_start: Vector2 = Vector2.ZERO
+var _selection_drag = SELECTION_DRAG_CONTROLLER_SCRIPT.new()
 var _show_all_friendly_action_previews: bool = false
 var _range_projection_active: bool = false
 var _last_hover_tile: Vector2i = Vector2i.ZERO
@@ -96,6 +95,7 @@ var _tactical_preview_builder: TacticalPreviewBuilder = (
 
 
 func _ready() -> void:
+	_selection_drag.threshold_pixels = CAMERA_DRAG_THRESHOLD
 	_build_hud()
 	if _loaded == null:
 		load_scenario_path(scenario_path)
@@ -207,7 +207,7 @@ func set_active_player_id(player_id: int) -> void:
 	if _renderer != null:
 		_renderer.set_perspective_player_id(player_id)
 		_renderer.focus_player_start(player_id)
-		_renderer.clear_input_highlights()
+		_sync_selection_highlights()
 	_reset_context_cursor()
 	_update_hud()
 
@@ -219,7 +219,7 @@ func select_entity_id(entity_id: int) -> bool:
 	if _renderer != null:
 		_clear_build_placement_preview()
 		if ok:
-			_renderer.set_selected_entity_id(entity_id)
+			_sync_selection_highlights()
 		else:
 			_renderer.clear_input_highlights()
 	if not ok:
@@ -384,7 +384,7 @@ func context_action_at_tile(tile: Vector2i) -> Dictionary:
 				return _context_result(
 					CONTEXT_GATHER, Input.CURSOR_POINTING_HAND, "", {"target_entity_id": target_id}
 				)
-			if _selected_can_rally_gather_to(target_id):
+			if not _input.has_multiple_selection() and _selected_can_rally_gather_to(target_id):
 				return _context_result(
 					CONTEXT_RALLY_GATHER,
 					Input.CURSOR_POINTING_HAND,
@@ -397,7 +397,7 @@ func context_action_at_tile(tile: Vector2i) -> Dictionary:
 				"That resource target is not valid for the selected entity."
 			)
 		return _context_result(CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Target tile is occupied.")
-	if _input.can_issue_rally_move():
+	if not _input.has_multiple_selection() and _input.can_issue_rally_move():
 		return _context_result(CONTEXT_RALLY_MOVE, Input.CURSOR_MOVE, "")
 	if _input.can_issue_move():
 		return _context_result(CONTEXT_MOVE, Input.CURSOR_MOVE, "")
@@ -861,7 +861,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _renderer == null or _loaded == null:
 		return
 	if _escape_menu_panel != null and _escape_menu_panel.visible:
-		_reset_left_empty_drag()
+		_reset_selection_drag()
 		return
 	if event is InputEventKey:
 		var key_event: InputEventKey = event as InputEventKey
@@ -879,21 +879,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 	if event is InputEventMouseMotion:
 		var motion: InputEventMouseMotion = event as InputEventMouseMotion
-		if (
-			_left_empty_drag_candidate
-			and (
-				_left_empty_drag_moved
-				or (
-					motion.button_mask & MOUSE_BUTTON_MASK_LEFT != 0
-					and motion.position.distance_to(_left_empty_drag_start) >= CAMERA_DRAG_THRESHOLD
-				)
-			)
-		):
-			_left_empty_drag_moved = true
-			_is_panning_camera = true
 		if _is_panning_camera:
 			_renderer.pan_camera_by_screen_delta(motion.relative)
 			return
+		if _selection_drag.active() and motion.button_mask & MOUSE_BUTTON_MASK_LEFT != 0:
+			var drag_world: Vector2 = _event_world_position(motion)
+			if _selection_drag.update(motion.position, drag_world):
+				_renderer.set_selection_box_world_rect(_selection_drag.selection_world_rect())
+				return
 		var hover_tile: Vector2i = _renderer.world_to_tile(_event_world_position(motion))
 		_set_hover_tile(hover_tile)
 	elif event is InputEventMouseButton:
@@ -910,32 +903,35 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _replay_mode_active:
 			return
 		if button.button_index == MOUSE_BUTTON_LEFT and not button.pressed:
-			if _left_empty_drag_candidate:
-				if not _left_empty_drag_moved:
-					_input.clear_selection()
-					_renderer.clear_input_highlights()
-					_reset_context_cursor()
-					_update_hud("Selection cleared.")
-				_reset_left_empty_drag()
+			if _selection_drag.active():
+				var release: Dictionary = _selection_drag.release(
+					button.position, _event_world_position(button)
+				)
+				_renderer.clear_selection_box()
+				if release.get("dragging", false):
+					_apply_box_selection(
+						release.get("world_rect", Rect2()), release.get("additive", false)
+					)
+				else:
+					var release_tile: Vector2i = _renderer.world_to_tile(
+						_event_world_position(button)
+					)
+					_apply_click_selection(release_tile, button.shift_pressed)
 				return
-			_reset_left_empty_drag()
+			_reset_selection_drag()
 		if not button.pressed:
 			return
 		var tile: Vector2i = _renderer.world_to_tile(_event_world_position(button))
 		_record_hover_tile(tile)
 		if _range_projection_active:
 			_refresh_range_previews()
-		var entity_id: int = _renderer.entity_id_at_tile(tile)
 		if button.button_index == MOUSE_BUTTON_LEFT:
 			if _pending_command != PENDING_NONE:
 				confirm_pending_at_tile(tile, button.shift_pressed)
 				return
-			if entity_id >= 0:
-				select_entity_id(entity_id)
-			else:
-				_left_empty_drag_candidate = true
-				_left_empty_drag_moved = false
-				_left_empty_drag_start = button.position
+			_selection_drag.begin(
+				button.position, _event_world_position(button), button.shift_pressed
+			)
 		elif button.button_index == MOUSE_BUTTON_RIGHT:
 			if _pending_command != PENDING_NONE:
 				cancel_pending_command()
@@ -1171,14 +1167,56 @@ func _event_world_position(event: InputEventMouse) -> Vector2:
 		return event.position
 	if _renderer.get_viewport() == null:
 		return event.position
+	if DisplayServer.get_name() == "headless":
+		return event.position
 	return _renderer.get_global_mouse_position()
 
 
-func _reset_left_empty_drag() -> void:
-	_left_empty_drag_candidate = false
-	_left_empty_drag_moved = false
-	_left_empty_drag_start = Vector2.ZERO
+func _reset_selection_drag() -> void:
+	if _selection_drag != null:
+		_selection_drag.reset()
+	if _renderer != null:
+		_renderer.clear_selection_box()
 	_is_panning_camera = false
+
+
+func _apply_click_selection(tile: Vector2i, additive: bool) -> void:
+	var entity_id: int = _renderer.entity_id_at_tile(tile) if _renderer != null else -1
+	if additive:
+		if entity_id >= 0 and _input.toggle_entity_selection(entity_id):
+			_sync_selection_highlights()
+			_clear_build_placement_preview()
+			_update_hud()
+		return
+	if entity_id >= 0:
+		select_entity_id(entity_id)
+		return
+	_input.clear_selection()
+	if _renderer != null:
+		_renderer.clear_input_highlights()
+	_reset_context_cursor()
+	_update_hud("Selection cleared.")
+
+
+func _apply_box_selection(world_rect: Rect2, additive: bool) -> void:
+	if _renderer == null:
+		return
+	var ids: Array[int] = _renderer.owned_movable_entity_ids_in_world_rect(
+		world_rect, _input.active_player_id()
+	)
+	var ok: bool = (
+		_input.add_entities_to_selection(ids) if additive else _input.select_entities(ids)
+	)
+	if ok or not additive:
+		_sync_selection_highlights()
+	_clear_build_placement_preview()
+	_update_hud()
+
+
+func _sync_selection_highlights() -> void:
+	if _renderer == null:
+		return
+	_renderer.set_selected_entity_ids(_input.selected_entity_ids())
 
 
 func _set_hover_tile(tile: Vector2i) -> void:
@@ -1756,18 +1794,21 @@ func _selected_can_rally_gather_to(target_entity_id: int) -> bool:
 
 
 func _selected_can_gather_target_valid(target_entity_id: int) -> bool:
-	var actor: Entity = _selected_entity()
-	if actor == null:
-		return false
 	var target: Entity = _loaded.state.get_entity_by_id(target_entity_id)
 	if not _is_resource_context_target(target):
 		return false
-	return (
-		GatherSystem.resolve_source_for_worker(
-			_loaded.state, _loaded.registry, target_entity_id, actor.owner_player_id
-		)
-		!= null
-	)
+	for entity_id in _input.selected_entity_ids():
+		var actor: Entity = _loaded.state.get_entity_by_id(entity_id)
+		if actor == null:
+			continue
+		if (
+			GatherSystem.resolve_source_for_worker(
+				_loaded.state, _loaded.registry, target_entity_id, actor.owner_player_id
+			)
+			!= null
+		):
+			return true
+	return false
 
 
 func _is_resource_context_target(entity: Entity) -> bool:
@@ -1870,7 +1911,8 @@ func _refresh_action_previews() -> void:
 			_input.active_player_id(),
 			_input.selected_entity_id(),
 			_show_all_friendly_action_previews,
-			_renderer
+			_renderer,
+			_input.selected_entity_ids()
 		)
 		_renderer.call("set_action_previews", previews)
 	if _renderer.has_method("set_target_intent_previews"):
@@ -1881,7 +1923,8 @@ func _refresh_action_previews() -> void:
 			_input.active_player_id(),
 			_input.selected_entity_id(),
 			_show_all_friendly_action_previews,
-			_renderer
+			_renderer,
+			_input.selected_entity_ids()
 		)
 		_renderer.call("set_target_intent_previews", target_intents)
 
