@@ -1823,8 +1823,8 @@ func _test_move_shoots_before_moving() -> bool:
 	var result := Resolver.resolve(
 		state, _submit([move_order] as Array[EntityOrder]), _submit([]), registry, null
 	)
-	var damaged_idx := -1
-	var moved_idx := -1
+	var damaged_idx: int = -1
+	var moved_idx: int = -1
 	for i in result.events.size():
 		var ev: ResolverEvent = result.events[i]
 		if (
