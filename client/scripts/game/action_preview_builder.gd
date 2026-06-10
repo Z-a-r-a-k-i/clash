@@ -2,6 +2,7 @@ class_name ActionPreviewBuilder
 extends RefCounted
 
 const PATHFINDING_SCRIPT := preload("res://scripts/resolver/pathfinding_system.gd")
+const TACTICAL_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/tactical_preview_builder.gd")
 
 var _state: MatchState = null
 var _registry: EntityRegistry = null
@@ -9,6 +10,9 @@ var _input: DevTurnInput = null
 var _player_id: int = 0
 var _renderer: MatchRenderer = null
 var _visibility_by_player: Dictionary[int, VisionSystem.Visibility] = {}
+var _tactical_preview_builder: TacticalPreviewBuilder = (
+	TACTICAL_PREVIEW_BUILDER_SCRIPT.new() as TacticalPreviewBuilder
+)
 
 
 func build(
@@ -327,6 +331,9 @@ func _move_preview(
 		preview["path"] = path
 		if order.target_entity_id >= 0 or not order.target_priority_chain.is_empty():
 			preview["handoff_tile"] = path[path.size() - 1]
+		_add_turn_stop_tile(
+			preview, order.entity_id, path, _will_fire_before_movement(order.entity_id)
+		)
 	return preview
 
 
@@ -367,6 +374,9 @@ func _targeted_attack_preview(
 	)
 	if not path.is_empty():
 		preview["path"] = path
+		_add_turn_stop_tile(
+			preview, order.entity_id, path, _will_fire_before_movement(order.entity_id)
+		)
 	return preview
 
 
@@ -491,6 +501,9 @@ func _gather_preview(
 	)
 	if not path.is_empty():
 		preview["path"] = path
+		_add_turn_stop_tile(
+			preview, order.entity_id, path, _will_fire_before_movement(order.entity_id)
+		)
 		handoff_tile = path[path.size() - 1]
 	preview["handoff_tile"] = handoff_tile
 	return preview
@@ -524,9 +537,27 @@ func _build_preview(
 	)
 	if not path.is_empty():
 		preview["path"] = path
+		_add_turn_stop_tile(
+			preview, order.entity_id, path, _will_fire_before_movement(order.entity_id)
+		)
 		handoff_tile = path[path.size() - 1]
 	preview["handoff_tile"] = handoff_tile
 	return preview
+
+
+func _add_turn_stop_tile(
+	preview: Dictionary, entity_id: int, path: Array[Vector2i], fired_this_turn: bool
+) -> void:
+	var stop_tile: Vector2i = _tactical_preview_builder.turn_stop_tile_for_path(
+		_state, _registry, entity_id, path, fired_this_turn
+	)
+	if stop_tile == TacticalPreviewBuilder.NO_STOP_TILE:
+		return
+	preview["turn_stop_tile"] = stop_tile
+
+
+func _will_fire_before_movement(entity_id: int) -> bool:
+	return _attack_target_for_entity(entity_id) >= 0
 
 
 func _preview_actor_at(actor: Entity, start_tile: Vector2i, has_start_tile: bool) -> Entity:

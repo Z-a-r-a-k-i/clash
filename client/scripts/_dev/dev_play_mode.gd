@@ -16,6 +16,7 @@ const _DEV_REPLAY_AUTO_DIR := "user://tmp/replays"
 const _DEV_REPLAY_AUTO_PREFIX := "dev_replay"
 const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
 const ACTION_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/action_preview_builder.gd")
+const TACTICAL_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/tactical_preview_builder.gd")
 const COMMAND_OPTION_BUILDER := preload("res://scripts/game/command_option_builder.gd")
 const PATHFINDING_SCRIPT := preload("res://scripts/resolver/pathfinding_system.gd")
 const PENDING_NONE := ""
@@ -76,6 +77,9 @@ var _left_empty_drag_candidate: bool = false
 var _left_empty_drag_moved: bool = false
 var _left_empty_drag_start: Vector2 = Vector2.ZERO
 var _show_all_friendly_action_previews: bool = false
+var _range_projection_active: bool = false
+var _last_hover_tile: Vector2i = Vector2i.ZERO
+var _has_last_hover_tile: bool = false
 var _replay: MatchReplay = MatchReplay.new()
 var _checkpoints: Dictionary[int, SavedSession] = {}
 var _replay_mode_active: bool = false
@@ -85,6 +89,9 @@ var _updating_replay_timeline: bool = false
 var _auto_replay_path: String = ""
 var _action_preview_builder: ActionPreviewBuilder = (
 	ACTION_PREVIEW_BUILDER_SCRIPT.new() as ActionPreviewBuilder
+)
+var _tactical_preview_builder: TacticalPreviewBuilder = (
+	TACTICAL_PREVIEW_BUILDER_SCRIPT.new() as TacticalPreviewBuilder
 )
 
 
@@ -116,6 +123,8 @@ func load_scenario_path(path: String) -> bool:
 	_renderer.focus_player_start(_input.active_player_id())
 	_input.bind_context(_loaded.state, _loaded.registry)
 	_input.clear_submissions()
+	_range_projection_active = false
+	_has_last_hover_tile = false
 	_start_replay_journal()
 	_reset_context_cursor()
 	_update_hud()
@@ -856,6 +865,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventKey:
 		var key_event: InputEventKey = event as InputEventKey
+		if key_event.keycode == KEY_ALT and not key_event.echo:
+			_set_range_projection_active(key_event.pressed)
+			var viewport: Viewport = get_viewport()
+			if viewport != null:
+				viewport.set_input_as_handled()
+			return
 		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_A:
 			begin_target()
 			var viewport: Viewport = get_viewport()
@@ -907,6 +922,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if not button.pressed:
 			return
 		var tile: Vector2i = _renderer.world_to_tile(_event_world_position(button))
+		_record_hover_tile(tile)
+		if _range_projection_active:
+			_refresh_range_previews()
 		var entity_id: int = _renderer.entity_id_at_tile(tile)
 		if button.button_index == MOUSE_BUTTON_LEFT:
 			if _pending_command != PENDING_NONE:
@@ -927,6 +945,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_MOUSE_EXIT:
+		_has_last_hover_tile = false
+		_refresh_range_previews()
 		_reset_context_cursor()
 
 
@@ -1164,6 +1184,7 @@ func _reset_left_empty_drag() -> void:
 func _set_hover_tile(tile: Vector2i) -> void:
 	if _renderer == null:
 		return
+	_record_hover_tile(tile)
 	_renderer.set_hover_tile(tile)
 	if _pending_command == PENDING_BUILD:
 		_refresh_build_placement_preview(tile)
@@ -1171,6 +1192,12 @@ func _set_hover_tile(tile: Vector2i) -> void:
 	else:
 		_clear_build_placement_preview()
 		_update_context_cursor_for_tile(tile)
+	_refresh_range_previews()
+
+
+func _record_hover_tile(tile: Vector2i) -> void:
+	_last_hover_tile = tile
+	_has_last_hover_tile = true
 
 
 func _build_hud() -> void:
@@ -1656,6 +1683,7 @@ func _update_hud(override_status: String = "") -> void:
 			_status_label.text = status_message
 	_refresh_command_card()
 	_refresh_action_previews()
+	_refresh_range_previews()
 
 
 func _context_result(
@@ -1856,6 +1884,36 @@ func _refresh_action_previews() -> void:
 			_renderer
 		)
 		_renderer.call("set_target_intent_previews", target_intents)
+
+
+func _set_range_projection_active(enabled: bool) -> void:
+	if _range_projection_active == enabled:
+		return
+	_range_projection_active = enabled
+	_refresh_range_previews()
+
+
+func _refresh_range_previews() -> void:
+	if _renderer == null or not _renderer.has_method("set_range_preview_tiles"):
+		return
+	var current_tiles: Array[Vector2i] = []
+	var projected_tiles: Array[Vector2i] = []
+	if _loaded != null and _loaded.state != null and _loaded.registry != null:
+		var entity_id: int = _input.selected_entity_id()
+		if entity_id >= 0:
+			current_tiles = _tactical_preview_builder.attack_range_tiles(
+				_loaded.state, _loaded.registry, entity_id
+			)
+			if (
+				_range_projection_active
+				and _has_last_hover_tile
+				and _loaded.state.tile_grid != null
+				and _loaded.state.tile_grid.is_in_bounds(_last_hover_tile)
+			):
+				projected_tiles = _tactical_preview_builder.attack_range_tiles_from_origin(
+					_loaded.state, _loaded.registry, entity_id, _last_hover_tile
+				)
+	_renderer.call("set_range_preview_tiles", current_tiles, projected_tiles)
 
 
 func _build_options(ids: Array[String]) -> Array[Dictionary]:

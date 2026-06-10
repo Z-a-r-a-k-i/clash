@@ -76,6 +76,15 @@ func _all_tests() -> Array:
 			"dev_play_mode_selected_and_friendly_action_previews",
 			_test_selected_and_friendly_action_previews
 		],
+		["dev_play_mode_selected_combat_unit_shows_range", _test_selected_combat_unit_shows_range],
+		[
+			"dev_play_mode_alt_projects_range_from_hover_tile",
+			_test_alt_projects_range_from_hover_tile
+		],
+		[
+			"dev_play_mode_move_preview_shows_turn_stop_marker",
+			_test_move_preview_shows_turn_stop_marker
+		],
 		[
 			"dev_play_mode_selected_and_friendly_target_intents",
 			_test_selected_and_friendly_target_intents
@@ -1043,6 +1052,117 @@ func _test_selected_and_friendly_target_intents() -> bool:
 		return false
 	_free_mode(mode)
 	return true
+
+
+func _test_selected_combat_unit_shows_range() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var renderer: MatchRenderer = mode.renderer()
+	if renderer == null or not renderer.has_method("range_preview_tile_count"):
+		push_error("renderer should expose range preview tile count")
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var marine_id: int = _find_entity_id(mode.current_state(), "marine", 0)
+	if marine_id < 0 or not mode.select_entity_id(marine_id):
+		push_error("expected to select a P0 marine")
+		_free_mode(mode)
+		return false
+	var count: int = renderer.call("range_preview_tile_count")
+	var ok := count > 0
+	if not ok:
+		push_error("selecting a combat unit should draw current range tiles")
+	_free_mode(mode)
+	return ok
+
+
+func _test_alt_projects_range_from_hover_tile() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var renderer: MatchRenderer = mode.renderer()
+	if renderer == null or not renderer.has_method("range_preview_tile_count"):
+		push_error("renderer should expose range preview tile count")
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var marine_id: int = _find_entity_id(mode.current_state(), "marine", 0)
+	if marine_id < 0 or not mode.select_entity_id(marine_id):
+		push_error("expected to select a P0 marine")
+		_free_mode(mode)
+		return false
+	var current_count: int = renderer.call("range_preview_tile_count")
+	mode.call("_set_range_projection_active", true)
+	mode.call("_set_hover_tile", Vector2i(12, 12))
+	var projected_count: int = renderer.call("range_preview_tile_count")
+	mode.call("_notification", NOTIFICATION_WM_MOUSE_EXIT)
+	var exited_count: int = renderer.call("range_preview_tile_count")
+	mode.call("_set_range_projection_active", false)
+	var restored_count: int = renderer.call("range_preview_tile_count")
+	var ok := true
+	if projected_count <= current_count:
+		push_error("Alt projection should add hover-anchored range tiles to current range preview")
+		ok = false
+	if restored_count != current_count:
+		push_error("releasing Alt should restore the selected unit's current range preview")
+		ok = false
+	if exited_count != current_count:
+		push_error("mouse exit should clear hover-projected range tiles")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_move_preview_shows_turn_stop_marker() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var renderer: MatchRenderer = mode.renderer()
+	if (
+		renderer == null
+		or not renderer.has_method("action_preview_stop_marker_count")
+		or not renderer.has_method("action_preview_stop_marker_tile")
+	):
+		push_error("renderer should expose action preview stop marker helpers")
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	if worker_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected to select a P0 worker")
+		_free_mode(mode)
+		return false
+	if not mode.issue_move_selected(Vector2i(20, 22)):
+		push_error("expected long-range move to queue")
+		_free_mode(mode)
+		return false
+	var stop_count: int = renderer.call("action_preview_stop_marker_count")
+	var stop_tile: Vector2i = renderer.call("action_preview_stop_marker_tile", 0)
+	var ok := true
+	if stop_count != 1:
+		push_error("queued long move should draw exactly one next-turn stop marker")
+		ok = false
+	if stop_tile == Vector2i(20, 22):
+		push_error("long move stop marker should not be the final destination")
+		ok = false
+	if stop_tile == Vector2i(-999999, -999999):
+		push_error("long move stop marker should record a concrete tile")
+		ok = false
+	_free_mode(mode)
+	return ok
 
 
 func _test_gather_and_build_previews_route_around_blockers() -> bool:
