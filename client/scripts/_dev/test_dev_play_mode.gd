@@ -77,6 +77,10 @@ func _all_tests() -> Array:
 			_test_selected_and_friendly_action_previews
 		],
 		[
+			"dev_play_mode_selected_and_friendly_target_intents",
+			_test_selected_and_friendly_target_intents
+		],
+		[
 			"dev_play_mode_gather_and_build_previews_route_around_blockers",
 			_test_gather_and_build_previews_route_around_blockers
 		],
@@ -980,6 +984,67 @@ func _test_selected_and_friendly_action_previews() -> bool:
 	return true
 
 
+func _test_selected_and_friendly_target_intents() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var state: MatchState = mode.current_state()
+	var marines: Array[int] = _find_entity_ids(state, "marine", 0)
+	var target_id: int = _find_entity_id(state, "siege_tank", 1)
+	var renderer: MatchRenderer = mode.renderer()
+	if marines.size() < 2 or target_id < 0 or renderer == null:
+		push_error("expected two P0 marines, P1 target, and renderer")
+		_free_mode(mode)
+		return false
+	for method in ["set_target_intent_previews", "target_intent_preview_count"]:
+		if not renderer.has_method(method):
+			push_error("renderer should expose %s" % method)
+			_free_mode(mode)
+			return false
+	if (
+		not _move_entity_to(state, marines[0], Vector2i(6, 10))
+		or not _move_entity_to(state, marines[1], Vector2i(6, 12))
+		or not _move_entity_to(state, target_id, Vector2i(10, 11))
+	):
+		_free_mode(mode)
+		return false
+	renderer.bind_state(state, _load_registry())
+	if not mode.select_entity_id(marines[0]) or not mode.issue_attack_selected(target_id):
+		push_error("expected first marine target intent")
+		_free_mode(mode)
+		return false
+	if renderer.call("target_intent_preview_count") != 1:
+		push_error("selected target intent should always show one preview")
+		_free_mode(mode)
+		return false
+	if not mode.select_entity_id(marines[1]) or not mode.issue_attack_selected(target_id):
+		push_error("expected second marine target intent")
+		_free_mode(mode)
+		return false
+	if renderer.call("target_intent_preview_count") != 1:
+		push_error("all-friendly target intents should be off by default")
+		_free_mode(mode)
+		return false
+	mode.call("set_show_all_friendly_action_previews", true)
+	var expected_intents: int = 2
+	if renderer.call("target_intent_preview_count") != expected_intents:
+		push_error(
+			(
+				"all-friendly preview toggle should show friendly target intents, got %d expected %d"
+				% [renderer.call("target_intent_preview_count"), expected_intents]
+			)
+		)
+		_free_mode(mode)
+		return false
+	_free_mode(mode)
+	return true
+
+
 func _test_gather_and_build_previews_route_around_blockers() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -1192,6 +1257,10 @@ func _test_direct_attack_preview_tracks_live_target() -> bool:
 		push_error("expected opposing marines and renderer for direct attack preview test")
 		_free_mode(mode)
 		return false
+	if not renderer.has_method("target_intent_preview_count"):
+		push_error("renderer should expose target_intent_preview_count")
+		_free_mode(mode)
+		return false
 	if not _move_entity_to(state, actor.id, Vector2i(6, 10)):
 		_free_mode(mode)
 		return false
@@ -1214,26 +1283,49 @@ func _test_direct_attack_preview_tracks_live_target() -> bool:
 	renderer.bind_state(state, _load_registry())
 	mode.call("_update_hud")
 	var stale_target_center: Vector2 = _tile_center_px(stale_target_tile)
-	var live_target_center: Vector2 = _tile_center_px(live_target_tile)
-	var preview_root: Node2D = renderer.get_node_or_null("Overlays/ActionPreviews") as Node2D
-	var preview_group: Node = preview_root.get_child(0) if preview_root != null else null
-	var preview_line: Line2D = (
-		preview_group.get_child(0) as Line2D
-		if preview_group != null and preview_group.get_child_count() > 0
-		else null
+	var target_view: EntityView = renderer.get_entity_view(target.id)
+	var live_target_center: Vector2 = (
+		target_view.position if target_view != null else _tile_center_px(live_target_tile)
 	)
-	if preview_line == null or preview_line.points.size() < 2:
-		push_error("direct attack preview should draw a routed path")
-		_free_mode(mode)
-		return false
-	var end_point: Vector2 = preview_line.points[preview_line.points.size() - 1]
 	var ok: bool = true
-	if end_point.distance_to(stale_target_center) <= 0.5:
-		push_error("direct attack preview should not end at the stale fallback target tile")
+	if renderer.action_preview_count() != 1:
+		push_error("out-of-range target command should keep one generated movement action preview")
 		ok = false
-	if end_point.distance_to(live_target_center) >= end_point.distance_to(stale_target_center):
-		push_error("direct attack preview should route toward the live target tile")
+	if renderer.call("target_intent_preview_count") != 1:
+		push_error("out-of-range target command should show one target intent preview")
 		ok = false
+	var movement_points: PackedVector2Array = _action_preview_line_points(renderer, 0)
+	var intent_points: PackedVector2Array = _target_intent_line_points(renderer, 0)
+	if movement_points.size() < 2:
+		push_error("direct attack movement preview should draw a routed path")
+		ok = false
+	if intent_points.size() < 2:
+		push_error("direct attack target intent should draw a combat-lock line")
+		ok = false
+	if movement_points.size() >= 2:
+		var movement_end: Vector2 = movement_points[movement_points.size() - 1]
+		if movement_end.distance_to(stale_target_center) <= 0.5:
+			push_error("movement preview should not end at the stale fallback target tile")
+			ok = false
+		if (
+			movement_end.distance_to(live_target_center)
+			>= movement_end.distance_to(stale_target_center)
+		):
+			push_error("movement preview should route toward the live target tile")
+			ok = false
+		if intent_points.size() >= 2:
+			var intent_start: Vector2 = intent_points[0]
+			if intent_start.distance_to(movement_end) > 0.5:
+				push_error("target intent should start from the planned firing position")
+				ok = false
+	if intent_points.size() >= 2:
+		var intent_end: Vector2 = intent_points[intent_points.size() - 1]
+		if intent_end.distance_to(stale_target_center) <= 0.5:
+			push_error("target intent should not end at the stale fallback target tile")
+			ok = false
+		if intent_end.distance_to(live_target_center) > 0.5:
+			push_error("target intent should lock onto the live target position")
+			ok = false
 	_free_mode(mode)
 	return ok
 
@@ -2151,22 +2243,62 @@ func _add_runtime_entity(state: MatchState, def_id: String, owner: int, origin: 
 func _action_preview_starts_near(
 	renderer: MatchRenderer, preview_index: int, expected_start: Vector2
 ) -> bool:
+	var preview_points: PackedVector2Array = _action_preview_line_points(renderer, preview_index)
+	return preview_points.size() >= 2 and preview_points[0].distance_to(expected_start) <= 0.5
+
+
+func _action_preview_line_points(renderer: MatchRenderer, preview_index: int) -> PackedVector2Array:
+	var out: PackedVector2Array = PackedVector2Array()
 	if renderer == null:
-		return false
+		return out
 	var preview_root: Node2D = renderer.get_node_or_null("Overlays/ActionPreviews") as Node2D
 	if preview_root == null or preview_index < 0 or preview_index >= preview_root.get_child_count():
-		return false
+		return out
 	var preview_group: Node = preview_root.get_child(preview_index)
-	var preview_line: Line2D = (
-		preview_group.get_child(0) as Line2D
-		if preview_group != null and preview_group.get_child_count() > 0
-		else null
-	)
-	return (
-		preview_line != null
-		and preview_line.points.size() >= 2
-		and preview_line.points[0].distance_to(expected_start) <= 0.5
-	)
+	var preview_line: Line2D = _first_line_descendant(preview_group)
+	if preview_line == null:
+		return out
+	return preview_line.points
+
+
+func _target_intent_line_points(renderer: MatchRenderer, preview_index: int) -> PackedVector2Array:
+	var out: PackedVector2Array = PackedVector2Array()
+	if renderer == null:
+		return out
+	var preview_root: Node2D = renderer.get_node_or_null("Overlays/TargetIntents") as Node2D
+	if preview_root == null or preview_index < 0 or preview_index >= preview_root.get_child_count():
+		return out
+	var preview_group: Node = preview_root.get_child(preview_index)
+	var lines: Array[Line2D] = []
+	_collect_line_descendants(preview_group, lines)
+	for line in lines:
+		if line.points.size() < 2:
+			continue
+		if out.is_empty():
+			out.append(line.points[0])
+		out.append(line.points[line.points.size() - 1])
+	return out
+
+
+func _collect_line_descendants(root: Node, out: Array[Line2D]) -> void:
+	if root == null:
+		return
+	if root is Line2D:
+		out.append(root as Line2D)
+	for child in root.get_children():
+		_collect_line_descendants(child, out)
+
+
+func _first_line_descendant(root: Node) -> Line2D:
+	if root == null:
+		return null
+	if root is Line2D:
+		return root as Line2D
+	for child in root.get_children():
+		var found: Line2D = _first_line_descendant(child)
+		if found != null:
+			return found
+	return null
 
 
 func _tile_center_px(tile: Vector2i) -> Vector2:

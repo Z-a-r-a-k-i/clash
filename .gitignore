@@ -61,6 +61,8 @@ desktop.ini
 # godot-ai-plugin (used externally per ADR 0008; junction installed locally)
 client/addons/godot_ai/
 .superpowers/
+# Git worktrees created with git worktree add.
+/.worktrees/
 
 # Working captures from godot_capture_game_viewport. Screenshots are for
 # session-time visualization, not for the repo.

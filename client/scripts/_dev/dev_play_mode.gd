@@ -1830,20 +1830,32 @@ func _refresh_command_card() -> void:
 
 
 func _refresh_action_previews() -> void:
-	if _renderer == null or not _renderer.has_method("set_action_previews"):
+	if _renderer == null:
 		return
 	var state: MatchState = _loaded.state if _loaded != null else null
 	var registry: EntityRegistry = _loaded.registry if _loaded != null else null
-	var previews: Array[Dictionary] = _action_preview_builder.build(
-		state,
-		registry,
-		_input,
-		_input.active_player_id(),
-		_input.selected_entity_id(),
-		_show_all_friendly_action_previews,
-		_renderer
-	)
-	_renderer.call("set_action_previews", previews)
+	if _renderer.has_method("set_action_previews"):
+		var previews: Array[Dictionary] = _action_preview_builder.build(
+			state,
+			registry,
+			_input,
+			_input.active_player_id(),
+			_input.selected_entity_id(),
+			_show_all_friendly_action_previews,
+			_renderer
+		)
+		_renderer.call("set_action_previews", previews)
+	if _renderer.has_method("set_target_intent_previews"):
+		var target_intents: Array[Dictionary] = _action_preview_builder.build_target_intents(
+			state,
+			registry,
+			_input,
+			_input.active_player_id(),
+			_input.selected_entity_id(),
+			_show_all_friendly_action_previews,
+			_renderer
+		)
+		_renderer.call("set_target_intent_previews", target_intents)
 
 
 func _build_options(ids: Array[String]) -> Array[Dictionary]:

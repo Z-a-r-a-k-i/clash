@@ -45,6 +45,40 @@ func build(
 	return previews
 
 
+func build_target_intents(
+	state: MatchState,
+	registry: EntityRegistry,
+	input: DevTurnInput,
+	player_id: int,
+	selected_entity_id: int,
+	include_all_friendly: bool = false,
+	renderer: MatchRenderer = null
+) -> Array[Dictionary]:
+	_state = state
+	_registry = registry
+	_input = input
+	_player_id = player_id
+	_renderer = renderer
+	_visibility_by_player.clear()
+	var intents: Array[Dictionary] = []
+	intents.append_array(_target_intents_for_entity(selected_entity_id))
+	if include_all_friendly:
+		if _state == null:
+			return intents
+		var seen: Dictionary[int, bool] = {}
+		if selected_entity_id >= 0:
+			seen[selected_entity_id] = true
+		for entity in _state.entities_sorted_by_id():
+			if entity == null or entity.owner_player_id != _player_id or seen.has(entity.id):
+				continue
+			var entity_intents: Array[Dictionary] = _target_intents_for_entity(entity.id)
+			if entity_intents.is_empty():
+				continue
+			intents.append_array(entity_intents)
+			seen[entity.id] = true
+	return intents
+
+
 func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	if entity_id < 0 or _state == null or _input == null:
@@ -52,7 +86,9 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 	var sequence_index: int = 1
 	var has_planned_tile: bool = false
 	var planned_tile: Vector2i = Vector2i.ZERO
+	var saw_order: bool = false
 	for queued in _queued_orders_for_entity(entity_id):
+		saw_order = true
 		var queued_preview: Dictionary = _preview_for_order(queued, planned_tile, has_planned_tile)
 		if not queued_preview.is_empty():
 			queued_preview["sequence_index"] = sequence_index
@@ -63,6 +99,7 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 				has_planned_tile = true
 			sequence_index += 1
 	for future in _future_orders_for_entity(entity_id):
+		saw_order = true
 		var future_preview: Dictionary = _preview_for_order(future, planned_tile, has_planned_tile)
 		if not future_preview.is_empty():
 			future_preview["sequence_index"] = sequence_index
@@ -77,25 +114,24 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 		out.append(rally_preview)
 	if not out.is_empty():
 		return out
+	if saw_order:
+		return out
 	var entity: Entity = _state.get_entity_by_id(entity_id)
 	if entity == null:
 		return out
-	var shot_target_id: int = _attack_target_for_entity(entity.id)
-	if shot_target_id >= 0:
-		out.append(
-			{"entity_id": entity.id, "kind": "Idle + Shoot", "target_entity_id": shot_target_id}
-		)
-	if entity.focus_target_entity_id >= 0:
-		(
-			out
-			. append(
-				{
-					"entity_id": entity.id,
-					"kind": "Target",
-					"target_entity_id": entity.focus_target_entity_id,
-				}
+	if entity.focus_target_entity_id < 0:
+		var shot_target_id: int = _attack_target_for_entity(entity.id)
+		if shot_target_id >= 0:
+			(
+				out
+				. append(
+					{
+						"entity_id": entity.id,
+						"kind": "Idle + Shoot",
+						"target_entity_id": shot_target_id,
+					}
+				)
 			)
-		)
 	if (
 		entity.gather_state != null
 		and entity.gather_state.phase != GatherState.Phase.IDLE
@@ -112,6 +148,72 @@ func _previews_for_entity(entity_id: int) -> Array[Dictionary]:
 			)
 		)
 	return out
+
+
+func _target_intents_for_entity(entity_id: int) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if entity_id < 0 or _state == null or _input == null:
+		return out
+	var has_planned_tile: bool = false
+	var planned_tile: Vector2i = Vector2i.ZERO
+	for queued in _queued_orders_for_entity(entity_id):
+		var queued_intent: Dictionary = _target_intent_for_order(
+			queued, planned_tile, has_planned_tile
+		)
+		if not queued_intent.is_empty():
+			out.append(queued_intent)
+		var queued_preview: Dictionary = _preview_for_order(queued, planned_tile, has_planned_tile)
+		if (
+			not queued_preview.is_empty()
+			and _preview_keeps_planned_tile(queued_preview, has_planned_tile)
+		):
+			planned_tile = _preview_planned_tile_value(queued_preview, planned_tile)
+			has_planned_tile = true
+	for future in _future_orders_for_entity(entity_id):
+		var future_intent: Dictionary = _target_intent_for_order(
+			future, planned_tile, has_planned_tile
+		)
+		if not future_intent.is_empty():
+			out.append(future_intent)
+		var future_preview: Dictionary = _preview_for_order(future, planned_tile, has_planned_tile)
+		if (
+			not future_preview.is_empty()
+			and _preview_keeps_planned_tile(future_preview, has_planned_tile)
+		):
+			planned_tile = _preview_planned_tile_value(future_preview, planned_tile)
+			has_planned_tile = true
+	if not out.is_empty():
+		return out
+	var entity: Entity = _state.get_entity_by_id(entity_id)
+	if entity == null or entity.focus_target_entity_id < 0:
+		return out
+	var focus_intent: Dictionary = {
+		"entity_id": entity.id,
+		"target_entity_id": entity.focus_target_entity_id,
+	}
+	if has_planned_tile:
+		focus_intent["start_tile"] = planned_tile
+	out.append(focus_intent)
+	return out
+
+
+func _target_intent_for_order(
+	order: EntityOrder, start_tile: Vector2i = Vector2i.ZERO, has_start_tile: bool = false
+) -> Dictionary:
+	if order == null or order.type != EntityOrder.Type.TARGET:
+		return {}
+	var target_id: int = order.target_entity_id
+	if target_id < 0 and not order.target_priority_chain.is_empty():
+		target_id = order.target_priority_chain[0]
+	if target_id < 0:
+		return {}
+	var intent: Dictionary = {
+		"entity_id": order.entity_id,
+		"target_entity_id": target_id,
+	}
+	if has_start_tile:
+		intent["start_tile"] = start_tile
+	return intent
 
 
 func _rally_preview_for_entity(entity_id: int) -> Dictionary:
@@ -172,14 +274,7 @@ func _preview_for_order(
 		EntityOrder.Type.ATTACK_MOVE:
 			preview = _move_preview(order, "Attack", start_tile, has_start_tile)
 		EntityOrder.Type.TARGET:
-			var target_id: int = -1
-			if not order.target_priority_chain.is_empty():
-				target_id = order.target_priority_chain[0]
-			preview = {
-				"entity_id": order.entity_id,
-				"kind": "Attack",
-				"target_entity_id": target_id,
-			}
+			preview = {}
 		EntityOrder.Type.GATHER:
 			preview = _gather_preview(order, start_tile, has_start_tile)
 		EntityOrder.Type.BUILD:
@@ -230,6 +325,8 @@ func _move_preview(
 	)
 	if not path.is_empty():
 		preview["path"] = path
+		if order.target_entity_id >= 0 or not order.target_priority_chain.is_empty():
+			preview["handoff_tile"] = path[path.size() - 1]
 	return preview
 
 
