@@ -76,7 +76,9 @@ var _command_card: Control = null
 var _pending_command: String = PENDING_NONE
 var _pending_build_def_id: String = ""
 var _is_panning_camera: bool = false
-var _selection_drag: Variant = SELECTION_DRAG_CONTROLLER_SCRIPT.new()
+var _selection_drag: SelectionDragController = (
+	SELECTION_DRAG_CONTROLLER_SCRIPT.new() as SelectionDragController
+)
 var _show_all_friendly_action_previews: bool = false
 var _range_projection_active: bool = false
 var _last_hover_tile: Vector2i = Vector2i.ZERO
