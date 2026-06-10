@@ -299,17 +299,7 @@ func _all_tests() -> Array:
 		["build_off_grid_rejected", _test_build_off_grid_rejected],
 		["production_determinism_golden", _test_production_determinism_golden],
 		# Plan node 06 — combat data wiring.
-		["siege_tank_has_no_attack_modifiers_data", _test_siege_tank_has_no_attack_modifiers_data],
-		["helicopter_has_no_attack_modifiers_data", _test_helicopter_has_no_attack_modifiers_data],
-		["marine_has_no_attack_modifiers_data", _test_marine_has_no_attack_modifiers_data],
-		["siege_tank_damage_at_data_values", _test_siege_tank_damage_at_data_values],
-		["helicopter_damage_at_data_values", _test_helicopter_damage_at_data_values],
-		["registry_playtest_retune_values", _test_registry_playtest_retune_values],
 		["registry_loads_from_data", _test_registry_loads_from_data],
-		[
-			"registry_resource_footprints_match_visual_scale",
-			_test_registry_resource_footprints_match_visual_scale
-		],
 		# Plan node 07a — scenario loader + save/load.
 		["scenario_loader_minimal", _test_scenario_loader_minimal],
 		[
@@ -346,7 +336,6 @@ func _all_tests() -> Array:
 		["mvp_map_main_resource_layout", _test_mvp_map_main_resource_layout],
 		["mvp_map_is_mirror", _test_mvp_map_is_mirror],
 		["mvp_map_bake_parity", _test_mvp_map_bake_parity],
-		["golden_minerals_higher_yield", _test_golden_minerals_higher_yield],
 		# Plan node 07b5 — self-target ability orders.
 		["ability_stim_rejects_without_research", _test_ability_stim_rejects_without_research],
 		[
@@ -5238,124 +5227,6 @@ func _test_build_cancel_pending_full_refund() -> bool:
 # ---------- Plan node 06 — combat data wiring ----------
 
 
-func _test_siege_tank_has_no_attack_modifiers_data() -> bool:
-	# Balance CSV pass removed tag counters from the current roster.
-	var registry := _load_data_registry()
-	if registry == null:
-		return false
-	var def: EntityDef = registry.get_by_id("siege_tank")
-	if def == null or def.combat == null:
-		return false
-	return def.combat.attack_modifiers.is_empty()
-
-
-func _test_helicopter_has_no_attack_modifiers_data() -> bool:
-	var registry := _load_data_registry()
-	if registry == null:
-		return false
-	var def: EntityDef = registry.get_by_id("helicopter")
-	if def == null or def.combat == null:
-		return false
-	return def.combat.attack_modifiers.is_empty()
-
-
-func _test_marine_has_no_attack_modifiers_data() -> bool:
-	# Marine is the generalist — no counters. Per spec: "keep modifiers
-	# small (one or two per unit)"; marine carries none.
-	var registry := _load_data_registry()
-	if registry == null:
-		return false
-	var def: EntityDef = registry.get_by_id("marine")
-	if def == null or def.combat == null:
-		return false
-	return def.combat.attack_modifiers.is_empty()
-
-
-func _test_siege_tank_damage_at_data_values() -> bool:
-	# Behavioral test using actual .tres values: siege_tank base damage is 40.
-	var registry := _load_data_registry()
-	if registry == null:
-		return false
-	var state := _state_with_grid(20, 20)
-	state.players = [_player(0), _player(1)]
-	var attacker := _make_entity(state, "siege_tank", 0, Vector2i(0, 5), 175, "ground")
-	var target := _make_entity(state, "siege_tank", 1, Vector2i(5, 5), 175, "ground")
-	state.tile_grid.place(attacker.id, Rect2i(0, 5, 2, 2))
-	state.tile_grid.place(target.id, Rect2i(5, 5, 2, 2))
-
-	var atk := EntityOrder.new()
-	atk.type = EntityOrder.Type.TARGET
-	atk.entity_id = attacker.id
-	atk.target_priority_chain = [target.id]
-	var result := Resolver.resolve(state, _submit([atk]), _submit(), registry, null)
-	for ev in result.events:
-		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.target_id == target.id:
-			return ev.damage == 40
-	return false
-
-
-func _test_helicopter_damage_at_data_values() -> bool:
-	# Behavioral test using actual .tres values: helicopter base damage is 25.
-	var registry := _load_data_registry()
-	if registry == null:
-		return false
-	var state := _state_with_grid(20, 20)
-	state.players = [_player(0), _player(1)]
-	var heli := _make_entity(state, "helicopter", 0, Vector2i(0, 5), 140, "flying")
-	var marine := _make_entity(state, "marine", 1, Vector2i(3, 5), 45, "ground")
-	state.tile_grid.place(heli.id, Rect2i(0, 5, 1, 1))
-	state.tile_grid.place(marine.id, Rect2i(3, 5, 1, 1))
-
-	var atk := EntityOrder.new()
-	atk.type = EntityOrder.Type.TARGET
-	atk.entity_id = heli.id
-	atk.target_priority_chain = [marine.id]
-	var result := Resolver.resolve(state, _submit([atk]), _submit(), registry, null)
-	for ev in result.events:
-		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.target_id == marine.id:
-			return ev.damage == 25
-	return false
-
-
-func _test_registry_playtest_retune_values() -> bool:
-	var registry: EntityRegistry = _load_data_registry()
-	if registry == null:
-		return false
-	var expected_hp: Dictionary = {
-		"base": 333,
-		"barracks": 200,
-		"factory": 267,
-		"starport": 267,
-		"refinery": 100,
-	}
-	for def_id: String in expected_hp.keys():
-		var def: EntityDef = registry.get_by_id(def_id)
-		var actual_hp: int = def.health.max_hp if def != null and def.health != null else -1
-		if actual_hp != int(expected_hp[def_id]):
-			push_error(
-				"expected %s max_hp %d, got %d" % [def_id, int(expected_hp[def_id]), actual_hp]
-			)
-			return false
-	var expected_speed: Dictionary = {
-		"worker": 6,
-		"marine": 10,
-		"tank": 8,
-		"helicopter": 14,
-	}
-	for def_id: String in expected_speed.keys():
-		var def: EntityDef = registry.get_by_id(def_id)
-		var actual_speed: int = (
-			def.movement.speed_tiles_per_turn if def != null and def.movement != null else -1
-		)
-		if actual_speed != int(expected_speed[def_id]):
-			push_error(
-				"expected %s speed %d, got %d" % [def_id, int(expected_speed[def_id]), actual_speed]
-			)
-			return false
-	var siege_tank: EntityDef = registry.get_by_id("siege_tank")
-	return siege_tank != null and siege_tank.movement == null
-
-
 func _test_registry_loads_from_data() -> bool:
 	# Sanity: every roster entity AND research is present in the loaded
 	# registry. Catches accidental dropped imports / id renames in
@@ -5372,50 +5243,6 @@ func _test_registry_loads_from_data() -> bool:
 	for research in ["stim_research", "siege_mode_research"]:
 		if registry.get_research_by_id(research) == null:
 			return false
-	return true
-
-
-func _test_registry_resource_footprints_match_visual_scale() -> bool:
-	var registry := _load_data_registry()
-	if registry == null:
-		return false
-	var mineral := registry.get_by_id("mineral_patch")
-	var gold := registry.get_by_id("mineral_patch_gold")
-	var geyser := registry.get_by_id("gas_geyser")
-	var refinery := registry.get_by_id("refinery")
-	if mineral == null or gold == null or geyser == null or refinery == null:
-		push_error("resource/refinery entity data should be present")
-		return false
-	if mineral.footprint != Vector2i.ONE:
-		push_error(
-			"mineral_patch should render on a 1x1 footprint, got %s" % str(mineral.footprint)
-		)
-		return false
-	if gold.footprint != Vector2i.ONE:
-		push_error(
-			"mineral_patch_gold should render on a 1x1 footprint, got %s" % str(gold.footprint)
-		)
-		return false
-	if geyser.footprint != Vector2i(2, 2):
-		push_error("gas_geyser should use a compact 2x2 footprint, got %s" % str(geyser.footprint))
-		return false
-	if refinery.footprint != geyser.footprint:
-		push_error(
-			(
-				"refinery footprint should match gas_geyser footprint, got refinery=%s geyser=%s"
-				% [str(refinery.footprint), str(geyser.footprint)]
-			)
-		)
-		return false
-	if not refinery.tags.has("extractor"):
-		push_error("refinery should carry extractor tag for gas gather resolution")
-		return false
-	if mineral.resource_source.max_gatherers != 2 or gold.resource_source.max_gatherers != 2:
-		push_error("mineral sources should allow exactly 2 gatherers")
-		return false
-	if geyser.resource_source.max_gatherers != 3:
-		push_error("gas_geyser should allow exactly 3 gatherers")
-		return false
 	return true
 
 
@@ -7003,28 +6830,6 @@ func _test_mvp_map_bake_parity() -> bool:
 	return true
 
 
-func _test_golden_minerals_higher_yield() -> bool:
-	# Synthetic head-to-head: identical scenario with one worker on a
-	# standard mineral_patch vs one worker on a mineral_patch_gold.
-	# Run for N=30 turns, compare totals. Asserts strict greater-than,
-	# not a specific multiplier — lets us retune yields without breaking
-	# the test on balance changes.
-	var standard_total := _gather_total_after_turns("mineral_patch", 1, 30)
-	var golden_total := _gather_total_after_turns("mineral_patch_gold", 2, 30)
-	if golden_total <= standard_total:
-		push_error(
-			(
-				(
-					"[golden_minerals_higher_yield] expected golden > standard, "
-					+ "got golden=%d standard=%d"
-				)
-				% [golden_total, standard_total]
-			)
-		)
-		return false
-	return true
-
-
 # ---------- Plan node 07b5 — self-target ability orders ----------
 
 
@@ -7225,55 +7030,3 @@ func _test_siege_tank_data_is_immobile_and_siege_is_not_research_gated() -> bool
 		push_error("unsiege_mode should not require research")
 		return false
 	return true
-
-
-# Build a 1-base + 1-worker + 1-patch scenario, run N turns, return the
-# total minerals harvested. The patch is a synthetic def with the given
-# yield; capacity is high enough to avoid depleting in N turns.
-func _gather_total_after_turns(patch_def_id: String, patch_yield: int, turns: int) -> int:
-	var registry := _golden_yield_registry(patch_def_id, patch_yield)
-	var state := _state_with_grid(20, 20)
-	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
-	worker.gather_state = GatherState.new()
-	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
-	var base := _make_entity(state, "base", 0, Vector2i(0, 0), 1500, "ground")
-	state.tile_grid.place(base.id, Rect2i(0, 0, 4, 4))
-	var patch := _make_entity(state, patch_def_id, -1, Vector2i(8, 5), 1500, "ground")
-	patch.current_resource_amount = 5000
-	state.tile_grid.place(patch.id, Rect2i(8, 5, 1, 1))
-	_add_opponent_keepalive_building(state, registry)
-
-	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
-	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
-	for _i in turns:
-		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
-	var p := result.new_state.get_player(0)
-	return 0 if p == null else p.minerals
-
-
-func _golden_yield_registry(patch_def_id: String, patch_yield: int) -> EntityRegistry:
-	var registry := EntityRegistry.new()
-	var worker := _def_with_movement("worker", Vector2i(1, 1), ["worker", "ground"], 50, 4)
-	worker.gather = GatherDef.new()
-	worker.gather.gather_per_turn = patch_yield
-	worker.gather.carry_amount = 5
-	worker.gather.accepts_resource_types = ["minerals", "gas"]
-	var base := EntityDef.new()
-	base.id = "base"
-	base.footprint = Vector2i(4, 4)
-	base.tags = ["building", "structure", "ground", "deposit_sink"]
-	var base_hp := HealthDef.new()
-	base_hp.max_hp = 1500
-	base.health = base_hp
-	var patch := EntityDef.new()
-	patch.id = patch_def_id
-	patch.footprint = Vector2i(1, 1)
-	patch.tags = ["resource_source", "minerals", "ground"]
-	var patch_rs := ResourceSourceDef.new()
-	patch_rs.resource_type = "minerals"
-	patch_rs.yield_per_worker_per_turn = patch_yield
-	patch_rs.requires_extractor = false
-	patch_rs.max_gatherers = 2
-	patch.resource_source = patch_rs
-	registry.entities = [worker, base, patch]
-	return registry

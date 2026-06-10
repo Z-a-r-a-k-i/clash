@@ -12,7 +12,7 @@ GODOT_HEADLESS = $$godotUserRoot = Join-Path (Get-Location) 'client/.godot-codex
 endif
 
 help:
-	@echo "clash — make targets"
+	@echo "clash - make targets"
 	@echo "  generate   Generate code from .proto (only when proto codegen is wired up at M2)"
 	@echo "  lint       Lint all stacks (gd, proto)"
 	@echo "  format     Format all stacks"

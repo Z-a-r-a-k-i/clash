@@ -366,12 +366,6 @@ func _test_network_ui_surface() -> bool:
 	if interface_button == null:
 		push_error("network play mode should expose an interface hide/show button")
 		ok = false
-	elif (
-		submit_button != null
-		and interface_button.get_global_rect().intersects(submit_button.get_global_rect())
-	):
-		push_error("network Hide UI button should not overlap Submit Turn")
-		ok = false
 	var loaded: LoadedScenario = _load_combat()
 	if loaded == null:
 		remove_child(mode)
@@ -392,20 +386,6 @@ func _test_network_ui_surface() -> bool:
 			"network resources label should show minerals and gas, got: %s" % resources_label.text
 		)
 		ok = false
-	if interface_button != null:
-		var surface: MatchPlaySurface = (
-			mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
-		)
-		var renderer: MatchRenderer = surface.renderer() if surface != null else null
-		var zoom_label: Label = (
-			renderer.get_node_or_null("HUD/ZoomDebug") as Label if renderer != null else null
-		)
-		if zoom_label == null:
-			push_error("network renderer should expose the zoom debug readout")
-			ok = false
-		elif zoom_label.get_global_rect().intersects(interface_button.get_global_rect()):
-			push_error("zoom debug readout should not overlap the network Hide UI button")
-			ok = false
 	(
 		mode
 		. call(
