@@ -79,6 +79,7 @@ func _all_tests() -> Array:
 		["match_renderer_input_highlights", _test_input_highlights],
 		["match_renderer_build_placement_preview", _test_build_placement_preview],
 		["match_renderer_action_previews", _test_action_previews],
+		["match_renderer_target_intent_previews", _test_target_intent_previews],
 		["match_renderer_action_preview_polyline_path", _test_action_preview_polyline_path],
 		["match_renderer_unit_training_progress", _test_unit_training_progress],
 		[
@@ -598,6 +599,30 @@ func _free_renderer(renderer: MatchRenderer) -> void:
 	if renderer.is_inside_tree():
 		remove_child(renderer)
 	renderer.queue_free()
+
+
+func _first_line_descendant(root: Node) -> Line2D:
+	if root == null:
+		return null
+	if root is Line2D:
+		return root as Line2D
+	for child in root.get_children():
+		var found: Line2D = _first_line_descendant(child)
+		if found != null:
+			return found
+	return null
+
+
+func _find_label_descendant(root: Node) -> Label:
+	if root == null:
+		return null
+	if root is Label:
+		return root as Label
+	for child in root.get_children():
+		var found: Label = _find_label_descendant(child)
+		if found != null:
+			return found
+	return null
 
 
 func _make_renderer_state(entity_specs: Array, w: int, h: int) -> MatchState:
@@ -1475,6 +1500,70 @@ func _test_action_previews() -> bool:
 	renderer.bind_state(state, registry)
 	if renderer.call("action_preview_count") != 0:
 		push_error("bind_state should clear stale action previews")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_target_intent_previews() -> bool:
+	var registry := _renderer_registry()
+	var state := _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(4, 1), "id": 2},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(30, 30), "id": 3},
+		],
+		40,
+		40
+	)
+	var renderer := _make_renderer()
+	renderer.bind_state(state, registry)
+	for method in ["set_target_intent_previews", "target_intent_preview_count"]:
+		if not renderer.has_method(method):
+			push_error("renderer should expose %s" % method)
+			_free_renderer(renderer)
+			return false
+	renderer.call(
+		"set_target_intent_previews",
+		[{"entity_id": 1, "target_entity_id": 2, "start_tile": Vector2i(2, 1)}]
+	)
+	var ok := true
+	if renderer.call("target_intent_preview_count") != 1:
+		push_error("expected one target intent preview after set_target_intent_previews")
+		ok = false
+	if renderer.call("action_preview_count") != 0:
+		push_error("target intent previews should not increase action preview count")
+		ok = false
+	var intent_root: Node2D = renderer.get_node_or_null("Overlays/TargetIntents") as Node2D
+	var intent_group: Node = (
+		intent_root.get_child(0)
+		if intent_root != null and intent_root.get_child_count() > 0
+		else null
+	)
+	if _find_label_descendant(intent_group) != null:
+		push_error("target intent preview should not render order labels")
+		ok = false
+	var first_line: Line2D = _first_line_descendant(intent_group)
+	var expected_start: Vector2 = Vector2(2.5, 1.5) * _test_tile_size()
+	if (
+		first_line == null
+		or first_line.points.is_empty()
+		or first_line.points[0].distance_to(expected_start) > 0.5
+	):
+		push_error("target intent should draw from start_tile")
+		ok = false
+	renderer.call("set_target_intent_previews", [{"entity_id": 1, "target_entity_id": 3}])
+	if renderer.call("target_intent_preview_count") != 0:
+		push_error("target intent should hide when target view is not visible")
+		ok = false
+	renderer.call("set_target_intent_previews", [{"entity_id": 3, "target_entity_id": 1}])
+	if renderer.call("target_intent_preview_count") != 0:
+		push_error("target intent should hide when actor view is not visible")
+		ok = false
+	renderer.call("set_target_intent_previews", [{"entity_id": 1, "target_entity_id": 2}])
+	renderer.bind_state(state, registry)
+	if renderer.call("target_intent_preview_count") != 0:
+		push_error("bind_state should clear stale target intent previews")
 		ok = false
 	_free_renderer(renderer)
 	return ok

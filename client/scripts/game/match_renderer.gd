@@ -49,6 +49,11 @@ const _ACTION_PREVIEW_COLOR := Color(0.2, 0.95, 0.9, 0.86)
 const _ACTION_PREVIEW_TEXT_COLOR := Color(0.95, 1.0, 1.0, 1.0)
 const _ACTION_PREVIEW_LINE_WIDTH := 3.0
 const _ACTION_PREVIEW_FONT_SIZE := 18
+const _TARGET_INTENT_COLOR := Color(1.0, 0.34, 0.08, 0.92)
+const _TARGET_INTENT_LINE_WIDTH := 3.0
+const _TARGET_INTENT_DASH_PIXELS := 14.0
+const _TARGET_INTENT_GAP_PIXELS := 8.0
+const _TARGET_INTENT_RETICLE_RADIUS := 14.0
 const _PRODUCTION_PROGRESS_BACK := Color(0.0, 0.0, 0.0, 0.68)
 const _PRODUCTION_PROGRESS_FILL := Color(0.2, 0.95, 0.45, 0.95)
 const _PRODUCTION_PROGRESS_SIZE := Vector2(64.0, 8.0)
@@ -121,6 +126,7 @@ var _fog_overlay_tile_count := 0
 	get_node_or_null("Overlays/BuildPlacementPreview") as Node2D
 )
 @onready var _action_previews_root: Node2D = get_node_or_null("Overlays/ActionPreviews") as Node2D
+@onready var _target_intents_root: Node2D = get_node_or_null("Overlays/TargetIntents") as Node2D
 @onready
 var _production_progress_root: Node2D = get_node_or_null("Overlays/ProductionProgress") as Node2D
 @onready var _construction_progress_root: Node2D = (
@@ -425,6 +431,22 @@ func action_preview_count() -> int:
 	return _action_previews_root.get_child_count()
 
 
+func set_target_intent_previews(previews: Array) -> void:
+	_resolve_internal_nodes()
+	_clear_target_intent_preview_nodes()
+	if _target_intents_root == null:
+		return
+	for preview in previews:
+		var preview_dict: Dictionary = preview
+		_render_target_intent_preview(preview_dict)
+
+
+func target_intent_preview_count() -> int:
+	if _target_intents_root == null:
+		return 0
+	return _target_intents_root.get_child_count()
+
+
 func action_preview_line_point_count(preview_index: int) -> int:
 	if _action_previews_root == null:
 		return 0
@@ -562,6 +584,12 @@ func _resolve_internal_nodes() -> void:
 			_action_previews_root = Node2D.new()
 			_action_previews_root.name = "ActionPreviews"
 			overlays.add_child(_action_previews_root)
+	if _target_intents_root == null:
+		var overlays := get_node_or_null("Overlays") as Node2D
+		if overlays != null:
+			_target_intents_root = Node2D.new()
+			_target_intents_root.name = "TargetIntents"
+			overlays.add_child(_target_intents_root)
 	if _production_progress_root == null:
 		var overlays := get_node_or_null("Overlays") as Node2D
 		if overlays != null:
@@ -629,6 +657,7 @@ func _clear_overlay_roots() -> void:
 		_attack_lines_root,
 		_build_placement_preview_root,
 		_action_previews_root,
+		_target_intents_root,
 		_production_progress_root,
 		_construction_progress_root,
 		_damage_labels_root,
@@ -653,6 +682,14 @@ func _clear_action_preview_nodes() -> void:
 		return
 	for child in _action_previews_root.get_children():
 		_action_previews_root.remove_child(child)
+		child.queue_free()
+
+
+func _clear_target_intent_preview_nodes() -> void:
+	if _target_intents_root == null:
+		return
+	for child in _target_intents_root.get_children():
+		_target_intents_root.remove_child(child)
 		child.queue_free()
 
 
@@ -821,6 +858,81 @@ func _render_action_preview(preview: Dictionary) -> void:
 	label.position = (target if has_target else start) + Vector2(-60.0, -32.0)
 	group.add_child(label)
 	_action_previews_root.add_child(group)
+
+
+func _render_target_intent_preview(preview: Dictionary) -> void:
+	var actor_id: int = preview.get("entity_id", -1)
+	var target_id: int = preview.get("target_entity_id", -1)
+	var actor_view: EntityView = _views_by_id.get(actor_id)
+	var target_view: EntityView = _views_by_id.get(target_id)
+	if actor_view == null or target_view == null:
+		return
+	if not actor_view.visible or not target_view.visible:
+		return
+	var start: Vector2 = actor_view.position
+	if preview.has("start_tile"):
+		var start_tile: Vector2i = preview.get("start_tile", Vector2i.ZERO)
+		start = _tile_center(start_tile)
+	var target: Vector2 = target_view.position
+	var group := Node2D.new()
+	group.name = "TargetIntent_%d_%d" % [actor_id, target_id]
+	_add_target_intent_dashes(group, start, target)
+	group.add_child(_target_intent_reticle(target))
+	_target_intents_root.add_child(group)
+
+
+func _add_target_intent_dashes(group: Node2D, start: Vector2, finish: Vector2) -> void:
+	var delta: Vector2 = finish - start
+	var length: float = delta.length()
+	if length <= 0.5:
+		return
+	var direction: Vector2 = delta / length
+	var cursor := 0.0
+	var last_end := 0.0
+	while cursor < length:
+		var segment_end: float = minf(cursor + _TARGET_INTENT_DASH_PIXELS, length)
+		_add_target_intent_segment(group, start, direction, cursor, segment_end)
+		last_end = segment_end
+		cursor += _TARGET_INTENT_DASH_PIXELS + _TARGET_INTENT_GAP_PIXELS
+	if last_end < length:
+		var final_start: float = maxf(last_end, length - _TARGET_INTENT_DASH_PIXELS)
+		_add_target_intent_segment(group, start, direction, final_start, length)
+
+
+func _add_target_intent_segment(
+	group: Node2D, origin: Vector2, direction: Vector2, segment_start: float, segment_end: float
+) -> void:
+	if segment_end <= segment_start:
+		return
+	var line := Line2D.new()
+	line.name = "TargetIntentLine"
+	line.default_color = _TARGET_INTENT_COLOR
+	line.width = _TARGET_INTENT_LINE_WIDTH
+	line.points = PackedVector2Array(
+		[origin + direction * segment_start, origin + direction * segment_end]
+	)
+	group.add_child(line)
+
+
+func _target_intent_reticle(marker_position: Vector2) -> Polygon2D:
+	var marker := Polygon2D.new()
+	marker.name = "TargetReticle"
+	marker.color = _TARGET_INTENT_COLOR
+	var outer: float = _TARGET_INTENT_RETICLE_RADIUS
+	var inner: float = outer * 0.44
+	marker.polygon = PackedVector2Array(
+		[
+			marker_position + Vector2(0.0, -outer),
+			marker_position + Vector2(inner, -inner),
+			marker_position + Vector2(outer, 0.0),
+			marker_position + Vector2(inner, inner),
+			marker_position + Vector2(0.0, outer),
+			marker_position + Vector2(-inner, inner),
+			marker_position + Vector2(-outer, 0.0),
+			marker_position + Vector2(-inner, -inner),
+		]
+	)
+	return marker
 
 
 func _target_marker(marker_position: Vector2, color: Color = _ACTION_PREVIEW_COLOR) -> Polygon2D:
