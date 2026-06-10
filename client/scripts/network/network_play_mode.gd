@@ -929,6 +929,7 @@ func _handle_network_message(message: Dictionary) -> void:
 				_update_hud()
 			else:
 				_client_controller.mark_submit_pending(false)
+				set_error(payload.get("message", payload.get("code", "submit rejected")))
 				_update_hud()
 		MESSAGE.CANCEL_SUBMIT_TURN:
 			if payload.get("accepted", false):

@@ -246,24 +246,30 @@ func _queue_target_for_actor(actor: Entity, target: Entity, queue_requested: boo
 		not _has_user_move_ending_in_range(actor, target, def.combat)
 		and (has_user_move or not current_origin_in_range)
 	)
+	var target_should_defer: bool = false
 	if needs_generated_move:
 		var firing_tile: Vector2i = _best_firing_tile_for_target(actor, target, def.combat)
 		if firing_tile == Vector2i(-1, -1):
 			return false
-		_remove_standing_target_for_entity(actor.id)
 		var move_order: EntityOrder = EntityOrder.new()
 		move_order.type = EntityOrder.Type.MOVE
 		move_order.entity_id = actor.id
 		move_order.target_tile = firing_tile
 		move_order.target_entity_id = target.id
-		_append_order_with_queue_request(move_order, queue_requested)
+		if _append_order_with_queue_request(move_order, queue_requested):
+			_remove_standing_target_for_entity(actor.id)
+		else:
+			target_should_defer = true
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.TARGET
 	order.entity_id = actor.id
 	order.target_entity_id = target.id
 	order.target_priority_chain = [target.id]
 	order.target_tile = _entity_origin_for_order_target(target)
-	_append_order_with_queue_request(order, queue_requested)
+	if target_should_defer:
+		_append_future_order(order)
+	else:
+		_append_order_with_queue_request(order, queue_requested)
 	return true
 
 
@@ -595,18 +601,33 @@ func promote_future_orders_for_next_turn() -> void:
 		if queue.is_empty():
 			_future_orders.erase(entity_id)
 			continue
-		var order: EntityOrder = queue.pop_front()
+		var promoted_orders: Array[EntityOrder] = []
+		var raw_order: Variant = queue.pop_front()
+		var order: EntityOrder = raw_order as EntityOrder
+		if order != null:
+			promoted_orders.append(order)
+		if order != null and _is_move_like(order.type) and not queue.is_empty():
+			var next_order: EntityOrder = queue[0] as EntityOrder
+			if (
+				next_order != null
+				and next_order.entity_id == entity.id
+				and order.target_entity_id >= 0
+				and next_order.target_entity_id == order.target_entity_id
+				and next_order.type == EntityOrder.Type.TARGET
+			):
+				promoted_orders.append(queue.pop_front() as EntityOrder)
 		if queue.is_empty():
 			_future_orders.erase(entity_id)
 		else:
 			_future_orders[entity_id] = queue
-		var promoted: EntityOrder = order.clone()
-		promoted.entity_id = entity.id
-		_append_order_to_submit(_submission_for(entity.owner_player_id), promoted)
-		if _is_move_like(promoted.type):
-			_remember_move_assist(promoted)
-		else:
-			_clear_move_assist(entity.id)
+		for promoted_order in promoted_orders:
+			var promoted: EntityOrder = promoted_order.clone()
+			promoted.entity_id = entity.id
+			_append_order_to_submit(_submission_for(entity.owner_player_id), promoted)
+			if _is_move_like(promoted.type):
+				_remember_move_assist(promoted)
+			elif not _is_standing_submit_order(promoted.type):
+				_clear_move_assist(entity.id)
 
 
 func submit_for_player(player_id: int) -> SubmitTurn:

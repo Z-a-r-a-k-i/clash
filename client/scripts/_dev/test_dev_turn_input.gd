@@ -69,6 +69,10 @@ func _all_tests() -> Array:
 			_test_queue_modifier_appends_future_orders
 		],
 		[
+			"dev_input_queue_modifier_defers_target_with_generated_move",
+			_test_queue_modifier_defers_target_with_generated_move
+		],
+		[
 			"dev_input_normal_order_replaces_current_and_future",
 			_test_normal_order_replaces_current_and_future
 		],
@@ -731,6 +735,48 @@ func _test_queue_modifier_appends_future_orders() -> bool:
 	return (
 		_expect_order(orders[0], EntityOrder.Type.MOVE, 5, Vector2i(6, 6), -1, [])
 		and _expect_order(future[0], EntityOrder.Type.MOVE, 5, Vector2i(8, 8), -1, [])
+	)
+
+
+func _test_queue_modifier_defers_target_with_generated_move() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.issue_move(Vector2i(6, 6)):
+		push_error("expected first move to queue for this turn")
+		return false
+	input.set_queue_modifier_active(true)
+	if not input.issue_target(2):
+		push_error("expected queue-modified target to append as future orders")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("queued target should keep one current order, got %d" % orders.size())
+		return false
+	var future: Array[EntityOrder] = input.future_orders_for_entity(5)
+	if future.size() != 2:
+		push_error("queued target should defer generated MOVE and TARGET, got %d" % future.size())
+		return false
+	if not _expect_generated_target_move(future[0], setup.state, setup.registry, 5, 2):
+		return false
+	if not _expect_order(future[1], EntityOrder.Type.TARGET, 5, Vector2i(7, 1), 2, [2]):
+		return false
+	input.clear_submissions(false, false)
+	input.promote_future_orders_for_next_turn()
+	orders = input.submit_for_player(0).orders
+	if orders.size() != 2:
+		push_error("future target pair should promote together, got %d orders" % orders.size())
+		return false
+	if input.future_order_count_for_entity(5) != 0:
+		push_error("promoted target pair should clear the future queue")
+		return false
+	return (
+		_expect_generated_target_move(orders[0], setup.state, setup.registry, 5, 2)
+		and _expect_order(orders[1], EntityOrder.Type.TARGET, 5, Vector2i(7, 1), 2, [2])
 	)
 
 

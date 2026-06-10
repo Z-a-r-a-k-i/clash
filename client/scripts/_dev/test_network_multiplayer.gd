@@ -84,6 +84,10 @@ func _all_tests() -> Array[Array]:
 			_test_network_submit_error_clears_pending_state
 		],
 		[
+			"network_rejected_submit_clears_waiting_status",
+			_test_network_rejected_submit_clears_waiting_status
+		],
+		[
 			"network_disconnect_resets_local_match_state",
 			_test_network_disconnect_resets_local_match_state
 		],
@@ -1093,6 +1097,62 @@ func _test_network_submit_error_clears_pending_state() -> bool:
 		ok = false
 	if status_label == null or status_label.text.find("wrong_player_order") == -1:
 		push_error("server submit error should remain visible in match status")
+		ok = false
+	remove_child(mode)
+	mode.queue_free()
+	return ok
+
+
+func _test_network_rejected_submit_clears_waiting_status() -> bool:
+	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
+		return false
+	var mode: Node = script.new()
+	add_child(mode)
+	mode.call("ensure_initialized")
+	var loaded: LoadedScenario = _load_combat()
+	if loaded == null:
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
+	(
+		mode
+		. call(
+			"_handle_network_message",
+			{
+				"kind": "submit_turn",
+				"payload": {"accepted": true},
+			}
+		)
+	)
+	mode.call("set_connection_status", "Submit sent. Waiting for server.")
+	(
+		mode
+		. call(
+			"_handle_network_message",
+			{
+				"kind": "submit_turn",
+				"payload": {"accepted": false, "message": "invalid_submit"},
+			}
+		)
+	)
+	var submit_button: Button = mode.find_child("SubmitTurn", true, false) as Button
+	var submit_label: Label = mode.find_child("SubmitState", true, false) as Label
+	var status_label: Label = mode.find_child("MatchStatus", true, false) as Label
+	var ok := true
+	if submit_button == null or submit_button.button_pressed or submit_button.text != "Submit Turn":
+		push_error("rejected submit should clear the pending submit button")
+		ok = false
+	if submit_label == null or submit_label.text != "Submit: idle":
+		push_error("rejected submit should clear the pending submit label")
+		ok = false
+	if status_label == null or status_label.text.find("invalid_submit") == -1:
+		push_error("rejected submit should show the rejection status")
+		ok = false
+	elif status_label.text.find("Submit sent") != -1:
+		push_error("rejected submit should clear the stale waiting status")
 		ok = false
 	remove_child(mode)
 	mode.queue_free()
@@ -2241,6 +2301,8 @@ func _world_box_for_entities(state: MatchState, entity_ids: Array[int]) -> Rect2
 		min_tile.y = mini(min_tile.y, rect.position.y)
 		max_tile.x = maxi(max_tile.x, rect.position.x + rect.size.x)
 		max_tile.y = maxi(max_tile.y, rect.position.y + rect.size.y)
+	if min_tile.x >= max_tile.x or min_tile.y >= max_tile.y:
+		return Rect2()
 	var tile_size: float = float(_load_tunables().tile_pixel_size)
 	var start: Vector2 = (Vector2(min_tile) - Vector2(0.25, 0.25)) * tile_size
 	var end: Vector2 = (Vector2(max_tile) + Vector2(0.25, 0.25)) * tile_size

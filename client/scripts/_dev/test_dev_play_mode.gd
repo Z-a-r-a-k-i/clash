@@ -120,6 +120,10 @@ func _all_tests() -> Array:
 			"dev_play_mode_click_selection_uses_press_modifier",
 			_test_click_selection_uses_press_modifier
 		],
+		[
+			"dev_play_mode_drag_box_selection_uses_press_modifier",
+			_test_drag_box_selection_uses_press_modifier
+		],
 		["dev_play_mode_group_right_click_orders", _test_group_right_click_orders],
 		[
 			"dev_play_mode_left_drag_box_does_not_pan_camera",
@@ -1950,6 +1954,54 @@ func _test_click_selection_uses_press_modifier() -> bool:
 	return ok
 
 
+func _test_drag_box_selection_uses_press_modifier() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var ids: Array[int] = _find_entity_ids(mode.current_state(), "marine", 0)
+	if ids.size() < 2:
+		push_error("combat scenario should have at least two P0 marines")
+		_free_mode(mode)
+		return false
+	if not mode.select_entity_id(ids[0]):
+		push_error("expected first marine to be selectable")
+		_free_mode(mode)
+		return false
+	var add_box: Rect2 = _world_box_for_entities(mode.current_state(), [ids[1]])
+	var boxed_add: Array[int] = _boxed_ids_for_test(mode, add_box)
+	_drag_box(mode, add_box, true, false, false)
+	var selected: Array[int] = _selected_ids_for_test(mode.input_model())
+	var expected_add: Array[int] = [ids[0]]
+	for entity_id in boxed_add:
+		if not expected_add.has(entity_id):
+			expected_add.append(entity_id)
+	var ok := true
+	if selected != expected_add:
+		push_error(
+			"shift-down drag should stay additive even if Shift is released, got %s" % str(selected)
+		)
+		ok = false
+	var replace_box: Rect2 = _world_box_for_entities(mode.current_state(), [ids[0]])
+	var expected_replace: Array[int] = _boxed_ids_for_test(mode, replace_box)
+	_drag_box(mode, replace_box, false, true, true)
+	selected = _selected_ids_for_test(mode.input_model())
+	if selected != expected_replace:
+		push_error(
+			(
+				"plain-down drag should replace even if Shift is pressed on release, got %s"
+				% str(selected)
+			)
+		)
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
 func _test_group_right_click_orders() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -2231,6 +2283,17 @@ func _selected_ids_for_test(input: DevTurnInput) -> Array[int]:
 	return out
 
 
+func _boxed_ids_for_test(mode: Node, box: Rect2) -> Array[int]:
+	var out: Array[int] = []
+	var renderer: MatchRenderer = mode.renderer() if mode != null else null
+	if renderer == null:
+		return out
+	var raw: Array = renderer.call("owned_movable_entity_ids_in_world_rect", box, 0)
+	for item in raw:
+		out.append(int(item))
+	return out
+
+
 func _world_box_for_entities(state: MatchState, entity_ids: Array[int]) -> Rect2:
 	if state == null or entity_ids.is_empty():
 		return Rect2()
@@ -2255,14 +2318,23 @@ func _world_box_for_entities(state: MatchState, entity_ids: Array[int]) -> Rect2
 	return Rect2(start, end - start)
 
 
-func _drag_box(mode: Node, box: Rect2, shift_pressed: bool) -> void:
+func _drag_box(
+	mode: Node,
+	box: Rect2,
+	press_shift: bool,
+	motion_shift: Variant = null,
+	release_shift: Variant = null
+) -> void:
+	var motion_shift_pressed: bool = press_shift if motion_shift == null else bool(motion_shift)
+	var release_shift_pressed: bool = press_shift if release_shift == null else bool(release_shift)
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, box.position, press_shift))
 	mode.call(
-		"_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, box.position, shift_pressed)
+		"_unhandled_input",
+		_mouse_motion(box.size, MOUSE_BUTTON_MASK_LEFT, box.end, motion_shift_pressed)
 	)
 	mode.call(
-		"_unhandled_input", _mouse_motion(box.size, MOUSE_BUTTON_MASK_LEFT, box.end, shift_pressed)
+		"_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, box.end, release_shift_pressed)
 	)
-	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, box.end, shift_pressed))
 
 
 func _first_empty_tile(state: MatchState) -> Vector2i:
