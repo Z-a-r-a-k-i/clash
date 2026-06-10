@@ -294,7 +294,7 @@ func _stress_registry() -> EntityRegistry:
 	unit_combat.attack_range = 20
 	unit_combat.target_layers = ["ground"]
 	unit.combat = unit_combat
-	var unit_vision := VisionDef.new()
+	var unit_vision: VisionDef = VisionDef.new()
 	unit_vision.sight_radius = 20
 	unit.vision = unit_vision
 	var abilities := AbilitiesDef.new()

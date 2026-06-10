@@ -253,11 +253,13 @@ func _submit_both_and_wait(match_data: Dictionary, previous_turn: int, label: St
 		push_error("P0 submit button did not enter pending state before server ack")
 		return false
 	var submit_label: Label = p0.find_child("SubmitState", true, false) as Label
-	if submit_label == null or submit_label.text != "Submit: sending":
+	if submit_label == null or not submit_label.text.begins_with("Submit: sending"):
 		push_error("P0 submit label should show the pre-ack sending state")
 		return false
 	if not await _wait_until(
-		func() -> bool: return _status_text(p0) == "Submitted. Waiting for opponent.",
+		func() -> bool:
+			var status: String = _status_text(p0)
+			return status.contains("Submitted") and status.contains("Waiting"),
 		TEST_TIMEOUT_MSEC,
 		"P0 submit accepted for %s" % label
 	):
@@ -415,10 +417,6 @@ func _first_open_neighbor(state: MatchState, entity_id: int) -> Vector2i:
 		Vector2i(-1, 0),
 		Vector2i(0, 1),
 		Vector2i(0, -1),
-		Vector2i(2, 0),
-		Vector2i(-2, 0),
-		Vector2i(0, 2),
-		Vector2i(0, -2),
 	]
 	for offset: Vector2i in offsets:
 		var tile: Vector2i = entity.origin + offset

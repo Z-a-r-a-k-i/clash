@@ -13,11 +13,16 @@ func _init() -> void:
 		return
 	_runner = Node.new()
 	_runner.set_script(script)
-	if not _runner.has_method("_run_all_async"):
-		push_error("[test_network_live_headless] test runner did not expose _run_all_async")
+	if not _runner.has_method("_run_all_async") or not _runner.has_signal("finished"):
+		push_error(
+			(
+				"[test_network_live_headless] test runner contract missing "
+				+ "_run_all_async or finished signal"
+			)
+		)
 		quit(1)
 		return
-	_runner.finished.connect(_on_finished)
+	_runner.connect("finished", Callable(self, "_on_finished"))
 	root.add_child(_runner)
 	_runner.call_deferred("_run_all_async")
 
