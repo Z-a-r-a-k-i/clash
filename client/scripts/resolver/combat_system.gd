@@ -33,7 +33,8 @@ static func build_attack_intent(
 	order: EntityOrder,
 	registry: EntityRegistry,
 	_tunables: Tunables,
-	sorted_entities: Variant = null
+	sorted_entities: Variant = null,
+	visibility_by_player: Variant = null
 ) -> Dictionary:
 	if attacker == null or attacker.current_hp <= 0:
 		return {}
@@ -43,7 +44,9 @@ static func build_attack_intent(
 	if def == null or def.combat == null:
 		return {}  # Not combat-capable; silently skip.
 	var combat: CombatDef = def.combat
-	var target := _select_target(state, attacker, combat, order, registry, sorted_entities)
+	var target := _select_target(
+		state, attacker, combat, order, registry, sorted_entities, visibility_by_player
+	)
 	if target == null:
 		return {}
 	var damage := _compute_damage(combat, target, attacker, registry)
@@ -116,7 +119,8 @@ static func can_attack_now(
 	attacker: Entity,
 	order: EntityOrder,
 	registry: EntityRegistry,
-	sorted_entities: Variant = null
+	sorted_entities: Variant = null,
+	visibility_by_player: Variant = null
 ) -> bool:
 	if attacker == null or attacker.current_hp <= 0:
 		return false
@@ -125,7 +129,12 @@ static func can_attack_now(
 	var def: EntityDef = registry.get_by_id(attacker.current_def_id)
 	if def == null or def.combat == null:
 		return false
-	return _select_target(state, attacker, def.combat, order, registry, sorted_entities) != null
+	return (
+		_select_target(
+			state, attacker, def.combat, order, registry, sorted_entities, visibility_by_player
+		)
+		!= null
+	)
 
 
 # ---------- Target selection ----------
@@ -142,16 +151,23 @@ static func _select_target(
 	combat: CombatDef,
 	order: EntityOrder,
 	registry: EntityRegistry,
-	sorted_entities: Variant = null
+	sorted_entities: Variant = null,
+	visibility_by_player: Variant = null
 ) -> Entity:
 	var attacker_rect := _resolve_rect(state, attacker, registry)
 	if attacker_rect.size == Vector2i.ZERO:
 		return null
 	var visibility: VisionSystem.Visibility = null
 	if attacker.owner_player_id >= 0:
-		visibility = VisionSystem.compute_player_visibility(
-			state, registry, attacker.owner_player_id
-		)
+		var cache: Dictionary = visibility_by_player if visibility_by_player is Dictionary else {}
+		if cache.has(attacker.owner_player_id):
+			visibility = cache[attacker.owner_player_id] as VisionSystem.Visibility
+		else:
+			visibility = VisionSystem.compute_player_visibility(
+				state, registry, attacker.owner_player_id
+			)
+			if visibility_by_player is Dictionary:
+				cache[attacker.owner_player_id] = visibility
 
 	# Priority chain.
 	if order != null:

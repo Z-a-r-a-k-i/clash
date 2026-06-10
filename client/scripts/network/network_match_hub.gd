@@ -113,6 +113,7 @@ func submit_turn(peer_id: int, code: String, submit: SubmitTurn) -> Dictionary:
 		return _failure("already_submitted")
 	pending[slot] = submit.clone() if submit != null else SubmitTurn.new()
 	match_data["pending"] = pending
+	_log_submit_accepted(match_data, slot, submit, pending.size())
 	if pending.size() < 2:
 		_matches_by_code[code] = match_data
 		return {"ok": true, "resolved": false, "slot": slot}
@@ -128,6 +129,7 @@ func submit_turn(peer_id: int, code: String, submit: SubmitTurn) -> Dictionary:
 	)
 	if result == null or result.new_state == null:
 		return _failure("resolve_failed")
+	_log_turn_resolved(match_data, turn_before, submit_a, submit_b, result.events.size())
 	_append_replay_frame(match_data, turn_before, submit_a, submit_b)
 	match_data["state"] = result.new_state
 	match_data["pending"] = {}
@@ -342,13 +344,18 @@ func _resolve_code(peer_id: int, code: String) -> String:
 
 func _validate_submit(match_data: Dictionary, slot: int, submit: SubmitTurn) -> String:
 	if submit == null:
+		_log_submit_validation_failure(match_data, slot, -1, "invalid_submit", null, null)
 		return "invalid_submit"
 	var state: MatchState = match_data.get("state") as MatchState
 	if state == null:
+		_log_submit_validation_failure(match_data, slot, -1, "missing_state", null, null)
 		return "missing_state"
 	for order_index in range(submit.orders.size()):
 		var order: EntityOrder = submit.orders[order_index]
 		if order == null:
+			_log_submit_validation_failure(
+				match_data, slot, order_index, "invalid_order", null, null
+			)
 			return "invalid_order"
 		var entity: Entity = state.get_entity_by_id(order.entity_id)
 		if entity == null or entity.current_hp <= 0:
@@ -357,6 +364,9 @@ func _validate_submit(match_data: Dictionary, slot: int, submit: SubmitTurn) -> 
 			)
 			return "invalid_order_entity"
 		if entity.owner_player_id != slot:
+			_log_submit_validation_failure(
+				match_data, slot, order_index, "wrong_player_order", order, entity
+			)
 			return "wrong_player_order"
 	return ""
 
@@ -440,6 +450,48 @@ func _log_submit_validation_failure(
 				entity_id,
 				entity_owner,
 				entity_hp,
+			]
+		)
+	)
+
+
+func _log_submit_accepted(
+	match_data: Dictionary, slot: int, submit: SubmitTurn, pending_count: int
+) -> void:
+	var state: MatchState = match_data.get("state") as MatchState
+	print(
+		(
+			("NetworkMatchHub: submit accepted code=%s turn=%d slot=%d " + "orders=%d pending=%d/2")
+			% [
+				match_data.get("code", ""),
+				state.turn_index if state != null else -1,
+				slot,
+				submit.orders.size() if submit != null else 0,
+				pending_count,
+			]
+		)
+	)
+
+
+func _log_turn_resolved(
+	match_data: Dictionary,
+	turn_before: int,
+	submit_a: SubmitTurn,
+	submit_b: SubmitTurn,
+	event_count: int
+) -> void:
+	print(
+		(
+			(
+				"NetworkMatchHub: turn resolved code=%s turn=%d "
+				+ "p0_orders=%d p1_orders=%d events=%d"
+			)
+			% [
+				match_data.get("code", ""),
+				turn_before,
+				submit_a.orders.size() if submit_a != null else 0,
+				submit_b.orders.size() if submit_b != null else 0,
+				event_count,
 			]
 		)
 	)

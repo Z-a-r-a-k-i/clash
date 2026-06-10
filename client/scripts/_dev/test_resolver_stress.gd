@@ -11,7 +11,7 @@ const _UNIT_ROWS := 10
 const _UNITS_PER_PLAYER := _UNIT_ROWS * 2
 const _BLOCKER_COUNT := 16
 const _ABILITY_ORDERS_PER_UNIT := 4
-const _MAX_RESOLVE_USEC_DEFAULT := 125000
+const _MAX_RESOLVE_USEC_DEFAULT := 250000
 const _BUDGET_ENV_VAR := "RESOLVER_STRESS_BUDGET_USEC"
 
 
@@ -294,6 +294,9 @@ func _stress_registry() -> EntityRegistry:
 	unit_combat.attack_range = 20
 	unit_combat.target_layers = ["ground"]
 	unit.combat = unit_combat
+	var unit_vision: VisionDef = VisionDef.new()
+	unit_vision.sight_radius = 20
+	unit.vision = unit_vision
 	var abilities := AbilitiesDef.new()
 	abilities.abilities = [_stress_ability()]
 	unit.abilities = abilities

@@ -143,6 +143,10 @@ func _all_tests() -> Array:
 			_test_target_generated_move_keeps_last_known_tile_without_target
 		],
 		["target_rejects_unattackable_layer", _test_target_rejects_unattackable_layer],
+		[
+			"target_visibility_recomputes_after_distribution_build",
+			_test_target_visibility_recomputes_after_distribution_build
+		],
 		["attack_clears_stale_persistent_move", _test_attack_clears_stale_persistent_move],
 		[
 			"fresh_move_does_not_store_persistent_order",
@@ -1713,7 +1717,7 @@ func _test_fresh_move_does_not_store_persistent_order() -> bool:
 		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
 			damaged = true
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	return damaged and new_actor.persistent_order == null and new_actor.origin == Vector2i(5, 5)
+	return damaged and new_actor.persistent_order == null and new_actor.origin == Vector2i(7, 5)
 
 
 func _test_move_budget_respected() -> bool:
@@ -1875,7 +1879,7 @@ func _test_attack_move_does_not_fire_after_moving_into_range() -> bool:
 		):
 			damaged = true
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	return not damaged and move_count == 3 and new_actor.origin == Vector2i(8, 5)
+	return not damaged and move_count == 2 and new_actor.origin == Vector2i(7, 5)
 
 
 func _test_latest_move_like_intent_wins() -> bool:
@@ -1995,6 +1999,68 @@ func _test_target_rejects_unattackable_layer() -> bool:
 			return false
 	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
 	return new_actor != null and new_actor.origin == actor.origin
+
+
+func _test_target_visibility_recomputes_after_distribution_build() -> bool:
+	var registry: EntityRegistry = EntityRegistry.new()
+	var worker_def: EntityDef = _def_with_movement(
+		"worker", Vector2i.ONE, ["worker", "ground"], 50, 4
+	)
+	var marine_def: EntityDef = _def_with_movement_combat(
+		"marine", Vector2i.ONE, ["light", "ground"], _combat_def(6, 1, ["ground"]), 50, 4
+	)
+	marine_def.vision = _vision_def(2)
+	var barracks_def: EntityDef = _def(
+		"barracks", Vector2i(3, 3), ["building", "ground"], null, 1000
+	)
+	barracks_def.vision = _vision_def(3)
+	barracks_def.construction = ConstructionDef.new()
+	barracks_def.construction.build_time_turns = 4
+	barracks_def.construction.mineral_cost = 150
+	barracks_def.construction.built_by_tag = "worker"
+	registry.entities = [worker_def, marine_def, barracks_def]
+
+	var state: MatchState = _state_with_grid(20, 20)
+	state.players[0].minerals = 500
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var worker: Entity = _make_entity(state, "worker", 0, Vector2i(10, 10), 50, "ground")
+	var visible_target: Entity = _make_entity(state, "marine", 1, Vector2i(2, 1), 50, "ground")
+	var newly_visible_target: Entity = _make_entity(
+		state, "marine", 1, Vector2i(14, 11), 50, "ground"
+	)
+	state.tile_grid.place(actor.id, Rect2i(actor.origin, Vector2i.ONE))
+	state.tile_grid.place(worker.id, Rect2i(worker.origin, Vector2i.ONE))
+	state.tile_grid.place(visible_target.id, Rect2i(visible_target.origin, Vector2i.ONE))
+	state.tile_grid.place(
+		newly_visible_target.id, Rect2i(newly_visible_target.origin, Vector2i.ONE)
+	)
+
+	var warm_cache_target: EntityOrder = EntityOrder.new()
+	warm_cache_target.type = EntityOrder.Type.TARGET
+	warm_cache_target.entity_id = actor.id
+	warm_cache_target.target_priority_chain = [visible_target.id]
+	var build: EntityOrder = EntityOrder.new()
+	build.type = EntityOrder.Type.BUILD
+	build.entity_id = worker.id
+	build.def_id = "barracks"
+	build.target_tile = Vector2i(11, 10)
+	var post_build_target: EntityOrder = EntityOrder.new()
+	post_build_target.type = EntityOrder.Type.TARGET
+	post_build_target.entity_id = actor.id
+	post_build_target.target_priority_chain = [newly_visible_target.id]
+
+	var result: ResolveResult = Resolver.resolve(
+		state,
+		_submit([warm_cache_target, build, post_build_target] as Array[EntityOrder]),
+		_submit(),
+		registry,
+		null
+	)
+	if _has_rejection(result.events, actor.id, "bad_target"):
+		push_error("post-build TARGET should validate against the updated visibility state")
+		return false
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	return new_actor != null and new_actor.focus_target_entity_id == newly_visible_target.id
 
 
 func _test_idle_unit_auto_attacks_enemy_in_range() -> bool:
@@ -5025,6 +5091,7 @@ func _test_build_constructing_building_dies_no_refund() -> bool:
 	registry.entities[2].combat.damage = 2000
 	registry.entities[2].combat.attack_range = 5
 	registry.entities[2].combat.target_layers = ["ground"]
+	registry.entities[2].vision = _vision_def(99)
 	# Add population to barracks so we can verify pop_provides was never granted.
 	registry.entities[1].population = PopulationDef.new()
 	registry.entities[1].population.pop_provides = 8

@@ -175,6 +175,7 @@ func issue_target(target_entity_id: int) -> bool:
 		if firing_tile == Vector2i(-1, -1):
 			_status_message = "No reachable firing position for Attack."
 			return false
+		_remove_standing_target_for_entity(actor.id)
 		var move_order: EntityOrder = EntityOrder.new()
 		move_order.type = EntityOrder.Type.MOVE
 		move_order.entity_id = actor.id
@@ -1251,6 +1252,19 @@ func _remove_queued_move_for_entity(entity_id: int) -> void:
 		for i in range(submit_turn.orders.size() - 1, -1, -1):
 			var order: EntityOrder = submit_turn.orders[i]
 			if order != null and order.entity_id == entity_id and _is_move_like(order.type):
+				submit_turn.orders.remove_at(i)
+
+
+func _remove_standing_target_for_entity(entity_id: int) -> void:
+	for submit in _submissions.values():
+		var submit_turn: SubmitTurn = submit
+		for i in range(submit_turn.orders.size() - 1, -1, -1):
+			var order: EntityOrder = submit_turn.orders[i]
+			if (
+				order != null
+				and order.entity_id == entity_id
+				and order.type == EntityOrder.Type.TARGET
+			):
 				submit_turn.orders.remove_at(i)
 
 

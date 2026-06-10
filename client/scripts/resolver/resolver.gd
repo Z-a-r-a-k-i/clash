@@ -351,7 +351,9 @@ static func _standing_attack_order(
 			auto_attack.target_entity_id = entity.focus_target_entity_id
 	if (
 		require_ready_target
-		and not CombatSystem.can_attack_now(state, entity, auto_attack, registry)
+		and not CombatSystem.can_attack_now(
+			state, entity, auto_attack, registry, null, visibility_by_player
+		)
 	):
 		return null
 	return auto_attack
@@ -388,7 +390,7 @@ static func _apply_attack_opportunities(
 			continue
 		var attack_intent_start: int = profile.mark() if profile != null else 0
 		var intent: Dictionary = CombatSystem.build_attack_intent(
-			state, entity, attack_order, registry, tunables, sorted_entities
+			state, entity, attack_order, registry, tunables, sorted_entities, visibility_by_player
 		)
 		if profile != null:
 			profile.add("tick.attack_intent_build", attack_intent_start)
@@ -461,7 +463,9 @@ static func _attack_move_halted_entity_ids(
 		)
 		if (
 			attack_order != null
-			and CombatSystem.can_attack_now(state, entity, attack_order, registry, sorted_entities)
+			and CombatSystem.can_attack_now(
+				state, entity, attack_order, registry, sorted_entities, visibility_by_player
+			)
 		):
 			out[entity.id] = true
 	return out

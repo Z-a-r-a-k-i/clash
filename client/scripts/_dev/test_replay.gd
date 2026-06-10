@@ -396,6 +396,7 @@ func _make_loaded_mode() -> Node:
 	if not _move_entity_to(mode.current_state(), 4, Vector2i(8, 10)):
 		_free_mode(mode)
 		return null
+	mode.call("_start_replay_journal")
 	return mode
 
 

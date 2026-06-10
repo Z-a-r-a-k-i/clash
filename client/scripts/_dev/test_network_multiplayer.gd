@@ -64,6 +64,10 @@ func _all_tests() -> Array[Array]:
 			_test_network_turn_started_resets_submit_and_allows_next_move
 		],
 		[
+			"network_submit_error_clears_pending_state",
+			_test_network_submit_error_clears_pending_state
+		],
+		[
 			"network_disconnect_resets_local_match_state",
 			_test_network_disconnect_resets_local_match_state
 		],
@@ -858,6 +862,58 @@ func _test_network_turn_started_resets_submit_and_allows_next_move() -> bool:
 		if moved == null or moved.origin == start_origin:
 			push_error("authoritative network Move submit should move the selected unit")
 			ok = false
+	remove_child(mode)
+	mode.queue_free()
+	return ok
+
+
+func _test_network_submit_error_clears_pending_state() -> bool:
+	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
+		return false
+	var mode: Node = script.new()
+	add_child(mode)
+	mode.call("ensure_initialized")
+	var loaded: LoadedScenario = _load_combat()
+	if loaded == null:
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
+	(
+		mode
+		. call(
+			"_handle_network_message",
+			{
+				"kind": "submit_turn",
+				"payload": {"accepted": true},
+			}
+		)
+	)
+	(
+		mode
+		. call(
+			"_handle_network_message",
+			{
+				"kind": "match_error",
+				"payload": {"code": "wrong_player_order", "message": "wrong_player_order"},
+			}
+		)
+	)
+	var submit_button: Button = mode.find_child("SubmitTurn", true, false) as Button
+	var submit_label: Label = mode.find_child("SubmitState", true, false) as Label
+	var status_label: Label = mode.find_child("MatchStatus", true, false) as Label
+	var ok: bool = true
+	if submit_button == null or submit_button.button_pressed or submit_button.text != "Submit Turn":
+		push_error("server submit error should clear the pending submit button")
+		ok = false
+	if submit_label == null or submit_label.text != "Submit: idle":
+		push_error("server submit error should clear the pending submit label")
+		ok = false
+	if status_label == null or status_label.text.find("wrong_player_order") == -1:
+		push_error("server submit error should remain visible in match status")
+		ok = false
 	remove_child(mode)
 	mode.queue_free()
 	return ok
