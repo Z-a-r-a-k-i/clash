@@ -68,6 +68,13 @@ func has_multiple_selection() -> bool:
 	return _selected_entity_ids.size() > 1
 
 
+func can_select_movable_entity(entity_id: int) -> bool:
+	if not _is_selectable(entity_id):
+		return false
+	var entity: Entity = _state.get_entity_by_id(entity_id) if _state != null else null
+	return _can_entity_move(entity)
+
+
 func status_message() -> String:
 	return _status_message
 

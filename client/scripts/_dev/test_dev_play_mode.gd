@@ -116,9 +116,14 @@ func _all_tests() -> Array:
 			"dev_play_mode_drag_box_replace_shift_toggle_and_shift_box_add",
 			_test_drag_box_replace_shift_toggle_and_shift_box_add
 		],
+		["dev_play_mode_drag_box_filters_immobile_units", _test_drag_box_filters_immobile_units],
 		[
 			"dev_play_mode_click_selection_uses_press_modifier",
 			_test_click_selection_uses_press_modifier
+		],
+		[
+			"dev_play_mode_shift_click_failure_updates_status",
+			_test_shift_click_failure_updates_status
 		],
 		[
 			"dev_play_mode_drag_box_selection_uses_press_modifier",
@@ -1905,6 +1910,38 @@ func _test_drag_box_replace_shift_toggle_and_shift_box_add() -> bool:
 	return ok
 
 
+func _test_drag_box_filters_immobile_units() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var ids: Array[int] = _find_entity_ids(mode.current_state(), "marine", 0)
+	if ids.size() < 2:
+		push_error("combat scenario should have at least two P0 marines")
+		_free_mode(mode)
+		return false
+	var locked_id: int = ids[1]
+	var locked: Entity = mode.current_state().get_entity_by_id(locked_id)
+	if locked == null:
+		push_error("expected a marine to lock for drag-box filtering")
+		_free_mode(mode)
+		return false
+	locked.locked_to_building_id = 42
+	_drag_box(mode, _world_box_for_entities(mode.current_state(), ids), false)
+	var selected: Array[int] = _selected_ids_for_test(mode.input_model())
+	var expected: Array[int] = ids.duplicate()
+	expected.erase(locked_id)
+	var ok: bool = selected == expected
+	if not ok:
+		push_error("plain drag-box should skip immobile units, got %s" % str(selected))
+	_free_mode(mode)
+	return ok
+
+
 func _test_click_selection_uses_press_modifier() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -1949,6 +1986,48 @@ func _test_click_selection_uses_press_modifier() -> bool:
 				% str(selected)
 			)
 		)
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_shift_click_failure_updates_status() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var ids: Array[int] = _find_entity_ids(mode.current_state(), "marine", 0)
+	if ids.size() < 2:
+		push_error("status update test requires two P0 marines")
+		_free_mode(mode)
+		return false
+	if not mode.select_entity_id(ids[0]):
+		push_error("expected first marine to be selectable")
+		_free_mode(mode)
+		return false
+	var locked: Entity = mode.current_state().get_entity_by_id(ids[1])
+	if locked == null:
+		push_error("expected second marine to be lockable")
+		_free_mode(mode)
+		return false
+	locked.locked_to_building_id = 42
+	var locked_pos: Vector2 = _tile_center_px(locked.origin)
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, locked_pos, true))
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, locked_pos, true))
+	var selected: Array[int] = _selected_ids_for_test(mode.input_model())
+	var status_label: Label = mode.find_child("Status", true, false) as Label
+	var ok: bool = true
+	if selected != [ids[0]]:
+		push_error(
+			"failed Shift-click should preserve the existing selection, got %s" % str(selected)
+		)
+		ok = false
+	if status_label == null or status_label.text.find("Select an active movable P0 entity.") == -1:
+		push_error("failed Shift-click should update the HUD status")
 		ok = false
 	_free_mode(mode)
 	return ok
@@ -2019,7 +2098,7 @@ func _test_group_right_click_orders() -> bool:
 	if not _select_entities_for_test(mode.input_model(), ids):
 		_free_mode(mode)
 		return false
-	mode.renderer().call("set_selected_entity_ids", ids)
+	mode.call("_update_hud")
 	var target_tile: Vector2i = _first_empty_tile(mode.current_state())
 	mode.call(
 		"_unhandled_input", _mouse_button(MOUSE_BUTTON_RIGHT, true, _tile_center_px(target_tile))

@@ -1189,7 +1189,7 @@ func _apply_click_selection(tile: Vector2i, additive: bool) -> void:
 		if entity_id >= 0 and _input.toggle_entity_selection(entity_id):
 			_sync_selection_highlights()
 			_clear_build_placement_preview()
-			_update_hud()
+		_update_hud()
 		return
 	if entity_id >= 0:
 		select_entity_id(entity_id)
@@ -1207,6 +1207,7 @@ func _apply_box_selection(world_rect: Rect2, additive: bool) -> void:
 	var ids: Array[int] = _renderer.owned_movable_entity_ids_in_world_rect(
 		world_rect, _input.active_player_id()
 	)
+	ids = _movable_selection_ids(ids)
 	var ok: bool = (
 		_input.add_entities_to_selection(ids) if additive else _input.select_entities(ids)
 	)
@@ -1220,6 +1221,16 @@ func _sync_selection_highlights() -> void:
 	if _renderer == null:
 		return
 	_renderer.set_selected_entity_ids(_input.selected_entity_ids())
+
+
+func _movable_selection_ids(entity_ids: Array[int]) -> Array[int]:
+	var out: Array[int] = []
+	for entity_id in entity_ids:
+		if out.has(entity_id):
+			continue
+		if _input.can_select_movable_entity(entity_id):
+			out.append(entity_id)
+	return out
 
 
 func _set_hover_tile(tile: Vector2i) -> void:
