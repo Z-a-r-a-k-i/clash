@@ -1121,6 +1121,10 @@ func _test_network_disconnect_resets_local_match_state() -> bool:
 		mode.queue_free()
 		return false
 	mode.call("select_entity_id", actor_id)
+	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var renderer: MatchRenderer = surface.renderer() if surface != null else null
+	if renderer != null:
+		renderer.call("set_selection_box_world_rect", Rect2(Vector2(8.0, 8.0), Vector2(32.0, 32.0)))
 	if not bool(mode.call("issue_move_selected", target_tile, false)):
 		push_error("disconnect reset test should queue a pre-reset move")
 		remove_child(mode)
@@ -1146,6 +1150,15 @@ func _test_network_disconnect_resets_local_match_state() -> bool:
 		ok = false
 	if input == null or not input.submit_for_player(0).orders.is_empty():
 		push_error("disconnect reset should clear queued input")
+		ok = false
+	if input == null or not input.selected_entity_ids().is_empty():
+		push_error("disconnect reset should clear selected input")
+		ok = false
+	if renderer != null and bool(renderer.call("is_selection_box_visible")):
+		push_error("disconnect reset should clear the active selection box")
+		ok = false
+	if renderer != null and int(renderer.call("input_highlight_count")) != 0:
+		push_error("disconnect reset should clear renderer input highlights")
 		ok = false
 	if bool(mode.call("can_submit_turn", stale_submit)):
 		push_error("disconnect reset should invalidate stale submits")
