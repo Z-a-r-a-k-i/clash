@@ -616,7 +616,7 @@ func _first_line_descendant(root: Node) -> Line2D:
 		return null
 	if root is Line2D:
 		return root as Line2D
-	for child in root.get_children():
+	for child: Node in root.get_children():
 		var found: Line2D = _first_line_descendant(child)
 		if found != null:
 			return found
@@ -628,7 +628,7 @@ func _find_label_descendant(root: Node) -> Label:
 		return null
 	if root is Label:
 		return root as Label
-	for child in root.get_children():
+	for child: Node in root.get_children():
 		var found: Label = _find_label_descendant(child)
 		if found != null:
 			return found
@@ -1516,8 +1516,8 @@ func _test_action_previews() -> bool:
 
 
 func _test_target_intent_previews() -> bool:
-	var registry := _renderer_registry()
-	var state := _make_renderer_state(
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
 		[
 			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
 			{"def_id": "marine", "owner": 1, "origin": Vector2i(4, 1), "id": 2},
@@ -1526,9 +1526,9 @@ func _test_target_intent_previews() -> bool:
 		40,
 		40
 	)
-	var renderer := _make_renderer()
+	var renderer: MatchRenderer = _make_renderer()
 	renderer.bind_state(state, registry)
-	for method in ["set_target_intent_previews", "target_intent_preview_count"]:
+	for method: String in ["set_target_intent_previews", "target_intent_preview_count"]:
 		if not renderer.has_method(method):
 			push_error("renderer should expose %s" % method)
 			_free_renderer(renderer)
@@ -1537,7 +1537,7 @@ func _test_target_intent_previews() -> bool:
 		"set_target_intent_previews",
 		[{"entity_id": 1, "target_entity_id": 2, "start_tile": Vector2i(2, 1)}]
 	)
-	var ok := true
+	var ok: bool = true
 	if renderer.call("target_intent_preview_count") != 1:
 		push_error("expected one target intent preview after set_target_intent_previews")
 		ok = false
@@ -1617,14 +1617,14 @@ func _test_action_preview_polyline_path() -> bool:
 
 
 func _test_tactical_preview_builder_attack_range_tiles() -> bool:
-	var registry := _renderer_registry()
+	var registry: EntityRegistry = _renderer_registry()
 	var marine_def: EntityDef = registry.get_by_id("marine")
 	marine_def.combat = CombatDef.new()
 	marine_def.combat.attack_range = 2
 	var tank_def: EntityDef = registry.get_by_id("tank")
 	tank_def.combat = CombatDef.new()
 	tank_def.combat.attack_range = 1
-	var state := _make_renderer_state(
+	var state: MatchState = _make_renderer_state(
 		[
 			{"def_id": "marine", "owner": 0, "origin": Vector2i(3, 3), "id": 1},
 			{
@@ -1638,13 +1638,13 @@ func _test_tactical_preview_builder_attack_range_tiles() -> bool:
 		12,
 		12
 	)
-	var builder := TacticalPreviewBuilder.new()
+	var builder: TacticalPreviewBuilder = TacticalPreviewBuilder.new()
 	var marine_tiles: Array[Vector2i] = builder.attack_range_tiles(state, registry, 1)
 	var projected_tiles: Array[Vector2i] = builder.attack_range_tiles_from_origin(
 		state, registry, 1, Vector2i(5, 5)
 	)
 	var tank_tiles: Array[Vector2i] = builder.attack_range_tiles(state, registry, 2)
-	var ok := true
+	var ok: bool = true
 	if marine_tiles.size() != 24:
 		push_error("1x1 range-2 marine should cover 24 tiles, got %d" % marine_tiles.size())
 		ok = false
@@ -1664,19 +1664,19 @@ func _test_tactical_preview_builder_attack_range_tiles() -> bool:
 
 
 func _test_tactical_preview_builder_turn_stop_tile_estimate() -> bool:
-	var registry := _renderer_registry()
+	var registry: EntityRegistry = _renderer_registry()
 	var worker_def: EntityDef = registry.get_by_id("worker")
 	worker_def.movement = MovementDef.new()
 	worker_def.movement.speed_tiles_per_turn = 3
-	var state := _make_renderer_state(
+	var state: MatchState = _make_renderer_state(
 		[{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1}], 12, 12
 	)
 	var worker: Entity = state.get_entity_by_id(1)
 	worker.moves_used_this_turn = 1
-	var builder := TacticalPreviewBuilder.new()
+	var builder: TacticalPreviewBuilder = TacticalPreviewBuilder.new()
 	var path: Array[Vector2i] = [Vector2i(2, 1), Vector2i(3, 1), Vector2i(4, 1), Vector2i(5, 1)]
 	var stop_tile: Vector2i = builder.turn_stop_tile_for_path(state, registry, 1, path)
-	var buff := ActiveBuff.new()
+	var buff: ActiveBuff = ActiveBuff.new()
 	buff.speed_mult = 2.0
 	var active_buffs: Array[ActiveBuff] = [buff]
 	worker.active_buffs = active_buffs
@@ -1684,7 +1684,7 @@ func _test_tactical_preview_builder_turn_stop_tile_estimate() -> bool:
 	worker.active_buffs = []
 	worker_def.movement.post_shot_move_fraction = 0.5
 	var fired_stop_tile: Vector2i = builder.turn_stop_tile_for_path(state, registry, 1, path, true)
-	var ok := true
+	var ok: bool = true
 	if stop_tile != Vector2i(3, 1):
 		push_error(
 			"path-budget stop tile should be the remaining-budget path tile, got %s" % stop_tile
@@ -1702,13 +1702,13 @@ func _test_tactical_preview_builder_turn_stop_tile_estimate() -> bool:
 
 
 func _test_range_previews() -> bool:
-	var registry := _renderer_registry()
-	var state := _make_renderer_state(
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
 		[{"def_id": "marine", "owner": 0, "origin": Vector2i(3, 3), "id": 1}], 12, 12
 	)
-	var renderer := _make_renderer()
+	var renderer: MatchRenderer = _make_renderer()
 	renderer.bind_state(state, registry)
-	for method in [
+	for method: String in [
 		"set_range_preview_tiles", "clear_range_preview_tiles", "range_preview_tile_count"
 	]:
 		if not renderer.has_method(method):
@@ -1716,7 +1716,7 @@ func _test_range_previews() -> bool:
 			_free_renderer(renderer)
 			return false
 	renderer.call("set_range_preview_tiles", [Vector2i(2, 2), Vector2i(3, 2)], [Vector2i(5, 5)])
-	var ok := true
+	var ok: bool = true
 	if renderer.call("range_preview_tile_count") != 3:
 		push_error("range previews should draw current + projected tiles")
 		ok = false
@@ -1734,13 +1734,13 @@ func _test_range_previews() -> bool:
 
 
 func _test_action_preview_stop_marker() -> bool:
-	var registry := _renderer_registry()
-	var state := _make_renderer_state(
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
 		[{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1}], 10, 10
 	)
-	var renderer := _make_renderer()
+	var renderer: MatchRenderer = _make_renderer()
 	renderer.bind_state(state, registry)
-	for method in ["action_preview_stop_marker_count", "action_preview_stop_marker_tile"]:
+	for method: String in ["action_preview_stop_marker_count", "action_preview_stop_marker_tile"]:
 		if not renderer.has_method(method):
 			push_error("renderer should expose %s for stop markers" % method)
 			_free_renderer(renderer)
@@ -1763,7 +1763,7 @@ func _test_action_preview_stop_marker() -> bool:
 	var points: int = renderer.call("action_preview_line_point_count", 0)
 	var stop_count: int = renderer.call("action_preview_stop_marker_count")
 	var stop_tile: Vector2i = renderer.call("action_preview_stop_marker_tile", 0)
-	var ok := true
+	var ok: bool = true
 	if points != 4:
 		push_error("stop marker should not alter path polyline point count, got %d" % points)
 		ok = false
