@@ -10,8 +10,8 @@ var _input: DevTurnInput = null
 var _player_id: int = 0
 var _renderer: MatchRenderer = null
 var _visibility_by_player: Dictionary[int, VisionSystem.Visibility] = {}
-var _tactical_preview_builder: TacticalPreviewBuilder = (
-	TACTICAL_PREVIEW_BUILDER_SCRIPT.new() as TacticalPreviewBuilder
+var _tactical_preview_builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = (
+	TACTICAL_PREVIEW_BUILDER_SCRIPT.new() as TACTICAL_PREVIEW_BUILDER_SCRIPT
 )
 
 
@@ -563,7 +563,7 @@ func _add_turn_stop_tile(
 	var stop_tile: Vector2i = _tactical_preview_builder.turn_stop_tile_for_path(
 		_state, _registry, entity_id, path, fired_this_turn
 	)
-	if stop_tile == TacticalPreviewBuilder.NO_STOP_TILE:
+	if stop_tile == TACTICAL_PREVIEW_BUILDER_SCRIPT.NO_STOP_TILE:
 		return
 	preview["turn_stop_tile"] = stop_tile
 

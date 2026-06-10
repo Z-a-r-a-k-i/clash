@@ -12,6 +12,7 @@ extends Node
 const MATCH_SCENE_PATH := "res://scenes/match.tscn"
 const ENTITY_VIEW_SCENE_PATH := "res://scenes/entity_view.tscn"
 const TUNABLES_PATH := "res://data/tunables.tres"
+const TACTICAL_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/tactical_preview_builder.gd")
 
 
 func _enter_tree() -> void:
@@ -1704,7 +1705,7 @@ func _test_tactical_preview_builder_attack_range_tiles() -> bool:
 		12,
 		12
 	)
-	var builder: TacticalPreviewBuilder = TacticalPreviewBuilder.new()
+	var builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = TACTICAL_PREVIEW_BUILDER_SCRIPT.new()
 	var marine_tiles: Array[Vector2i] = builder.attack_range_tiles(state, registry, 1)
 	var projected_tiles: Array[Vector2i] = builder.attack_range_tiles_from_origin(
 		state, registry, 1, Vector2i(5, 5)
@@ -1739,7 +1740,7 @@ func _test_tactical_preview_builder_turn_stop_tile_estimate() -> bool:
 	)
 	var worker: Entity = state.get_entity_by_id(1)
 	worker.moves_used_this_turn = 1
-	var builder: TacticalPreviewBuilder = TacticalPreviewBuilder.new()
+	var builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = TACTICAL_PREVIEW_BUILDER_SCRIPT.new()
 	var path: Array[Vector2i] = [Vector2i(2, 1), Vector2i(3, 1), Vector2i(4, 1), Vector2i(5, 1)]
 	var stop_tile: Vector2i = builder.turn_stop_tile_for_path(state, registry, 1, path)
 	var buff: ActiveBuff = ActiveBuff.new()

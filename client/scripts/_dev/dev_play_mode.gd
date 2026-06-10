@@ -91,8 +91,8 @@ var _auto_replay_path: String = ""
 var _action_preview_builder: ActionPreviewBuilder = (
 	ACTION_PREVIEW_BUILDER_SCRIPT.new() as ActionPreviewBuilder
 )
-var _tactical_preview_builder: TacticalPreviewBuilder = (
-	TACTICAL_PREVIEW_BUILDER_SCRIPT.new() as TacticalPreviewBuilder
+var _tactical_preview_builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = (
+	TACTICAL_PREVIEW_BUILDER_SCRIPT.new() as TACTICAL_PREVIEW_BUILDER_SCRIPT
 )
 
 
