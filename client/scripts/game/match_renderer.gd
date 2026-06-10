@@ -40,12 +40,16 @@ const _DESTRUCTION_FADE_SECONDS := 0.5
 const _COMBAT_LOG_MAX_LINES := 50
 const _SELECTED_HIGHLIGHT_COLOR := Color(0.1, 0.85, 1.0, 0.32)
 const _HOVER_HIGHLIGHT_COLOR := Color(1.0, 1.0, 1.0, 0.22)
+const _RANGE_CURRENT_COLOR := Color(0.05, 0.55, 1.0, 0.20)
+const _RANGE_PROJECTED_COLOR := Color(1.0, 0.74, 0.16, 0.24)
 const _BUILD_PLACEMENT_VALID_COLOR := Color(0.0, 0.88, 0.72, 0.30)
 const _BUILD_PLACEMENT_INVALID_COLOR := Color(1.0, 0.08, 0.08, 0.30)
 const _BUILD_PLACEMENT_GRID_ALPHA := 0.72
 const _BUILD_PLACEMENT_BORDER_WIDTH := 2.0
 const _BUILD_PLACEMENT_GRID_WIDTH := 1.0
 const _ACTION_PREVIEW_COLOR := Color(0.2, 0.95, 0.9, 0.86)
+const _ACTION_PREVIEW_STOP_COLOR := Color(1.0, 0.78, 0.12, 0.96)
+const _ACTION_PREVIEW_STOP_OUTLINE_COLOR := Color(0.0, 0.0, 0.0, 0.85)
 const _ACTION_PREVIEW_TEXT_COLOR := Color(0.95, 1.0, 1.0, 1.0)
 const _ACTION_PREVIEW_LINE_WIDTH := 3.0
 const _ACTION_PREVIEW_FONT_SIZE := 18
@@ -115,6 +119,7 @@ var _zoom_debug_text: String = ""
 var _fog_overlay_signature: String = ""
 var _has_fog_overlay_cache := false
 var _fog_overlay_tile_count := 0
+var _range_preview_signature: String = ""
 
 @onready var _entities_root: Node2D = $Entities
 @onready var _terrain: TileMapLayer = $Terrain
@@ -122,6 +127,7 @@ var _fog_overlay_tile_count := 0
 @onready var _fog_root: Node2D = $Overlays/Fog
 @onready var _attack_lines_root: Node2D = $Overlays/AttackLines
 @onready var _input_highlights_root: Node2D = $Overlays/Highlights
+@onready var _range_previews_root: Node2D = get_node_or_null("Overlays/RangePreviews") as Node2D
 @onready var _build_placement_preview_root: Node2D = (
 	get_node_or_null("Overlays/BuildPlacementPreview") as Node2D
 )
@@ -382,6 +388,7 @@ func clear_input_highlights() -> void:
 	_selected_entity_id = -1
 	_has_hover_tile = false
 	_clear_input_highlight_nodes()
+	_clear_range_preview_nodes()
 	_clear_build_placement_preview_nodes()
 
 
@@ -389,6 +396,37 @@ func input_highlight_count() -> int:
 	if _input_highlights_root == null:
 		return 0
 	return _input_highlights_root.get_child_count()
+
+
+func set_range_preview_tiles(current_tiles: Array, projected_tiles: Array) -> void:
+	_resolve_internal_nodes()
+	var signature: String = _range_preview_signature_for(current_tiles, projected_tiles)
+	if signature == _range_preview_signature:
+		return
+	_clear_range_preview_nodes()
+	_range_preview_signature = signature
+	if _range_previews_root == null:
+		return
+	for item in current_tiles:
+		var tile: Vector2i = item
+		_range_previews_root.add_child(
+			_highlight_polygon(Rect2i(tile, Vector2i.ONE), _RANGE_CURRENT_COLOR)
+		)
+	for item in projected_tiles:
+		var tile: Vector2i = item
+		_range_previews_root.add_child(
+			_highlight_polygon(Rect2i(tile, Vector2i.ONE), _RANGE_PROJECTED_COLOR)
+		)
+
+
+func clear_range_preview_tiles() -> void:
+	_clear_range_preview_nodes()
+
+
+func range_preview_tile_count() -> int:
+	if _range_previews_root == null:
+		return 0
+	return _range_previews_root.get_child_count()
 
 
 func set_build_placement_preview(preview: Dictionary) -> void:
@@ -458,6 +496,31 @@ func action_preview_line_point_count(preview_index: int) -> int:
 		if line != null:
 			return line.points.size()
 	return 0
+
+
+func action_preview_stop_marker_count() -> int:
+	if _action_previews_root == null:
+		return 0
+	var count := 0
+	for group in _action_previews_root.get_children():
+		for child in group.get_children():
+			if child.name == "TurnStopMarker":
+				count += 1
+	return count
+
+
+func action_preview_stop_marker_tile(marker_index: int) -> Vector2i:
+	if _action_previews_root == null:
+		return Vector2i(-999999, -999999)
+	var seen := 0
+	for group in _action_previews_root.get_children():
+		for child in group.get_children():
+			if child.name != "TurnStopMarker":
+				continue
+			if seen == marker_index:
+				return child.get_meta("tile", Vector2i(-999999, -999999))
+			seen += 1
+	return Vector2i(-999999, -999999)
 
 
 func production_progress_count() -> int:
@@ -572,6 +635,12 @@ func _resolve_internal_nodes() -> void:
 			_input_highlights_root = Node2D.new()
 			_input_highlights_root.name = "Highlights"
 			overlays.add_child(_input_highlights_root)
+	if _range_previews_root == null:
+		var overlays := get_node_or_null("Overlays") as Node2D
+		if overlays != null:
+			_range_previews_root = Node2D.new()
+			_range_previews_root.name = "RangePreviews"
+			overlays.add_child(_range_previews_root)
 	if _build_placement_preview_root == null:
 		var overlays := get_node_or_null("Overlays") as Node2D
 		if overlays != null:
@@ -655,6 +724,7 @@ func _clear_overlay_roots() -> void:
 	for root in [
 		_fog_root,
 		_attack_lines_root,
+		_range_previews_root,
 		_build_placement_preview_root,
 		_action_previews_root,
 		_target_intents_root,
@@ -667,6 +737,27 @@ func _clear_overlay_roots() -> void:
 		for child in root.get_children():
 			root.remove_child(child)
 			child.queue_free()
+
+
+func _clear_range_preview_nodes() -> void:
+	_range_preview_signature = ""
+	if _range_previews_root == null:
+		return
+	for child in _range_previews_root.get_children():
+		_range_previews_root.remove_child(child)
+		child.queue_free()
+
+
+func _range_preview_signature_for(current_tiles: Array, projected_tiles: Array) -> String:
+	var parts: Array[String] = ["current"]
+	for item in current_tiles:
+		var tile: Vector2i = item
+		parts.append("%d,%d" % [tile.x, tile.y])
+	parts.append("projected")
+	for item in projected_tiles:
+		var tile: Vector2i = item
+		parts.append("%d,%d" % [tile.x, tile.y])
+	return "|".join(parts)
 
 
 func _clear_input_highlight_nodes() -> void:
@@ -846,6 +937,11 @@ func _render_action_preview(preview: Dictionary) -> void:
 		line.width = _ACTION_PREVIEW_LINE_WIDTH
 		line.points = line_points
 		group.add_child(line)
+		if preview.has("turn_stop_tile"):
+			var stop_tile: Vector2i = preview.get("turn_stop_tile", Vector2i(-999999, -999999))
+			if stop_tile != Vector2i(-999999, -999999):
+				var stop_alpha: float = preview_color.a / maxf(_ACTION_PREVIEW_COLOR.a, 0.001)
+				group.add_child(_turn_stop_marker(stop_tile, stop_alpha))
 		group.add_child(_target_marker(target, preview_color))
 	var label := Label.new()
 	label.text = _preview_label(preview)
@@ -948,6 +1044,42 @@ func _target_marker(marker_position: Vector2, color: Color = _ACTION_PREVIEW_COL
 		]
 	)
 	return marker
+
+
+func _turn_stop_marker(tile: Vector2i, alpha_multiplier: float = 1.0) -> Node2D:
+	var group := Node2D.new()
+	group.name = "TurnStopMarker"
+	group.set_meta("tile", tile)
+	var marker_position: Vector2 = _tile_center(tile)
+	var outer_radius := 11.0
+	var inner_radius := 7.0
+	var outline_color := _ACTION_PREVIEW_STOP_OUTLINE_COLOR
+	outline_color.a *= alpha_multiplier
+	var fill_color := _ACTION_PREVIEW_STOP_COLOR
+	fill_color.a *= alpha_multiplier
+	var outline := Polygon2D.new()
+	outline.color = outline_color
+	outline.polygon = PackedVector2Array(
+		[
+			marker_position + Vector2(-outer_radius, -outer_radius),
+			marker_position + Vector2(outer_radius, -outer_radius),
+			marker_position + Vector2(outer_radius, outer_radius),
+			marker_position + Vector2(-outer_radius, outer_radius),
+		]
+	)
+	group.add_child(outline)
+	var fill := Polygon2D.new()
+	fill.color = fill_color
+	fill.polygon = PackedVector2Array(
+		[
+			marker_position + Vector2(-inner_radius, -inner_radius),
+			marker_position + Vector2(inner_radius, -inner_radius),
+			marker_position + Vector2(inner_radius, inner_radius),
+			marker_position + Vector2(-inner_radius, inner_radius),
+		]
+	)
+	group.add_child(fill)
+	return group
 
 
 func _preview_label(preview: Dictionary) -> String:
