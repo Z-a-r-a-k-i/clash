@@ -461,6 +461,10 @@ func clear_selection_box() -> void:
 	_rebuild_input_highlights()
 
 
+func is_selection_box_visible() -> bool:
+	return _has_selection_box
+
+
 func owned_movable_entity_ids_in_world_rect(world_rect: Rect2, owner_player_id: int) -> Array[int]:
 	var out: Array[int] = []
 	if _state == null or _registry == null:

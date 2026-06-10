@@ -2045,14 +2045,16 @@ func _test_escape_resets_active_selection_drag() -> bool:
 	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, box.position))
 	mode.call("_unhandled_input", _mouse_motion(box.size, MOUSE_BUTTON_MASK_LEFT, box.end))
 	mode.call("_unhandled_input", _escape_key())
+	if bool(mode.renderer().call("is_selection_box_visible")):
+		push_error("Escape should immediately clear the active selection box")
+		_free_mode(mode)
+		return false
+	mode.call("_set_escape_menu_visible", false)
 	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, box.end))
 	var selected: Array[int] = _selected_ids_for_test(mode.input_model())
 	var ok: bool = selected == [ids[0]]
 	if not ok:
 		push_error("Escape should cancel active selection drag, got %s" % str(selected))
-	if int(mode.renderer().call("input_highlight_count")) != 1:
-		push_error("Escape should clear the active selection box")
-		ok = false
 	_free_mode(mode)
 	return ok
 

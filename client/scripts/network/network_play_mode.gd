@@ -90,6 +90,7 @@ func ensure_initialized() -> void:
 func bind_authoritative_snapshot(
 	state: MatchState, registry: EntityRegistry, player_slot: int
 ) -> void:
+	_reset_selection_drag()
 	_build_surface()
 	_registry = registry
 	_player_slot = player_slot
@@ -110,6 +111,7 @@ func bind_authoritative_snapshot(
 
 
 func apply_authoritative_result(new_state: MatchState, events: Array) -> void:
+	_reset_selection_drag()
 	_client_controller.mark_submit_pending(false)
 	_submit_in_flight = false
 	if new_state == null:
@@ -866,9 +868,12 @@ func _reset_local_match_state() -> void:
 	_interface_hidden = false
 	_client_controller.bind_authoritative_state(null, null, -1)
 	_input.clear_submissions()
+	_input.clear_selection()
 	_clear_pending_command()
 	_submit_in_flight = false
 	_reset_selection_drag()
+	_sync_selection_highlights()
+	_refresh_action_previews()
 	_update_outcome_overlay(null)
 	set_escape_menu_visible(false)
 	set_connection_status("Disconnected")

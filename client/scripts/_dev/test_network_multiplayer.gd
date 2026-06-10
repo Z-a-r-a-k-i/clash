@@ -670,16 +670,19 @@ func _test_network_escape_resets_active_selection_drag() -> bool:
 	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, box.position))
 	mode.call("_unhandled_input", _mouse_motion(box.size, MOUSE_BUTTON_MASK_LEFT, box.end))
 	mode.call("_unhandled_input", _key_press(KEY_ESCAPE))
-	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, box.end))
 	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
 	var renderer: MatchRenderer = surface.renderer() if surface != null else null
+	if renderer != null and bool(renderer.call("is_selection_box_visible")):
+		push_error("network Escape should immediately clear the active selection box")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("set_escape_menu_visible", false)
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, box.end))
 	var selected: Array[int] = _selected_ids_for_test(input)
 	var ok: bool = selected == [ids[0]]
 	if not ok:
 		push_error("network Escape should cancel active selection drag, got %s" % str(selected))
-	if renderer != null and int(renderer.call("input_highlight_count")) != 1:
-		push_error("network Escape should clear the active selection box")
-		ok = false
 	remove_child(mode)
 	mode.queue_free()
 	return ok

@@ -1416,6 +1416,7 @@ func _test_selection_box_overlay_and_query() -> bool:
 		"set_selection_box_world_rect",
 		"clear_selection_box",
 		"owned_movable_entity_ids_in_world_rect",
+		"is_selection_box_visible",
 	]:
 		if not renderer.has_method(method):
 			push_error("renderer should expose %s" % method)
@@ -1426,6 +1427,10 @@ func _test_selection_box_overlay_and_query() -> bool:
 	renderer.call("set_selection_box_world_rect", box)
 	if renderer.call("input_highlight_count") != 1:
 		push_error("selection box should render one overlay highlight")
+		_free_renderer(renderer)
+		return false
+	if not bool(renderer.call("is_selection_box_visible")):
+		push_error("selection box should report visible after setting a non-empty box")
 		_free_renderer(renderer)
 		return false
 	var ids: Array[int] = renderer.call("owned_movable_entity_ids_in_world_rect", box, 0)
@@ -1441,6 +1446,10 @@ func _test_selection_box_overlay_and_query() -> bool:
 	renderer.call("clear_selection_box")
 	if renderer.call("input_highlight_count") != 0:
 		push_error("clear_selection_box should remove the box overlay")
+		_free_renderer(renderer)
+		return false
+	if bool(renderer.call("is_selection_box_visible")):
+		push_error("selection box should report hidden after clear_selection_box")
 		_free_renderer(renderer)
 		return false
 	_free_renderer(renderer)
