@@ -1576,6 +1576,7 @@ func _add_entity(
 	e.current_def_id = def_id
 	e.owner_player_id = owner
 	e.origin = origin
+	e.current_layer = "ground"
 	e.current_hp = hp
 	if def_id == "worker":
 		e.gather_state = GatherState.new()

@@ -40,8 +40,9 @@ static func distribute_orders(
 	var p_b: PlayerState = state.players[1] if state.players.size() >= 2 else null
 	var owner_a := p_a.player_id if p_a != null else 0
 	var owner_b := p_b.player_id if p_b != null else 1
-	_distribute_one(state, queue_a, owner_a, per_entity, registry, events)
-	_distribute_one(state, queue_b, owner_b, per_entity, registry, events)
+	var visibility_by_player: Dictionary = {}
+	_distribute_one(state, queue_a, owner_a, per_entity, registry, events, visibility_by_player)
+	_distribute_one(state, queue_b, owner_b, per_entity, registry, events, visibility_by_player)
 	return per_entity
 
 
@@ -79,7 +80,8 @@ static func _distribute_one(
 	expected_owner: int,
 	per_entity: Dictionary,
 	registry: EntityRegistry,
-	events: Array[ResolverEvent]
+	events: Array[ResolverEvent],
+	visibility_by_player: Dictionary
 ) -> void:
 	for order in queue:
 		if order == null or order.type == EntityOrder.Type.INVALID:
@@ -100,6 +102,7 @@ static func _distribute_one(
 		# tick loop.
 		if order.type == EntityOrder.Type.CANCEL:
 			_handle_cancel_order(state, entity, order, registry, events)
+			visibility_by_player.clear()
 			continue
 		if order.type == EntityOrder.Type.SET_RALLY_POINT:
 			_handle_set_rally_order(state, entity, order, registry, events)
@@ -115,6 +118,7 @@ static func _distribute_one(
 			continue
 		if order.type == EntityOrder.Type.BUILD:
 			_handle_build_order(state, entity, order, registry, events)
+			visibility_by_player.clear()
 			continue
 		# Build-committed workers reject any tick-action orders, whether
 		# the building entity has spawned yet or construction is underway.
@@ -159,7 +163,7 @@ static func _distribute_one(
 			continue
 		if order.type == EntityOrder.Type.TARGET:
 			GatherSystem.clear_assignment(entity)
-			if not _can_target_visible_enemy(state, entity, order, registry):
+			if not _can_target_visible_enemy(state, entity, order, registry, visibility_by_player):
 				_emit_order_rejected(order.entity_id, "bad_target", events)
 				continue
 			_refresh_attack_target_tile(state, entity, order)
@@ -224,7 +228,11 @@ static func _refresh_attack_target_tile(
 
 
 static func _can_target_visible_enemy(
-	state: MatchState, entity: Entity, order: EntityOrder, registry: EntityRegistry
+	state: MatchState,
+	entity: Entity,
+	order: EntityOrder,
+	registry: EntityRegistry,
+	visibility_by_player: Dictionary
 ) -> bool:
 	if state == null or entity == null or order == null or registry == null:
 		return false
@@ -237,7 +245,9 @@ static func _can_target_visible_enemy(
 		return false
 	if target.owner_player_id < 0 or target.owner_player_id == entity.owner_player_id:
 		return false
-	if not _is_visible_to_player(state, registry, target, entity.owner_player_id):
+	if not _is_visible_to_player(
+		state, registry, target, entity.owner_player_id, visibility_by_player
+	):
 		return false
 	var def: EntityDef = registry.get_by_id(_effective_def_id(entity))
 	if def == null or def.combat == null:
@@ -270,13 +280,22 @@ static func _queue_replacing_move(per_entity: Dictionary, order: EntityOrder) ->
 
 
 static func _is_visible_to_player(
-	state: MatchState, registry: EntityRegistry, entity: Entity, player_id: int
+	state: MatchState,
+	registry: EntityRegistry,
+	entity: Entity,
+	player_id: int,
+	visibility_by_player: Dictionary
 ) -> bool:
 	if entity == null or player_id < 0:
 		return false
 	if state == null or state.tile_grid == null:
 		return true
-	var visibility := VisionSystem.compute_player_visibility(state, registry, player_id)
+	var visibility: VisionSystem.Visibility = null
+	if visibility_by_player.has(player_id):
+		visibility = visibility_by_player[player_id] as VisionSystem.Visibility
+	else:
+		visibility = VisionSystem.compute_player_visibility(state, registry, player_id)
+		visibility_by_player[player_id] = visibility
 	return VisionSystem.is_entity_visible_to_player(entity, state, registry, player_id, visibility)
 
 

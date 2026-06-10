@@ -65,11 +65,25 @@ Use the returned HTTPS forwarding hostname as `wss://...`.
 11. Toggle `Hide UI` and verify units behind the HUD can be clicked, then toggle `Show UI`.
 12. Toggle `Submit Turn` on, then off before the other player submits, and verify readiness can be cancelled.
 13. Queue a long-distance move or multiple queued orders, submit, and confirm follow-up orders remain queued on the next turn.
-14. Submit one turn for each player.
-15. Confirm both clients receive the same resolved state and events.
-16. Press Escape in a match and confirm the menu can resume, leave back to the multiplayer lobby, or return to the main menu.
-17. Leave from one client during an active match and confirm the remaining player receives the win and a centered `Victory` overlay.
-18. Repeat with one client connecting through the tunnel URL.
+14. Submit from one client and confirm it shows `Submitted. Waiting for opponent.`
+15. Submit from the second client and confirm both clients advance to the next turn.
+16. Confirm a trained unit starts/completes and a moved unit changes authoritative position in both clients.
+17. Confirm both clients receive the same resolved state and events.
+18. If a submit is rejected, confirm the status shows the server error and the `Submit Turn` button becomes available again.
+19. Press Escape in a match and confirm the menu can resume, leave back to the multiplayer lobby, or return to the main menu.
+20. Leave from one client during an active match and confirm the remaining player receives the win and a centered `Victory` overlay.
+21. Repeat with one client connecting through the tunnel URL.
+
+## Automated Parity Smoke
+
+Run the focused live WebSocket smoke after multiplayer command changes:
+
+```powershell
+$godot = "C:\Program Files\Godot_v4.6.1-stable_mono_win64\Godot_v4.6.1-stable_mono_win64_console.exe"
+& $godot --headless --path client --script scripts/_dev/run_test_network_live_headless.gd
+```
+
+This starts an in-process server on a non-default test port, connects two real network clients, creates and joins a match, submits both slots, and asserts live move/train results apply identically on both clients. It is also part of `make test`.
 
 ## Current Limits
 

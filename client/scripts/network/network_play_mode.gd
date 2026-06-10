@@ -484,6 +484,7 @@ func submit_queued_turn() -> bool:
 		set_error("not connected")
 		_update_hud()
 		return false
+	print("NetworkPlayMode: sending submit %s" % _submit_summary(submit))
 	var err: Error = _client.submit_turn(submit)
 	if err != OK:
 		_client_controller.mark_submit_pending(false)
@@ -491,7 +492,11 @@ func submit_queued_turn() -> bool:
 		_update_hud()
 		return false
 	if _submit_label != null:
-		_submit_label.text = "Submit: pending"
+		_submit_label.text = "Submit: sending"
+	set_connection_status("Submit sent. Waiting for server.")
+	_update_hud()
+	if _submit_label != null:
+		_submit_label.text = "Submit: sending"
 	return true
 
 
@@ -847,12 +852,14 @@ func _handle_network_message(message: Dictionary) -> void:
 		MESSAGE.SUBMIT_TURN:
 			if payload.get("accepted", false):
 				_client_controller.mark_submit_pending(true)
+				set_connection_status("Submitted. Waiting for opponent.")
 				_update_hud()
 		MESSAGE.CANCEL_SUBMIT_TURN:
 			if payload.get("accepted", false):
 				_client_controller.mark_submit_pending(false)
 				_update_hud()
 		MESSAGE.MATCH_ERROR:
+			_client_controller.mark_submit_pending(false)
 			set_error(payload.get("message", payload.get("code", "unknown")))
 			_update_hud()
 		MESSAGE.DISCONNECT_NOTICE:
@@ -1303,6 +1310,51 @@ func _typed_events(events: Array) -> Array[ResolverEvent]:
 		if event != null:
 			out.append(event)
 	return out
+
+
+func _submit_summary(submit: SubmitTurn) -> String:
+	if submit == null:
+		return "slot=%d turn=-1 orders=0 []" % _player_slot
+	var state: MatchState = _current_state()
+	var turn_index: int = state.turn_index if state != null else -1
+	var parts: Array[String] = []
+	for order: EntityOrder in submit.orders:
+		if order == null:
+			parts.append("null")
+			continue
+		parts.append("%s#%d" % [_order_type_label(order.type), order.entity_id])
+	return (
+		"slot=%d turn=%d orders=%d [%s]"
+		% [_player_slot, turn_index, submit.orders.size(), ", ".join(parts)]
+	)
+
+
+func _order_type_label(order_type: int) -> String:
+	match order_type:
+		EntityOrder.Type.MOVE:
+			return "MOVE"
+		EntityOrder.Type.ATTACK_MOVE:
+			return "ATTACK_MOVE"
+		EntityOrder.Type.TARGET:
+			return "TARGET"
+		EntityOrder.Type.BUILD:
+			return "BUILD"
+		EntityOrder.Type.TRAIN:
+			return "TRAIN"
+		EntityOrder.Type.RESEARCH:
+			return "RESEARCH"
+		EntityOrder.Type.CANCEL:
+			return "CANCEL"
+		EntityOrder.Type.GATHER:
+			return "GATHER"
+		EntityOrder.Type.USE_ABILITY:
+			return "USE_ABILITY"
+		EntityOrder.Type.SET_RALLY_POINT:
+			return "SET_RALLY_POINT"
+		EntityOrder.Type.REPEAT_TRAIN_TOGGLE:
+			return "REPEAT_TRAIN_TOGGLE"
+		_:
+			return "INVALID"
 
 
 func _move_button_pressed() -> void:
