@@ -6,6 +6,7 @@ const COMMAND_CARD_PATH := "res://scripts/game/command_card.gd"
 const COMBAT_SCENARIO_PATH := "res://data/scenarios/combat_marines_vs_tanks.tres"
 const MVP_SCENARIO_PATH := "res://data/scenarios/mvp_map.tres"
 const TUNABLES_PATH := "res://data/tunables.tres"
+const TestSuitePolicy := preload("res://scripts/_dev/test_suite_policy.gd")
 
 
 func _enter_tree() -> void:
@@ -34,7 +35,7 @@ func _run_all() -> int:
 
 
 func _all_tests() -> Array:
-	return [
+	var tests: Array = [
 		["dev_play_mode_loads_scenario_and_binds_renderer", _test_loads_scenario],
 		["dev_play_mode_queues_and_resolves_turn", _test_queues_and_resolves_turn],
 		["dev_play_mode_routes_context_actions", _test_routes_context_actions],
@@ -112,6 +113,20 @@ func _all_tests() -> Array:
 		],
 		["dev_play_mode_hud_omits_resolution_button", _test_hud_omits_resolution_button],
 		["dev_play_mode_hud_separates_replay_controls", _test_hud_separates_replay_controls],
+	]
+	return TestSuitePolicy.filter_broad_tests(tests, _broad_test_names())
+
+
+func _broad_test_names() -> Array[String]:
+	return [
+		"command_card_actions_and_state_changes_are_separate_rows",
+		"command_card_primary_visibility_tracks_each_command",
+		"dev_play_mode_hud_resources_and_readable_queue",
+		"dev_play_mode_left_drag_pans_camera",
+		"dev_play_mode_hud_anchors_away_from_start_area",
+		"dev_play_mode_switching_player_keeps_camera_bounded",
+		"dev_play_mode_hud_omits_resolution_button",
+		"dev_play_mode_hud_separates_replay_controls",
 	]
 
 

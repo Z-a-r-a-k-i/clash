@@ -12,6 +12,7 @@ extends Node
 const MATCH_SCENE_PATH := "res://scenes/match.tscn"
 const ENTITY_VIEW_SCENE_PATH := "res://scenes/entity_view.tscn"
 const TUNABLES_PATH := "res://data/tunables.tres"
+const TestSuitePolicy := preload("res://scripts/_dev/test_suite_policy.gd")
 
 
 func _enter_tree() -> void:
@@ -37,7 +38,7 @@ func _enter_tree() -> void:
 
 
 func _all_tests() -> Array:
-	return [
+	var tests: Array = [
 		# Chunk 2 — scaffolding smoke.
 		["match_renderer_classes_load", _test_match_renderer_classes_load],
 		# Chunk 3 — initial state rendering.
@@ -151,6 +152,19 @@ func _all_tests() -> Array:
 		],
 		["match_renderer_updates_zoom_debug_readout", _test_updates_zoom_debug_readout],
 		["match_renderer_camera_pan_and_zoom_helpers", _test_camera_pan_and_zoom_helpers],
+	]
+	return TestSuitePolicy.filter_broad_tests(tests, _broad_test_names())
+
+
+func _broad_test_names() -> Array[String]:
+	return [
+		"entity_sprite_imports_generate_mipmaps",
+		"project_uses_fixed_16_9_viewport_stretch",
+		"match_renderer_camera_fit_uses_logical_viewport_size",
+		"match_renderer_camera_clamps_to_map_bounds",
+		"match_renderer_focuses_player_start_at_playable_zoom",
+		"match_renderer_updates_zoom_debug_readout",
+		"match_renderer_camera_pan_and_zoom_helpers",
 	]
 
 

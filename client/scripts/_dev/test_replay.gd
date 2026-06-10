@@ -7,6 +7,7 @@ const MVP_SCENARIO_PATH := "res://data/scenarios/mvp_map.tres"
 const SNAPSHOT_PATH := "user://test_replay_snapshot.tres"
 const REPLAY_PATH := "user://test_replay_latest.tres"
 const BAD_REPLAY_PATH := "user://test_replay_bad.tres"
+const TestSuitePolicy := preload("res://scripts/_dev/test_suite_policy.gd")
 
 
 func _enter_tree() -> void:
@@ -35,7 +36,7 @@ func _run_all() -> int:
 
 
 func _all_tests() -> Array:
-	return [
+	var tests: Array = [
 		["replay_journal_reaches_live_final_state", _test_replay_reaches_live_final_state],
 		["replay_jump_uses_recorded_checkpoints", _test_replay_jump_checkpoints],
 		["replay_next_recomputes_turn", _test_replay_next_recomputes_turn],
@@ -47,6 +48,15 @@ func _all_tests() -> Array:
 		["replay_save_load_rebuilds_checkpoints", _test_replay_save_load],
 		["replay_timeline_scrubs_recorded_checkpoints", _test_replay_timeline_scrubs],
 		["dev_play_mode_auto_saves_replay_to_tmp", _test_auto_replay_save],
+	]
+	return TestSuitePolicy.filter_broad_tests(tests, _broad_test_names())
+
+
+func _broad_test_names() -> Array[String]:
+	return [
+		"dev_play_mode_load_snapshot_can_resolve",
+		"replay_timeline_scrubs_recorded_checkpoints",
+		"dev_play_mode_auto_saves_replay_to_tmp",
 	]
 
 

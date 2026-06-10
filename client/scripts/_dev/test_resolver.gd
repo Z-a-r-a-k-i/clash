@@ -18,6 +18,7 @@ const _MVP_MAP_TSCN_PATH := "res://data/scenarios/mvp_map.tscn"
 const _MVP_MAP_TRES_PATH := "res://data/scenarios/mvp_map.tres"
 const _TEST_KEEPALIVE_DEF_ID := "__test_keepalive_building"
 const _PATHFINDING := preload("res://scripts/resolver/pathfinding_system.gd")
+const TestSuitePolicy := preload("res://scripts/_dev/test_suite_policy.gd")
 
 
 func _enter_tree() -> void:
@@ -43,7 +44,7 @@ func _enter_tree() -> void:
 
 
 func _all_tests() -> Array:
-	return [
+	var tests: Array = [
 		# Chunk 1 — skeleton.
 		["smoke_empty_input", _test_smoke_empty_input],
 		["smoke_no_orders_no_changes", _test_smoke_no_orders_no_changes],
@@ -364,6 +365,28 @@ func _all_tests() -> Array:
 			"siege_tank_data_is_immobile_and_siege_is_not_research_gated",
 			_test_siege_tank_data_is_immobile_and_siege_is_not_research_gated
 		],
+	]
+	return TestSuitePolicy.filter_broad_tests(tests, _broad_test_names())
+
+
+func _broad_test_names() -> Array[String]:
+	return [
+		"siege_tank_has_no_attack_modifiers_data",
+		"helicopter_has_no_attack_modifiers_data",
+		"marine_has_no_attack_modifiers_data",
+		"siege_tank_damage_at_data_values",
+		"helicopter_damage_at_data_values",
+		"registry_playtest_retune_values",
+		"registry_loads_from_data",
+		"registry_resource_footprints_match_visual_scale",
+		"map_baker_validation",
+		"mvp_map_loads",
+		"mvp_map_base_trains_worker",
+		"mvp_map_simple_facing_bases",
+		"mvp_map_main_resource_layout",
+		"mvp_map_is_mirror",
+		"mvp_map_bake_parity",
+		"golden_minerals_higher_yield",
 	]
 
 
