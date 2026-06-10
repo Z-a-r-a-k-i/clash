@@ -67,8 +67,9 @@ var _match_started: bool = false
 var _show_all_orders: bool = false
 var _interface_hidden: bool = false
 var _is_panning_camera: bool = false
-var _selection_drag = SELECTION_DRAG_CONTROLLER_SCRIPT.new()
+var _selection_drag: Variant = SELECTION_DRAG_CONTROLLER_SCRIPT.new()
 var _syncing_submit_button: bool = false
+var _submit_in_flight: bool = false
 var _server_url_config_path: String = DEFAULT_SERVER_URL_CONFIG_PATH
 var _pending_command: String = PENDING_NONE
 var _pending_build_def_id: String = ""
@@ -97,6 +98,7 @@ func bind_authoritative_snapshot(
 	_input.bind_context(state, registry)
 	_input.clear_submissions()
 	_clear_pending_command()
+	_submit_in_flight = false
 	_client_controller.bind_authoritative_state(state, registry, player_slot)
 	if _surface != null:
 		_surface.bind_authoritative_state(state, registry, player_slot)
@@ -108,6 +110,7 @@ func bind_authoritative_snapshot(
 
 func apply_authoritative_result(new_state: MatchState, events: Array) -> void:
 	_client_controller.mark_submit_pending(false)
+	_submit_in_flight = false
 	if new_state == null:
 		set_error("missing authoritative state")
 		_update_hud()
@@ -476,6 +479,10 @@ func pending_cursor_shape() -> int:
 
 
 func submit_queued_turn() -> bool:
+	if _submit_in_flight:
+		set_connection_status("Submit already sending.")
+		_update_hud()
+		return false
 	var submit: SubmitTurn = _client_controller.submit_from_input(_input)
 	if submit == null:
 		set_error(_client_controller.validation_error())
@@ -483,6 +490,7 @@ func submit_queued_turn() -> bool:
 		return false
 	if _client == null:
 		_client_controller.mark_submit_pending(false)
+		_submit_in_flight = false
 		set_error("not connected")
 		_update_hud()
 		return false
@@ -490,9 +498,11 @@ func submit_queued_turn() -> bool:
 	var err: Error = _client.submit_turn(submit)
 	if err != OK:
 		_client_controller.mark_submit_pending(false)
+		_submit_in_flight = false
 		set_error("submit failed %d" % err)
 		_update_hud()
 		return false
+	_submit_in_flight = true
 	if _submit_label != null:
 		_submit_label.text = "Submit: sending"
 	set_connection_status("Submit sent. Waiting for server.")
@@ -503,6 +513,10 @@ func submit_queued_turn() -> bool:
 
 
 func cancel_submitted_turn() -> bool:
+	if _submit_in_flight:
+		set_connection_status("Submit sent. Waiting for server.")
+		_update_hud()
+		return false
 	if not _client_controller.submit_pending():
 		_update_hud()
 		return true
@@ -516,6 +530,7 @@ func cancel_submitted_turn() -> bool:
 		_update_hud()
 		return false
 	_client_controller.mark_submit_pending(false)
+	_submit_in_flight = false
 	_update_hud()
 	return true
 
@@ -804,6 +819,7 @@ func _reset_local_match_state() -> void:
 	_client_controller.bind_authoritative_state(null, null, -1)
 	_input.clear_submissions()
 	_clear_pending_command()
+	_submit_in_flight = false
 	_reset_selection_drag()
 	_update_outcome_overlay(null)
 	set_escape_menu_visible(false)
@@ -834,6 +850,7 @@ func _handle_network_message(message: Dictionary) -> void:
 			_update_hud()
 		MESSAGE.TURN_STARTED:
 			_client_controller.mark_submit_pending(false)
+			_submit_in_flight = false
 			set_invite_code(payload.get("code", _match_code))
 			var state: MatchState = payload.get("match_state") as MatchState
 			var registry: EntityRegistry = payload.get("registry") as EntityRegistry
@@ -852,24 +869,33 @@ func _handle_network_message(message: Dictionary) -> void:
 				payload.get("match_state") as MatchState, payload.get("events", [])
 			)
 		MESSAGE.SUBMIT_TURN:
+			_submit_in_flight = false
 			if payload.get("accepted", false):
 				_client_controller.mark_submit_pending(true)
 				set_connection_status("Submitted. Waiting for opponent.")
 				_update_hud()
+			else:
+				_client_controller.mark_submit_pending(false)
+				_update_hud()
 		MESSAGE.CANCEL_SUBMIT_TURN:
 			if payload.get("accepted", false):
 				_client_controller.mark_submit_pending(false)
+				_submit_in_flight = false
 				_update_hud()
 		MESSAGE.MATCH_ERROR:
 			_client_controller.mark_submit_pending(false)
+			_submit_in_flight = false
 			set_error(payload.get("message", payload.get("code", "unknown")))
 			_update_hud()
 		MESSAGE.DISCONNECT_NOTICE:
+			_client_controller.mark_submit_pending(false)
+			_submit_in_flight = false
 			var disconnected_slot: int = payload.get("slot", -1)
 			if disconnected_slot >= 0 and disconnected_slot != _player_slot:
 				set_connection_status("Opponent left - you win")
 			else:
 				set_connection_status("Disconnected")
+			_update_hud()
 
 
 func _sync_ui() -> void:
@@ -896,15 +922,18 @@ func _update_hud() -> void:
 				% [player.minerals, player.gas, player.pop_used, player.pop_cap]
 			)
 	if _submit_label != null:
-		_submit_label.text = (
-			"Submit: pending" if _client_controller.submit_pending() else "Submit: idle"
-		)
+		if _submit_in_flight:
+			_submit_label.text = "Submit: sending"
+		else:
+			_submit_label.text = (
+				"Submit: pending" if _client_controller.submit_pending() else "Submit: idle"
+			)
 	if _submit_button != null:
+		var submit_active: bool = _client_controller.submit_pending() or _submit_in_flight
 		_syncing_submit_button = true
-		_submit_button.set_pressed_no_signal(_client_controller.submit_pending())
-		_submit_button.text = (
-			"Cancel Submit" if _client_controller.submit_pending() else "Submit Turn"
-		)
+		_submit_button.set_pressed_no_signal(submit_active)
+		_submit_button.text = "Cancel Submit" if submit_active else "Submit Turn"
+		_submit_button.disabled = _submit_in_flight
 		_syncing_submit_button = false
 	if _show_all_orders_button != null:
 		_show_all_orders_button.set_pressed_no_signal(_show_all_orders)
@@ -1082,6 +1111,7 @@ func _apply_click_selection(tile: Vector2i, additive: bool) -> void:
 	_input.clear_selection()
 	if renderer != null:
 		renderer.clear_input_highlights()
+	_reset_context_cursor()
 	_refresh_action_previews()
 	_update_hud()
 
@@ -1419,7 +1449,9 @@ func _submit_toggle_changed(pressed: bool) -> void:
 	var ok: bool = submit_queued_turn() if pressed else cancel_submitted_turn()
 	if not ok and _submit_button != null:
 		_syncing_submit_button = true
-		_submit_button.set_pressed_no_signal(_client_controller.submit_pending())
+		_submit_button.set_pressed_no_signal(
+			_client_controller.submit_pending() or _submit_in_flight
+		)
 		_syncing_submit_button = false
 
 

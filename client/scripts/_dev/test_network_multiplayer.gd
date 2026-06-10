@@ -665,7 +665,7 @@ func _test_network_group_orders() -> bool:
 	mode.call(
 		"_unhandled_input", _mouse_button(MOUSE_BUTTON_RIGHT, true, _tile_center_px(target_tile))
 	)
-	var ok := true
+	var ok: bool = true
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if orders.size() != ids.size():
 		push_error("network group right-click should queue one flat order per unit")
@@ -2051,8 +2051,8 @@ func _selected_ids_for_test(input: DevTurnInput) -> Array[int]:
 func _world_box_for_entities(state: MatchState, entity_ids: Array[int]) -> Rect2:
 	if state == null or entity_ids.is_empty():
 		return Rect2()
-	var min_tile := Vector2i(100000, 100000)
-	var max_tile := Vector2i(-100000, -100000)
+	var min_tile: Vector2i = Vector2i(100000, 100000)
+	var max_tile: Vector2i = Vector2i(-100000, -100000)
 	for entity_id in entity_ids:
 		var entity: Entity = state.get_entity_by_id(entity_id)
 		if entity == null:
@@ -2067,8 +2067,8 @@ func _world_box_for_entities(state: MatchState, entity_ids: Array[int]) -> Rect2
 		max_tile.x = maxi(max_tile.x, rect.position.x + rect.size.x)
 		max_tile.y = maxi(max_tile.y, rect.position.y + rect.size.y)
 	var tile_size: float = float(_load_tunables().tile_pixel_size)
-	var start := (Vector2(min_tile) - Vector2(0.25, 0.25)) * tile_size
-	var end := (Vector2(max_tile) + Vector2(0.25, 0.25)) * tile_size
+	var start: Vector2 = (Vector2(min_tile) - Vector2(0.25, 0.25)) * tile_size
+	var end: Vector2 = (Vector2(max_tile) + Vector2(0.25, 0.25)) * tile_size
 	return Rect2(start, end - start)
 
 

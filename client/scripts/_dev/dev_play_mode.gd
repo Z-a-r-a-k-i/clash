@@ -18,7 +18,9 @@ const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
 const ACTION_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/action_preview_builder.gd")
 const TACTICAL_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/tactical_preview_builder.gd")
 const COMMAND_OPTION_BUILDER := preload("res://scripts/game/command_option_builder.gd")
-const SELECTION_DRAG_CONTROLLER_SCRIPT := preload("res://scripts/game/selection_drag_controller.gd")
+const SELECTION_DRAG_CONTROLLER_SCRIPT: Script = preload(
+	"res://scripts/game/selection_drag_controller.gd"
+)
 const PATHFINDING_SCRIPT := preload("res://scripts/resolver/pathfinding_system.gd")
 const PENDING_NONE := ""
 const PENDING_MOVE := "move"
@@ -74,7 +76,7 @@ var _command_card: Control = null
 var _pending_command: String = PENDING_NONE
 var _pending_build_def_id: String = ""
 var _is_panning_camera: bool = false
-var _selection_drag = SELECTION_DRAG_CONTROLLER_SCRIPT.new()
+var _selection_drag: Variant = SELECTION_DRAG_CONTROLLER_SCRIPT.new()
 var _show_all_friendly_action_previews: bool = false
 var _range_projection_active: bool = false
 var _last_hover_tile: Vector2i = Vector2i.ZERO

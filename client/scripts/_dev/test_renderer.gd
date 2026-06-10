@@ -643,7 +643,7 @@ func _renderer_registry() -> EntityRegistry:
 		if ["base", "barracks"].has(d.id):
 			d.tags.append("building")
 		if ["worker", "marine", "tank", "siege_tank"].has(d.id):
-			var movement := MovementDef.new()
+			var movement: MovementDef = MovementDef.new()
 			movement.speed_tiles_per_turn = 3
 			d.movement = movement
 		if ["mineral_patch", "gas_geyser"].has(d.id):
@@ -1341,8 +1341,8 @@ func _test_input_highlights() -> bool:
 
 
 func _test_multi_selection_highlights() -> bool:
-	var registry := _renderer_registry()
-	var state := _make_renderer_state(
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
 		[
 			{"def_id": "worker", "owner": 0, "origin": Vector2i(2, 2), "id": 1},
 			{"def_id": "marine", "owner": 0, "origin": Vector2i(4, 2), "id": 2},
@@ -1357,7 +1357,7 @@ func _test_multi_selection_highlights() -> bool:
 		12,
 		12
 	)
-	var renderer := _make_renderer()
+	var renderer: MatchRenderer = _make_renderer()
 	renderer.bind_state(state, registry)
 	if not renderer.has_method("set_selected_entity_ids"):
 		push_error("renderer should expose set_selected_entity_ids")
@@ -1386,8 +1386,8 @@ func _test_multi_selection_highlights() -> bool:
 
 
 func _test_selection_box_overlay_and_query() -> bool:
-	var registry := _renderer_registry()
-	var state := _make_renderer_state(
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
 		[
 			{"def_id": "worker", "owner": 0, "origin": Vector2i(2, 2), "id": 1},
 			{"def_id": "marine", "owner": 0, "origin": Vector2i(4, 2), "id": 2},
@@ -1410,7 +1410,7 @@ func _test_selection_box_overlay_and_query() -> bool:
 		14,
 		14
 	)
-	var renderer := _make_renderer()
+	var renderer: MatchRenderer = _make_renderer()
 	renderer.bind_state(state, registry)
 	for method: String in [
 		"set_selection_box_world_rect",
@@ -1422,7 +1422,7 @@ func _test_selection_box_overlay_and_query() -> bool:
 			_free_renderer(renderer)
 			return false
 	var tile_size: float = _test_tile_size()
-	var box := Rect2(Vector2(1.5, 1.5) * tile_size, Vector2(4.25, 3.25) * tile_size)
+	var box: Rect2 = Rect2(Vector2(1.5, 1.5) * tile_size, Vector2(4.25, 3.25) * tile_size)
 	renderer.call("set_selection_box_world_rect", box)
 	if renderer.call("input_highlight_count") != 1:
 		push_error("selection box should render one overlay highlight")
