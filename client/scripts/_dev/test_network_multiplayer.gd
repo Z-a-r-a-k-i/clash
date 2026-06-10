@@ -57,7 +57,19 @@ func _all_tests() -> Array[Array]:
 			"network_drag_box_selects_without_panning",
 			_test_network_drag_box_selects_without_panning
 		],
+		[
+			"network_escape_resets_active_selection_drag",
+			_test_network_escape_resets_active_selection_drag
+		],
 		["network_group_right_click_fans_out", _test_network_group_orders],
+		[
+			"network_submit_in_flight_blocks_local_edits",
+			_test_network_submit_in_flight_blocks_local_edits
+		],
+		[
+			"network_authoritative_rebind_syncs_selection_highlights",
+			_test_network_authoritative_rebind_syncs_selection_highlights
+		],
 		["network_lobby_remembers_last_server_url", _test_network_lobby_remembers_url],
 		[
 			"network_next_turn_started_preserves_queued_orders",
@@ -632,6 +644,47 @@ func _test_network_drag_box_selects_without_panning() -> bool:
 	return ok
 
 
+func _test_network_escape_resets_active_selection_drag() -> bool:
+	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
+		return false
+	var mode: Node = script.new()
+	add_child(mode)
+	mode.call("ensure_initialized")
+	var loaded: LoadedScenario = _load_combat()
+	if loaded == null:
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
+	var input: DevTurnInput = mode.call("input_model") as DevTurnInput
+	var ids: Array[int] = _entity_ids_by_def_owner(loaded.state, "marine", 0)
+	if ids.size() < 2:
+		push_error("network escape drag reset test requires two P0 marines")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("select_entity_id", ids[0])
+	var box: Rect2 = _world_box_for_entities(loaded.state, [ids[1]])
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, box.position))
+	mode.call("_unhandled_input", _mouse_motion(box.size, MOUSE_BUTTON_MASK_LEFT, box.end))
+	mode.call("_unhandled_input", _key_press(KEY_ESCAPE))
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, box.end))
+	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var renderer: MatchRenderer = surface.renderer() if surface != null else null
+	var selected: Array[int] = _selected_ids_for_test(input)
+	var ok: bool = selected == [ids[0]]
+	if not ok:
+		push_error("network Escape should cancel active selection drag, got %s" % str(selected))
+	if renderer != null and int(renderer.call("input_highlight_count")) != 1:
+		push_error("network Escape should clear the active selection box")
+		ok = false
+	remove_child(mode)
+	mode.queue_free()
+	return ok
+
+
 func _test_network_group_orders() -> bool:
 	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
 	if script == null:
@@ -675,6 +728,112 @@ func _test_network_group_orders() -> bool:
 			if not _has_move_order([orders[i]], ids[i], target_tile):
 				push_error("expected MOVE for selected unit #%d" % ids[i])
 				ok = false
+	remove_child(mode)
+	mode.queue_free()
+	return ok
+
+
+func _test_network_submit_in_flight_blocks_local_edits() -> bool:
+	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
+		return false
+	var mode: Node = script.new()
+	add_child(mode)
+	mode.call("ensure_initialized")
+	var loaded: LoadedScenario = _load_combat()
+	if loaded == null:
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
+	var input: DevTurnInput = mode.call("input_model") as DevTurnInput
+	var actor_id: int = _first_movable_entity_id(loaded.state, loaded.registry, 0)
+	var second_id: int = _nth_entity_id(loaded.state, 0, 1)
+	var target_tile: Vector2i = _first_open_neighbor(loaded.state, actor_id)
+	if actor_id < 0 or second_id < 0 or target_tile == Vector2i(-1, -1):
+		push_error("submit in-flight edit test requires two entities and an open tile")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("select_entity_id", actor_id)
+	mode.set("_submit_in_flight", true)
+	var ok: bool = true
+	if bool(mode.call("select_entity_id", second_id)):
+		push_error("submit in-flight should reject selection changes")
+		ok = false
+	if bool(mode.call("issue_move_selected", target_tile, false)):
+		push_error("submit in-flight should reject new orders")
+		ok = false
+	mode.call("begin_target")
+	if mode.call("pending_command_kind") != "":
+		push_error("submit in-flight should reject pending command changes")
+		ok = false
+	if _selected_ids_for_test(input) != [actor_id]:
+		push_error("submit in-flight should preserve existing selection")
+		ok = false
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("submit in-flight should not mutate queued orders")
+		ok = false
+	mode.set("_submit_in_flight", false)
+	if not bool(mode.call("issue_move_selected", target_tile, false)):
+		push_error("clearing submit in-flight should allow local edits again")
+		ok = false
+	remove_child(mode)
+	mode.queue_free()
+	return ok
+
+
+func _test_network_authoritative_rebind_syncs_selection_highlights() -> bool:
+	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
+		return false
+	var mode: Node = script.new()
+	add_child(mode)
+	mode.call("ensure_initialized")
+	var loaded: LoadedScenario = _load_combat()
+	if loaded == null:
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
+	var input: DevTurnInput = mode.call("input_model") as DevTurnInput
+	var actor_id: int = _first_entity_id(loaded.state, 0)
+	if actor_id < 0:
+		push_error("selection highlight sync test requires a P0 entity")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("select_entity_id", actor_id)
+	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var renderer: MatchRenderer = surface.renderer() if surface != null else null
+	if renderer == null:
+		push_error("selection highlight sync test requires a renderer")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	if int(renderer.call("input_highlight_count")) <= 0:
+		push_error("selection should create renderer highlights before authoritative rebind")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	var next_state: MatchState = loaded.state.clone()
+	var selected: Entity = next_state.get_entity_by_id(actor_id)
+	if selected == null:
+		push_error("selection highlight sync test could not clone selected entity")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	selected.current_hp = 0
+	mode.call("apply_authoritative_result", next_state, [])
+	var ok: bool = true
+	if not _selected_ids_for_test(input).is_empty():
+		push_error("authoritative result should prune dead selected entity")
+		ok = false
+	if int(renderer.call("input_highlight_count")) != 0:
+		push_error("authoritative result should resync cleared selection highlights")
+		ok = false
 	remove_child(mode)
 	mode.queue_free()
 	return ok

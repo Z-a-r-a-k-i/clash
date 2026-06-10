@@ -102,6 +102,7 @@ func bind_authoritative_snapshot(
 	_client_controller.bind_authoritative_state(state, registry, player_slot)
 	if _surface != null:
 		_surface.bind_authoritative_state(state, registry, player_slot)
+	_sync_selection_highlights()
 	_update_outcome_overlay(state)
 	_refresh_action_previews()
 	_sync_ui()
@@ -129,6 +130,7 @@ func apply_authoritative_result(new_state: MatchState, events: Array) -> void:
 	_input.promote_future_orders_for_next_turn()
 	if _surface != null:
 		_surface.render_authoritative_result(new_state, events)
+	_sync_selection_highlights()
 	_update_outcome_overlay(new_state)
 	_refresh_action_previews()
 	_update_hud()
@@ -187,6 +189,8 @@ func set_interface_hidden(hidden: bool) -> void:
 
 
 func select_entity_id(entity_id: int) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var ok: bool = _input.select_entity(entity_id)
 	var renderer: MatchRenderer = _renderer()
 	if renderer != null:
@@ -201,6 +205,8 @@ func select_entity_id(entity_id: int) -> bool:
 
 
 func issue_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_move(tile)
 	_input.set_queue_modifier_active(false)
@@ -210,6 +216,8 @@ func issue_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
 
 
 func issue_attack_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_attack_move(tile)
 	_input.set_queue_modifier_active(false)
@@ -219,6 +227,8 @@ func issue_attack_move_selected(tile: Vector2i, queue_requested: bool = false) -
 
 
 func issue_attack_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_target(target_entity_id)
 	_input.set_queue_modifier_active(false)
@@ -228,6 +238,8 @@ func issue_attack_selected(target_entity_id: int, queue_requested: bool = false)
 
 
 func issue_gather_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_gather(target_entity_id)
 	_input.set_queue_modifier_active(false)
@@ -237,6 +249,8 @@ func issue_gather_selected(target_entity_id: int, queue_requested: bool = false)
 
 
 func issue_rally_move_selected(tile: Vector2i) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var selected_id: int = _input.selected_entity_id()
 	var ok: bool = _input.issue_rally_move(tile)
 	if ok:
@@ -247,6 +261,8 @@ func issue_rally_move_selected(tile: Vector2i) -> bool:
 
 
 func issue_rally_gather_selected(target_entity_id: int) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var selected_id: int = _input.selected_entity_id()
 	var ok: bool = _input.issue_rally_gather(target_entity_id)
 	if ok:
@@ -257,6 +273,8 @@ func issue_rally_gather_selected(target_entity_id: int) -> bool:
 
 
 func issue_build_selected(def_id: String, tile: Vector2i, queue_requested: bool = false) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_build(def_id, tile)
 	_input.set_queue_modifier_active(false)
@@ -266,6 +284,8 @@ func issue_build_selected(def_id: String, tile: Vector2i, queue_requested: bool 
 
 
 func issue_cancel_selected(cancel_index: int = -1) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var ok: bool = _input.issue_cancel(cancel_index)
 	_refresh_action_previews()
 	_update_hud()
@@ -273,6 +293,8 @@ func issue_cancel_selected(cancel_index: int = -1) -> bool:
 
 
 func issue_train_selected(def_id: String) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var selected_id: int = _input.selected_entity_id()
 	var repeat_enabled: bool = _input.selected_repeat_train_enabled()
 	var ok: bool = _input.issue_train(def_id)
@@ -284,6 +306,8 @@ func issue_train_selected(def_id: String) -> bool:
 
 
 func issue_research_selected(def_id: String) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var ok: bool = _input.issue_research(def_id)
 	_refresh_action_previews()
 	_update_hud()
@@ -291,6 +315,8 @@ func issue_research_selected(def_id: String) -> bool:
 
 
 func issue_ability_selected(ability_id: String) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var ok: bool = _input.issue_ability(ability_id)
 	_refresh_action_previews()
 	_update_hud()
@@ -298,6 +324,8 @@ func issue_ability_selected(ability_id: String) -> bool:
 
 
 func issue_repeat_train_selected(enabled: bool) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var selected_id: int = _input.selected_entity_id()
 	var ok: bool = _input.issue_repeat_train_toggle(enabled)
 	if ok:
@@ -380,6 +408,8 @@ func context_cursor_shape_at_tile(tile: Vector2i) -> int:
 
 
 func begin_move() -> void:
+	if _reject_edit_while_submit_sending():
+		return
 	if not _input.can_issue_move():
 		set_connection_status("Select a movable unit before Move.")
 		return
@@ -391,6 +421,8 @@ func begin_move() -> void:
 
 
 func begin_target() -> void:
+	if _reject_edit_while_submit_sending():
+		return
 	if not _input.can_issue_target():
 		set_connection_status("Select a combat unit before Attack.")
 		return
@@ -402,6 +434,8 @@ func begin_target() -> void:
 
 
 func begin_build(def_id: String) -> void:
+	if _reject_edit_while_submit_sending():
+		return
 	_clear_build_placement_preview()
 	if not _input.build_option_ids().has(def_id):
 		set_connection_status("Selected entity cannot BUILD %s." % def_id)
@@ -413,6 +447,8 @@ func begin_build(def_id: String) -> void:
 
 
 func begin_gather() -> void:
+	if _reject_edit_while_submit_sending():
+		return
 	if not _input.can_issue_gather():
 		set_connection_status("Select a worker before GATHER.")
 		return
@@ -424,6 +460,8 @@ func begin_gather() -> void:
 
 
 func confirm_pending_at_tile(tile: Vector2i, queue_requested: bool = false) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	if _pending_command == PENDING_MOVE:
 		var move_ok: bool = issue_move_selected(tile, queue_requested)
 		if move_ok:
@@ -464,6 +502,8 @@ func confirm_pending_at_tile(tile: Vector2i, queue_requested: bool = false) -> b
 
 
 func cancel_pending_command() -> void:
+	if _reject_edit_while_submit_sending():
+		return
 	if _pending_command == PENDING_NONE:
 		return
 	_clear_pending_command()
@@ -531,6 +571,14 @@ func cancel_submitted_turn() -> bool:
 		return false
 	_client_controller.mark_submit_pending(false)
 	_submit_in_flight = false
+	_update_hud()
+	return true
+
+
+func _reject_edit_while_submit_sending() -> bool:
+	if not _submit_in_flight:
+		return false
+	set_connection_status("Submit sent. Waiting for server.")
 	_update_hud()
 	return true
 
@@ -1000,6 +1048,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			or (key_event.pressed and not key_event.echo and key_event.keycode == KEY_ESCAPE)
 		)
 	if cancel_pressed:
+		_reset_selection_drag()
 		set_escape_menu_visible(not (_escape_menu_panel != null and _escape_menu_panel.visible))
 		var viewport: Viewport = get_viewport()
 		if viewport != null:
@@ -1067,6 +1116,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _pending_command != PENDING_NONE:
 				confirm_pending_at_tile(tile, button.shift_pressed)
 				return
+			if _reject_edit_while_submit_sending():
+				return
 			_selection_drag.begin(
 				button.position, _event_world_position(button), button.shift_pressed
 			)
@@ -1096,6 +1147,8 @@ func _reset_selection_drag() -> void:
 
 
 func _apply_click_selection(tile: Vector2i, additive: bool) -> void:
+	if _reject_edit_while_submit_sending():
+		return
 	var renderer: MatchRenderer = _renderer()
 	var entity_id: int = renderer.entity_id_at_tile(tile) if renderer != null else -1
 	if additive:
@@ -1117,6 +1170,8 @@ func _apply_click_selection(tile: Vector2i, additive: bool) -> void:
 
 
 func _apply_box_selection(world_rect: Rect2, additive: bool) -> void:
+	if _reject_edit_while_submit_sending():
+		return
 	var renderer: MatchRenderer = _renderer()
 	if renderer == null:
 		return

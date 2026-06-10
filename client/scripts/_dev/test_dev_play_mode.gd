@@ -126,6 +126,10 @@ func _all_tests() -> Array:
 			_test_left_drag_box_does_not_pan_camera
 		],
 		[
+			"dev_play_mode_escape_resets_active_selection_drag",
+			_test_escape_resets_active_selection_drag
+		],
+		[
 			"dev_play_mode_switching_player_keeps_camera_bounded",
 			_test_switching_player_keeps_camera_bounded
 		],
@@ -2014,6 +2018,40 @@ func _test_left_drag_box_does_not_pan_camera() -> bool:
 		ok = false
 	if mode.pending_command_kind() != "":
 		push_error("selection drag should not leave a pending command")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_escape_resets_active_selection_drag() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var ids: Array[int] = _find_entity_ids(mode.current_state(), "marine", 0)
+	if ids.size() < 2:
+		push_error("escape drag reset test requires two P0 marines")
+		_free_mode(mode)
+		return false
+	if not mode.select_entity_id(ids[0]):
+		push_error("escape drag reset test should select the first marine")
+		_free_mode(mode)
+		return false
+	var box: Rect2 = _world_box_for_entities(mode.current_state(), [ids[1]])
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, box.position))
+	mode.call("_unhandled_input", _mouse_motion(box.size, MOUSE_BUTTON_MASK_LEFT, box.end))
+	mode.call("_unhandled_input", _escape_key())
+	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, false, box.end))
+	var selected: Array[int] = _selected_ids_for_test(mode.input_model())
+	var ok: bool = selected == [ids[0]]
+	if not ok:
+		push_error("Escape should cancel active selection drag, got %s" % str(selected))
+	if int(mode.renderer().call("input_highlight_count")) != 1:
+		push_error("Escape should clear the active selection box")
 		ok = false
 	_free_mode(mode)
 	return ok

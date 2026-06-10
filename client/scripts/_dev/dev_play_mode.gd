@@ -855,6 +855,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			or (key_event.pressed and not key_event.echo and key_event.keycode == KEY_ESCAPE)
 		)
 	if cancel_pressed:
+		_reset_selection_drag()
 		_toggle_escape_menu()
 		var viewport: Viewport = get_viewport()
 		if viewport != null:
