@@ -1674,7 +1674,7 @@ func _test_tactical_preview_builder_turn_stop_tile_estimate() -> bool:
 	var worker: Entity = state.get_entity_by_id(1)
 	worker.moves_used_this_turn = 1
 	var builder := TacticalPreviewBuilder.new()
-	var path := [Vector2i(2, 1), Vector2i(3, 1), Vector2i(4, 1), Vector2i(5, 1)]
+	var path: Array[Vector2i] = [Vector2i(2, 1), Vector2i(3, 1), Vector2i(4, 1), Vector2i(5, 1)]
 	var stop_tile: Vector2i = builder.turn_stop_tile_for_path(state, registry, 1, path)
 	var buff := ActiveBuff.new()
 	buff.speed_mult = 2.0
