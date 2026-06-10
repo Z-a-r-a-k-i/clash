@@ -41,10 +41,7 @@ func _all_tests() -> Array:
 			"dev_input_target_generates_firing_move_when_needed",
 			_test_target_generates_firing_move_when_needed
 		],
-		[
-			"dev_input_group_target_and_gather_skip_ineligible",
-			_test_group_target_and_gather_skips
-		],
+		["dev_input_group_target_and_gather_skip_ineligible", _test_group_target_and_gather_skips],
 		["dev_input_replaces_duplicate_move_and_target", _test_replaces_duplicate_move_and_target],
 		["dev_input_queues_gather_for_worker_resource_target", _test_queues_gather],
 		[
@@ -296,9 +293,7 @@ func _test_group_move_fan_out() -> bool:
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if orders.size() != 3:
-		push_error(
-			"expected three MOVE orders and one skipped building, got %d" % orders.size()
-		)
+		push_error("expected three MOVE orders and one skipped building, got %d" % orders.size())
 		return false
 	var expected_ids: Array[int] = [1, 5, 9]
 	for i in orders.size():

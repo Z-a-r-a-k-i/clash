@@ -232,9 +232,7 @@ func issue_target(target_entity_id: int) -> bool:
 	return true
 
 
-func _queue_target_for_actor(
-	actor: Entity, target: Entity, queue_requested: bool
-) -> bool:
+func _queue_target_for_actor(actor: Entity, target: Entity, queue_requested: bool) -> bool:
 	if actor == null or target == null:
 		return false
 	var def: EntityDef = _def_for_entity(actor)
