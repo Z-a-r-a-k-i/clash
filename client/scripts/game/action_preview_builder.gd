@@ -325,7 +325,7 @@ func _move_preview(
 	)
 	if not path.is_empty():
 		preview["path"] = path
-		if order.target_entity_id >= 0:
+		if order.target_entity_id >= 0 or not order.target_priority_chain.is_empty():
 			preview["handoff_tile"] = path[path.size() - 1]
 	return preview
 

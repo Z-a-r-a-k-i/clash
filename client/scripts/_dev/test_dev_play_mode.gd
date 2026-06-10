@@ -2248,7 +2248,7 @@ func _action_preview_starts_near(
 
 
 func _action_preview_line_points(renderer: MatchRenderer, preview_index: int) -> PackedVector2Array:
-	var out := PackedVector2Array()
+	var out: PackedVector2Array = PackedVector2Array()
 	if renderer == null:
 		return out
 	var preview_root: Node2D = renderer.get_node_or_null("Overlays/ActionPreviews") as Node2D
@@ -2262,7 +2262,7 @@ func _action_preview_line_points(renderer: MatchRenderer, preview_index: int) ->
 
 
 func _target_intent_line_points(renderer: MatchRenderer, preview_index: int) -> PackedVector2Array:
-	var out := PackedVector2Array()
+	var out: PackedVector2Array = PackedVector2Array()
 	if renderer == null:
 		return out
 	var preview_root: Node2D = renderer.get_node_or_null("Overlays/TargetIntents") as Node2D
