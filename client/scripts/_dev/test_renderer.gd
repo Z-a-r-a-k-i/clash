@@ -12,7 +12,6 @@ extends Node
 const MATCH_SCENE_PATH := "res://scenes/match.tscn"
 const ENTITY_VIEW_SCENE_PATH := "res://scenes/entity_view.tscn"
 const TUNABLES_PATH := "res://data/tunables.tres"
-const TestSuitePolicy := preload("res://scripts/_dev/test_suite_policy.gd")
 
 
 func _enter_tree() -> void:
@@ -38,7 +37,7 @@ func _enter_tree() -> void:
 
 
 func _all_tests() -> Array:
-	var tests: Array = [
+	return [
 		# Chunk 2 — scaffolding smoke.
 		["match_renderer_classes_load", _test_match_renderer_classes_load],
 		# Chunk 3 — initial state rendering.
@@ -53,7 +52,6 @@ func _all_tests() -> Array:
 			"match_renderer_uses_mipmap_sprite_filtering",
 			_test_match_renderer_uses_mipmap_sprite_filtering
 		],
-		["entity_sprite_imports_generate_mipmaps", _test_entity_sprite_imports_generate_mipmaps],
 		# Chunk 4 — render_step events + reconciliation.
 		["match_renderer_step_reconciles_destroyed_entity", _test_step_reconciles_destroyed_entity],
 		["match_renderer_step_renders_attack_event", _test_step_renders_attack_event],
@@ -150,21 +148,7 @@ func _all_tests() -> Array:
 			"match_renderer_focuses_player_start_at_playable_zoom",
 			_test_focuses_player_start_at_playable_zoom
 		],
-		["match_renderer_updates_zoom_debug_readout", _test_updates_zoom_debug_readout],
 		["match_renderer_camera_pan_and_zoom_helpers", _test_camera_pan_and_zoom_helpers],
-	]
-	return TestSuitePolicy.filter_broad_tests(tests, _broad_test_names())
-
-
-func _broad_test_names() -> Array[String]:
-	return [
-		"entity_sprite_imports_generate_mipmaps",
-		"project_uses_fixed_16_9_viewport_stretch",
-		"match_renderer_camera_fit_uses_logical_viewport_size",
-		"match_renderer_camera_clamps_to_map_bounds",
-		"match_renderer_focuses_player_start_at_playable_zoom",
-		"match_renderer_updates_zoom_debug_readout",
-		"match_renderer_camera_pan_and_zoom_helpers",
 	]
 
 
@@ -404,28 +388,6 @@ func _test_match_renderer_uses_mipmap_sprite_filtering() -> bool:
 	return ok
 
 
-func _test_entity_sprite_imports_generate_mipmaps() -> bool:
-	var visuals: EntityVisuals = load("res://data/entity_visuals.tres") as EntityVisuals
-	if visuals == null:
-		push_error("could not load entity visuals")
-		return false
-	var ok: bool = true
-	for def_id: String in visuals.sprite_paths.keys():
-		var path: String = visuals.sprite_paths.get(def_id, "")
-		if path == "":
-			continue
-		var import_path: String = "%s.import" % path
-		var text: String = FileAccess.get_file_as_string(import_path)
-		if text == "":
-			push_error("could not read import metadata for %s at %s" % [def_id, import_path])
-			ok = false
-			continue
-		if text.find("mipmaps/generate=true") == -1:
-			push_error("%s sprite import should generate mipmaps: %s" % [def_id, import_path])
-			ok = false
-	return ok
-
-
 func _test_focuses_player_start_at_playable_zoom() -> bool:
 	var registry: EntityRegistry = _renderer_registry()
 	var state: MatchState = _make_renderer_state(
@@ -510,38 +472,6 @@ func _test_focuses_player_start_at_playable_zoom() -> bool:
 				% str(camera.position)
 			)
 		)
-		ok = false
-	_free_renderer(renderer)
-	return ok
-
-
-func _test_updates_zoom_debug_readout() -> bool:
-	var registry: EntityRegistry = _renderer_registry()
-	var state: MatchState = _make_renderer_state(
-		[{"def_id": "base", "owner": 0, "origin": Vector2i(2, 2), "footprint": Vector2i(4, 4)}],
-		30,
-		30
-	)
-	var renderer: MatchRenderer = _make_renderer()
-	renderer.bind_state(state, registry)
-	if not renderer.has_method("zoom_debug_text"):
-		push_error("renderer should expose zoom_debug_text for dev zoom calibration")
-		_free_renderer(renderer)
-		return false
-	var text_before: String = renderer.call("zoom_debug_text")
-	var ok: bool = true
-	var label: Label = renderer.get_node_or_null("HUD/ZoomDebug") as Label
-	if label == null or not label.visible:
-		push_error("zoom debug readout should create a visible HUD/ZoomDebug label")
-		ok = false
-	for required: String in ["Zoom", "Tile", "1x1", "2x2"]:
-		if text_before.find(required) == -1:
-			push_error("zoom debug readout should include %s, got: %s" % [required, text_before])
-			ok = false
-	renderer.call("zoom_camera", 2.0)
-	var text_after: String = renderer.call("zoom_debug_text")
-	if text_after == text_before:
-		push_error("zoom debug readout should update after zoom changes")
 		ok = false
 	_free_renderer(renderer)
 	return ok

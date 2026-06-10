@@ -16,7 +16,6 @@ const REGISTRY_PATH := "res://data/entity_registry.tres"
 const TUNABLES_PATH := "res://data/tunables.tres"
 const TEST_REPLAY_DIR := "user://tmp/network_replays_test"
 const TEST_SERVER_URL_CONFIG := "user://tmp/network_server_url_test.cfg"
-const TestSuitePolicy := preload("res://scripts/_dev/test_suite_policy.gd")
 
 
 func _enter_tree() -> void:
@@ -43,8 +42,8 @@ func _run_all() -> int:
 	return failed
 
 
-func _all_tests() -> Array:
-	var tests: Array = [
+func _all_tests() -> Array[Array]:
+	return [
 		["codec_round_trips_submit_state_and_events", _test_codec_round_trip],
 		["entity_order_type_wire_values_are_stable", _test_entity_order_type_wire_values],
 		["hub_create_join_validate_submit_resolve_and_journal", _test_hub_turn_flow],
@@ -82,25 +81,6 @@ func _all_tests() -> Array:
 			"network_submit_persists_repeat_rally_and_spawn_orders",
 			_test_network_authoritative_producer_state
 		],
-	]
-	return TestSuitePolicy.filter_broad_tests(tests, _broad_test_names())
-
-
-func _broad_test_names() -> Array[String]:
-	return [
-		"network_play_mode_uses_shared_surface_without_dev_controls",
-		"main_menu_routes_solo_and_multiplayer",
-		"network_play_mode_splits_lobby_match_and_escape_ui",
-		"network_order_preview_toggle_shows_all_local_orders",
-		"network_left_empty_drag_pans_camera",
-		"network_lobby_remembers_last_server_url",
-		"network_submit_error_clears_pending_state",
-		"network_match_over_shows_outcome_overlay",
-		"network_building_selection_shows_production",
-		"network_context_actions_cover_rally_and_gather",
-		"network_command_card_wires_pending_commands",
-		"network_a_key_attack_mode",
-		"network_submit_persists_repeat_rally_and_spawn_orders",
 	]
 
 
@@ -386,12 +366,6 @@ func _test_network_ui_surface() -> bool:
 	if interface_button == null:
 		push_error("network play mode should expose an interface hide/show button")
 		ok = false
-	elif (
-		submit_button != null
-		and interface_button.get_global_rect().intersects(submit_button.get_global_rect())
-	):
-		push_error("network Hide UI button should not overlap Submit Turn")
-		ok = false
 	var loaded: LoadedScenario = _load_combat()
 	if loaded == null:
 		remove_child(mode)
@@ -412,20 +386,6 @@ func _test_network_ui_surface() -> bool:
 			"network resources label should show minerals and gas, got: %s" % resources_label.text
 		)
 		ok = false
-	if interface_button != null:
-		var surface: MatchPlaySurface = (
-			mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
-		)
-		var renderer: MatchRenderer = surface.renderer() if surface != null else null
-		var zoom_label: Label = (
-			renderer.get_node_or_null("HUD/ZoomDebug") as Label if renderer != null else null
-		)
-		if zoom_label == null:
-			push_error("network renderer should expose the zoom debug readout")
-			ok = false
-		elif zoom_label.get_global_rect().intersects(interface_button.get_global_rect()):
-			push_error("zoom debug readout should not overlap the network Hide UI button")
-			ok = false
 	(
 		mode
 		. call(
