@@ -82,6 +82,7 @@ func _all_tests() -> Array:
 		["match_renderer_build_placement_preview", _test_build_placement_preview],
 		["match_renderer_action_previews", _test_action_previews],
 		["match_renderer_target_intent_previews", _test_target_intent_previews],
+		["match_renderer_idle_worker_indicators", _test_idle_worker_indicators],
 		["match_renderer_action_preview_polyline_path", _test_action_preview_polyline_path],
 		[
 			"tactical_preview_builder_attack_range_tiles",
@@ -1641,6 +1642,58 @@ func _test_target_intent_previews() -> bool:
 	renderer.bind_state(state, registry)
 	if renderer.call("target_intent_preview_count") != 0:
 		push_error("bind_state should clear stale target intent previews")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_idle_worker_indicators() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(8, 1), "id": 2},
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(2, 1), "id": 3},
+		],
+		12,
+		12
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state, registry)
+	renderer.call("set_perspective_player_id", 0)
+	for method: String in ["set_idle_worker_indicators", "idle_worker_indicator_count"]:
+		if not renderer.has_method(method):
+			push_error("renderer should expose %s" % method)
+			_free_renderer(renderer)
+			return false
+	(
+		renderer
+		. call(
+			"set_idle_worker_indicators",
+			[
+				{"entity_id": 1},
+				{"entity_id": 2},
+				{"entity_id": 3},
+				{"entity_id": 999},
+			]
+		)
+	)
+	var ok: bool = true
+	if renderer.call("idle_worker_indicator_count") != 2:
+		push_error("idle indicators should render only visible entities")
+		ok = false
+	var root: Node2D = renderer.get_node_or_null("Overlays/IdleWorkers") as Node2D
+	var first_badge: Label = (
+		_find_label_descendant(root.get_child(0))
+		if root != null and root.get_child_count() > 0
+		else null
+	)
+	if first_badge == null or first_badge.text != "!":
+		push_error("idle worker indicator should render a compact ! badge")
+		ok = false
+	renderer.bind_state(state, registry)
+	if renderer.call("idle_worker_indicator_count") != 0:
+		push_error("bind_state should clear stale idle worker indicators")
 		ok = false
 	_free_renderer(renderer)
 	return ok

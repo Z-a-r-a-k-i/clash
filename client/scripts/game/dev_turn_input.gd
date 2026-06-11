@@ -660,6 +660,15 @@ func future_order_count_for_entity(entity_id: int) -> int:
 	return queue.size()
 
 
+func prune_move_assists_for_entities(entity_ids: Array[int]) -> void:
+	for entity_id: int in entity_ids:
+		_prune_move_assist_for_entity(entity_id)
+
+
+func has_move_assist_for_entity(entity_id: int) -> bool:
+	return _move_assists.has(entity_id)
+
+
 func selected_entity_label() -> String:
 	if _selected_entity_ids.size() > 1:
 		return "%d selected" % _selected_entity_ids.size()
@@ -1199,11 +1208,17 @@ func _clear_move_assist(entity_id: int, remove_queued_move: bool = false) -> voi
 
 
 func _prune_move_assists() -> void:
-	for entity_id in _move_assists.keys():
-		var order: EntityOrder = _move_assists[entity_id]
-		var entity: Entity = _state.get_entity_by_id(entity_id) if _state != null else null
-		if not _can_continue_move_assist(entity, order):
-			_move_assists.erase(entity_id)
+	for entity_id: int in _move_assists.keys():
+		_prune_move_assist_for_entity(entity_id)
+
+
+func _prune_move_assist_for_entity(entity_id: int) -> void:
+	if not _move_assists.has(entity_id):
+		return
+	var order: EntityOrder = _move_assists[entity_id]
+	var entity: Entity = _state.get_entity_by_id(entity_id) if _state != null else null
+	if not _can_continue_move_assist(entity, order):
+		_move_assists.erase(entity_id)
 
 
 func _can_continue_move_assist(entity: Entity, order: EntityOrder) -> bool:
