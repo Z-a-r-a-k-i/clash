@@ -2656,7 +2656,17 @@ func _test_escape_debug_controls() -> bool:
 		_free_mode(mode)
 		return false
 	var ok := true
-	for label in ["P1", "P2", "Clear", "Surrender", "Save Snapshot", "Load"]:
+	for label in [
+		"P1",
+		"P2",
+		"Clear",
+		"Surrender",
+		"Save Snapshot",
+		"Load",
+		"Replay",
+		"New Game",
+		"Main Menu",
+	]:
 		if _find_button_with_substring(menu, label) == null:
 			push_error("escape menu should expose debug control '%s'" % label)
 			ok = false
@@ -3179,9 +3189,10 @@ func _command_card_ids(card: Control, method_name: String) -> Array[String]:
 func _command_surface_visible(card: Control) -> bool:
 	if card == null:
 		return false
-	if card.has_method("command_surface_visible"):
-		return bool(card.call("command_surface_visible"))
-	return card.visible
+	if not card.has_method("command_surface_visible"):
+		push_error("CommandCard should expose command_surface_visible")
+		return false
+	return bool(card.call("command_surface_visible"))
 
 
 func _expect_order(
