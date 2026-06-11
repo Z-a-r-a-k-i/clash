@@ -54,6 +54,10 @@ func _all_tests() -> Array[Array]:
 		["network_play_mode_splits_lobby_match_and_escape_ui", _test_network_ui_flow],
 		["network_order_preview_toggle_shows_all_local_orders", _test_network_order_preview_toggle],
 		[
+			"network_idle_worker_indicators_follow_player_slot",
+			_test_network_idle_worker_indicators_follow_player_slot
+		],
+		[
 			"network_drag_box_selects_without_panning",
 			_test_network_drag_box_selects_without_panning
 		],
@@ -599,6 +603,51 @@ func _test_network_order_preview_toggle() -> bool:
 		if renderer != null and renderer.action_preview_count() <= 0:
 			push_error("show-all-orders should reveal queued orders from other units")
 			ok = false
+	remove_child(mode)
+	mode.queue_free()
+	return ok
+
+
+func _test_network_idle_worker_indicators_follow_player_slot() -> bool:
+	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
+		return false
+	var mode: Node = script.new()
+	add_child(mode)
+	mode.call("ensure_initialized")
+	var loaded: LoadedScenario = _load_mvp()
+	if loaded == null:
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	var active_workers: Array[int] = _entity_ids_by_def_owner(loaded.state, "worker", 0)
+	var opponent_workers: Array[int] = _entity_ids_by_def_owner(loaded.state, "worker", 1)
+	if active_workers.is_empty() or opponent_workers.is_empty():
+		push_error("idle worker indicator test requires workers for both players")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	_set_all_workers_busy_gathering(loaded.state, -1)
+	_set_worker_idle_for_test(loaded.state, active_workers[0])
+	_set_worker_idle_for_test(loaded.state, opponent_workers[0])
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
+	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var renderer: MatchRenderer = surface.renderer() if surface != null else null
+	var label: Label = mode.get_node_or_null("NetworkHUD/MatchHUD/Root/IdleWorkers") as Label
+	var ok: bool = true
+	if label == null:
+		push_error("network HUD should expose IdleWorkers label")
+		ok = false
+	elif not label.visible or label.text != "Idle workers: 1":
+		push_error("network HUD should show one idle worker for the local player")
+		ok = false
+	if renderer == null or not renderer.has_method("idle_worker_indicator_count"):
+		push_error("network renderer should expose idle_worker_indicator_count")
+		ok = false
+	elif renderer.call("idle_worker_indicator_count") != 1:
+		push_error("network renderer should badge one idle worker for the local player")
+		ok = false
 	remove_child(mode)
 	mode.queue_free()
 	return ok
@@ -2259,6 +2308,32 @@ func _first_empty_tile(state: MatchState) -> Vector2i:
 			if state.tile_grid.entity_at(tile) < 0:
 				return tile
 	return Vector2i(-1, -1)
+
+
+func _set_all_workers_busy_gathering(state: MatchState, owner: int) -> void:
+	if state == null:
+		return
+	for entity: Entity in state.entities_sorted_by_id():
+		if entity == null or entity.def_id != "worker":
+			continue
+		if owner >= 0 and entity.owner_player_id != owner:
+			continue
+		if entity.gather_state == null:
+			entity.gather_state = GatherState.new()
+		entity.gather_state.phase = GatherState.Phase.GATHERING
+		entity.gather_state.assigned_source_entity_id = -1
+
+
+func _set_worker_idle_for_test(state: MatchState, entity_id: int) -> void:
+	var worker: Entity = state.get_entity_by_id(entity_id) if state != null else null
+	if worker == null:
+		return
+	if worker.gather_state == null:
+		worker.gather_state = GatherState.new()
+	worker.gather_state.phase = GatherState.Phase.IDLE
+	worker.gather_state.assigned_source_entity_id = -1
+	worker.gather_state.carrying_amount = 0
+	worker.gather_state.carrying_resource_type = ""
 
 
 func _select_entities_for_test(input: DevTurnInput, ids: Array[int]) -> bool:
