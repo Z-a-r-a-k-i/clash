@@ -124,6 +124,8 @@ var _seen_tiles_by_player: Dictionary = {}
 var _seen_enemy_building_snapshots_by_player: Dictionary = {}
 var _event_visible_entity_ids: Dictionary[int, bool] = {}
 var _zoom_debug_text: String = ""
+var _zoom_debug_visible: bool = false
+var _camera_screen_safe_margins: Vector4 = Vector4.ZERO
 var _fog_overlay_signature: String = ""
 var _has_fog_overlay_cache := false
 var _fog_overlay_tile_count := 0
@@ -149,7 +151,7 @@ var _production_progress_root: Node2D = get_node_or_null("Overlays/ProductionPro
 	get_node_or_null("Overlays/ConstructionProgress") as Node2D
 )
 @onready var _damage_labels_root: Node2D = $Overlays/DamageLabels
-@onready var _combat_log: RichTextLabel = $HUD/CombatLog
+@onready var _combat_log: RichTextLabel = get_node_or_null("HUD/CombatLog") as RichTextLabel
 @onready var _zoom_debug: Label = get_node_or_null("HUD/ZoomDebug") as Label
 
 
@@ -355,6 +357,38 @@ func combat_log_line_count() -> int:
 
 func zoom_debug_text() -> String:
 	return _zoom_debug_text
+
+
+func set_zoom_debug_visible(visible: bool) -> void:
+	_zoom_debug_visible = visible
+	_resolve_internal_nodes()
+	if _zoom_debug != null:
+		_zoom_debug.visible = visible
+
+
+func zoom_debug_visible() -> bool:
+	return _zoom_debug_visible
+
+
+func set_camera_screen_safe_margins(left: float, top: float, right: float, bottom: float) -> void:
+	_camera_screen_safe_margins = Vector4(
+		maxf(left, 0.0), maxf(top, 0.0), maxf(right, 0.0), maxf(bottom, 0.0)
+	)
+	_resolve_internal_nodes()
+	_apply_camera_screen_offset()
+	if _camera != null:
+		_set_camera_zoom(_camera.zoom.x)
+
+
+func camera_screen_safe_margins() -> Vector4:
+	return _camera_screen_safe_margins
+
+
+func screen_to_world(screen_position: Vector2) -> Vector2:
+	var viewport: Viewport = _render_viewport()
+	if viewport == null:
+		return screen_position
+	return viewport.get_canvas_transform().affine_inverse() * screen_position
 
 
 func world_to_tile(world_position: Vector2) -> Vector2i:
@@ -698,6 +732,7 @@ func _resolve_internal_nodes() -> void:
 		_terrain = get_node_or_null("Terrain") as TileMapLayer
 	if _camera == null:
 		_camera = get_node_or_null("Camera2D") as Camera2D
+	_apply_camera_screen_offset()
 	if _fog_root == null:
 		_fog_root = get_node_or_null("Overlays/Fog") as Node2D
 	if _fog_root == null:
@@ -790,6 +825,7 @@ func _configure_zoom_debug_label() -> void:
 	_zoom_debug.offset_top = _ZOOM_DEBUG_OFFSET_TOP
 	_zoom_debug.offset_bottom = _ZOOM_DEBUG_OFFSET_BOTTOM
 	_zoom_debug.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_zoom_debug.visible = _zoom_debug_visible
 
 
 func _clear_existing_views() -> void:
@@ -1455,6 +1491,20 @@ func _fit_camera_to_state(state: MatchState) -> void:
 
 
 func _camera_fit_viewport_size() -> Vector2:
+	var viewport: Viewport = _render_viewport()
+	if viewport != null:
+		var visible_size: Vector2 = viewport.get_visible_rect().size
+		if visible_size.x > 0.0 and visible_size.y > 0.0:
+			return Vector2(
+				maxf(
+					visible_size.x - _camera_screen_safe_margins.x - _camera_screen_safe_margins.z,
+					1.0
+				),
+				maxf(
+					visible_size.y - _camera_screen_safe_margins.y - _camera_screen_safe_margins.w,
+					1.0
+				)
+			)
 	var width: float = float(
 		ProjectSettings.get_setting(_VIEWPORT_WIDTH_SETTING, _DEFAULT_LOGICAL_VIEWPORT_SIZE.x)
 	)
@@ -1463,7 +1513,24 @@ func _camera_fit_viewport_size() -> Vector2:
 	)
 	if width <= 0.0 or height <= 0.0:
 		return _DEFAULT_LOGICAL_VIEWPORT_SIZE
-	return Vector2(width, height)
+	return Vector2(
+		maxf(width - _camera_screen_safe_margins.x - _camera_screen_safe_margins.z, 1.0),
+		maxf(height - _camera_screen_safe_margins.y - _camera_screen_safe_margins.w, 1.0)
+	)
+
+
+func _render_viewport() -> Viewport:
+	var parent_viewport: Viewport = get_parent() as Viewport
+	return parent_viewport if parent_viewport != null else get_viewport()
+
+
+func _apply_camera_screen_offset() -> void:
+	if _camera == null:
+		return
+	_camera.offset = Vector2(
+		(_camera_screen_safe_margins.x - _camera_screen_safe_margins.z) * 0.5,
+		(_camera_screen_safe_margins.y - _camera_screen_safe_margins.w) * 0.5
+	)
 
 
 func _set_camera_zoom(value: float) -> void:

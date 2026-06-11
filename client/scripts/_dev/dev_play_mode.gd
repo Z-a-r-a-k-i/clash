@@ -41,6 +41,10 @@ const REPLAY_PANEL_TOP := HUD_MARGIN
 const REPLAY_PANEL_HEIGHT := 220.0
 const ESCAPE_MENU_WIDTH := 360.0
 const ESCAPE_MENU_HEIGHT := 420.0
+const GAME_VIEWPORT_MARGIN_LEFT := 0.0
+const GAME_VIEWPORT_MARGIN_RIGHT := 0.0
+const FALLBACK_TOP_HUD_HEIGHT := 46.0
+const FALLBACK_BOTTOM_HUD_HEIGHT := 190.0
 const REPLAY_PLAY_STEP_SECONDS := 0.75
 const MENU_LOAD_SNAPSHOT := 0
 const MENU_LOAD_REPLAY := 1
@@ -54,6 +58,8 @@ var _renderer: MatchRenderer = null
 var _loaded: LoadedScenario = null
 var _tunables: Tunables = null
 var _input: DevTurnInput = DEV_TURN_INPUT_SCRIPT.new() as DevTurnInput
+var _game_viewport_container: SubViewportContainer = null
+var _game_viewport: SubViewport = null
 var _hud_layer: CanvasLayer = null
 var _cockpit: DevPlayCockpit = null
 var _replay_panel: PanelContainer = null
@@ -73,6 +79,7 @@ var _pending_build_def_id: String = ""
 var _is_panning_camera: bool = false
 var _selection_drag: Variant = SELECTION_DRAG_CONTROLLER_SCRIPT.new()
 var _show_all_friendly_action_previews: bool = false
+var _debug_info_visible: bool = false
 var _range_projection_active: bool = false
 var _last_hover_tile: Vector2i = Vector2i.ZERO
 var _has_last_hover_tile: bool = false
@@ -94,6 +101,10 @@ var _tactical_preview_builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = (
 func _ready() -> void:
 	_selection_drag.threshold_pixels = CAMERA_DRAG_THRESHOLD
 	_build_hud()
+	_ensure_game_viewport()
+	var viewport: Viewport = get_viewport()
+	if viewport != null and not viewport.size_changed.is_connected(_sync_game_viewport_rect):
+		viewport.size_changed.connect(_sync_game_viewport_rect)
 	if _loaded == null:
 		load_scenario_path(scenario_path)
 
@@ -875,6 +886,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			if viewport != null:
 				viewport.set_input_as_handled()
 			return
+	if event is InputEventMouse and not _event_inside_game_viewport(event as InputEventMouse):
+		if event is InputEventMouseMotion:
+			_has_last_hover_tile = false
+			_refresh_range_previews()
+			_reset_context_cursor()
+		return
 	if event is InputEventMouseMotion:
 		var motion: InputEventMouseMotion = event as InputEventMouseMotion
 		if _is_panning_camera:
@@ -944,9 +961,87 @@ func _notification(what: int) -> void:
 		_reset_context_cursor()
 
 
+func _ensure_game_viewport() -> void:
+	if _game_viewport_container != null and _game_viewport != null:
+		_sync_game_viewport_rect()
+		return
+	_game_viewport_container = SubViewportContainer.new()
+	_game_viewport_container.name = "GameViewportContainer"
+	_game_viewport_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_game_viewport_container.stretch = false
+	_game_viewport_container.anchor_left = 0.0
+	_game_viewport_container.anchor_right = 0.0
+	_game_viewport_container.anchor_top = 0.0
+	_game_viewport_container.anchor_bottom = 0.0
+	_game_viewport_container.offset_left = GAME_VIEWPORT_MARGIN_LEFT
+	_game_viewport_container.offset_top = _top_hud_height()
+	_game_viewport_container.offset_right = -GAME_VIEWPORT_MARGIN_RIGHT
+	_game_viewport_container.offset_bottom = -_bottom_hud_height()
+	add_child(_game_viewport_container)
+
+	_game_viewport = SubViewport.new()
+	_game_viewport.name = "GameViewport"
+	_game_viewport.disable_3d = true
+	_game_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	_game_viewport_container.add_child(_game_viewport)
+	_sync_game_viewport_rect()
+
+
+func _sync_game_viewport_rect() -> void:
+	if _game_viewport_container == null:
+		return
+	var top_hud_height: float = _top_hud_height()
+	var bottom_hud_height: float = _bottom_hud_height()
+	_game_viewport_container.offset_left = GAME_VIEWPORT_MARGIN_LEFT
+	_game_viewport_container.offset_top = top_hud_height
+	_game_viewport_container.offset_right = -GAME_VIEWPORT_MARGIN_RIGHT
+	_game_viewport_container.offset_bottom = -bottom_hud_height
+	if _game_viewport == null:
+		return
+	var viewport_size: Vector2 = _root_viewport_size()
+	var game_width: float = maxf(
+		viewport_size.x - GAME_VIEWPORT_MARGIN_LEFT - GAME_VIEWPORT_MARGIN_RIGHT, 1.0
+	)
+	var game_height: float = maxf(viewport_size.y - top_hud_height - bottom_hud_height, 1.0)
+	_game_viewport_container.position = Vector2(GAME_VIEWPORT_MARGIN_LEFT, top_hud_height)
+	_game_viewport_container.size = Vector2(game_width, game_height)
+	_game_viewport.size = Vector2i(roundi(game_width), roundi(game_height))
+
+
+func _root_viewport_size() -> Vector2:
+	var viewport: Viewport = get_viewport()
+	if viewport != null:
+		var size: Vector2 = viewport.get_visible_rect().size
+		if size.x > 0.0 and size.y > 0.0:
+			return size
+	return Vector2(
+		float(ProjectSettings.get_setting("display/window/size/viewport_width", 1920.0)),
+		float(ProjectSettings.get_setting("display/window/size/viewport_height", 1080.0))
+	)
+
+
+func _top_hud_height() -> float:
+	var top_bar: Control = null
+	if _cockpit != null:
+		top_bar = _cockpit.get_node_or_null("TopBar") as Control
+	if top_bar == null:
+		return FALLBACK_TOP_HUD_HEIGHT
+	return maxf(top_bar.offset_bottom - top_bar.offset_top, 1.0)
+
+
+func _bottom_hud_height() -> float:
+	var bottom_deck: Control = null
+	if _cockpit != null:
+		bottom_deck = _cockpit.get_node_or_null("BottomDeck") as Control
+	if bottom_deck == null:
+		return FALLBACK_BOTTOM_HUD_HEIGHT
+	return maxf(bottom_deck.offset_bottom - bottom_deck.offset_top, 1.0)
+
+
 func _ensure_renderer() -> void:
 	if _renderer != null:
 		return
+	_ensure_game_viewport()
 	var packed: PackedScene = load(MATCH_SCENE_PATH) as PackedScene
 	if packed == null:
 		push_error("DevPlayMode: failed to load %s" % MATCH_SCENE_PATH)
@@ -955,7 +1050,8 @@ func _ensure_renderer() -> void:
 	if _renderer == null:
 		push_error("DevPlayMode: match scene root is not a MatchRenderer.")
 		return
-	add_child(_renderer)
+	_game_viewport.add_child(_renderer)
+	_set_renderer_debug_info_visible()
 
 
 func _ensure_tunables() -> bool:
@@ -1167,7 +1263,32 @@ func _event_world_position(event: InputEventMouse) -> Vector2:
 		return event.position
 	if DisplayServer.get_name() == "headless":
 		return event.position
+	var game_position: Vector2 = _screen_to_game_viewport_position(event.position)
+	if _renderer.has_method("screen_to_world"):
+		return _renderer.call("screen_to_world", game_position)
 	return _renderer.get_global_mouse_position()
+
+
+func _event_inside_game_viewport(event: InputEventMouse) -> bool:
+	if DisplayServer.get_name() == "headless":
+		return true
+	return _game_viewport_screen_rect().has_point(event.position)
+
+
+func _screen_to_game_viewport_position(screen_position: Vector2) -> Vector2:
+	return screen_position - _game_viewport_screen_rect().position
+
+
+func _game_viewport_screen_rect() -> Rect2:
+	var viewport_size: Vector2 = _root_viewport_size()
+	var top_hud_height: float = _top_hud_height()
+	var bottom_hud_height: float = _bottom_hud_height()
+	var position := Vector2(GAME_VIEWPORT_MARGIN_LEFT, top_hud_height)
+	var size := Vector2(
+		maxf(viewport_size.x - GAME_VIEWPORT_MARGIN_LEFT - GAME_VIEWPORT_MARGIN_RIGHT, 1.0),
+		maxf(viewport_size.y - top_hud_height - bottom_hud_height, 1.0)
+	)
+	return Rect2(position, size)
 
 
 func _reset_selection_drag() -> void:
@@ -1404,13 +1525,22 @@ func _build_escape_menu() -> void:
 	player_row.name = "PlayerSwitch"
 	root.add_child(player_row)
 
-	var p0_button: Button = _button("P0")
+	var p0_button: Button = _button("P1")
 	p0_button.pressed.connect(func() -> void: set_active_player_id(0))
 	player_row.add_child(p0_button)
 
-	var p1_button: Button = _button("P1")
+	var p1_button: Button = _button("P2")
 	p1_button.pressed.connect(func() -> void: set_active_player_id(1))
 	player_row.add_child(p1_button)
+
+	var debug_info_toggle := CheckBox.new()
+	debug_info_toggle.name = "DebugInfo"
+	debug_info_toggle.text = "Debug Info"
+	debug_info_toggle.button_pressed = _debug_info_visible
+	debug_info_toggle.custom_minimum_size = Vector2(0.0, 34.0)
+	debug_info_toggle.add_theme_font_size_override("font_size", 18)
+	debug_info_toggle.toggled.connect(_set_debug_info_visible)
+	root.add_child(debug_info_toggle)
 
 	var debug_row: HBoxContainer = HBoxContainer.new()
 	debug_row.name = "DebugActions"
@@ -1456,6 +1586,18 @@ func _build_escape_menu() -> void:
 	load_button.pressed.connect(_open_menu_load_dialog)
 	load_row.add_child(load_button)
 	_sync_mode_ui()
+
+
+func _set_debug_info_visible(visible: bool) -> void:
+	_debug_info_visible = visible
+	_set_renderer_debug_info_visible()
+
+
+func _set_renderer_debug_info_visible() -> void:
+	if _renderer == null:
+		return
+	if _renderer.has_method("set_zoom_debug_visible"):
+		_renderer.call("set_zoom_debug_visible", _debug_info_visible)
 
 
 func _build_file_dialogs() -> void:
@@ -1655,7 +1797,6 @@ func _update_hud(override_status: String = "") -> void:
 			player.gas if player != null else 0,
 			player.pop_used if player != null else 0,
 			player.pop_cap if player != null else 0,
-			_input.queued_order_count(_input.active_player_id()),
 			_loaded.state.match_over if _loaded != null and _loaded.state != null else false,
 			_loaded.state.winner_player_id if _loaded != null and _loaded.state != null else -1
 		)

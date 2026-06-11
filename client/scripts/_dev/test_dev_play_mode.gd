@@ -154,6 +154,14 @@ func _all_tests() -> Array:
 			"dev_play_mode_switching_player_keeps_camera_bounded",
 			_test_switching_player_keeps_camera_bounded
 		],
+		[
+			"dev_play_mode_zoom_debug_hidden_until_menu_toggle",
+			_test_zoom_debug_hidden_until_menu_toggle
+		],
+		[
+			"dev_play_mode_hud_stays_inside_window_and_camera_uses_safe_area",
+			_test_hud_stays_inside_window_and_camera_uses_safe_area
+		],
 	]
 
 
@@ -377,15 +385,250 @@ func _test_uses_authored_cockpit_shell() -> bool:
 			)
 		)
 		ok = false
-	for expected in ["P0", "Turn 0", "Minerals", "Gas", "Pop"]:
+	for expected in ["P1", "Turn 0", "Minerals", "Gas", "Pop"]:
 		if _find_label_with_substring(cockpit, expected) == null:
 			push_error("cockpit should show '%s' in its player-facing HUD" % expected)
+			ok = false
+	for hidden_text in ["P0", "Queued", "Planning"]:
+		if _find_label_with_substring(cockpit, hidden_text) != null:
+			push_error("cockpit should not show default debug label '%s'" % hidden_text)
 			ok = false
 	if _find_button_with_substring(cockpit, "Resolve") == null:
 		push_error("cockpit should expose Resolve as a player-facing command")
 		ok = false
 	if _find_check_box_with_substring(cockpit, "All Orders") == null:
 		push_error("cockpit should expose an all-orders toggle")
+		ok = false
+	var top_bar: PanelContainer = cockpit.get_node_or_null("TopBar") as PanelContainer
+	if top_bar == null:
+		push_error("cockpit should have a TopBar")
+		ok = false
+	elif top_bar.offset_left != 0.0 or top_bar.offset_top != 0.0 or top_bar.offset_right != 0.0:
+		push_error("top bar should be full-width and flush to the top edge, got %s" % top_bar)
+		ok = false
+	var bottom_deck: PanelContainer = cockpit.get_node_or_null("BottomDeck") as PanelContainer
+	if bottom_deck == null or not bottom_deck.has_theme_stylebox_override("panel"):
+		push_error("bottom deck should use the authored RTS console panel style")
+		ok = false
+	elif (
+		bottom_deck.offset_left != 0.0
+		or bottom_deck.offset_right != 0.0
+		or bottom_deck.offset_bottom != 0.0
+	):
+		push_error("bottom deck should be full-width and flush to the bottom edge")
+		ok = false
+	if cockpit.find_child("CommandGrid", true, false) == null:
+		push_error("cockpit should organize actions in a stable command grid")
+		ok = false
+	var command_panel: PanelContainer = (
+		cockpit.get_node_or_null("BottomDeck/Row/CommandPanel") as PanelContainer
+	)
+	var build_panel: PanelContainer = (
+		cockpit.get_node_or_null("BottomDeck/Row/BuildPanel") as PanelContainer
+	)
+	if command_panel == null:
+		push_error("cockpit should keep primary commands in their own panel")
+		ok = false
+	if build_panel == null:
+		push_error("cockpit should split build options into a separate right-hand panel")
+		ok = false
+	elif command_panel != null and build_panel.get_index() <= command_panel.get_index():
+		push_error("build panel should sit to the right of the command panel")
+		ok = false
+	if cockpit.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/OptionColumns") != null:
+		push_error("build options should not live inside the command panel")
+		ok = false
+	if cockpit.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/BuildScroll") != null:
+		push_error("build panel should avoid scrollbars by showing all options in its own box")
+		ok = false
+	if cockpit.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/OptionColumns") == null:
+		push_error("build panel should lay out option columns directly in the visible build box")
+		ok = false
+	for section_name in ["Build", "Train", "Research", "Abilities"]:
+		var button_grid: GridContainer = (
+			cockpit.get_node_or_null(
+				"BottomDeck/Row/BuildPanel/Stack/OptionColumns/%s/Buttons" % section_name
+			)
+			as GridContainer
+		)
+		if button_grid == null or button_grid.columns != 2:
+			push_error("%s options should use a compact two-column button grid" % section_name)
+			ok = false
+	if cockpit.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/RepeatTrain") != null:
+		push_error("repeat train should not live in the primary command grid")
+		ok = false
+	if cockpit.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Cancel") != null:
+		push_error("cancel training should not live in the primary command grid")
+		ok = false
+	var cancel_button: Button = (
+		cockpit.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/ProductionControls/Cancel")
+		as Button
+	)
+	if cancel_button == null:
+		push_error("cancel training should live in the build command box")
+		ok = false
+	var repeat_train_toggle: CheckBox = (
+		cockpit.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/ProductionControls/RepeatTrain")
+		as CheckBox
+	)
+	if repeat_train_toggle == null:
+		push_error("repeat train should live in the build command box")
+		ok = false
+	else:
+		var empty_options: Array[Dictionary] = []
+		cockpit.call(
+			"set_command_state",
+			"Producer",
+			false,
+			false,
+			false,
+			empty_options,
+			empty_options,
+			empty_options,
+			empty_options,
+			false,
+			true,
+			true
+		)
+		if not build_panel.visible or command_panel.visible:
+			push_error("repeat train alone should show the build box without the command box")
+			ok = false
+		if not repeat_train_toggle.visible or not repeat_train_toggle.button_pressed:
+			push_error("repeat train should be visible and stateful inside the build box")
+			ok = false
+		if (
+			not repeat_train_toggle.has_theme_stylebox_override("normal")
+			or not repeat_train_toggle.has_theme_stylebox_override("hover")
+			or not repeat_train_toggle.has_theme_stylebox_override("pressed")
+		):
+			push_error("repeat train should keep an explicit dark background while hovering")
+			ok = false
+	if cancel_button != null:
+		var empty_options: Array[Dictionary] = []
+		cockpit.call(
+			"set_command_state",
+			"Producer",
+			false,
+			false,
+			false,
+			empty_options,
+			empty_options,
+			empty_options,
+			empty_options,
+			true,
+			false,
+			false
+		)
+		if not build_panel.visible or command_panel.visible:
+			push_error("cancel training alone should show the build box without the command box")
+			ok = false
+		if not cancel_button.visible:
+			push_error("cancel training should be visible inside the build box")
+			ok = false
+	var resolve_button: Button = _find_exact_button(cockpit, "Resolve")
+	if resolve_button == null or not resolve_button.has_theme_stylebox_override("normal"):
+		push_error("Resolve should use an authored amber command style")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_hud_stays_inside_window_and_camera_uses_safe_area() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var cockpit: Control = mode.find_child("DevPlayCockpit", true, false) as Control
+	var renderer: MatchRenderer = mode.renderer()
+	var camera: Camera2D = (
+		renderer.get_node_or_null("Camera2D") as Camera2D if renderer != null else null
+	)
+	if cockpit == null or renderer == null or camera == null:
+		push_error("test setup expected cockpit, renderer, and camera")
+		_free_mode(mode)
+		return false
+	var ok := true
+	var viewport_size: Vector2 = _logical_viewport_size()
+	var top_bar: Control = cockpit.get_node_or_null("TopBar") as Control
+	var bottom_deck: Control = cockpit.get_node_or_null("BottomDeck") as Control
+	if top_bar == null or bottom_deck == null:
+		push_error("cockpit should have top and bottom HUD bands")
+		ok = false
+	else:
+		var top_height: float = top_bar.offset_bottom - top_bar.offset_top
+		if top_bar.offset_top != 0.0 or top_height <= 0.0:
+			push_error("top bar should occupy only its required top strip, got %s" % top_bar)
+			ok = false
+		var deck_top: float = viewport_size.y + bottom_deck.offset_top
+		var deck_bottom: float = viewport_size.y + bottom_deck.offset_bottom
+		if deck_top < 0.0 or deck_bottom != viewport_size.y or deck_bottom <= deck_top:
+			push_error(
+				(
+					"bottom deck should occupy only its required bottom strip, top=%s bottom=%s viewport=%s"
+					% [deck_top, deck_bottom, viewport_size.y]
+				)
+			)
+			ok = false
+		var deck_height: float = deck_bottom - deck_top
+		if deck_height < 188.0:
+			push_error("bottom deck should keep stable console height, got %s" % deck_height)
+			ok = false
+		if deck_height > 190.0:
+			push_error("bottom deck should keep the previous compact height, got %s" % deck_height)
+			ok = false
+		if not bottom_deck.clip_contents:
+			push_error("bottom deck should clip child content instead of drawing under the window")
+			ok = false
+		var build_panel: Control = cockpit.get_node_or_null("BottomDeck/Row/BuildPanel") as Control
+		if build_panel == null or not build_panel.clip_contents:
+			push_error("build panel should clip overflowing build content inside the bottom strip")
+			ok = false
+	if renderer.get_node_or_null("HUD/CombatLog") != null:
+		push_error("legacy renderer CombatLog overlay should not reserve screen space")
+		ok = false
+	var game_container: SubViewportContainer = (
+		mode.find_child("GameViewportContainer", true, false) as SubViewportContainer
+	)
+	if game_container == null:
+		push_error("game renderer should live in a reserved middle viewport container")
+		ok = false
+	else:
+		var top_height: float = (
+			top_bar.offset_bottom - top_bar.offset_top if top_bar != null else 46.0
+		)
+		var reserved_bottom: float = absf(bottom_deck.offset_top) if bottom_deck != null else 190.0
+		var expected_height: float = viewport_size.y - top_height - reserved_bottom
+		if (
+			game_container.position != Vector2(0.0, top_height)
+			or game_container.size.x != viewport_size.x
+			or absf(game_container.size.y - expected_height) > 1.0
+		):
+			push_error(
+				(
+					"game viewport should fill exactly between HUD bands, position=%s size=%s expected_height=%s"
+					% [game_container.position, game_container.size, expected_height]
+				)
+			)
+			ok = false
+		var renderer_viewport: SubViewport = renderer.get_parent() as SubViewport
+		if renderer_viewport == null or renderer_viewport.get_parent() != game_container:
+			push_error("renderer should be parented inside the reserved child SubViewport")
+			ok = false
+		else:
+			var renderer_view_size: Vector2 = Vector2(renderer_viewport.size)
+			if absf(renderer_view_size.y - expected_height) > 1.0:
+				push_error(
+					(
+						"renderer viewport should match reserved middle height, got %s expected %s"
+						% [renderer_view_size.y, expected_height]
+					)
+				)
+				ok = false
+	if camera.offset != Vector2.ZERO:
+		push_error("camera should not fake HUD layout with screen offset, got %s" % camera.offset)
 		ok = false
 	_free_mode(mode)
 	return ok
@@ -2413,18 +2656,31 @@ func _test_escape_debug_controls() -> bool:
 		_free_mode(mode)
 		return false
 	var ok := true
-	for label in ["P0", "P1", "Clear", "Surrender", "Save Snapshot", "Load"]:
+	for label in ["P1", "P2", "Clear", "Surrender", "Save Snapshot", "Load"]:
 		if _find_button_with_substring(menu, label) == null:
 			push_error("escape menu should expose debug control '%s'" % label)
+			ok = false
+	if _find_exact_button(menu, "P0") != null:
+		push_error("escape menu should use one-based player labels")
+		ok = false
+	var p2_button: Button = _find_exact_button(menu, "P2")
+	if p2_button != null:
+		p2_button.emit_signal("pressed")
+		if mode.input_model().active_player_id() != 1:
+			push_error("P2 debug button should switch to internal player 1")
 			ok = false
 	var p1_button: Button = _find_exact_button(menu, "P1")
 	if p1_button != null:
 		p1_button.emit_signal("pressed")
-		if mode.input_model().active_player_id() != 1:
-			push_error("P1 debug button should switch active player")
+		if mode.input_model().active_player_id() != 0:
+			push_error("P1 debug button should switch to internal player 0")
 			ok = false
+	if _find_check_box_with_substring(menu, "Debug Info") == null:
+		push_error("escape menu should expose a Debug Info toggle")
+		ok = false
 	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 1)
 	if worker_id >= 0:
+		mode.set_active_player_id(1)
 		mode.select_entity_id(worker_id)
 		mode.issue_move_selected(Vector2i(24, 14))
 		var clear_button: Button = _find_button_with_substring(menu, "Clear")
@@ -2433,6 +2689,51 @@ func _test_escape_debug_controls() -> bool:
 			if mode.pending_order_count(1) != 0:
 				push_error("Clear debug button should clear active-player queued orders")
 				ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_zoom_debug_hidden_until_menu_toggle() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var renderer: MatchRenderer = mode.renderer()
+	if renderer == null:
+		push_error("expected renderer")
+		_free_mode(mode)
+		return false
+	var zoom_label: Label = renderer.get_node_or_null("HUD/ZoomDebug") as Label
+	var ok := true
+	if renderer.zoom_debug_text().find("Zoom") == -1:
+		push_error("renderer should keep zoom debug text available internally")
+		ok = false
+	if zoom_label == null:
+		push_error("renderer should keep a ZoomDebug label for opt-in diagnostics")
+		ok = false
+	elif zoom_label.visible:
+		push_error("ZoomDebug should be hidden by default")
+		ok = false
+	mode.call("_set_escape_menu_visible", true)
+	var menu: Control = mode.find_child("EscapeMenu", true, false) as Control
+	var debug_toggle: CheckBox = _find_check_box_with_substring(menu, "Debug Info")
+	if debug_toggle == null:
+		push_error("Debug Info toggle should exist in escape menu")
+		ok = false
+	else:
+		debug_toggle.button_pressed = true
+		debug_toggle.emit_signal("toggled", true)
+		if zoom_label == null or not zoom_label.visible:
+			push_error("Debug Info should show the ZoomDebug label")
+			ok = false
+		debug_toggle.button_pressed = false
+		debug_toggle.emit_signal("toggled", false)
+		if zoom_label != null and zoom_label.visible:
+			push_error("Debug Info off should hide the ZoomDebug label again")
+			ok = false
 	_free_mode(mode)
 	return ok
 
@@ -2518,6 +2819,13 @@ func _camera_visible_rect_inside_state(
 			)
 		)
 	return ok
+
+
+func _logical_viewport_size() -> Vector2:
+	return Vector2(
+		float(ProjectSettings.get_setting("display/window/size/viewport_width", 1920.0)),
+		float(ProjectSettings.get_setting("display/window/size/viewport_height", 1080.0))
+	)
 
 
 func _make_mode() -> Node:
