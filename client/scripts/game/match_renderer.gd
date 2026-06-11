@@ -58,6 +58,12 @@ const _TARGET_INTENT_LINE_WIDTH := 3.0
 const _TARGET_INTENT_DASH_PIXELS := 14.0
 const _TARGET_INTENT_GAP_PIXELS := 8.0
 const _TARGET_INTENT_RETICLE_RADIUS := 14.0
+const _IDLE_WORKER_BADGE_BACK := Color(1.0, 0.62, 0.05, 0.96)
+const _IDLE_WORKER_BADGE_OUTLINE := Color(0.0, 0.0, 0.0, 0.82)
+const _IDLE_WORKER_BADGE_TEXT := Color(0.08, 0.06, 0.02, 1.0)
+const _IDLE_WORKER_BADGE_RADIUS := 13.0
+const _IDLE_WORKER_BADGE_FONT_SIZE := 20
+const _IDLE_WORKER_BADGE_OFFSET_Y := 30.0
 const _PRODUCTION_PROGRESS_BACK := Color(0.0, 0.0, 0.0, 0.68)
 const _PRODUCTION_PROGRESS_FILL := Color(0.2, 0.95, 0.45, 0.95)
 const _PRODUCTION_PROGRESS_SIZE := Vector2(64.0, 8.0)
@@ -135,6 +141,8 @@ var _range_preview_signature: String = ""
 )
 @onready var _action_previews_root: Node2D = get_node_or_null("Overlays/ActionPreviews") as Node2D
 @onready var _target_intents_root: Node2D = get_node_or_null("Overlays/TargetIntents") as Node2D
+@onready
+var _idle_worker_indicators_root: Node2D = get_node_or_null("Overlays/IdleWorkers") as Node2D
 @onready
 var _production_progress_root: Node2D = get_node_or_null("Overlays/ProductionProgress") as Node2D
 @onready var _construction_progress_root: Node2D = (
@@ -541,6 +549,24 @@ func target_intent_preview_count() -> int:
 	return _target_intents_root.get_child_count()
 
 
+func set_idle_worker_indicators(indicators: Array) -> void:
+	_resolve_internal_nodes()
+	_clear_idle_worker_indicator_nodes()
+	if _idle_worker_indicators_root == null:
+		return
+	for indicator in indicators:
+		var entity_id: int = _indicator_entity_id(indicator)
+		if entity_id < 0:
+			continue
+		_render_idle_worker_indicator(entity_id)
+
+
+func idle_worker_indicator_count() -> int:
+	if _idle_worker_indicators_root == null:
+		return 0
+	return _idle_worker_indicators_root.get_child_count()
+
+
 func action_preview_line_point_count(preview_index: int) -> int:
 	if _action_previews_root == null:
 		return 0
@@ -715,6 +741,12 @@ func _resolve_internal_nodes() -> void:
 			_target_intents_root = Node2D.new()
 			_target_intents_root.name = "TargetIntents"
 			overlays.add_child(_target_intents_root)
+	if _idle_worker_indicators_root == null:
+		var overlays := get_node_or_null("Overlays") as Node2D
+		if overlays != null:
+			_idle_worker_indicators_root = Node2D.new()
+			_idle_worker_indicators_root.name = "IdleWorkers"
+			overlays.add_child(_idle_worker_indicators_root)
 	if _production_progress_root == null:
 		var overlays := get_node_or_null("Overlays") as Node2D
 		if overlays != null:
@@ -784,6 +816,7 @@ func _clear_overlay_roots() -> void:
 		_build_placement_preview_root,
 		_action_previews_root,
 		_target_intents_root,
+		_idle_worker_indicators_root,
 		_production_progress_root,
 		_construction_progress_root,
 		_damage_labels_root,
@@ -837,6 +870,14 @@ func _clear_target_intent_preview_nodes() -> void:
 		return
 	for child in _target_intents_root.get_children():
 		_target_intents_root.remove_child(child)
+		child.queue_free()
+
+
+func _clear_idle_worker_indicator_nodes() -> void:
+	if _idle_worker_indicators_root == null:
+		return
+	for child in _idle_worker_indicators_root.get_children():
+		_idle_worker_indicators_root.remove_child(child)
 		child.queue_free()
 
 
@@ -1051,6 +1092,54 @@ func _render_target_intent_preview(preview: Dictionary) -> void:
 	_add_target_intent_dashes(group, start, target)
 	group.add_child(_target_intent_reticle(target))
 	_target_intents_root.add_child(group)
+
+
+func _indicator_entity_id(indicator: Variant) -> int:
+	if indicator is Dictionary:
+		var data: Dictionary = indicator
+		return int(data.get("entity_id", -1))
+	if indicator is int:
+		return int(indicator)
+	return -1
+
+
+func _render_idle_worker_indicator(entity_id: int) -> void:
+	var view: EntityView = _views_by_id.get(entity_id)
+	if view == null or not view.visible:
+		return
+	var group := Node2D.new()
+	group.name = "IdleWorker_%d" % entity_id
+	group.position = view.position + Vector2(0.0, -_IDLE_WORKER_BADGE_OFFSET_Y)
+	var outline := Polygon2D.new()
+	outline.color = _IDLE_WORKER_BADGE_OUTLINE
+	outline.polygon = _regular_polygon_points(_IDLE_WORKER_BADGE_RADIUS + 2.0, 8)
+	group.add_child(outline)
+	var fill := Polygon2D.new()
+	fill.color = _IDLE_WORKER_BADGE_BACK
+	fill.polygon = _regular_polygon_points(_IDLE_WORKER_BADGE_RADIUS, 8)
+	group.add_child(fill)
+	var label := Label.new()
+	label.text = "!"
+	label.modulate = _IDLE_WORKER_BADGE_TEXT
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", _IDLE_WORKER_BADGE_FONT_SIZE)
+	label.add_theme_color_override("font_outline_color", _IDLE_WORKER_BADGE_OUTLINE)
+	label.add_theme_constant_override("outline_size", 2)
+	label.size = Vector2(_IDLE_WORKER_BADGE_RADIUS * 2.0, _IDLE_WORKER_BADGE_RADIUS * 2.0)
+	label.position = -label.size * 0.5
+	group.add_child(label)
+	_idle_worker_indicators_root.add_child(group)
+
+
+func _regular_polygon_points(radius: float, sides: int) -> PackedVector2Array:
+	var points: PackedVector2Array = PackedVector2Array()
+	if sides < 3:
+		return points
+	for i in range(sides):
+		var angle: float = -PI * 0.5 + TAU * float(i) / float(sides)
+		points.append(Vector2(cos(angle), sin(angle)) * radius)
+	return points
 
 
 func _add_target_intent_dashes(group: Node2D, start: Vector2, finish: Vector2) -> void:

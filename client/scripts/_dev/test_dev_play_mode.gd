@@ -71,6 +71,14 @@ func _all_tests() -> Array:
 			"dev_play_mode_selected_and_friendly_action_previews",
 			_test_selected_and_friendly_action_previews
 		],
+		[
+			"dev_play_mode_idle_worker_indicator_counts_active_idle_workers",
+			_test_idle_worker_indicator_counts_active_idle_workers
+		],
+		[
+			"dev_play_mode_idle_worker_indicator_excludes_busy_workers",
+			_test_idle_worker_indicator_excludes_busy_workers
+		],
 		["dev_play_mode_selected_combat_unit_shows_range", _test_selected_combat_unit_shows_range],
 		[
 			"dev_play_mode_alt_projects_range_from_hover_tile",
@@ -913,6 +921,113 @@ func _test_selected_and_friendly_action_previews() -> bool:
 		return false
 	_free_mode(mode)
 	return true
+
+
+func _test_idle_worker_indicator_counts_active_idle_workers() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var state: MatchState = mode.current_state()
+	_set_all_workers_busy_gathering(state, -1)
+	var idle_worker_id: int = _add_idle_worker_for_test(state, 0)
+	var opponent_idle_worker_id: int = _add_idle_worker_for_test(state, 1)
+	if idle_worker_id < 0 or opponent_idle_worker_id < 0:
+		_free_mode(mode)
+		return false
+	var renderer: MatchRenderer = mode.renderer()
+	if renderer == null or not renderer.has_method("idle_worker_indicator_count"):
+		push_error("renderer should expose idle_worker_indicator_count")
+		_free_mode(mode)
+		return false
+	renderer.bind_state(state, _load_registry())
+	renderer.set_perspective_player_id(0)
+	mode.call("_update_hud")
+	var label: Label = mode.find_child("IdleWorkers", true, false) as Label
+	var ok: bool = true
+	if label == null:
+		push_error("dev HUD should expose IdleWorkers label")
+		ok = false
+	elif not label.visible or label.text != "Idle workers: 1":
+		push_error("IdleWorkers label should show one active-player idle worker")
+		ok = false
+	if renderer.call("idle_worker_indicator_count") != 1:
+		push_error("renderer should show one idle worker badge for the active player")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_idle_worker_indicator_excludes_busy_workers() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var state: MatchState = mode.current_state()
+	_set_all_workers_busy_gathering(state, -1)
+	var gathering_id: int = _add_idle_worker_for_test(state, 0)
+	var queued_id: int = _add_idle_worker_for_test(state, 0)
+	var future_id: int = _add_idle_worker_for_test(state, 0)
+	var assist_id: int = _add_idle_worker_for_test(state, 0)
+	var pending_build_id: int = _add_idle_worker_for_test(state, 0)
+	var locked_id: int = _add_idle_worker_for_test(state, 0)
+	var ability_id: int = _add_idle_worker_for_test(state, 0)
+	var ids: Array[int] = [
+		gathering_id,
+		queued_id,
+		future_id,
+		assist_id,
+		pending_build_id,
+		locked_id,
+		ability_id,
+	]
+	for id in ids:
+		if id < 0:
+			_free_mode(mode)
+			return false
+	var gathering_worker: Entity = state.get_entity_by_id(gathering_id)
+	gathering_worker.gather_state.phase = GatherState.Phase.GATHERING
+	var input: DevTurnInput = mode.input_model()
+	input.clear_submissions()
+	input.submit_for_player(0).orders.append(_move_order_for_worker(state, queued_id))
+	var snapshot: DevInputSnapshot = input.create_snapshot()
+	snapshot.future_orders = {future_id: [_move_order_for_worker(state, future_id)]}
+	snapshot.move_assists = {assist_id: _move_order_for_worker(state, assist_id)}
+	input.restore_snapshot(snapshot, state, _load_registry())
+	var pending_worker: Entity = state.get_entity_by_id(pending_build_id)
+	pending_worker.pending_build_def_id = "barracks"
+	var locked_worker: Entity = state.get_entity_by_id(locked_id)
+	locked_worker.locked_to_building_id = 42
+	var ability_worker: Entity = state.get_entity_by_id(ability_id)
+	ability_worker.ability_cast = AbilityCastState.new()
+	ability_worker.ability_cast.ability_id = "stim"
+	ability_worker.ability_cast.turns_remaining = 1
+	var renderer: MatchRenderer = mode.renderer()
+	if renderer == null or not renderer.has_method("idle_worker_indicator_count"):
+		push_error("renderer should expose idle_worker_indicator_count")
+		_free_mode(mode)
+		return false
+	renderer.bind_state(state, _load_registry())
+	renderer.set_perspective_player_id(0)
+	mode.call("_update_hud")
+	var label: Label = mode.find_child("IdleWorkers", true, false) as Label
+	var ok: bool = true
+	if label != null and label.visible:
+		push_error("IdleWorkers label should hide when no active worker is idle")
+		ok = false
+	if renderer.call("idle_worker_indicator_count") != 0:
+		push_error("busy active workers should not receive idle worker badges")
+		ok = false
+	_free_mode(mode)
+	return ok
 
 
 func _test_selected_and_friendly_target_intents() -> bool:
@@ -2425,6 +2540,64 @@ func _first_empty_tile(state: MatchState) -> Vector2i:
 			if state.tile_grid.entity_at(tile) < 0:
 				return tile
 	return Vector2i(-1, -1)
+
+
+func _set_all_workers_busy_gathering(state: MatchState, owner: int) -> void:
+	if state == null:
+		return
+	for entity in state.entities_sorted_by_id():
+		if entity.def_id != "worker" or entity.gather_state == null:
+			continue
+		if owner >= 0 and entity.owner_player_id != owner:
+			continue
+		entity.gather_state.phase = GatherState.Phase.GATHERING
+		entity.gather_state.assigned_source_entity_id = -1
+
+
+func _add_idle_worker_for_test(state: MatchState, owner: int) -> int:
+	var origin: Vector2i = _first_empty_tile(state)
+	if origin == Vector2i(-1, -1):
+		push_error("test setup could not find an empty worker tile")
+		return -1
+	var id: int = _add_runtime_entity(state, "worker", owner, origin)
+	if id < 0:
+		push_error("test setup could not add worker at %s" % str(origin))
+		return -1
+	var worker: Entity = state.get_entity_by_id(id)
+	if worker == null:
+		push_error("test setup added worker #%d but could not load it" % id)
+		return -1
+	if worker.gather_state == null:
+		worker.gather_state = GatherState.new()
+	worker.gather_state.phase = GatherState.Phase.IDLE
+	worker.gather_state.assigned_source_entity_id = -1
+	worker.gather_state.carrying_amount = 0
+	worker.gather_state.carrying_resource_type = ""
+	return id
+
+
+func _move_order_for_worker(state: MatchState, entity_id: int) -> EntityOrder:
+	var order: EntityOrder = EntityOrder.new()
+	order.type = EntityOrder.Type.MOVE
+	order.entity_id = entity_id
+	order.target_tile = _move_target_tile_for_entity(state, entity_id)
+	return order
+
+
+func _move_target_tile_for_entity(state: MatchState, entity_id: int) -> Vector2i:
+	var entity: Entity = state.get_entity_by_id(entity_id) if state != null else null
+	if entity == null or state.tile_grid == null:
+		return Vector2i.ZERO
+	var candidates: Array[Vector2i] = [
+		entity.origin + Vector2i(1, 0),
+		entity.origin + Vector2i(0, 1),
+		entity.origin + Vector2i(-1, 0),
+		entity.origin + Vector2i(0, -1),
+	]
+	for tile in candidates:
+		if state.tile_grid.is_in_bounds(tile):
+			return tile
+	return entity.origin
 
 
 func _find_clear_rect_origin_near(

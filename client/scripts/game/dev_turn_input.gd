@@ -660,6 +660,11 @@ func future_order_count_for_entity(entity_id: int) -> int:
 	return queue.size()
 
 
+func has_move_assist_for_entity(entity_id: int) -> bool:
+	_prune_move_assists()
+	return _move_assists.has(entity_id)
+
+
 func selected_entity_label() -> String:
 	if _selected_entity_ids.size() > 1:
 		return "%d selected" % _selected_entity_ids.size()
