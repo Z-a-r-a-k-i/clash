@@ -18,9 +18,11 @@ extends RefCounted
 #   2. Distribute per-entity orders; CANCEL applies now.
 #   3. For tick in 1..N:
 #        Phase 1: self-target abilities.
-#        Phase 2: every combat unit may fire once if it has a target in range.
-#        Phase 3: every unit's move action (+ gather travel).
-#        Phase 4: gather state ticks (direct resource credit).
+#        Phase 2: initiative pre-movement attack batch.
+#        Phase 3: normal pre-movement attack batch.
+#        Phase 4: every unit's move action (+ gather travel).
+#        Phase 5: post-movement attack batch.
+#        Phase 6: gather state ticks (direct resource credit).
 #   4. End-of-turn pass: cooldowns, buffs, production progress, is_hidden,
 #      win check.
 #
@@ -34,7 +36,12 @@ extends RefCounted
 
 const _STATE_HELPERS := preload("res://scripts/resolver/_state_helpers.gd")
 const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
+const _MECHANICS_SYSTEM := preload("res://scripts/resolver/mechanics_system.gd")
 const _RESOLVER_PROFILER := preload("res://scripts/resolver/resolver_profiler.gd")
+
+const _ATTACK_FILTER_ALL := "all"
+const _ATTACK_FILTER_INITIATIVE := "initiative"
+const _ATTACK_FILTER_NON_INITIATIVE := "non_initiative"
 
 
 static func resolve(
@@ -141,7 +148,7 @@ static func resolve(
 
 	# 4. Tick loop. Move orders still consume movement budget in a stable
 	#    phase, but attacks are no longer queued slots: each combat unit
-	#    may fire at most once per resolve.
+	#    may fire at most once per attack window per resolve.
 	if profile != null:
 		profile_step = profile.mark()
 	var n_ticks := _STATE_HELPERS.max_queue_length(per_entity)
@@ -159,7 +166,8 @@ static func resolve(
 			n_ticks = 1
 	if profile != null:
 		profile.count("ticks", n_ticks)
-	var fired_entity_ids: Dictionary = {}
+	var fired_attack_windows: Dictionary = {}
+	var fired_before_movement_entity_ids: Dictionary = {}
 	for tick in n_ticks:
 		# Sort once per tick and reuse across phases. Determinism still
 		# requires fresh sorts each tick because attacks in the previous
@@ -186,9 +194,8 @@ static func resolve(
 		if profile != null:
 			profile.add("tick.abilities", profile_step)
 
-		# Phase 2: attacks. Stable collection by id followed by one batch
-		# application keeps lethal exchanges simultaneous. Movement into range
-		# never creates another shot until the next resolve.
+		# Phase 2: initiative pre-movement attacks. Batch collection
+		# keeps initiative-vs-initiative lethal exchanges simultaneous.
 		_apply_attack_opportunities(
 			working,
 			per_entity,
@@ -196,12 +203,32 @@ static func resolve(
 			registry,
 			tunables,
 			events,
-			fired_entity_ids,
+			fired_attack_windows,
+			fired_before_movement_entity_ids,
 			sorted_entities,
+			_MECHANICS_SYSTEM.ATTACK_WINDOW_PRE_MOVEMENT,
+			_ATTACK_FILTER_INITIATIVE,
 			profile
 		)
 
-		# Phase 3: movement substeps. A MOVE action is one intent, but
+		# Phase 3: normal pre-movement attacks. Initiative units do not
+		# get a second pre-movement opportunity in this later batch.
+		_apply_attack_opportunities(
+			working,
+			per_entity,
+			tick,
+			registry,
+			tunables,
+			events,
+			fired_attack_windows,
+			fired_before_movement_entity_ids,
+			sorted_entities,
+			_MECHANICS_SYSTEM.ATTACK_WINDOW_PRE_MOVEMENT,
+			_ATTACK_FILTER_NON_INITIATIVE,
+			profile
+		)
+
+		# Phase 4: movement substeps. A MOVE action is one intent, but
 		# speed_tiles_per_turn is a per-turn distance budget. Iterate
 		# movement systems until every live mover has had a chance to spend
 		# that budget. `moves_used_this_turn` still caps each entity, so
@@ -229,7 +256,7 @@ static func resolve(
 				registry,
 				tunables,
 				events,
-				fired_entity_ids,
+				fired_before_movement_entity_ids,
 				halted_entity_ids,
 				sorted_entities,
 				movement_path_cache,
@@ -240,7 +267,24 @@ static func resolve(
 			if not moved:
 				break
 
-		# Phase 4 extension: gather workers at a source tick yields and
+		# Phase 5: post-movement attacks. These do not retroactively
+		# reduce movement budget because movement has already resolved.
+		_apply_attack_opportunities(
+			working,
+			per_entity,
+			tick,
+			registry,
+			tunables,
+			events,
+			fired_attack_windows,
+			fired_before_movement_entity_ids,
+			sorted_entities,
+			_MECHANICS_SYSTEM.ATTACK_WINDOW_POST_MOVEMENT,
+			_ATTACK_FILTER_ALL,
+			profile
+		)
+
+		# Phase 6 extension: gather workers at a source tick yields and
 		# direct resource credit.
 		if profile != null:
 			profile_step = profile.mark()
@@ -331,6 +375,8 @@ static func _standing_attack_order(
 	var def: EntityDef = registry.get_by_id(entity.current_def_id)
 	if def == null or def.combat == null:
 		return null
+	if not _MECHANICS_SYSTEM.has_any_attack_window(entity, registry):
+		return null
 	var auto_attack := EntityOrder.new()
 	auto_attack.type = EntityOrder.Type.TARGET
 	auto_attack.entity_id = entity.id
@@ -366,16 +412,26 @@ static func _apply_attack_opportunities(
 	registry: EntityRegistry,
 	tunables: Tunables,
 	events: Array[ResolverEvent],
-	fired_entity_ids: Dictionary,
+	fired_attack_windows: Dictionary,
+	fired_before_movement_entity_ids: Dictionary,
 	sorted_entities: Array[Entity],
+	attack_window: String,
+	attack_filter: String,
 	profile: Variant = null
 ) -> void:
 	var attack_intents: Array[Dictionary] = []
 	var visibility_by_player: Dictionary = {}
+	var fired_entity_ids: Dictionary = _fired_entity_ids_for_window(
+		fired_attack_windows, attack_window
+	)
 	for entity in sorted_entities:
 		if entity == null or entity.current_hp <= 0:
 			continue
 		if _ABILITY_SYSTEM.is_casting(entity):
+			continue
+		if not _MECHANICS_SYSTEM.has_attack_window(entity, registry, attack_window):
+			continue
+		if not _matches_attack_filter(entity, registry, attack_filter):
 			continue
 		if fired_entity_ids.has(entity.id):
 			continue
@@ -408,6 +464,29 @@ static func _apply_attack_opportunities(
 		profile.count("attack_intents", attack_intents.size())
 	for entity_id in tick_fired_ids:
 		fired_entity_ids[entity_id] = true
+		if attack_window == _MECHANICS_SYSTEM.ATTACK_WINDOW_PRE_MOVEMENT:
+			fired_before_movement_entity_ids[entity_id] = true
+
+
+static func _fired_entity_ids_for_window(
+	fired_attack_windows: Dictionary, attack_window: String
+) -> Dictionary:
+	if not fired_attack_windows.has(attack_window):
+		fired_attack_windows[attack_window] = {}
+	return fired_attack_windows[attack_window]
+
+
+static func _matches_attack_filter(
+	entity: Entity, registry: EntityRegistry, attack_filter: String
+) -> bool:
+	if attack_filter == _ATTACK_FILTER_ALL:
+		return true
+	var has_initiative: bool = _MECHANICS_SYSTEM.has_initiative(entity, registry)
+	if attack_filter == _ATTACK_FILTER_INITIATIVE:
+		return has_initiative
+	if attack_filter == _ATTACK_FILTER_NON_INITIATIVE:
+		return not has_initiative
+	return false
 
 
 static func _attack_order_for_opportunity(

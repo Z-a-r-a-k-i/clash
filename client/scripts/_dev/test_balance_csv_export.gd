@@ -16,7 +16,9 @@ const HEADER: Array[String] = [
 	"health_max_hp",
 	"combat_damage",
 	"combat_attack_range",
-	"combat_attacks_per_turn",
+	"combat_attacks_before_movement",
+	"combat_attacks_after_movement",
+	"combat_has_initiative",
 	"combat_target_layers",
 	"combat_attack_modifiers",
 	"movement_speed",
@@ -133,6 +135,9 @@ func _test_nested_values_are_exported() -> bool:
 	ok = _expect_cell(marine, "category", "units") and ok
 	ok = _expect_cell(marine, "footprint", "1x1") and ok
 	ok = _expect_cell(marine, "tags", "light;biological;ground") and ok
+	ok = _expect_cell(marine, "combat_attacks_before_movement", "true") and ok
+	ok = _expect_cell(marine, "combat_attacks_after_movement", "false") and ok
+	ok = _expect_cell(marine, "combat_has_initiative", "false") and ok
 	ok = _expect_cell(marine, "combat_target_layers", "ground;flying") and ok
 	ok = _expect_cell(marine, "ability_ids", "stim") and ok
 

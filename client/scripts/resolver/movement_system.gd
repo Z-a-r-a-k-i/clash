@@ -12,6 +12,7 @@ extends RefCounted
 # Entity.moves_used_this_turn (reset at end-of-turn).
 #
 const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
+const _MECHANICS_SYSTEM := preload("res://scripts/resolver/mechanics_system.gd")
 const _PATHFINDING := preload("res://scripts/resolver/pathfinding_system.gd")
 
 
@@ -50,7 +51,7 @@ static func resolve_movement_substep(
 	registry: EntityRegistry,
 	_tunables: Tunables,
 	events: Array[ResolverEvent],
-	fired_entity_ids: Dictionary,
+	fired_before_movement_entity_ids: Dictionary,
 	halted_entity_ids: Dictionary,
 	sorted_entities: Array[Entity],
 	path_cache: Variant = null,
@@ -64,7 +65,7 @@ static func resolve_movement_substep(
 		per_entity,
 		tick,
 		registry,
-		fired_entity_ids,
+		fired_before_movement_entity_ids,
 		halted_entity_ids,
 		sorted_entities,
 		events
@@ -262,7 +263,7 @@ static func _movement_intents(
 	per_entity: Dictionary,
 	tick: int,
 	registry: EntityRegistry,
-	fired_entity_ids: Dictionary,
+	fired_before_movement_entity_ids: Dictionary,
 	halted_entity_ids: Dictionary,
 	sorted_entities: Array[Entity],
 	events: Array[ResolverEvent]
@@ -277,7 +278,7 @@ static func _movement_intents(
 			continue
 		var order: EntityOrder = _action_at(per_entity, actor.id, tick)
 		var explicit_intent: Dictionary = _explicit_move_intent(
-			actor, order, registry, fired_entity_ids, halted_entity_ids
+			actor, order, registry, fired_before_movement_entity_ids, halted_entity_ids
 		)
 		if not explicit_intent.is_empty():
 			intents.append(explicit_intent)
@@ -309,7 +310,7 @@ static func _explicit_move_intent(
 	actor: Entity,
 	order: EntityOrder,
 	registry: EntityRegistry,
-	fired_entity_ids: Dictionary,
+	fired_before_movement_entity_ids: Dictionary,
 	halted_entity_ids: Dictionary
 ) -> Dictionary:
 	if order == null:
@@ -318,7 +319,9 @@ static func _explicit_move_intent(
 		return {}
 	if order.type == EntityOrder.Type.ATTACK_MOVE and halted_entity_ids.has(actor.id):
 		return {}
-	var budget: int = movement_budget_for_entity(actor, registry, fired_entity_ids.has(actor.id))
+	var budget: int = movement_budget_for_entity(
+		actor, registry, fired_before_movement_entity_ids.has(actor.id)
+	)
 	if not _can_spend_movement(actor, budget):
 		return {}
 	var goal: Dictionary = _goal_for_order(order)
@@ -906,27 +909,10 @@ static func step_toward(
 
 
 static func movement_speed_for_entity(actor: Entity, registry: EntityRegistry) -> int:
-	if actor == null or registry == null:
-		return 0
-	var def: EntityDef = registry.get_by_id(actor.current_def_id)
-	if def == null or def.movement == null:
-		return 0
-	var speed: float = float(def.movement.speed_tiles_per_turn)
-	for buff in actor.active_buffs:
-		if buff != null:
-			speed *= buff.speed_mult
-	return max(0, int(round(speed)))
+	return _MECHANICS_SYSTEM.movement_speed_for_entity(actor, registry)
 
 
 static func movement_budget_for_entity(
-	actor: Entity, registry: EntityRegistry, fired_this_turn: bool
+	actor: Entity, registry: EntityRegistry, fired_before_movement: bool
 ) -> int:
-	var speed: int = movement_speed_for_entity(actor, registry)
-	if speed <= 0:
-		return 0
-	if fired_this_turn:
-		var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, registry)
-		if movement == null:
-			return 0
-		return int(ceil(float(speed) * movement.post_shot_move_fraction))
-	return speed
+	return _MECHANICS_SYSTEM.movement_budget_for_entity(actor, registry, fired_before_movement)
