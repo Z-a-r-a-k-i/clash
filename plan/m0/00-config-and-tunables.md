@@ -43,7 +43,7 @@ Every entity in the game — a marine, a barracks, a worker, a mineral patch, a 
 | Capability | What it grants | Key fields (M0) |
 |---|---|---|
 | `HealthDef` | Entity is destructible at zero HP. | `max_hp` |
-| `CombatDef` | Entity can fire weapons. | `damage`, `attack_range`, `target_layers`, `attack_modifiers`, `attacks_before_movement`, `attacks_after_movement`, `has_initiative` |
+| `CombatDef` | Entity can fire weapons. | Canonical fields are defined in `client/scripts/data/combat_def.gd` (code is source of truth). |
 | `MovementDef` | Entity can move. | `speed_tiles_per_turn`, `default_layer`, `pathable_terrain_tags`, `impassable_terrain_tags` |
 | `VisionDef` | Entity reveals fog and (optionally) detects hidden enemies. | `sight_radius`, `detection_radius` |
 | `PopulationDef` | Entity counts in pop math. | `pop_cost`, `pop_provides` |
