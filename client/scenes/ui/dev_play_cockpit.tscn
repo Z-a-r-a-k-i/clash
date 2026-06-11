@@ -1,0 +1,202 @@
+[gd_scene format=3 uid="uid://dxulhodkq3prt"]
+
+[ext_resource type="Script" path="res://scripts/ui/dev_play_cockpit.gd" id="1_46u1n"]
+
+[node name="DevPlayCockpit" type="Control" unique_id=606330146]
+layout_mode = 3
+anchors_preset = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("1_46u1n")
+
+[node name="TopBar" type="PanelContainer" parent="." unique_id=37401402]
+layout_mode = 0
+anchor_right = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = 58.0
+
+[node name="Row" type="HBoxContainer" parent="TopBar" unique_id=1341393116]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="ActivePlayer" type="Label" parent="TopBar/Row" unique_id=991373904]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "ActivePlayer"
+vertical_alignment = 1
+
+[node name="Turn" type="Label" parent="TopBar/Row" unique_id=635579718]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Turn"
+vertical_alignment = 1
+
+[node name="Resources" type="Label" parent="TopBar/Row" unique_id=1468122364]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Resources"
+vertical_alignment = 1
+
+[node name="Population" type="Label" parent="TopBar/Row" unique_id=1226797390]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Population"
+vertical_alignment = 1
+
+[node name="Queue" type="Label" parent="TopBar/Row" unique_id=1306778502]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Queue"
+vertical_alignment = 1
+
+[node name="MatchState" type="Label" parent="TopBar/Row" unique_id=873158094]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "MatchState"
+vertical_alignment = 1
+
+[node name="BottomDeck" type="PanelContainer" parent="." unique_id=1243292010]
+layout_mode = 0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = -230.0
+offset_right = -12.0
+offset_bottom = -12.0
+
+[node name="Row" type="HBoxContainer" parent="BottomDeck" unique_id=2097771551]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="SelectionPanel" type="VBoxContainer" parent="BottomDeck/Row" unique_id=1571672896]
+custom_minimum_size = Vector2(360, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Selection" type="Label" parent="BottomDeck/Row/SelectionPanel" unique_id=90703587]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Selection"
+autowrap_mode = 3
+
+[node name="Details" type="Label" parent="BottomDeck/Row/SelectionPanel" unique_id=1731232152]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Details"
+autowrap_mode = 3
+
+[node name="Intent" type="Label" parent="BottomDeck/Row/SelectionPanel" unique_id=1042553637]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Intent"
+autowrap_mode = 3
+
+[node name="Status" type="Label" parent="BottomDeck/Row/SelectionPanel" unique_id=2144485275]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Status"
+autowrap_mode = 3
+
+[node name="CommandPanel" type="VBoxContainer" parent="BottomDeck/Row" unique_id=1144413935]
+custom_minimum_size = Vector2(660, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="ActionRow" type="HBoxContainer" parent="BottomDeck/Row/CommandPanel" unique_id=1599599930]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Move" type="Button" parent="BottomDeck/Row/CommandPanel/ActionRow" unique_id=1080712007]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Move"
+
+[node name="Gather" type="Button" parent="BottomDeck/Row/CommandPanel/ActionRow" unique_id=1387217016]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Gather"
+
+[node name="StateRow" type="HBoxContainer" parent="BottomDeck/Row/CommandPanel" unique_id=1169405849]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Attack" type="Button" parent="BottomDeck/Row/CommandPanel/StateRow" unique_id=453514681]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Attack"
+
+[node name="Cancel" type="Button" parent="BottomDeck/Row/CommandPanel/StateRow" unique_id=807403957]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Cancel"
+
+[node name="RepeatTrain" type="CheckBox" parent="BottomDeck/Row/CommandPanel/StateRow" unique_id=1421932605]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Repeat Train"
+
+[node name="OptionColumns" type="HBoxContainer" parent="BottomDeck/Row/CommandPanel" unique_id=1269727805]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="Build" type="VBoxContainer" parent="BottomDeck/Row/CommandPanel/OptionColumns" unique_id=500186332]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 4
+
+[node name="BuildLabel" type="Label" parent="BottomDeck/Row/CommandPanel/OptionColumns/Build" unique_id=417043349]
+layout_mode = 2
+text = "Build"
+
+[node name="Train" type="VBoxContainer" parent="BottomDeck/Row/CommandPanel/OptionColumns" unique_id=358156089]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 4
+
+[node name="TrainLabel" type="Label" parent="BottomDeck/Row/CommandPanel/OptionColumns/Train" unique_id=2116094227]
+layout_mode = 2
+text = "Train"
+
+[node name="Research" type="VBoxContainer" parent="BottomDeck/Row/CommandPanel/OptionColumns" unique_id=1748537377]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 4
+
+[node name="ResearchLabel" type="Label" parent="BottomDeck/Row/CommandPanel/OptionColumns/Research" unique_id=1112903238]
+layout_mode = 2
+text = "Research"
+
+[node name="Abilities" type="VBoxContainer" parent="BottomDeck/Row/CommandPanel/OptionColumns" unique_id=1586081556]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 4
+
+[node name="AbilitiesLabel" type="Label" parent="BottomDeck/Row/CommandPanel/OptionColumns/Abilities" unique_id=1812914424]
+layout_mode = 2
+text = "Abilities"
+
+[node name="ResolvePanel" type="VBoxContainer" parent="BottomDeck/Row" unique_id=403173609]
+custom_minimum_size = Vector2(190, 0)
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Resolve" type="Button" parent="BottomDeck/Row/ResolvePanel" unique_id=596329370]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Resolve"
+
+[node name="ShowAllOrders" type="CheckBox" parent="BottomDeck/Row/ResolvePanel" unique_id=1904023406]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "All Orders"
