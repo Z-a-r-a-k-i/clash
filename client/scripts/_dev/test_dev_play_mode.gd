@@ -2595,8 +2595,11 @@ func _move_target_tile_for_entity(state: MatchState, entity_id: int) -> Vector2i
 		entity.origin + Vector2i(0, -1),
 	]
 	for tile: Vector2i in candidates:
-		if state.tile_grid.is_in_bounds(tile):
+		if state.tile_grid.is_in_bounds(tile) and state.tile_grid.entity_at(tile) < 0:
 			return tile
+	var fallback: Vector2i = _find_clear_rect_origin_near(state, entity.origin, Vector2i.ONE)
+	if state.tile_grid.is_rect_clear(Rect2i(fallback, Vector2i.ONE)):
+		return fallback
 	return entity.origin
 
 
