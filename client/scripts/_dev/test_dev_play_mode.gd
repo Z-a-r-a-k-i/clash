@@ -2694,10 +2694,20 @@ func _test_escape_debug_controls() -> bool:
 	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 1)
 	if worker_id >= 0:
 		mode.set_active_player_id(1)
-		mode.select_entity_id(worker_id)
-		mode.issue_move_selected(Vector2i(24, 14))
+		var queued_order_for_clear := false
+		if not mode.select_entity_id(worker_id):
+			push_error("Clear control test should select a P1 worker before pressing Clear")
+			ok = false
+		elif not mode.issue_move_selected(Vector2i(24, 14)):
+			push_error("Clear control test should queue a P1 move before pressing Clear")
+			ok = false
+		elif mode.pending_order_count(1) != 1:
+			push_error("Clear control test expected one queued P1 order before pressing Clear")
+			ok = false
+		else:
+			queued_order_for_clear = true
 		var clear_button: Button = _find_button_with_substring(menu, "Clear")
-		if clear_button != null:
+		if clear_button != null and queued_order_for_clear:
 			clear_button.emit_signal("pressed")
 			if mode.pending_order_count(1) != 0:
 				push_error("Clear debug button should clear active-player queued orders")
