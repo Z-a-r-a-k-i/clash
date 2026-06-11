@@ -178,9 +178,9 @@ func _test_load_snapshot_can_resolve() -> bool:
 		return _fail_mode(mode, "snapshot load should restore pending order")
 	if mode.replay_mode_active():
 		return _fail_mode(mode, "snapshot load should return to playable mode")
-	var play_panel: PanelContainer = mode.get_node_or_null("DevHUD/Panel") as PanelContainer
+	var play_hud: Control = mode.get_node_or_null("DevHUD/DevPlayCockpit") as Control
 	var replay_panel: PanelContainer = mode.get_node_or_null("DevHUD/ReplayPanel") as PanelContainer
-	if play_panel == null or not play_panel.visible or replay_panel == null or replay_panel.visible:
+	if play_hud == null or not play_hud.visible or replay_panel == null or replay_panel.visible:
 		return _fail_mode(mode, "snapshot load should show the play interface")
 	if not mode.resolve_turn():
 		return _fail_mode(mode, "resolve after snapshot load failed")
@@ -309,14 +309,14 @@ func _test_replay_save_load() -> bool:
 	var ok: bool = _states_equal(expected, loaded_mode.current_state())
 	if not ok:
 		push_error("loaded replay latest checkpoint should match saved live state")
-	var play_panel: PanelContainer = loaded_mode.get_node_or_null("DevHUD/Panel") as PanelContainer
+	var play_hud: Control = loaded_mode.get_node_or_null("DevHUD/DevPlayCockpit") as Control
 	var replay_panel: PanelContainer = (
 		loaded_mode.get_node_or_null("DevHUD/ReplayPanel") as PanelContainer
 	)
 	if (
 		not loaded_mode.replay_mode_active()
-		or play_panel == null
-		or play_panel.visible
+		or play_hud == null
+		or play_hud.visible
 		or replay_panel == null
 		or not replay_panel.visible
 	):

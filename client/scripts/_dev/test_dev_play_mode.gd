@@ -3,6 +3,7 @@ extends Node
 
 const DEV_PLAY_MODE_PATH := "res://scripts/_dev/dev_play_mode.gd"
 const COMMAND_CARD_PATH := "res://scripts/game/command_card.gd"
+const DEV_PLAY_COCKPIT_SCENE_PATH := "res://scenes/ui/dev_play_cockpit.tscn"
 const COMBAT_SCENARIO_PATH := "res://data/scenarios/combat_marines_vs_tanks.tres"
 const MVP_SCENARIO_PATH := "res://data/scenarios/mvp_map.tres"
 const TUNABLES_PATH := "res://data/tunables.tres"
@@ -36,6 +37,7 @@ func _run_all() -> int:
 func _all_tests() -> Array:
 	return [
 		["dev_play_mode_loads_scenario_and_binds_renderer", _test_loads_scenario],
+		["dev_play_mode_uses_authored_cockpit_shell", _test_uses_authored_cockpit_shell],
 		["dev_play_mode_queues_and_resolves_turn", _test_queues_and_resolves_turn],
 		["dev_play_mode_routes_context_actions", _test_routes_context_actions],
 		["dev_play_mode_context_cursor_classifier", _test_context_cursor_classifier],
@@ -79,6 +81,7 @@ func _all_tests() -> Array:
 			"dev_play_mode_idle_worker_indicator_excludes_busy_workers",
 			_test_idle_worker_indicator_excludes_busy_workers
 		],
+		["dev_play_mode_cockpit_all_orders_toggle_routes", _test_cockpit_all_orders_toggle_routes],
 		["dev_play_mode_selected_combat_unit_shows_range", _test_selected_combat_unit_shows_range],
 		[
 			"dev_play_mode_alt_projects_range_from_hover_tile",
@@ -146,6 +149,7 @@ func _all_tests() -> Array:
 			"dev_play_mode_escape_resets_active_selection_drag",
 			_test_escape_resets_active_selection_drag
 		],
+		["dev_play_mode_escape_menu_contains_debug_controls", _test_escape_debug_controls],
 		[
 			"dev_play_mode_switching_player_keeps_camera_bounded",
 			_test_switching_player_keeps_camera_bounded
@@ -351,6 +355,42 @@ func _test_switches_input_and_render_perspective() -> bool:
 	return ok
 
 
+func _test_uses_authored_cockpit_shell() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var cockpit: Control = mode.find_child("DevPlayCockpit", true, false) as Control
+	if cockpit == null:
+		push_error("dev play should instantiate the authored DevPlayCockpit scene")
+		_free_mode(mode)
+		return false
+	var ok := true
+	if cockpit.scene_file_path != DEV_PLAY_COCKPIT_SCENE_PATH:
+		push_error(
+			(
+				"cockpit should come from %s, got %s"
+				% [DEV_PLAY_COCKPIT_SCENE_PATH, cockpit.scene_file_path]
+			)
+		)
+		ok = false
+	for expected in ["P0", "Turn 0", "Minerals", "Gas", "Pop"]:
+		if _find_label_with_substring(cockpit, expected) == null:
+			push_error("cockpit should show '%s' in its player-facing HUD" % expected)
+			ok = false
+	if _find_button_with_substring(cockpit, "Resolve") == null:
+		push_error("cockpit should expose Resolve as a player-facing command")
+		ok = false
+	if _find_check_box_with_substring(cockpit, "All Orders") == null:
+		push_error("cockpit should expose an all-orders toggle")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
 func _test_command_card_tracks_selection() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -397,23 +437,23 @@ func _test_command_card_hides_when_not_actionable() -> bool:
 		_free_mode(mode)
 		return false
 	var ok: bool = true
-	if card.visible:
-		push_error("command card should be hidden while nothing actionable is selected")
+	if _command_surface_visible(card):
+		push_error("command surface should be hidden while nothing actionable is selected")
 		ok = false
 	mode.set_active_player_id(0)
 	var mineral_id: int = _find_entity_id_any_hp(mode.current_state(), "mineral_patch", -1)
 	if mineral_id < 0 or mode.select_entity_id(mineral_id):
 		push_error("neutral mineral should not become an actionable selection")
 		ok = false
-	if card.visible:
-		push_error("command card should stay hidden after selecting a non-owned target")
+	if _command_surface_visible(card):
+		push_error("command surface should stay hidden after selecting a non-owned target")
 		ok = false
 	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
 	if worker_id < 0 or not mode.select_entity_id(worker_id):
 		push_error("expected to select a P0 worker")
 		ok = false
-	if not card.visible:
-		push_error("command card should become visible for an actionable worker")
+	if not _command_surface_visible(card):
+		push_error("command surface should become visible for an actionable worker")
 		ok = false
 	if _find_label_with_substring(card, "#") != null:
 		push_error("command card should not expose debug entity ids")
@@ -949,11 +989,8 @@ func _test_idle_worker_indicator_counts_active_idle_workers() -> bool:
 	mode.call("_update_hud")
 	var label: Label = mode.find_child("IdleWorkers", true, false) as Label
 	var ok: bool = true
-	if label == null:
-		push_error("dev HUD should expose IdleWorkers label")
-		ok = false
-	elif not label.visible or label.text != "Idle workers: 1":
-		push_error("IdleWorkers label should show one active-player idle worker")
+	if label != null:
+		push_error("cockpit HUD should not reintroduce the old IdleWorkers label")
 		ok = false
 	if renderer.call("idle_worker_indicator_count") != 1:
 		push_error("renderer should show one idle worker badge for the active player")
@@ -1020,14 +1057,70 @@ func _test_idle_worker_indicator_excludes_busy_workers() -> bool:
 	mode.call("_update_hud")
 	var label: Label = mode.find_child("IdleWorkers", true, false) as Label
 	var ok: bool = true
-	if label != null and label.visible:
-		push_error("IdleWorkers label should hide when no active worker is idle")
+	if label != null:
+		push_error("cockpit HUD should not reintroduce the old IdleWorkers label")
 		ok = false
 	if renderer.call("idle_worker_indicator_count") != 0:
 		push_error("busy active workers should not receive idle worker badges")
 		ok = false
 	_free_mode(mode)
 	return ok
+
+
+func _test_cockpit_all_orders_toggle_routes() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var renderer: MatchRenderer = mode.renderer()
+	var cockpit: Control = mode.find_child("DevPlayCockpit", true, false) as Control
+	if renderer == null or cockpit == null:
+		push_error("expected renderer and cockpit")
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var workers: Array[int] = _find_entity_ids(mode.current_state(), "worker", 0)
+	if workers.size() < 2:
+		push_error("expected multiple P0 workers")
+		_free_mode(mode)
+		return false
+	if not mode.select_entity_id(workers[0]) or not mode.issue_move_selected(Vector2i(13, 22)):
+		push_error("expected first worker move preview")
+		_free_mode(mode)
+		return false
+	if not mode.select_entity_id(workers[1]) or not mode.issue_move_selected(Vector2i(13, 25)):
+		push_error("expected second worker move preview")
+		_free_mode(mode)
+		return false
+	var toggle: CheckBox = _find_check_box_with_substring(cockpit, "All Orders")
+	if toggle == null:
+		push_error("cockpit should contain All Orders toggle")
+		_free_mode(mode)
+		return false
+	if toggle.button_pressed:
+		push_error("all-orders toggle should be off by default")
+		_free_mode(mode)
+		return false
+	if renderer.call("action_preview_count") != 1:
+		push_error("selected intent should be the only default action preview")
+		_free_mode(mode)
+		return false
+	toggle.button_pressed = true
+	var expected_previews: int = workers.size()
+	if renderer.call("action_preview_count") != expected_previews:
+		push_error(
+			(
+				"cockpit toggle should route all-friendly previews, got %d expected %d"
+				% [renderer.call("action_preview_count"), expected_previews]
+			)
+		)
+		_free_mode(mode)
+		return false
+	_free_mode(mode)
+	return true
 
 
 func _test_selected_and_friendly_target_intents() -> bool:
@@ -2305,6 +2398,45 @@ func _test_escape_resets_active_selection_drag() -> bool:
 	return ok
 
 
+func _test_escape_debug_controls() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.call("_set_escape_menu_visible", true)
+	var menu: Control = mode.find_child("EscapeMenu", true, false) as Control
+	if menu == null or not menu.visible:
+		push_error("escape menu should be visible for debug controls")
+		_free_mode(mode)
+		return false
+	var ok := true
+	for label in ["P0", "P1", "Clear", "Surrender", "Save Snapshot", "Load"]:
+		if _find_button_with_substring(menu, label) == null:
+			push_error("escape menu should expose debug control '%s'" % label)
+			ok = false
+	var p1_button: Button = _find_exact_button(menu, "P1")
+	if p1_button != null:
+		p1_button.emit_signal("pressed")
+		if mode.input_model().active_player_id() != 1:
+			push_error("P1 debug button should switch active player")
+			ok = false
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 1)
+	if worker_id >= 0:
+		mode.select_entity_id(worker_id)
+		mode.issue_move_selected(Vector2i(24, 14))
+		var clear_button: Button = _find_button_with_substring(menu, "Clear")
+		if clear_button != null:
+			clear_button.emit_signal("pressed")
+			if mode.pending_order_count(1) != 0:
+				push_error("Clear debug button should clear active-player queued orders")
+				ok = false
+	_free_mode(mode)
+	return ok
+
+
 func _test_switching_player_keeps_camera_bounded() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -2734,6 +2866,14 @@ func _command_card_ids(card: Control, method_name: String) -> Array[String]:
 		var id: String = item
 		out.append(id)
 	return out
+
+
+func _command_surface_visible(card: Control) -> bool:
+	if card == null:
+		return false
+	if card.has_method("command_surface_visible"):
+		return bool(card.call("command_surface_visible"))
+	return card.visible
 
 
 func _expect_order(
