@@ -648,6 +648,22 @@ func _test_network_idle_worker_indicators_follow_player_slot() -> bool:
 	elif renderer.call("idle_worker_indicator_count") != 1:
 		push_error("network renderer should badge one idle worker for the local player")
 		ok = false
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 1)
+	surface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	renderer = surface.renderer() if surface != null else null
+	label = mode.get_node_or_null("NetworkHUD/MatchHUD/Root/IdleWorkers") as Label
+	if label == null:
+		push_error("network HUD should expose IdleWorkers label for slot 1")
+		ok = false
+	elif not label.visible or label.text != "Idle workers: 1":
+		push_error("slot 1 should also show exactly one local idle worker")
+		ok = false
+	if renderer == null or not renderer.has_method("idle_worker_indicator_count"):
+		push_error("network renderer should expose idle_worker_indicator_count for slot 1")
+		ok = false
+	elif renderer.call("idle_worker_indicator_count") != 1:
+		push_error("slot 1 renderer should badge exactly one local idle worker")
+		ok = false
 	remove_child(mode)
 	mode.queue_free()
 	return ok

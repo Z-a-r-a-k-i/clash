@@ -1568,6 +1568,11 @@ func _build_escape_menu() -> void:
 	_menu_save_snapshot_button.pressed.connect(save_snapshot_to_folder)
 	root.add_child(_menu_save_snapshot_button)
 
+	var replay_button: Button = _button("Replay")
+	replay_button.name = "Replay"
+	replay_button.pressed.connect(_open_replay_load_dialog)
+	root.add_child(replay_button)
+
 	var load_row: HBoxContainer = HBoxContainer.new()
 	load_row.name = "LoadRow"
 	root.add_child(load_row)
@@ -1658,6 +1663,12 @@ func _open_menu_load_dialog() -> void:
 		_open_file_dialog(_replay_file_dialog, _DEV_REPLAY_AUTO_DIR)
 	else:
 		_open_file_dialog(_snapshot_file_dialog, _DEV_SNAPSHOT_DIR)
+
+
+func _open_replay_load_dialog() -> void:
+	if _menu_load_kind != null:
+		_menu_load_kind.select(MENU_LOAD_REPLAY)
+	_open_file_dialog(_replay_file_dialog, _DEV_REPLAY_AUTO_DIR)
 
 
 func _open_file_dialog(dialog: FileDialog, dir_path: String) -> void:
