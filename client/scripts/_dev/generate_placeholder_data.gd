@@ -412,7 +412,6 @@ func _combat(
 	c.attack_range = range_tiles
 	c.target_layers = target_layers
 	c.attack_modifiers = modifiers
-	c.attacks_per_turn = 1
 	return c
 
 

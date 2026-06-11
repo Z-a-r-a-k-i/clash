@@ -16,7 +16,9 @@ const HEADER: Array[String] = [
 	"health_max_hp",
 	"combat_damage",
 	"combat_attack_range",
-	"combat_attacks_per_turn",
+	"combat_attacks_before_movement",
+	"combat_attacks_after_movement",
+	"combat_has_initiative",
 	"combat_target_layers",
 	"combat_attack_modifiers",
 	"movement_speed",
@@ -134,7 +136,9 @@ static func _entity_row(entity: EntityDef) -> Dictionary:
 	if entity.combat != null:
 		row["combat_damage"] = str(entity.combat.damage)
 		row["combat_attack_range"] = str(entity.combat.attack_range)
-		row["combat_attacks_per_turn"] = str(entity.combat.attacks_per_turn)
+		row["combat_attacks_before_movement"] = _bool_string(entity.combat.attacks_before_movement)
+		row["combat_attacks_after_movement"] = _bool_string(entity.combat.attacks_after_movement)
+		row["combat_has_initiative"] = _bool_string(entity.combat.has_initiative)
 		row["combat_target_layers"] = _join_values(entity.combat.target_layers)
 		row["combat_attack_modifiers"] = _format_attack_modifiers(entity.combat.attack_modifiers)
 
