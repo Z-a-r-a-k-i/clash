@@ -53,6 +53,7 @@ var _match_status_label: Label = null
 var _code_label: Label = null
 var _slot_label: Label = null
 var _resources_label: Label = null
+var _idle_workers_label: Label = null
 var _submit_label: Label = null
 var _submit_button: Button = null
 var _show_all_orders_button: BaseButton = null
@@ -729,6 +730,10 @@ func _build_match_hud_panel() -> void:
 	_resources_label = _label("Minerals: -  Gas: -  Pop: -/-")
 	_resources_label.name = "Resources"
 	root.add_child(_resources_label)
+	_idle_workers_label = _label("")
+	_idle_workers_label.name = "IdleWorkers"
+	_idle_workers_label.visible = false
+	root.add_child(_idle_workers_label)
 	_submit_label = _label("Submit: idle")
 	_submit_label.name = "SubmitState"
 	root.add_child(_submit_label)
@@ -975,6 +980,13 @@ func _update_hud() -> void:
 				"Minerals: %d  Gas: %d  Pop: %d/%d"
 				% [player.minerals, player.gas, player.pop_used, player.pop_cap]
 			)
+	var idle_worker_ids: Array[int] = _active_idle_worker_ids()
+	if _idle_workers_label != null:
+		_idle_workers_label.visible = idle_worker_ids.size() > 0
+		_idle_workers_label.text = (
+			"Idle workers: %d" % idle_worker_ids.size() if idle_worker_ids.size() > 0 else ""
+		)
+	_refresh_idle_worker_indicators(idle_worker_ids)
 	if _submit_label != null:
 		if _submit_in_flight:
 			_submit_label.text = "Submit: sending"
@@ -1043,6 +1055,68 @@ func _refresh_action_previews() -> void:
 		_input.selected_entity_ids()
 	)
 	renderer.call("set_action_previews", previews)
+
+
+func _active_idle_worker_ids() -> Array[int]:
+	var out: Array[int] = []
+	var state: MatchState = _current_state()
+	if state == null or _registry == null or _player_slot < 0:
+		return out
+	var candidates: Array[Entity] = []
+	var candidate_ids: Array[int] = []
+	for entity: Entity in state.entities_sorted_by_id():
+		if _is_active_idle_worker_candidate(entity):
+			candidates.append(entity)
+			candidate_ids.append(entity.id)
+	_input.prune_move_assists_for_entities(candidate_ids)
+	for entity: Entity in candidates:
+		if not _input.has_move_assist_for_entity(entity.id):
+			out.append(entity.id)
+	return out
+
+
+func _is_active_idle_worker_candidate(entity: Entity) -> bool:
+	if entity == null or entity.current_hp <= 0 or entity.owner_player_id != _player_slot:
+		return false
+	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
+	var def: EntityDef = _registry.get_by_id(def_id)
+	if def == null or def.gather == null or entity.gather_state == null:
+		return false
+	if entity.gather_state.phase != GatherState.Phase.IDLE:
+		return false
+	if _has_current_submitted_order_for_entity(entity.id):
+		return false
+	if _input.future_order_count_for_entity(entity.id) > 0:
+		return false
+	if (
+		ConstructionSystem.has_pending_build(entity)
+		or entity.locked_to_building_id >= 0
+		or entity.is_constructing
+	):
+		return false
+	if entity.ability_cast != null:
+		return false
+	return true
+
+
+func _has_current_submitted_order_for_entity(entity_id: int) -> bool:
+	if _player_slot < 0:
+		return false
+	var submit: SubmitTurn = _input.submit_for_player(_player_slot)
+	for order: EntityOrder in submit.orders:
+		if order != null and order.entity_id == entity_id:
+			return true
+	return false
+
+
+func _refresh_idle_worker_indicators(idle_worker_ids: Array[int]) -> void:
+	var renderer: MatchRenderer = _renderer()
+	if renderer == null or not renderer.has_method("set_idle_worker_indicators"):
+		return
+	var indicators: Array[Variant] = []
+	for entity_id: int in idle_worker_ids:
+		indicators.append({"entity_id": entity_id})
+	renderer.call("set_idle_worker_indicators", indicators)
 
 
 func _unhandled_input(event: InputEvent) -> void:
