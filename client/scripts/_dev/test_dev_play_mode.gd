@@ -454,7 +454,10 @@ func _test_uses_authored_cockpit_shell() -> bool:
 		if button_grid == null or button_grid.columns != 2:
 			push_error("%s options should use a compact two-column button grid" % section_name)
 			ok = false
-	if cockpit.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/RepeatTrain") != null:
+	if (
+		cockpit.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/RepeatTrain")
+		!= null
+	):
 		push_error("repeat train should not live in the primary command grid")
 		ok = false
 	if cockpit.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Cancel") != null:
