@@ -107,9 +107,11 @@ var _combat_log_lines: Array[String] = []
 var _entity_view_scene: PackedScene = null
 var _texture_by_def_id: Dictionary = {}
 
-var _selected_entity_id: int = -1
+var _selected_entity_ids: Array[int] = []
 var _hover_tile: Vector2i = Vector2i.ZERO
 var _has_hover_tile: bool = false
+var _selection_box_world_rect: Rect2 = Rect2()
+var _has_selection_box: bool = false
 var _perspective_player_id: int = 0
 var _visibility_by_player: Dictionary = {}
 var _seen_tiles_by_player: Dictionary = {}
@@ -374,7 +376,22 @@ func entity_id_at_world(world_position: Vector2) -> int:
 
 
 func set_selected_entity_id(entity_id: int) -> void:
-	_selected_entity_id = entity_id
+	if entity_id < 0:
+		_selected_entity_ids.clear()
+	else:
+		_selected_entity_ids = [entity_id]
+	_rebuild_input_highlights()
+
+
+func set_selected_entity_ids(entity_ids: Array) -> void:
+	_selected_entity_ids.clear()
+	for raw_entity_id in entity_ids:
+		var entity_id: int = int(raw_entity_id)
+		if entity_id < 0:
+			continue
+		if _selected_entity_ids.has(entity_id):
+			continue
+		_selected_entity_ids.append(entity_id)
 	_rebuild_input_highlights()
 
 
@@ -385,8 +402,9 @@ func set_hover_tile(tile: Vector2i) -> void:
 
 
 func clear_input_highlights() -> void:
-	_selected_entity_id = -1
+	_selected_entity_ids.clear()
 	_has_hover_tile = false
+	_has_selection_box = false
 	_clear_input_highlight_nodes()
 	_clear_range_preview_nodes()
 	_clear_build_placement_preview_nodes()
@@ -427,6 +445,44 @@ func range_preview_tile_count() -> int:
 	if _range_previews_root == null:
 		return 0
 	return _range_previews_root.get_child_count()
+
+
+func set_selection_box_world_rect(rect: Rect2) -> void:
+	_selection_box_world_rect = rect.abs()
+	_has_selection_box = (
+		_selection_box_world_rect.size.x > 0.0 and _selection_box_world_rect.size.y > 0.0
+	)
+	_rebuild_input_highlights()
+
+
+func clear_selection_box() -> void:
+	_has_selection_box = false
+	_selection_box_world_rect = Rect2()
+	_rebuild_input_highlights()
+
+
+func is_selection_box_visible() -> bool:
+	return _has_selection_box
+
+
+func owned_movable_entity_ids_in_world_rect(world_rect: Rect2, owner_player_id: int) -> Array[int]:
+	var out: Array[int] = []
+	if _state == null or _registry == null:
+		return out
+	var query: Rect2 = world_rect.abs()
+	if query.size.x <= 0.0 or query.size.y <= 0.0:
+		return out
+	for entity in _state.entities_sorted_by_id():
+		if entity == null or entity.owner_player_id != owner_player_id or entity.current_hp <= 0:
+			continue
+		if not _is_movable_entity(entity):
+			continue
+		var entity_rect: Rect2 = _query_entity_world_rect(entity)
+		if entity_rect.size.x <= 0.0 or entity_rect.size.y <= 0.0:
+			continue
+		if query.intersects(entity_rect, true):
+			out.append(entity.id)
+	return out
 
 
 func set_build_placement_preview(preview: Dictionary) -> void:
@@ -813,15 +869,20 @@ func _rebuild_input_highlights() -> void:
 	_clear_input_highlight_nodes()
 	if _input_highlights_root == null:
 		return
-	if _state != null and _state.tile_grid != null and _selected_entity_id >= 0:
-		var selected_rect: Rect2i = _state.tile_grid.entity_rect(_selected_entity_id)
-		if selected_rect.size.x > 0 and selected_rect.size.y > 0:
-			_input_highlights_root.add_child(
-				_highlight_polygon(selected_rect, _SELECTED_HIGHLIGHT_COLOR)
-			)
+	if _state != null and _state.tile_grid != null:
+		for entity_id in _selected_entity_ids:
+			var selected_rect: Rect2i = _state.tile_grid.entity_rect(entity_id)
+			if selected_rect.size.x > 0 and selected_rect.size.y > 0:
+				_input_highlights_root.add_child(
+					_highlight_polygon(selected_rect, _SELECTED_HIGHLIGHT_COLOR)
+				)
 	if _has_hover_tile:
 		_input_highlights_root.add_child(
 			_highlight_polygon(Rect2i(_hover_tile, Vector2i.ONE), _HOVER_HIGHLIGHT_COLOR)
+		)
+	if _has_selection_box:
+		_input_highlights_root.add_child(
+			_world_rect_polygon(_selection_box_world_rect, _SELECTED_HIGHLIGHT_COLOR)
 		)
 
 
@@ -838,6 +899,21 @@ func _highlight_polygon(rect: Rect2i, color: Color) -> Polygon2D:
 			Vector2(x1, y0),
 			Vector2(x1, y1),
 			Vector2(x0, y1),
+		]
+	)
+	return poly
+
+
+func _world_rect_polygon(rect: Rect2, color: Color) -> Polygon2D:
+	var normalized: Rect2 = rect.abs()
+	var poly := Polygon2D.new()
+	poly.color = color
+	poly.polygon = PackedVector2Array(
+		[
+			normalized.position,
+			Vector2(normalized.end.x, normalized.position.y),
+			normalized.end,
+			Vector2(normalized.position.x, normalized.end.y),
 		]
 	)
 	return poly
@@ -1959,6 +2035,28 @@ func _is_renderable_entity(entity: Entity) -> bool:
 		return true
 	var def := _def_for_entity(entity)
 	return def != null and def.resource_source != null
+
+
+func _is_movable_entity(entity: Entity) -> bool:
+	if entity == null:
+		return false
+	var def := _def_for_entity(entity)
+	return def != null and def.movement != null and def.movement.speed_tiles_per_turn > 0
+
+
+func _query_entity_world_rect(entity: Entity) -> Rect2:
+	if entity == null:
+		return Rect2()
+	var rect: Rect2i = Rect2i()
+	if _state != null and _state.tile_grid != null:
+		rect = _state.tile_grid.entity_rect(entity.id)
+	if rect.size == Vector2i.ZERO:
+		var def := _def_for_entity(entity)
+		var footprint: Vector2i = def.footprint if def != null else Vector2i.ONE
+		if footprint == Vector2i.ZERO:
+			footprint = Vector2i.ONE
+		rect = Rect2i(entity.origin, footprint)
+	return Rect2(Vector2(rect.position) * _tile_size, Vector2(rect.size) * _tile_size)
 
 
 func _def_for_entity(entity: Entity) -> EntityDef:

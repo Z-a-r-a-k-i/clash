@@ -32,12 +32,16 @@ func _run_all() -> int:
 func _all_tests() -> Array:
 	return [
 		["dev_input_selects_only_active_live_owned_entities", _test_selects_owned_live_entity],
+		["dev_input_tracks_ordered_multi_selection", _test_tracks_ordered_multi_selection],
+		["dev_input_snapshot_round_trips_selected_ids", _test_snapshot_selected_ids],
 		["dev_input_queues_move_for_active_player", _test_queues_move_for_active_player],
+		["dev_input_group_move_fans_out_to_movable_selection", _test_group_move_fan_out],
 		["dev_input_queues_attack_against_enemy", _test_queues_attack_against_enemy],
 		[
 			"dev_input_target_generates_firing_move_when_needed",
 			_test_target_generates_firing_move_when_needed
 		],
+		["dev_input_group_target_and_gather_skip_ineligible", _test_group_target_and_gather_skips],
 		["dev_input_replaces_duplicate_move_and_target", _test_replaces_duplicate_move_and_target],
 		["dev_input_queues_gather_for_worker_resource_target", _test_queues_gather],
 		[
@@ -63,6 +67,10 @@ func _all_tests() -> Array:
 		[
 			"dev_input_queue_modifier_appends_future_orders",
 			_test_queue_modifier_appends_future_orders
+		],
+		[
+			"dev_input_queue_modifier_defers_target_with_generated_move",
+			_test_queue_modifier_defers_target_with_generated_move
 		],
 		[
 			"dev_input_normal_order_replaces_current_and_future",
@@ -120,6 +128,8 @@ func _all_tests() -> Array:
 			_test_cancel_removes_selected_unit_queued_order
 		],
 		["dev_input_queues_use_ability", _test_queues_use_ability],
+		["dev_input_group_ability_uses_union_and_skips_ineligible", _test_group_ability],
+		["dev_input_group_cancel_removes_eligible_orders", _test_group_cancel],
 		["dev_input_snapshot_restore_preserves_continuation", _test_snapshot_restore],
 		[
 			"dev_input_snapshot_restore_skips_malformed_order_entries",
@@ -162,6 +172,97 @@ func _test_selects_owned_live_entity() -> bool:
 	return true
 
 
+func _test_tracks_ordered_multi_selection() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	if not input.has_method("selected_entity_ids"):
+		push_error("DevTurnInput should expose selected_entity_ids")
+		return false
+	if not input.has_method("select_entities"):
+		push_error("DevTurnInput should expose select_entities")
+		return false
+	if not input.has_method("toggle_entity_selection"):
+		push_error("DevTurnInput should expose toggle_entity_selection")
+		return false
+	if not input.has_method("has_multiple_selection"):
+		push_error("DevTurnInput should expose has_multiple_selection")
+		return false
+	if not _select_entities_for_test(input, [5, 1, 2, 5, 4]):
+		push_error("multi-select should accept live owned ids and ignore duplicates/invalid ids")
+		return false
+	var ids: Array[int] = _selected_ids_for_test(input)
+	if ids != ([5, 1] as Array[int]):
+		push_error("selected ids should preserve valid input order, got %s" % str(ids))
+		return false
+	if input.selected_entity_id() != 5:
+		push_error("selected_entity_id should return primary selected id")
+		return false
+	if not input.call("has_multiple_selection"):
+		push_error("two selected entities should count as multiple selection")
+		return false
+	if not input.call("toggle_entity_selection", 9):
+		push_error("shift-toggle should add a live owned movable unit")
+		return false
+	ids = _selected_ids_for_test(input)
+	if ids != ([5, 1, 9] as Array[int]):
+		push_error("toggle add should append to ordered selection, got %s" % str(ids))
+		return false
+	if not input.call("toggle_entity_selection", 1):
+		push_error("shift-toggle should remove an already selected unit")
+		return false
+	ids = _selected_ids_for_test(input)
+	if ids != ([5, 9] as Array[int]):
+		push_error("toggle remove should preserve remaining order, got %s" % str(ids))
+		return false
+	if input.call("toggle_entity_selection", 6):
+		push_error("shift-toggle should reject non-movable owned buildings")
+		return false
+	setup.state.get_entity_by_id(5).current_hp = 0
+	input.bind_context(setup.state, setup.registry)
+	ids = _selected_ids_for_test(input)
+	if ids != ([9] as Array[int]):
+		push_error("bind_context should prune dead selected ids, got %s" % str(ids))
+		return false
+	input.set_active_player_id(1)
+	if not _selected_ids_for_test(input).is_empty():
+		push_error("active player switch should prune ids no longer owned by the active player")
+		return false
+	return true
+
+
+func _test_snapshot_selected_ids() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	if not _select_entities_for_test(input, [5, 1, 9]):
+		return false
+	var snapshot: DevInputSnapshot = input.create_snapshot()
+	if snapshot == null:
+		push_error("expected snapshot")
+		return false
+	if not snapshot.has_method("clone"):
+		push_error("snapshot should still be cloneable")
+		return false
+	var clone: DevInputSnapshot = snapshot.clone()
+	var restored: DevTurnInput = _make_input()
+	restored.restore_snapshot(clone, setup.state.clone(), setup.registry)
+	var ids: Array[int] = _selected_ids_for_test(restored)
+	if ids != ([5, 1, 9] as Array[int]):
+		push_error("snapshot restore should preserve ordered selected ids, got %s" % str(ids))
+		return false
+	if restored.selected_entity_id() != 5:
+		push_error("snapshot restore should keep primary selected id")
+		return false
+	return true
+
+
 func _test_queues_move_for_active_player() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
@@ -182,6 +283,45 @@ func _test_queues_move_for_active_player() -> bool:
 	return _expect_order(order, EntityOrder.Type.MOVE, 1, Vector2i(8, 8), -1, [])
 
 
+func _test_group_move_fan_out() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	if not _select_entities_for_test(input, [1, 5, 6, 9]):
+		return false
+	if not input.issue_move(Vector2i(11, 11)):
+		push_error("group Move should queue for movable selected units")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 3:
+		push_error("expected three MOVE orders and one skipped building, got %d" % orders.size())
+		return false
+	var expected_ids: Array[int] = [1, 5, 9]
+	for i in orders.size():
+		if not _expect_order(
+			orders[i], EntityOrder.Type.MOVE, expected_ids[i], Vector2i(11, 11), -1, []
+		):
+			return false
+	if input.status_message().find("Skipped 1") == -1:
+		push_error("group move status should include skipped count: %s" % input.status_message())
+		return false
+	input.set_queue_modifier_active(true)
+	if not input.issue_move(Vector2i(10, 10)):
+		push_error("shift group MOVE should append future orders for movable selected units")
+		return false
+	for entity_id in expected_ids:
+		if input.future_order_count_for_entity(entity_id) != 1:
+			push_error("expected one future order for #%d" % entity_id)
+			return false
+	if input.future_order_count_for_entity(6) != 0:
+		push_error("non-movable building should not get a future move order")
+		return false
+	return true
+
+
 func _test_queues_attack_against_enemy() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
@@ -200,6 +340,51 @@ func _test_queues_attack_against_enemy() -> bool:
 		return false
 	if input.issue_target(3):
 		push_error("neutral mineral patch should not be a valid attack target")
+		return false
+	return true
+
+
+func _test_group_target_and_gather_skips() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	if not _select_entities_for_test(input, [1, 5, 6, 9]):
+		return false
+	if not input.issue_target(2):
+		push_error("group target should queue for combat-capable selected units")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	var target_actor_ids: Array[int] = []
+	for order in orders:
+		if order.type != EntityOrder.Type.TARGET:
+			continue
+		if order.target_entity_id != 2 or order.target_priority_chain != ([2] as Array[int]):
+			push_error("group target order should focus enemy #2")
+			return false
+		target_actor_ids.append(order.entity_id)
+	if target_actor_ids != ([1, 5] as Array[int]):
+		push_error("worker and marine should receive TARGET, got %s" % str(target_actor_ids))
+		return false
+	if input.status_message().find("Skipped 2") == -1:
+		push_error("target status should include skipped count: %s" % input.status_message())
+		return false
+	input.clear_submissions()
+	if not _select_entities_for_test(input, [1, 5, 6]):
+		return false
+	if not input.issue_gather(3):
+		push_error("group gather should queue for worker gatherers")
+		return false
+	orders = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("only the worker should gather, got %d orders" % orders.size())
+		return false
+	if not _expect_order(orders[0], EntityOrder.Type.GATHER, 1, Vector2i.ZERO, 3, []):
+		return false
+	if input.status_message().find("Skipped 2") == -1:
+		push_error("gather status should include skipped count: %s" % input.status_message())
 		return false
 	return true
 
@@ -550,6 +735,48 @@ func _test_queue_modifier_appends_future_orders() -> bool:
 	return (
 		_expect_order(orders[0], EntityOrder.Type.MOVE, 5, Vector2i(6, 6), -1, [])
 		and _expect_order(future[0], EntityOrder.Type.MOVE, 5, Vector2i(8, 8), -1, [])
+	)
+
+
+func _test_queue_modifier_defers_target_with_generated_move() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.issue_move(Vector2i(6, 6)):
+		push_error("expected first move to queue for this turn")
+		return false
+	input.set_queue_modifier_active(true)
+	if not input.issue_target(2):
+		push_error("expected queue-modified target to append as future orders")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("queued target should keep one current order, got %d" % orders.size())
+		return false
+	var future: Array[EntityOrder] = input.future_orders_for_entity(5)
+	if future.size() != 2:
+		push_error("queued target should defer generated MOVE and TARGET, got %d" % future.size())
+		return false
+	if not _expect_generated_target_move(future[0], setup.state, setup.registry, 5, 2):
+		return false
+	if not _expect_order(future[1], EntityOrder.Type.TARGET, 5, Vector2i(7, 1), 2, [2]):
+		return false
+	input.clear_submissions(false, false)
+	input.promote_future_orders_for_next_turn()
+	orders = input.submit_for_player(0).orders
+	if orders.size() != 2:
+		push_error("future target pair should promote together, got %d orders" % orders.size())
+		return false
+	if input.future_order_count_for_entity(5) != 0:
+		push_error("promoted target pair should clear the future queue")
+		return false
+	return (
+		_expect_generated_target_move(orders[0], setup.state, setup.registry, 5, 2)
+		and _expect_order(orders[1], EntityOrder.Type.TARGET, 5, Vector2i(7, 1), 2, [2])
 	)
 
 
@@ -1228,6 +1455,66 @@ func _test_queues_use_ability() -> bool:
 	return true
 
 
+func _test_group_ability() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	setup.state.get_player(0).unlocked_researches.append("stim_research")
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	if not _select_entities_for_test(input, [1, 5, 9]):
+		return false
+	if input.ability_option_ids() != ["stim"]:
+		push_error("group ability options should be the union of selected abilities")
+		return false
+	if not input.issue_ability("stim"):
+		push_error("group ability should queue for eligible selected units")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("only the marine should receive stim, got %d orders" % orders.size())
+		return false
+	if (
+		orders[0].type != EntityOrder.Type.USE_ABILITY
+		or orders[0].entity_id != 5
+		or orders[0].def_id != "stim"
+	):
+		push_error("expected USE_ABILITY stim for marine #5")
+		return false
+	if input.status_message().find("Skipped 2") == -1:
+		push_error("group ability status should include skipped count: %s" % input.status_message())
+		return false
+	return true
+
+
+func _test_group_cancel() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	if not _select_entities_for_test(input, [1, 5, 9]):
+		return false
+	if not input.issue_move(Vector2i(11, 11)):
+		push_error("expected group Move before cancel")
+		return false
+	if input.submit_for_player(0).orders.size() != 3:
+		push_error("expected three queued orders before group cancel")
+		return false
+	if not input.issue_cancel():
+		push_error("group cancel should remove queued orders from eligible selected units")
+		return false
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("group cancel should remove all selected queued orders")
+		return false
+	if input.status_message().find("Cancelled") == -1:
+		push_error("group cancel should report cancelled orders: %s" % input.status_message())
+		return false
+	return true
+
+
 func _test_snapshot_restore() -> bool:
 	var input: DevTurnInput = _make_input()
 	if input == null:
@@ -1384,6 +1671,28 @@ func _make_input() -> DevTurnInput:
 		push_error("could not load %s" % DEV_TURN_INPUT_PATH)
 		return null
 	return script.new() as DevTurnInput
+
+
+func _select_entities_for_test(input: DevTurnInput, ids: Array[int]) -> bool:
+	if input == null:
+		return false
+	if not input.has_method("select_entities"):
+		push_error("DevTurnInput should expose select_entities")
+		return false
+	return input.call("select_entities", ids)
+
+
+func _selected_ids_for_test(input: DevTurnInput) -> Array[int]:
+	var out: Array[int] = []
+	if input == null:
+		return out
+	if not input.has_method("selected_entity_ids"):
+		push_error("DevTurnInput should expose selected_entity_ids")
+		return out
+	var raw: Array = input.call("selected_entity_ids")
+	for item in raw:
+		out.append(int(item))
+	return out
 
 
 func _make_input_setup() -> Dictionary:

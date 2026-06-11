@@ -8,6 +8,7 @@ extends Resource
 
 @export var active_player_id: int = 0
 @export var selected_entity_id: int = -1
+@export var selected_entity_ids: Array[int] = []
 @export var submit_a: SubmitTurn
 @export var submit_b: SubmitTurn
 @export var move_assists: Dictionary = {}
@@ -20,6 +21,7 @@ func clone() -> DevInputSnapshot:
 	var c: DevInputSnapshot = DevInputSnapshot.new()
 	c.active_player_id = active_player_id
 	c.selected_entity_id = selected_entity_id
+	c.selected_entity_ids = selected_entity_ids.duplicate()
 	c.submit_a = submit_a.clone() if submit_a != null else SubmitTurn.new()
 	c.submit_b = submit_b.clone() if submit_b != null else SubmitTurn.new()
 	c.move_assists = _clone_order_dictionary(move_assists)

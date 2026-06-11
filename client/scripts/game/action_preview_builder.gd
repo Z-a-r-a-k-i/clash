@@ -10,8 +10,8 @@ var _input: DevTurnInput = null
 var _player_id: int = 0
 var _renderer: MatchRenderer = null
 var _visibility_by_player: Dictionary[int, VisionSystem.Visibility] = {}
-var _tactical_preview_builder: TacticalPreviewBuilder = (
-	TACTICAL_PREVIEW_BUILDER_SCRIPT.new() as TacticalPreviewBuilder
+var _tactical_preview_builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = (
+	TACTICAL_PREVIEW_BUILDER_SCRIPT.new() as TACTICAL_PREVIEW_BUILDER_SCRIPT
 )
 
 
@@ -22,7 +22,8 @@ func build(
 	player_id: int,
 	selected_entity_id: int,
 	include_all_friendly: bool = false,
-	renderer: MatchRenderer = null
+	renderer: MatchRenderer = null,
+	selected_entity_ids: Array[int] = []
 ) -> Array[Dictionary]:
 	_state = state
 	_registry = registry
@@ -31,13 +32,18 @@ func build(
 	_renderer = renderer
 	_visibility_by_player.clear()
 	var previews: Array[Dictionary] = []
-	previews.append_array(_previews_for_entity(selected_entity_id))
+	var selected_ids: Array[int] = selected_entity_ids.duplicate()
+	if selected_ids.is_empty() and selected_entity_id >= 0:
+		selected_ids.append(selected_entity_id)
+	var seen: Dictionary[int, bool] = {}
+	for entity_id in selected_ids:
+		if seen.has(entity_id):
+			continue
+		previews.append_array(_previews_for_entity(entity_id))
+		seen[entity_id] = true
 	if include_all_friendly:
 		if _state == null:
 			return previews
-		var seen: Dictionary[int, bool] = {}
-		if selected_entity_id >= 0:
-			seen[selected_entity_id] = true
 		for entity in _state.entities_sorted_by_id():
 			if entity == null or entity.owner_player_id != _player_id or seen.has(entity.id):
 				continue
@@ -56,7 +62,8 @@ func build_target_intents(
 	player_id: int,
 	selected_entity_id: int,
 	include_all_friendly: bool = false,
-	renderer: MatchRenderer = null
+	renderer: MatchRenderer = null,
+	selected_entity_ids: Array[int] = []
 ) -> Array[Dictionary]:
 	_state = state
 	_registry = registry
@@ -65,13 +72,18 @@ func build_target_intents(
 	_renderer = renderer
 	_visibility_by_player.clear()
 	var intents: Array[Dictionary] = []
-	intents.append_array(_target_intents_for_entity(selected_entity_id))
+	var selected_ids: Array[int] = selected_entity_ids.duplicate()
+	if selected_ids.is_empty() and selected_entity_id >= 0:
+		selected_ids.append(selected_entity_id)
+	var seen: Dictionary[int, bool] = {}
+	for entity_id in selected_ids:
+		if seen.has(entity_id):
+			continue
+		intents.append_array(_target_intents_for_entity(entity_id))
+		seen[entity_id] = true
 	if include_all_friendly:
 		if _state == null:
 			return intents
-		var seen: Dictionary[int, bool] = {}
-		if selected_entity_id >= 0:
-			seen[selected_entity_id] = true
 		for entity in _state.entities_sorted_by_id():
 			if entity == null or entity.owner_player_id != _player_id or seen.has(entity.id):
 				continue
@@ -551,7 +563,7 @@ func _add_turn_stop_tile(
 	var stop_tile: Vector2i = _tactical_preview_builder.turn_stop_tile_for_path(
 		_state, _registry, entity_id, path, fired_this_turn
 	)
-	if stop_tile == TacticalPreviewBuilder.NO_STOP_TILE:
+	if stop_tile == TACTICAL_PREVIEW_BUILDER_SCRIPT.NO_STOP_TILE:
 		return
 	preview["turn_stop_tile"] = stop_tile
 

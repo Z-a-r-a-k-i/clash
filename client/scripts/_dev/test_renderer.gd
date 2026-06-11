@@ -12,6 +12,7 @@ extends Node
 const MATCH_SCENE_PATH := "res://scenes/match.tscn"
 const ENTITY_VIEW_SCENE_PATH := "res://scenes/entity_view.tscn"
 const TUNABLES_PATH := "res://data/tunables.tres"
+const TACTICAL_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/tactical_preview_builder.gd")
 
 
 func _enter_tree() -> void:
@@ -76,6 +77,8 @@ func _all_tests() -> Array:
 		["match_renderer_match_ended_draw_event_logged", _test_match_ended_draw_event_logged],
 		["match_renderer_world_tile_hit_testing", _test_world_tile_hit_testing],
 		["match_renderer_input_highlights", _test_input_highlights],
+		["match_renderer_multi_selection_highlights", _test_multi_selection_highlights],
+		["match_renderer_selection_box_overlay_and_query", _test_selection_box_overlay_and_query],
 		["match_renderer_build_placement_preview", _test_build_placement_preview],
 		["match_renderer_action_previews", _test_action_previews],
 		["match_renderer_target_intent_previews", _test_target_intent_previews],
@@ -640,6 +643,10 @@ func _renderer_registry() -> EntityRegistry:
 			d.vision.sight_radius = 3 if d.id != "watch_tower" else 0
 		if ["base", "barracks"].has(d.id):
 			d.tags.append("building")
+		if ["worker", "marine", "tank", "siege_tank"].has(d.id):
+			var movement: MovementDef = MovementDef.new()
+			movement.speed_tiles_per_turn = 3
+			d.movement = movement
 		if ["mineral_patch", "gas_geyser"].has(d.id):
 			d.tags.append("resource_source")
 			d.resource_source = ResourceSourceDef.new()
@@ -1334,6 +1341,122 @@ func _test_input_highlights() -> bool:
 	return true
 
 
+func _test_multi_selection_highlights() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(2, 2), "id": 1},
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(4, 2), "id": 2},
+			{
+				"def_id": "tank",
+				"owner": 0,
+				"origin": Vector2i(7, 2),
+				"footprint": Vector2i(2, 2),
+				"id": 3
+			},
+		],
+		12,
+		12
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state, registry)
+	if not renderer.has_method("set_selected_entity_ids"):
+		push_error("renderer should expose set_selected_entity_ids")
+		_free_renderer(renderer)
+		return false
+	renderer.call("set_selected_entity_ids", [1, 2, 3])
+	var highlighted: int = renderer.call("input_highlight_count")
+	if highlighted != 3:
+		push_error("expected three selected highlights, got %d" % highlighted)
+		_free_renderer(renderer)
+		return false
+	renderer.call("set_hover_tile", Vector2i(9, 9))
+	highlighted = renderer.call("input_highlight_count")
+	if highlighted != 4:
+		push_error("expected selected highlights plus hover, got %d" % highlighted)
+		_free_renderer(renderer)
+		return false
+	renderer.call("set_selected_entity_id", 2)
+	highlighted = renderer.call("input_highlight_count")
+	if highlighted != 2:
+		push_error("single-selection compatibility setter should replace multi-selection")
+		_free_renderer(renderer)
+		return false
+	_free_renderer(renderer)
+	return true
+
+
+func _test_selection_box_overlay_and_query() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(2, 2), "id": 1},
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(4, 2), "id": 2},
+			{
+				"def_id": "barracks",
+				"owner": 0,
+				"origin": Vector2i(7, 2),
+				"footprint": Vector2i(3, 3),
+				"id": 3
+			},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(3, 4), "id": 4},
+			{
+				"def_id": "tank",
+				"owner": 0,
+				"origin": Vector2i(9, 8),
+				"footprint": Vector2i(2, 2),
+				"id": 5
+			},
+		],
+		14,
+		14
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state, registry)
+	for method: String in [
+		"set_selection_box_world_rect",
+		"clear_selection_box",
+		"owned_movable_entity_ids_in_world_rect",
+		"is_selection_box_visible",
+	]:
+		if not renderer.has_method(method):
+			push_error("renderer should expose %s" % method)
+			_free_renderer(renderer)
+			return false
+	var tile_size: float = _test_tile_size()
+	var box: Rect2 = Rect2(Vector2(1.5, 1.5) * tile_size, Vector2(4.25, 3.25) * tile_size)
+	renderer.call("set_selection_box_world_rect", box)
+	if renderer.call("input_highlight_count") != 1:
+		push_error("selection box should render one overlay highlight")
+		_free_renderer(renderer)
+		return false
+	if not bool(renderer.call("is_selection_box_visible")):
+		push_error("selection box should report visible after setting a non-empty box")
+		_free_renderer(renderer)
+		return false
+	var ids: Array[int] = renderer.call("owned_movable_entity_ids_in_world_rect", box, 0)
+	if ids != ([1, 2] as Array[int]):
+		push_error(
+			(
+				"box query should return owned movable intersecting ids in stable order, got %s"
+				% str(ids)
+			)
+		)
+		_free_renderer(renderer)
+		return false
+	renderer.call("clear_selection_box")
+	if renderer.call("input_highlight_count") != 0:
+		push_error("clear_selection_box should remove the box overlay")
+		_free_renderer(renderer)
+		return false
+	if bool(renderer.call("is_selection_box_visible")):
+		push_error("selection box should report hidden after clear_selection_box")
+		_free_renderer(renderer)
+		return false
+	_free_renderer(renderer)
+	return true
+
+
 func _test_build_placement_preview() -> bool:
 	var registry: EntityRegistry = _renderer_registry()
 	var state: MatchState = _make_renderer_state(
@@ -1582,7 +1705,7 @@ func _test_tactical_preview_builder_attack_range_tiles() -> bool:
 		12,
 		12
 	)
-	var builder: TacticalPreviewBuilder = TacticalPreviewBuilder.new()
+	var builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = TACTICAL_PREVIEW_BUILDER_SCRIPT.new()
 	var marine_tiles: Array[Vector2i] = builder.attack_range_tiles(state, registry, 1)
 	var projected_tiles: Array[Vector2i] = builder.attack_range_tiles_from_origin(
 		state, registry, 1, Vector2i(5, 5)
@@ -1617,7 +1740,7 @@ func _test_tactical_preview_builder_turn_stop_tile_estimate() -> bool:
 	)
 	var worker: Entity = state.get_entity_by_id(1)
 	worker.moves_used_this_turn = 1
-	var builder: TacticalPreviewBuilder = TacticalPreviewBuilder.new()
+	var builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = TACTICAL_PREVIEW_BUILDER_SCRIPT.new()
 	var path: Array[Vector2i] = [Vector2i(2, 1), Vector2i(3, 1), Vector2i(4, 1), Vector2i(5, 1)]
 	var stop_tile: Vector2i = builder.turn_stop_tile_for_path(state, registry, 1, path)
 	var buff: ActiveBuff = ActiveBuff.new()

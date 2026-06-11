@@ -7,6 +7,9 @@ const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
 const COMMAND_OPTION_BUILDER := preload("res://scripts/game/command_option_builder.gd")
 const SERVER_SCRIPT := preload("res://scripts/network/network_match_server.gd")
 const ACTION_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/action_preview_builder.gd")
+const SELECTION_DRAG_CONTROLLER_SCRIPT: Script = preload(
+	"res://scripts/game/selection_drag_controller.gd"
+)
 
 const LOBBY_WIDTH: float = 460.0
 const HUD_WIDTH: float = 420.0
@@ -64,16 +67,16 @@ var _match_started: bool = false
 var _show_all_orders: bool = false
 var _interface_hidden: bool = false
 var _is_panning_camera: bool = false
-var _left_empty_drag_candidate: bool = false
-var _left_empty_drag_moved: bool = false
-var _left_empty_drag_start: Vector2 = Vector2.ZERO
+var _selection_drag: Variant = SELECTION_DRAG_CONTROLLER_SCRIPT.new()
 var _syncing_submit_button: bool = false
+var _submit_in_flight: bool = false
 var _server_url_config_path: String = DEFAULT_SERVER_URL_CONFIG_PATH
 var _pending_command: String = PENDING_NONE
 var _pending_build_def_id: String = ""
 
 
 func _ready() -> void:
+	_selection_drag.threshold_pixels = CAMERA_DRAG_THRESHOLD
 	ensure_initialized()
 	call_deferred("_auto_connect_default_server")
 
@@ -87,6 +90,7 @@ func ensure_initialized() -> void:
 func bind_authoritative_snapshot(
 	state: MatchState, registry: EntityRegistry, player_slot: int
 ) -> void:
+	_reset_selection_drag()
 	_build_surface()
 	_registry = registry
 	_player_slot = player_slot
@@ -95,9 +99,11 @@ func bind_authoritative_snapshot(
 	_input.bind_context(state, registry)
 	_input.clear_submissions()
 	_clear_pending_command()
+	_submit_in_flight = false
 	_client_controller.bind_authoritative_state(state, registry, player_slot)
 	if _surface != null:
 		_surface.bind_authoritative_state(state, registry, player_slot)
+	_sync_selection_highlights()
 	_update_outcome_overlay(state)
 	_refresh_action_previews()
 	_sync_ui()
@@ -105,7 +111,9 @@ func bind_authoritative_snapshot(
 
 
 func apply_authoritative_result(new_state: MatchState, events: Array) -> void:
+	_reset_selection_drag()
 	_client_controller.mark_submit_pending(false)
+	_submit_in_flight = false
 	if new_state == null:
 		set_error("missing authoritative state")
 		_update_hud()
@@ -124,6 +132,7 @@ func apply_authoritative_result(new_state: MatchState, events: Array) -> void:
 	_input.promote_future_orders_for_next_turn()
 	if _surface != null:
 		_surface.render_authoritative_result(new_state, events)
+	_sync_selection_highlights()
 	_update_outcome_overlay(new_state)
 	_refresh_action_previews()
 	_update_hud()
@@ -182,12 +191,14 @@ func set_interface_hidden(hidden: bool) -> void:
 
 
 func select_entity_id(entity_id: int) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var ok: bool = _input.select_entity(entity_id)
 	var renderer: MatchRenderer = _renderer()
 	if renderer != null:
 		_clear_build_placement_preview()
 		if ok:
-			renderer.set_selected_entity_id(entity_id)
+			_sync_selection_highlights()
 		else:
 			renderer.clear_input_highlights()
 	_refresh_action_previews()
@@ -196,6 +207,8 @@ func select_entity_id(entity_id: int) -> bool:
 
 
 func issue_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_move(tile)
 	_input.set_queue_modifier_active(false)
@@ -205,6 +218,8 @@ func issue_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
 
 
 func issue_attack_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_attack_move(tile)
 	_input.set_queue_modifier_active(false)
@@ -214,6 +229,8 @@ func issue_attack_move_selected(tile: Vector2i, queue_requested: bool = false) -
 
 
 func issue_attack_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_target(target_entity_id)
 	_input.set_queue_modifier_active(false)
@@ -223,6 +240,8 @@ func issue_attack_selected(target_entity_id: int, queue_requested: bool = false)
 
 
 func issue_gather_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_gather(target_entity_id)
 	_input.set_queue_modifier_active(false)
@@ -232,6 +251,8 @@ func issue_gather_selected(target_entity_id: int, queue_requested: bool = false)
 
 
 func issue_rally_move_selected(tile: Vector2i) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var selected_id: int = _input.selected_entity_id()
 	var ok: bool = _input.issue_rally_move(tile)
 	if ok:
@@ -242,6 +263,8 @@ func issue_rally_move_selected(tile: Vector2i) -> bool:
 
 
 func issue_rally_gather_selected(target_entity_id: int) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var selected_id: int = _input.selected_entity_id()
 	var ok: bool = _input.issue_rally_gather(target_entity_id)
 	if ok:
@@ -252,6 +275,8 @@ func issue_rally_gather_selected(target_entity_id: int) -> bool:
 
 
 func issue_build_selected(def_id: String, tile: Vector2i, queue_requested: bool = false) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	_input.set_queue_modifier_active(queue_requested)
 	var ok: bool = _input.issue_build(def_id, tile)
 	_input.set_queue_modifier_active(false)
@@ -261,6 +286,8 @@ func issue_build_selected(def_id: String, tile: Vector2i, queue_requested: bool 
 
 
 func issue_cancel_selected(cancel_index: int = -1) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var ok: bool = _input.issue_cancel(cancel_index)
 	_refresh_action_previews()
 	_update_hud()
@@ -268,6 +295,8 @@ func issue_cancel_selected(cancel_index: int = -1) -> bool:
 
 
 func issue_train_selected(def_id: String) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var selected_id: int = _input.selected_entity_id()
 	var repeat_enabled: bool = _input.selected_repeat_train_enabled()
 	var ok: bool = _input.issue_train(def_id)
@@ -279,6 +308,8 @@ func issue_train_selected(def_id: String) -> bool:
 
 
 func issue_research_selected(def_id: String) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var ok: bool = _input.issue_research(def_id)
 	_refresh_action_previews()
 	_update_hud()
@@ -286,6 +317,8 @@ func issue_research_selected(def_id: String) -> bool:
 
 
 func issue_ability_selected(ability_id: String) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var ok: bool = _input.issue_ability(ability_id)
 	_refresh_action_previews()
 	_update_hud()
@@ -293,6 +326,8 @@ func issue_ability_selected(ability_id: String) -> bool:
 
 
 func issue_repeat_train_selected(enabled: bool) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	var selected_id: int = _input.selected_entity_id()
 	var ok: bool = _input.issue_repeat_train_toggle(enabled)
 	if ok:
@@ -349,7 +384,7 @@ func context_action_at_tile(tile: Vector2i) -> Dictionary:
 				return _context_result(
 					CONTEXT_GATHER, Input.CURSOR_POINTING_HAND, "", {"target_entity_id": target_id}
 				)
-			if _selected_can_rally_gather_to(target_id):
+			if not _input.has_multiple_selection() and _selected_can_rally_gather_to(target_id):
 				return _context_result(
 					CONTEXT_RALLY_GATHER,
 					Input.CURSOR_POINTING_HAND,
@@ -362,7 +397,7 @@ func context_action_at_tile(tile: Vector2i) -> Dictionary:
 				"That resource target is not valid for the selected entity."
 			)
 		return _context_result(CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Target tile is occupied.")
-	if _input.can_issue_rally_move():
+	if not _input.has_multiple_selection() and _input.can_issue_rally_move():
 		return _context_result(CONTEXT_RALLY_MOVE, Input.CURSOR_MOVE, "")
 	if _input.can_issue_move():
 		return _context_result(CONTEXT_MOVE, Input.CURSOR_MOVE, "")
@@ -375,6 +410,8 @@ func context_cursor_shape_at_tile(tile: Vector2i) -> int:
 
 
 func begin_move() -> void:
+	if _reject_edit_while_submit_sending():
+		return
 	if not _input.can_issue_move():
 		set_connection_status("Select a movable unit before Move.")
 		return
@@ -386,6 +423,8 @@ func begin_move() -> void:
 
 
 func begin_target() -> void:
+	if _reject_edit_while_submit_sending():
+		return
 	if not _input.can_issue_target():
 		set_connection_status("Select a combat unit before Attack.")
 		return
@@ -397,6 +436,8 @@ func begin_target() -> void:
 
 
 func begin_build(def_id: String) -> void:
+	if _reject_edit_while_submit_sending():
+		return
 	_clear_build_placement_preview()
 	if not _input.build_option_ids().has(def_id):
 		set_connection_status("Selected entity cannot BUILD %s." % def_id)
@@ -408,6 +449,8 @@ func begin_build(def_id: String) -> void:
 
 
 func begin_gather() -> void:
+	if _reject_edit_while_submit_sending():
+		return
 	if not _input.can_issue_gather():
 		set_connection_status("Select a worker before GATHER.")
 		return
@@ -419,6 +462,8 @@ func begin_gather() -> void:
 
 
 func confirm_pending_at_tile(tile: Vector2i, queue_requested: bool = false) -> bool:
+	if _reject_edit_while_submit_sending():
+		return false
 	if _pending_command == PENDING_MOVE:
 		var move_ok: bool = issue_move_selected(tile, queue_requested)
 		if move_ok:
@@ -459,6 +504,8 @@ func confirm_pending_at_tile(tile: Vector2i, queue_requested: bool = false) -> b
 
 
 func cancel_pending_command() -> void:
+	if _reject_edit_while_submit_sending():
+		return
 	if _pending_command == PENDING_NONE:
 		return
 	_clear_pending_command()
@@ -474,6 +521,10 @@ func pending_cursor_shape() -> int:
 
 
 func submit_queued_turn() -> bool:
+	if _submit_in_flight:
+		set_connection_status("Submit already sending.")
+		_update_hud()
+		return false
 	var submit: SubmitTurn = _client_controller.submit_from_input(_input)
 	if submit == null:
 		set_error(_client_controller.validation_error())
@@ -481,6 +532,7 @@ func submit_queued_turn() -> bool:
 		return false
 	if _client == null:
 		_client_controller.mark_submit_pending(false)
+		_submit_in_flight = false
 		set_error("not connected")
 		_update_hud()
 		return false
@@ -488,9 +540,11 @@ func submit_queued_turn() -> bool:
 	var err: Error = _client.submit_turn(submit)
 	if err != OK:
 		_client_controller.mark_submit_pending(false)
+		_submit_in_flight = false
 		set_error("submit failed %d" % err)
 		_update_hud()
 		return false
+	_submit_in_flight = true
 	if _submit_label != null:
 		_submit_label.text = "Submit: sending"
 	set_connection_status("Submit sent. Waiting for server.")
@@ -501,6 +555,10 @@ func submit_queued_turn() -> bool:
 
 
 func cancel_submitted_turn() -> bool:
+	if _submit_in_flight:
+		set_connection_status("Submit sent. Waiting for server.")
+		_update_hud()
+		return false
 	if not _client_controller.submit_pending():
 		_update_hud()
 		return true
@@ -514,6 +572,15 @@ func cancel_submitted_turn() -> bool:
 		_update_hud()
 		return false
 	_client_controller.mark_submit_pending(false)
+	_submit_in_flight = false
+	_update_hud()
+	return true
+
+
+func _reject_edit_while_submit_sending() -> bool:
+	if not _submit_in_flight:
+		return false
+	set_connection_status("Submit sent. Waiting for server.")
 	_update_hud()
 	return true
 
@@ -801,8 +868,12 @@ func _reset_local_match_state() -> void:
 	_interface_hidden = false
 	_client_controller.bind_authoritative_state(null, null, -1)
 	_input.clear_submissions()
+	_input.clear_selection()
 	_clear_pending_command()
-	_reset_left_empty_drag()
+	_submit_in_flight = false
+	_reset_selection_drag()
+	_sync_selection_highlights()
+	_refresh_action_previews()
 	_update_outcome_overlay(null)
 	set_escape_menu_visible(false)
 	set_connection_status("Disconnected")
@@ -832,6 +903,7 @@ func _handle_network_message(message: Dictionary) -> void:
 			_update_hud()
 		MESSAGE.TURN_STARTED:
 			_client_controller.mark_submit_pending(false)
+			_submit_in_flight = false
 			set_invite_code(payload.get("code", _match_code))
 			var state: MatchState = payload.get("match_state") as MatchState
 			var registry: EntityRegistry = payload.get("registry") as EntityRegistry
@@ -850,24 +922,34 @@ func _handle_network_message(message: Dictionary) -> void:
 				payload.get("match_state") as MatchState, payload.get("events", [])
 			)
 		MESSAGE.SUBMIT_TURN:
+			_submit_in_flight = false
 			if payload.get("accepted", false):
 				_client_controller.mark_submit_pending(true)
 				set_connection_status("Submitted. Waiting for opponent.")
 				_update_hud()
+			else:
+				_client_controller.mark_submit_pending(false)
+				set_error(payload.get("message", payload.get("code", "submit rejected")))
+				_update_hud()
 		MESSAGE.CANCEL_SUBMIT_TURN:
 			if payload.get("accepted", false):
 				_client_controller.mark_submit_pending(false)
+				_submit_in_flight = false
 				_update_hud()
 		MESSAGE.MATCH_ERROR:
 			_client_controller.mark_submit_pending(false)
+			_submit_in_flight = false
 			set_error(payload.get("message", payload.get("code", "unknown")))
 			_update_hud()
 		MESSAGE.DISCONNECT_NOTICE:
+			_client_controller.mark_submit_pending(false)
+			_submit_in_flight = false
 			var disconnected_slot: int = payload.get("slot", -1)
 			if disconnected_slot >= 0 and disconnected_slot != _player_slot:
 				set_connection_status("Opponent left - you win")
 			else:
 				set_connection_status("Disconnected")
+			_update_hud()
 
 
 func _sync_ui() -> void:
@@ -894,15 +976,18 @@ func _update_hud() -> void:
 				% [player.minerals, player.gas, player.pop_used, player.pop_cap]
 			)
 	if _submit_label != null:
-		_submit_label.text = (
-			"Submit: pending" if _client_controller.submit_pending() else "Submit: idle"
-		)
+		if _submit_in_flight:
+			_submit_label.text = "Submit: sending"
+		else:
+			_submit_label.text = (
+				"Submit: pending" if _client_controller.submit_pending() else "Submit: idle"
+			)
 	if _submit_button != null:
+		var submit_active: bool = _client_controller.submit_pending() or _submit_in_flight
 		_syncing_submit_button = true
-		_submit_button.set_pressed_no_signal(_client_controller.submit_pending())
-		_submit_button.text = (
-			"Cancel Submit" if _client_controller.submit_pending() else "Submit Turn"
-		)
+		_submit_button.set_pressed_no_signal(submit_active)
+		_submit_button.text = "Cancel Submit" if submit_active else "Submit Turn"
+		_submit_button.disabled = _submit_in_flight
 		_syncing_submit_button = false
 	if _show_all_orders_button != null:
 		_show_all_orders_button.set_pressed_no_signal(_show_all_orders)
@@ -954,7 +1039,8 @@ func _refresh_action_previews() -> void:
 		_player_slot,
 		_input.selected_entity_id(),
 		_show_all_orders,
-		renderer
+		renderer,
+		_input.selected_entity_ids()
 	)
 	renderer.call("set_action_previews", previews)
 
@@ -968,6 +1054,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			or (key_event.pressed and not key_event.echo and key_event.keycode == KEY_ESCAPE)
 		)
 	if cancel_pressed:
+		_reset_selection_drag()
 		set_escape_menu_visible(not (_escape_menu_panel != null and _escape_menu_panel.visible))
 		var viewport: Viewport = get_viewport()
 		if viewport != null:
@@ -976,7 +1063,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not _match_started or _surface == null or _surface.renderer() == null:
 		return
 	if _escape_menu_panel != null and _escape_menu_panel.visible:
-		_reset_left_empty_drag()
+		_reset_selection_drag()
 		return
 	if event is InputEventKey:
 		var key_event: InputEventKey = event as InputEventKey
@@ -988,21 +1075,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 	if event is InputEventMouseMotion:
 		var motion: InputEventMouseMotion = event as InputEventMouseMotion
-		if (
-			_left_empty_drag_candidate
-			and (
-				_left_empty_drag_moved
-				or (
-					motion.button_mask & MOUSE_BUTTON_MASK_LEFT != 0
-					and motion.position.distance_to(_left_empty_drag_start) >= CAMERA_DRAG_THRESHOLD
-				)
-			)
-		):
-			_left_empty_drag_moved = true
-			_is_panning_camera = true
 		if _is_panning_camera:
 			_surface.renderer().pan_camera_by_screen_delta(motion.relative)
 			return
+		if _selection_drag.active() and motion.button_mask & MOUSE_BUTTON_MASK_LEFT != 0:
+			var drag_world: Vector2 = _event_world_position(motion)
+			if _selection_drag.update(motion.position, drag_world):
+				_surface.renderer().set_selection_box_world_rect(
+					_selection_drag.selection_world_rect()
+				)
+				return
 		var hover_tile: Vector2i = _surface.renderer().world_to_tile(_event_world_position(motion))
 		_set_hover_tile(hover_tile)
 	elif event is InputEventMouseButton:
@@ -1017,29 +1099,34 @@ func _unhandled_input(event: InputEvent) -> void:
 			_is_panning_camera = button.pressed
 			return
 		if button.button_index == MOUSE_BUTTON_LEFT and not button.pressed:
-			if _left_empty_drag_candidate:
-				if not _left_empty_drag_moved:
-					_input.clear_selection()
-					_surface.renderer().clear_input_highlights()
-					_refresh_action_previews()
-					_update_hud()
-				_reset_left_empty_drag()
+			if _selection_drag.active():
+				var release: Dictionary = _selection_drag.release(
+					button.position, _event_world_position(button)
+				)
+				_surface.renderer().clear_selection_box()
+				if release.get("dragging", false):
+					_apply_box_selection(
+						release.get("world_rect", Rect2()), release.get("additive", false)
+					)
+				else:
+					var release_tile: Vector2i = _surface.renderer().world_to_tile(
+						_event_world_position(button)
+					)
+					_apply_click_selection(release_tile, release.get("additive", false))
 				return
-			_reset_left_empty_drag()
+			_reset_selection_drag()
 		if not button.pressed:
 			return
 		var tile: Vector2i = _surface.renderer().world_to_tile(_event_world_position(button))
-		var entity_id: int = _surface.renderer().entity_id_at_tile(tile)
 		if button.button_index == MOUSE_BUTTON_LEFT:
 			if _pending_command != PENDING_NONE:
 				confirm_pending_at_tile(tile, button.shift_pressed)
 				return
-			if entity_id >= 0:
-				select_entity_id(entity_id)
-			else:
-				_left_empty_drag_candidate = true
-				_left_empty_drag_moved = false
-				_left_empty_drag_start = button.position
+			if _reject_edit_while_submit_sending():
+				return
+			_selection_drag.begin(
+				button.position, _event_world_position(button), button.shift_pressed
+			)
 		elif button.button_index == MOUSE_BUTTON_RIGHT:
 			if _pending_command != PENDING_NONE:
 				cancel_pending_command()
@@ -1056,11 +1143,62 @@ func _event_world_position(event: InputEventMouse) -> Vector2:
 	return renderer.get_global_mouse_position()
 
 
-func _reset_left_empty_drag() -> void:
-	_left_empty_drag_candidate = false
-	_left_empty_drag_moved = false
-	_left_empty_drag_start = Vector2.ZERO
+func _reset_selection_drag() -> void:
+	if _selection_drag != null:
+		_selection_drag.reset()
+	var renderer: MatchRenderer = _renderer()
+	if renderer != null:
+		renderer.clear_selection_box()
 	_is_panning_camera = false
+
+
+func _apply_click_selection(tile: Vector2i, additive: bool) -> void:
+	if _reject_edit_while_submit_sending():
+		return
+	var renderer: MatchRenderer = _renderer()
+	var entity_id: int = renderer.entity_id_at_tile(tile) if renderer != null else -1
+	if additive:
+		if entity_id >= 0 and _input.toggle_entity_selection(entity_id):
+			_sync_selection_highlights()
+			_clear_build_placement_preview()
+			_refresh_action_previews()
+			_update_hud()
+		return
+	if entity_id >= 0:
+		select_entity_id(entity_id)
+		return
+	_input.clear_selection()
+	if renderer != null:
+		renderer.clear_input_highlights()
+	_reset_context_cursor()
+	_refresh_action_previews()
+	_update_hud()
+
+
+func _apply_box_selection(world_rect: Rect2, additive: bool) -> void:
+	if _reject_edit_while_submit_sending():
+		return
+	var renderer: MatchRenderer = _renderer()
+	if renderer == null:
+		return
+	var ids: Array[int] = renderer.owned_movable_entity_ids_in_world_rect(
+		world_rect, _input.active_player_id()
+	)
+	var ok: bool = (
+		_input.add_entities_to_selection(ids) if additive else _input.select_entities(ids)
+	)
+	if ok or not additive:
+		_sync_selection_highlights()
+	_clear_build_placement_preview()
+	_refresh_action_previews()
+	_update_hud()
+
+
+func _sync_selection_highlights() -> void:
+	var renderer: MatchRenderer = _renderer()
+	if renderer == null:
+		return
+	renderer.set_selected_entity_ids(_input.selected_entity_ids())
 
 
 func _renderer() -> MatchRenderer:
@@ -1186,18 +1324,23 @@ func _selected_can_rally_gather_to(target_entity_id: int) -> bool:
 
 func _selected_can_gather_target_valid(target_entity_id: int) -> bool:
 	var state: MatchState = _current_state()
-	var actor: Entity = _selected_entity()
-	if state == null or _registry == null or actor == null:
+	if state == null or _registry == null:
 		return false
 	var target: Entity = state.get_entity_by_id(target_entity_id)
 	if not _is_resource_context_target(target):
 		return false
-	return (
-		GatherSystem.resolve_source_for_worker(
-			state, _registry, target_entity_id, actor.owner_player_id
-		)
-		!= null
-	)
+	for entity_id in _input.selected_entity_ids():
+		var actor: Entity = state.get_entity_by_id(entity_id)
+		if actor == null:
+			continue
+		if (
+			GatherSystem.resolve_source_for_worker(
+				state, _registry, target_entity_id, actor.owner_player_id
+			)
+			!= null
+		):
+			return true
+	return false
 
 
 func _is_resource_context_target(entity: Entity) -> bool:
@@ -1367,7 +1510,9 @@ func _submit_toggle_changed(pressed: bool) -> void:
 	var ok: bool = submit_queued_turn() if pressed else cancel_submitted_turn()
 	if not ok and _submit_button != null:
 		_syncing_submit_button = true
-		_submit_button.set_pressed_no_signal(_client_controller.submit_pending())
+		_submit_button.set_pressed_no_signal(
+			_client_controller.submit_pending() or _submit_in_flight
+		)
 		_syncing_submit_button = false
 
 

@@ -120,7 +120,17 @@ func _test_snapshot_round_trip() -> bool:
 	if mode == null:
 		return false
 	mode.set_active_player_id(0)
-	mode.select_entity_id(1)
+	if not mode.input_model().has_method("select_entities"):
+		push_error("DevTurnInput should expose select_entities")
+		_free_mode(mode)
+		return false
+	var selected_for_snapshot: Array[int] = _first_owned_entity_ids(mode.current_state(), 0, 2)
+	if selected_for_snapshot.size() < 2:
+		push_error("snapshot selection test requires two live P0 entities")
+		_free_mode(mode)
+		return false
+	mode.input_model().call("select_entities", selected_for_snapshot)
+	mode.renderer().call("set_selected_entity_ids", selected_for_snapshot)
 	mode.issue_move_selected(Vector2i(9, 10))
 	if not mode.save_snapshot_to_path(SNAPSHOT_PATH):
 		return _fail_mode(mode, "snapshot save failed")
@@ -137,10 +147,15 @@ func _test_snapshot_round_trip() -> bool:
 	else:
 		var restored := DevTurnInput.new()
 		restored.restore_snapshot(session.input_snapshot, session.state, session.registry)
-		if restored.active_player_id() != 0 or restored.selected_entity_id() != 1:
+		var selected_ids: Array[int] = []
+		if restored.has_method("selected_entity_ids"):
+			var raw: Array = restored.call("selected_entity_ids")
+			for item in raw:
+				selected_ids.append(int(item))
+		if restored.active_player_id() != 0 or selected_ids != selected_for_snapshot:
 			push_error("snapshot input selection should round-trip")
 			ok = false
-		if restored.submit_for_player(0).orders.size() != 1:
+		if restored.submit_for_player(0).orders.size() != selected_for_snapshot.size():
 			push_error("snapshot pending submission should round-trip")
 			ok = false
 	_free_mode(mode)
@@ -387,6 +402,19 @@ func _queue_attack(mode: Node) -> void:
 	mode.set_active_player_id(0)
 	mode.select_entity_id(1)
 	mode.issue_attack_selected(4)
+
+
+func _first_owned_entity_ids(state: MatchState, owner: int, count: int) -> Array[int]:
+	var out: Array[int] = []
+	if state == null:
+		return out
+	for entity: Entity in state.entities_sorted_by_id():
+		if entity == null or entity.owner_player_id != owner or entity.current_hp <= 0:
+			continue
+		out.append(entity.id)
+		if out.size() >= count:
+			return out
+	return out
 
 
 func _make_loaded_mode() -> Node:

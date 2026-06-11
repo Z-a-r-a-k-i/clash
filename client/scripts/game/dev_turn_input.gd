@@ -21,7 +21,7 @@ const _FIRING_TILE_NEIGHBORS: Array[Vector2i] = [
 var _state: MatchState = null
 var _registry: EntityRegistry = null
 var _active_player_id: int = 0
-var _selected_entity_id: int = -1
+var _selected_entity_ids: Array[int] = []
 var _submissions: Dictionary[int, SubmitTurn] = {}
 var _move_assists: Dictionary[int, EntityOrder] = {}
 var _future_orders: Dictionary[int, Array] = {}
@@ -40,16 +40,14 @@ func bind_context(state: MatchState, registry: EntityRegistry) -> void:
 	_ensure_submit_turn(1)
 	_prune_move_assists()
 	_prune_future_orders()
-	if _selected_entity_id >= 0 and not _is_selectable(_selected_entity_id):
-		_selected_entity_id = -1
+	_prune_selection()
 
 
 func set_active_player_id(player_id: int) -> void:
 	_active_player_id = player_id
 	_queue_modifier_active = false
 	_ensure_submit_turn(player_id)
-	if _selected_entity_id >= 0 and not _is_selectable(_selected_entity_id):
-		_selected_entity_id = -1
+	_prune_selection()
 
 
 func active_player_id() -> int:
@@ -57,7 +55,24 @@ func active_player_id() -> int:
 
 
 func selected_entity_id() -> int:
-	return _selected_entity_id
+	if _selected_entity_ids.is_empty():
+		return -1
+	return _selected_entity_ids[0]
+
+
+func selected_entity_ids() -> Array[int]:
+	return _selected_entity_ids.duplicate()
+
+
+func has_multiple_selection() -> bool:
+	return _selected_entity_ids.size() > 1
+
+
+func can_select_movable_entity(entity_id: int) -> bool:
+	if not _is_selectable(entity_id):
+		return false
+	var entity: Entity = _state.get_entity_by_id(entity_id) if _state != null else null
+	return _can_entity_move(entity)
 
 
 func status_message() -> String:
@@ -74,93 +89,161 @@ func queue_modifier_active() -> bool:
 
 func select_entity(entity_id: int) -> bool:
 	if not _is_selectable(entity_id):
-		_selected_entity_id = -1
+		_selected_entity_ids.clear()
 		_status_message = "Select an active P%d entity." % _active_player_id
 		return false
-	_selected_entity_id = entity_id
+	_selected_entity_ids = [entity_id]
 	var entity: Entity = _state.get_entity_by_id(entity_id)
 	_status_message = "Selected %s #%d" % [_def_id_for_entity(entity), entity_id]
 	return true
 
 
+func select_entities(entity_ids: Array[int]) -> bool:
+	var next_ids: Array[int] = _valid_selection_ids(entity_ids, false)
+	if next_ids.is_empty():
+		_selected_entity_ids.clear()
+		_status_message = "Select an active P%d entity." % _active_player_id
+		return false
+	_selected_entity_ids = next_ids
+	_status_message = _selection_status_message()
+	return true
+
+
+func add_entities_to_selection(entity_ids: Array[int]) -> bool:
+	var added := false
+	for entity_id in _valid_selection_ids(entity_ids, true):
+		if _selected_entity_ids.has(entity_id):
+			continue
+		_selected_entity_ids.append(entity_id)
+		added = true
+	if added:
+		_status_message = _selection_status_message()
+	return added
+
+
+func toggle_entity_selection(entity_id: int) -> bool:
+	if _selected_entity_ids.has(entity_id):
+		_selected_entity_ids.erase(entity_id)
+		_status_message = _selection_status_message()
+		return true
+	if not _is_selectable(entity_id):
+		_status_message = "Select an active movable P%d entity." % _active_player_id
+		return false
+	var entity: Entity = _state.get_entity_by_id(entity_id)
+	if not _can_entity_move(entity):
+		_status_message = "Select an active movable P%d entity." % _active_player_id
+		return false
+	_selected_entity_ids.append(entity_id)
+	_status_message = _selection_status_message()
+	return true
+
+
 func clear_selection() -> void:
-	_selected_entity_id = -1
+	_selected_entity_ids.clear()
 
 
 func issue_move(target_tile: Vector2i) -> bool:
-	var actor: Entity = _selected_entity()
-	if actor == null:
+	var selected: Array[Entity] = _selected_entities()
+	if selected.is_empty():
 		_status_message = "Select a unit before issuing Move."
 		return false
 	if _state == null or _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
 		_status_message = "Move target is outside the map."
 		return false
-	if not _can_entity_move(actor):
-		_status_message = "%s cannot move." % _def_id_for_entity(actor)
+	var eligible: Array[Entity] = []
+	for actor in selected:
+		if _can_entity_move(actor):
+			eligible.append(actor)
+	if eligible.is_empty():
+		_status_message = "%s cannot move." % _selection_subject_label(selected)
 		return false
-	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.MOVE
-	order.entity_id = actor.id
-	order.target_tile = target_tile
-	actor.focus_target_entity_id = -1
-	_append_order(order)
-	_status_message = "Queued Move for #%d to %s." % [actor.id, str(target_tile)]
+	var queue_requested: bool = _consume_queue_modifier()
+	for actor in eligible:
+		var order: EntityOrder = EntityOrder.new()
+		order.type = EntityOrder.Type.MOVE
+		order.entity_id = actor.id
+		order.target_tile = target_tile
+		actor.focus_target_entity_id = -1
+		_append_order_with_queue_request(order, queue_requested)
+	_status_message = _group_order_status(
+		"Queued Move", eligible, selected.size() - eligible.size(), "to %s" % str(target_tile)
+	)
 	return true
 
 
 func issue_attack_move(target_tile: Vector2i) -> bool:
-	var actor: Entity = _selected_entity()
-	if actor == null:
+	var selected: Array[Entity] = _selected_entities()
+	if selected.is_empty():
 		_status_message = "Select a unit before issuing Attack."
 		return false
 	if _state == null or _state.tile_grid == null or not _state.tile_grid.is_in_bounds(target_tile):
 		_status_message = "Attack target is outside the map."
 		return false
-	if not _can_entity_move(actor):
-		_status_message = "%s cannot move." % _def_id_for_entity(actor)
+	var eligible: Array[Entity] = []
+	for actor in selected:
+		if _can_entity_attack_move(actor):
+			eligible.append(actor)
+	if eligible.is_empty():
+		_status_message = "%s cannot attack." % _selection_subject_label(selected)
 		return false
-	if (
-		ConstructionSystem.has_pending_build(actor)
-		or actor.locked_to_building_id >= 0
-		or actor.is_constructing
-	):
-		_status_message = "%s cannot attack." % _def_id_for_entity(actor)
-		return false
-	var def: EntityDef = _def_for_entity(actor)
-	if def == null or def.combat == null or def.combat.damage <= 0:
-		_status_message = "%s cannot attack." % _def_id_for_entity(actor)
-		return false
-	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.ATTACK_MOVE
-	order.entity_id = actor.id
-	order.target_tile = target_tile
-	actor.focus_target_entity_id = -1
-	_append_order(order)
-	_status_message = "Queued Attack for #%d to %s." % [actor.id, str(target_tile)]
+	var queue_requested: bool = _consume_queue_modifier()
+	for actor in eligible:
+		var order: EntityOrder = EntityOrder.new()
+		order.type = EntityOrder.Type.ATTACK_MOVE
+		order.entity_id = actor.id
+		order.target_tile = target_tile
+		actor.focus_target_entity_id = -1
+		_append_order_with_queue_request(order, queue_requested)
+	_status_message = _group_order_status(
+		"Queued Attack", eligible, selected.size() - eligible.size(), "to %s" % str(target_tile)
+	)
 	return true
 
 
 func issue_target(target_entity_id: int) -> bool:
-	var actor: Entity = _selected_entity()
-	if actor == null:
+	var selected: Array[Entity] = _selected_entities()
+	if selected.is_empty():
 		_status_message = "Select a combat unit before issuing Attack."
-		return false
-	if not can_issue_target():
-		_status_message = "%s cannot attack enemies." % _def_id_for_entity(actor)
 		return false
 	var target: Entity = _live_enemy_entity(target_entity_id)
 	if target == null:
 		_status_message = "Attack needs a live enemy target."
 		return false
-	if not _is_entity_visible_to_player(target, actor.owner_player_id):
-		_status_message = "Attack target is not visible."
+	var candidates: Array[Entity] = []
+	var no_reachable_firing_tile := false
+	for actor in selected:
+		if _can_entity_target(actor, target):
+			candidates.append(actor)
+	if candidates.is_empty():
+		_status_message = "%s cannot attack enemies." % _selection_subject_label(selected)
+		return false
+	var eligible: Array[Entity] = []
+	var queue_requested: bool = _consume_queue_modifier()
+	for actor in candidates:
+		if _queue_target_for_actor(actor, target, queue_requested):
+			eligible.append(actor)
+		else:
+			no_reachable_firing_tile = true
+	if eligible.is_empty():
+		if no_reachable_firing_tile:
+			_status_message = "No reachable firing position for Attack."
+		else:
+			_status_message = "%s cannot attack enemies." % _selection_subject_label(selected)
+		return false
+	_status_message = _group_order_status(
+		"Queued Attack target",
+		eligible,
+		selected.size() - eligible.size(),
+		"against #%d" % target.id
+	)
+	return true
+
+
+func _queue_target_for_actor(actor: Entity, target: Entity, queue_requested: bool) -> bool:
+	if actor == null or target == null:
 		return false
 	var def: EntityDef = _def_for_entity(actor)
-	if def == null or def.combat == null or def.combat.damage <= 0:
-		_status_message = "%s cannot attack enemies." % _def_id_for_entity(actor)
-		return false
-	if not def.combat.target_layers.has(target.current_layer):
-		_status_message = "Attack target cannot be hit by %s." % _def_id_for_entity(actor)
+	if def == null or def.combat == null:
 		return false
 	var has_user_move: bool = _has_user_move_for_actor(actor)
 	var current_origin_in_range: bool = _is_target_in_range_from_origin(
@@ -170,58 +253,71 @@ func issue_target(target_entity_id: int) -> bool:
 		not _has_user_move_ending_in_range(actor, target, def.combat)
 		and (has_user_move or not current_origin_in_range)
 	)
+	var target_should_defer: bool = false
 	if needs_generated_move:
 		var firing_tile: Vector2i = _best_firing_tile_for_target(actor, target, def.combat)
 		if firing_tile == Vector2i(-1, -1):
-			_status_message = "No reachable firing position for Attack."
 			return false
-		_remove_standing_target_for_entity(actor.id)
 		var move_order: EntityOrder = EntityOrder.new()
 		move_order.type = EntityOrder.Type.MOVE
 		move_order.entity_id = actor.id
 		move_order.target_tile = firing_tile
 		move_order.target_entity_id = target.id
-		_append_order(move_order)
+		if _append_order_with_queue_request(move_order, queue_requested):
+			_remove_standing_target_for_entity(actor.id)
+		else:
+			target_should_defer = true
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.TARGET
 	order.entity_id = actor.id
-	order.target_entity_id = target_entity_id
-	order.target_priority_chain = [target_entity_id]
+	order.target_entity_id = target.id
+	order.target_priority_chain = [target.id]
 	order.target_tile = _entity_origin_for_order_target(target)
-	_append_order(order)
-	_status_message = "Queued Attack target for #%d against #%d." % [actor.id, target.id]
+	if target_should_defer:
+		_append_future_order(order)
+	else:
+		_append_order_with_queue_request(order, queue_requested)
 	return true
 
 
 func issue_gather(target_entity_id: int) -> bool:
-	var actor: Entity = _selected_entity()
-	if actor == null:
+	var selected: Array[Entity] = _selected_entities()
+	if selected.is_empty():
 		_status_message = "Select a worker before issuing GATHER."
-		return false
-	if not _can_entity_gather(actor):
-		_status_message = "%s cannot gather." % _def_id_for_entity(actor)
-		return false
-	var actor_def: EntityDef = _def_for_entity(actor)
-	if actor_def == null or actor_def.gather == null or actor.gather_state == null:
-		_status_message = "%s cannot gather." % _def_id_for_entity(actor)
 		return false
 	var target: Entity = _gather_target_entity(target_entity_id)
 	var target_def: EntityDef = _def_for_entity(target)
 	if target == null or not _is_gather_target(target, target_def):
 		_status_message = "GATHER needs a resource source or refinery target."
 		return false
-	var source: Entity = GatherSystem.resolve_source_for_worker(
-		_state, _registry, target_entity_id, actor.owner_player_id
-	)
-	if source == null:
-		_status_message = "GATHER needs an owned refinery for that gas source."
+	var eligible: Array[Entity] = []
+	var missing_source := false
+	for actor in selected:
+		if not _can_entity_gather(actor):
+			continue
+		var source: Entity = GatherSystem.resolve_source_for_worker(
+			_state, _registry, target_entity_id, actor.owner_player_id
+		)
+		if source == null:
+			missing_source = true
+			continue
+		eligible.append(actor)
+	if eligible.is_empty():
+		if missing_source:
+			_status_message = "GATHER needs an owned refinery for that gas source."
+		else:
+			_status_message = "%s cannot gather." % _selection_subject_label(selected)
 		return false
-	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.GATHER
-	order.entity_id = actor.id
-	order.target_entity_id = target_entity_id
-	_append_order(order)
-	_status_message = "Queued GATHER for #%d from #%d." % [actor.id, target_entity_id]
+	var queue_requested: bool = _consume_queue_modifier()
+	for actor in eligible:
+		var order: EntityOrder = EntityOrder.new()
+		order.type = EntityOrder.Type.GATHER
+		order.entity_id = actor.id
+		order.target_entity_id = target_entity_id
+		_append_order_with_queue_request(order, queue_requested)
+	_status_message = _group_order_status(
+		"Queued GATHER", eligible, selected.size() - eligible.size(), "from #%d" % target_entity_id
+	)
 	return true
 
 
@@ -300,24 +396,65 @@ func issue_research(def_id: String) -> bool:
 
 
 func issue_ability(ability_id: String) -> bool:
-	var actor: Entity = _selected_entity()
-	if actor == null:
+	var selected: Array[Entity] = _selected_entities()
+	if selected.is_empty():
 		_status_message = "Select a unit before issuing USE_ABILITY."
 		return false
-	if not ability_option_ids().has(ability_id):
-		_status_message = "%s cannot use '%s'." % [_def_id_for_entity(actor), ability_id]
+	var eligible: Array[Entity] = []
+	for actor in selected:
+		if _ability_available_for_entity(actor, ability_id):
+			eligible.append(actor)
+	if eligible.is_empty():
+		_status_message = "%s cannot use '%s'." % [_selection_subject_label(selected), ability_id]
 		return false
-	var order: EntityOrder = EntityOrder.new()
-	order.type = EntityOrder.Type.USE_ABILITY
-	order.entity_id = actor.id
-	order.def_id = ability_id
-	_append_order(order)
-	_status_message = "Queued USE_ABILITY %s for #%d." % [ability_id, actor.id]
+	var queue_requested: bool = _consume_queue_modifier()
+	for actor in eligible:
+		var order: EntityOrder = EntityOrder.new()
+		order.type = EntityOrder.Type.USE_ABILITY
+		order.entity_id = actor.id
+		order.def_id = ability_id
+		_append_order_with_queue_request(order, queue_requested)
+	_status_message = _group_order_status(
+		"Queued USE_ABILITY %s" % ability_id, eligible, selected.size() - eligible.size(), ""
+	)
 	return true
 
 
 func issue_cancel(cancel_index: int = -1) -> bool:
-	var actor: Entity = _selected_entity()
+	var selected: Array[Entity] = _selected_entities()
+	if selected.is_empty():
+		_status_message = "Select an entity before issuing CANCEL."
+		return false
+	if selected.size() == 1:
+		return _issue_cancel_single(selected[0], cancel_index)
+	var eligible: Array[Entity] = []
+	for actor in selected:
+		if cancel_index >= 0 or _can_cancel_entity(actor):
+			eligible.append(actor)
+	if eligible.is_empty():
+		_status_message = "%s has nothing to cancel." % _selection_subject_label(selected)
+		return false
+	var queue_requested: bool = _consume_queue_modifier()
+	var cancelled_count := 0
+	var queued_count := 0
+	for actor in eligible:
+		if _cancel_entity(actor, cancel_index, queue_requested):
+			cancelled_count += 1
+		else:
+			queued_count += 1
+	var skipped: int = selected.size() - eligible.size()
+	if queued_count > 0:
+		_status_message = _group_order_status(
+			"Queued CANCEL(%d)" % cancel_index, eligible, skipped, ""
+		)
+	else:
+		_status_message = "Cancelled orders for %d selected." % cancelled_count
+		if skipped > 0:
+			_status_message += " Skipped %d." % skipped
+	return true
+
+
+func _issue_cancel_single(actor: Entity, cancel_index: int) -> bool:
 	if actor == null:
 		_status_message = "Select an entity before issuing CANCEL."
 		return false
@@ -367,7 +504,8 @@ func clear_submissions(clear_move_assists: bool = true, clear_future_orders: boo
 func create_snapshot() -> DevInputSnapshot:
 	var snapshot: DevInputSnapshot = DevInputSnapshot.new()
 	snapshot.active_player_id = _active_player_id
-	snapshot.selected_entity_id = _selected_entity_id
+	snapshot.selected_entity_id = selected_entity_id()
+	snapshot.selected_entity_ids = _selected_entity_ids.duplicate()
 	snapshot.submit_a = _submission_for(0).clone()
 	snapshot.submit_b = _submission_for(1).clone()
 	snapshot.move_assists = _clone_order_dictionary(_move_assists)
@@ -385,7 +523,7 @@ func restore_snapshot(
 	_submissions.clear()
 	if snapshot == null:
 		_active_player_id = 0
-		_selected_entity_id = -1
+		_selected_entity_ids.clear()
 		_move_assists.clear()
 		_future_orders.clear()
 		_queue_modifier_active = false
@@ -394,7 +532,9 @@ func restore_snapshot(
 		bind_context(state, registry)
 		return
 	_active_player_id = snapshot.active_player_id
-	_selected_entity_id = snapshot.selected_entity_id
+	_selected_entity_ids = snapshot.selected_entity_ids.duplicate()
+	if _selected_entity_ids.is_empty() and snapshot.selected_entity_id >= 0:
+		_selected_entity_ids = [snapshot.selected_entity_id]
 	_submissions[0] = (snapshot.submit_a.clone() if snapshot.submit_a != null else SubmitTurn.new())
 	_submissions[1] = (snapshot.submit_b.clone() if snapshot.submit_b != null else SubmitTurn.new())
 	_move_assists = _clone_order_dictionary(snapshot.move_assists)
@@ -406,8 +546,7 @@ func restore_snapshot(
 	_prune_submissions()
 	_prune_move_assists()
 	_prune_future_orders()
-	if _selected_entity_id >= 0 and not _is_selectable(_selected_entity_id):
-		_selected_entity_id = -1
+	_prune_selection()
 
 
 func queue_move_assists_for_next_turn() -> void:
@@ -469,18 +608,33 @@ func promote_future_orders_for_next_turn() -> void:
 		if queue.is_empty():
 			_future_orders.erase(entity_id)
 			continue
-		var order: EntityOrder = queue.pop_front()
+		var promoted_orders: Array[EntityOrder] = []
+		var raw_order: Variant = queue.pop_front()
+		var order: EntityOrder = raw_order as EntityOrder
+		if order != null:
+			promoted_orders.append(order)
+		if order != null and _is_move_like(order.type) and not queue.is_empty():
+			var next_order: EntityOrder = queue[0] as EntityOrder
+			if (
+				next_order != null
+				and next_order.entity_id == entity.id
+				and order.target_entity_id >= 0
+				and next_order.target_entity_id == order.target_entity_id
+				and next_order.type == EntityOrder.Type.TARGET
+			):
+				promoted_orders.append(queue.pop_front() as EntityOrder)
 		if queue.is_empty():
 			_future_orders.erase(entity_id)
 		else:
 			_future_orders[entity_id] = queue
-		var promoted: EntityOrder = order.clone()
-		promoted.entity_id = entity.id
-		_append_order_to_submit(_submission_for(entity.owner_player_id), promoted)
-		if _is_move_like(promoted.type):
-			_remember_move_assist(promoted)
-		else:
-			_clear_move_assist(entity.id)
+		for promoted_order in promoted_orders:
+			var promoted: EntityOrder = promoted_order.clone()
+			promoted.entity_id = entity.id
+			_append_order_to_submit(_submission_for(entity.owner_player_id), promoted)
+			if _is_move_like(promoted.type):
+				_remember_move_assist(promoted)
+			elif not _is_standing_submit_order(promoted.type):
+				_clear_move_assist(entity.id)
 
 
 func submit_for_player(player_id: int) -> SubmitTurn:
@@ -507,6 +661,8 @@ func future_order_count_for_entity(entity_id: int) -> int:
 
 
 func selected_entity_label() -> String:
+	if _selected_entity_ids.size() > 1:
+		return "%d selected" % _selected_entity_ids.size()
 	var actor: Entity = _selected_entity()
 	if actor == null:
 		return "none"
@@ -515,59 +671,38 @@ func selected_entity_label() -> String:
 
 
 func can_issue_move() -> bool:
-	var actor: Entity = _selected_entity()
-	return _can_entity_move(actor)
+	for actor in _selected_entities():
+		if _can_entity_move(actor):
+			return true
+	return false
 
 
 func can_issue_attack_move() -> bool:
-	var actor: Entity = _selected_entity()
-	if (
-		actor == null
-		or ConstructionSystem.has_pending_build(actor)
-		or actor.locked_to_building_id >= 0
-		or actor.is_constructing
-	):
-		return false
-	var def: EntityDef = _def_for_entity(actor)
-	return def != null and def.combat != null and def.combat.damage > 0
+	for actor in _selected_entities():
+		if _can_entity_attack_move(actor):
+			return true
+	return false
 
 
 func can_issue_target() -> bool:
-	var actor: Entity = _selected_entity()
-	if (
-		actor == null
-		or ConstructionSystem.has_pending_build(actor)
-		or actor.locked_to_building_id >= 0
-		or actor.is_constructing
-	):
-		return false
-	var def: EntityDef = _def_for_entity(actor)
-	return def != null and def.combat != null and def.combat.damage > 0
+	for actor in _selected_entities():
+		if _can_entity_attack(actor):
+			return true
+	return false
 
 
 func can_issue_gather() -> bool:
-	var actor: Entity = _selected_entity()
-	return _can_entity_gather(actor)
+	for actor in _selected_entities():
+		if _can_entity_gather(actor):
+			return true
+	return false
 
 
 func can_issue_cancel() -> bool:
-	var actor: Entity = _selected_entity()
-	if actor == null:
-		return false
-	if (
-		_move_assists.has(actor.id)
-		or actor.focus_target_entity_id >= 0
-		or actor.locked_to_building_id >= 0
-		or ConstructionSystem.has_pending_build(actor)
-		or _has_queued_order_for_entity(actor.id)
-		or future_order_count_for_entity(actor.id) > 0
-	):
-		return true
-	if actor.production_state == null:
-		return false
-	return (
-		not actor.production_state.active.is_empty() or not actor.production_state.queue.is_empty()
-	)
+	for actor in _selected_entities():
+		if _can_cancel_entity(actor):
+			return true
+	return false
 
 
 func can_issue_repeat_train_toggle() -> bool:
@@ -778,11 +913,10 @@ func research_option_ids() -> Array[String]:
 
 func ability_option_ids() -> Array[String]:
 	var out: Array[String] = []
-	var actor: Entity = _selected_entity()
-	if actor == null:
-		return out
-	for ability in _ABILITY_SYSTEM.available_self_abilities(_state, actor, _registry):
-		out.append(ability.id)
+	for actor in _selected_entities():
+		for ability in _ABILITY_SYSTEM.available_self_abilities(_state, actor, _registry):
+			if not out.has(ability.id):
+				out.append(ability.id)
 	return out
 
 
@@ -839,14 +973,14 @@ func label_for_research_id_with_cost(research_id: String) -> String:
 
 
 func label_for_ability_id(ability_id: String) -> String:
-	var actor: Entity = _selected_entity()
-	var def: EntityDef = _def_for_entity(actor)
-	if def == null or def.abilities == null:
-		return ability_id
-	for item in def.abilities.abilities:
-		var ability: AbilityDef = item
-		if ability != null and ability.id == ability_id:
-			return ability.display_name if ability.display_name != "" else ability_id
+	for actor in _selected_entities():
+		var def: EntityDef = _def_for_entity(actor)
+		if def == null or def.abilities == null:
+			continue
+		for item in def.abilities.abilities:
+			var ability: AbilityDef = item
+			if ability != null and ability.id == ability_id:
+				return ability.display_name if ability.display_name != "" else ability_id
 	return ability_id
 
 
@@ -854,6 +988,12 @@ func _append_order(order: EntityOrder) -> bool:
 	if order == null:
 		return false
 	var queue_requested: bool = _consume_queue_modifier()
+	return _append_order_with_queue_request(order, queue_requested)
+
+
+func _append_order_with_queue_request(order: EntityOrder, queue_requested: bool) -> bool:
+	if order == null:
+		return false
 	if not _uses_future_order_queue(order):
 		var submit: SubmitTurn = _submission_for(_active_player_id)
 		_append_order_to_submit(submit, order)
@@ -940,6 +1080,53 @@ func _clone_future_order_dictionary(source: Variant) -> Dictionary[int, Array]:
 		if not cloned_queue.is_empty():
 			out[int(key)] = cloned_queue
 	return out
+
+
+func _cancel_entity(actor: Entity, cancel_index: int, queue_requested: bool) -> bool:
+	if actor == null:
+		return true
+	if cancel_index < 0 and _remove_future_order_for_entity(actor.id):
+		return true
+	if cancel_index < 0 and _remove_queued_order_for_entity(actor.id):
+		_clear_move_assist(actor.id)
+		return true
+	if (
+		cancel_index < 0
+		and actor.locked_to_building_id < 0
+		and not ConstructionSystem.has_pending_build(actor)
+		and (_move_assists.has(actor.id) or actor.focus_target_entity_id >= 0)
+	):
+		_clear_move_assist(actor.id)
+		actor.focus_target_entity_id = -1
+		return true
+	var order: EntityOrder = EntityOrder.new()
+	order.type = EntityOrder.Type.CANCEL
+	order.entity_id = actor.id
+	order.cancel_index = cancel_index
+	_append_order_with_queue_request(order, queue_requested)
+	return false
+
+
+func _selection_subject_label(selected: Array[Entity]) -> String:
+	if selected.size() == 1:
+		return _def_id_for_entity(selected[0])
+	return "%d selected entities" % selected.size()
+
+
+func _group_order_status(
+	action: String, eligible: Array[Entity], skipped: int, suffix: String
+) -> String:
+	var message := ""
+	if eligible.size() == 1:
+		message = "%s for #%d" % [action, eligible[0].id]
+	else:
+		message = "%s for %d selected" % [action, eligible.size()]
+	if suffix != "":
+		message += " %s" % suffix
+	message += "."
+	if skipped > 0:
+		message += " Skipped %d." % skipped
+	return message
 
 
 func _queue_rally_order_for_spawn(
@@ -1415,10 +1602,49 @@ func _ensure_submit_turn(player_id: int) -> void:
 		_submissions[player_id] = SubmitTurn.new()
 
 
+func _valid_selection_ids(entity_ids: Array[int], movable_only: bool) -> Array[int]:
+	var out: Array[int] = []
+	for entity_id in entity_ids:
+		if out.has(entity_id):
+			continue
+		if not _is_selectable(entity_id):
+			continue
+		var entity: Entity = _state.get_entity_by_id(entity_id)
+		if movable_only and not _can_entity_move(entity):
+			continue
+		out.append(entity_id)
+	return out
+
+
+func _prune_selection() -> void:
+	_selected_entity_ids = _valid_selection_ids(_selected_entity_ids, false)
+
+
+func _selection_status_message() -> String:
+	if _selected_entity_ids.is_empty():
+		return "Selection cleared."
+	if _selected_entity_ids.size() == 1:
+		var entity_id: int = _selected_entity_ids[0]
+		var entity: Entity = _state.get_entity_by_id(entity_id) if _state != null else null
+		return "Selected %s #%d" % [_def_id_for_entity(entity), entity_id]
+	return "Selected %d entities." % _selected_entity_ids.size()
+
+
+func _selected_entities() -> Array[Entity]:
+	var out: Array[Entity] = []
+	_prune_selection()
+	for entity_id in _selected_entity_ids:
+		var entity: Entity = _state.get_entity_by_id(entity_id) if _state != null else null
+		if entity != null:
+			out.append(entity)
+	return out
+
+
 func _selected_entity() -> Entity:
-	if _selected_entity_id < 0 or not _is_selectable(_selected_entity_id):
+	var entity_id: int = selected_entity_id()
+	if entity_id < 0 or not _is_selectable(entity_id):
 		return null
-	return _state.get_entity_by_id(_selected_entity_id)
+	return _state.get_entity_by_id(entity_id)
 
 
 func _is_selectable(entity_id: int) -> bool:
@@ -1530,6 +1756,34 @@ func _can_entity_move(entity: Entity) -> bool:
 	return def != null and def.movement != null and def.movement.speed_tiles_per_turn > 0
 
 
+func _can_entity_attack(entity: Entity) -> bool:
+	if (
+		entity == null
+		or ConstructionSystem.has_pending_build(entity)
+		or entity.locked_to_building_id >= 0
+		or entity.is_constructing
+	):
+		return false
+	var def: EntityDef = _def_for_entity(entity)
+	return def != null and def.combat != null and def.combat.damage > 0
+
+
+func _can_entity_attack_move(entity: Entity) -> bool:
+	if not _can_entity_attack(entity):
+		return false
+	var def: EntityDef = _def_for_entity(entity)
+	return def != null and def.movement != null and def.movement.speed_tiles_per_turn > 0
+
+
+func _can_entity_target(actor: Entity, target: Entity) -> bool:
+	if not _can_entity_attack(actor):
+		return false
+	if target == null or not _is_entity_visible_to_player(target, actor.owner_player_id):
+		return false
+	var def: EntityDef = _def_for_entity(actor)
+	return def != null and def.combat != null and def.combat.target_layers.has(target.current_layer)
+
+
 func _can_entity_gather(entity: Entity) -> bool:
 	if (
 		entity == null
@@ -1540,6 +1794,32 @@ func _can_entity_gather(entity: Entity) -> bool:
 		return false
 	var def: EntityDef = _def_for_entity(entity)
 	return def != null and def.gather != null and entity.gather_state != null
+
+
+func _can_cancel_entity(actor: Entity) -> bool:
+	if actor == null:
+		return false
+	if (
+		_move_assists.has(actor.id)
+		or actor.focus_target_entity_id >= 0
+		or actor.locked_to_building_id >= 0
+		or ConstructionSystem.has_pending_build(actor)
+		or _has_queued_order_for_entity(actor.id)
+		or future_order_count_for_entity(actor.id) > 0
+	):
+		return true
+	if actor.production_state == null:
+		return false
+	return (
+		not actor.production_state.active.is_empty() or not actor.production_state.queue.is_empty()
+	)
+
+
+func _ability_available_for_entity(actor: Entity, ability_id: String) -> bool:
+	for ability in _ABILITY_SYSTEM.available_self_abilities(_state, actor, _registry):
+		if ability.id == ability_id:
+			return true
+	return false
 
 
 func _producer_can_train(entity: Entity) -> bool:
