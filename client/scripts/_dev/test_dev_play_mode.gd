@@ -2694,7 +2694,7 @@ func _test_escape_debug_controls() -> bool:
 	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 1)
 	if worker_id >= 0:
 		mode.set_active_player_id(1)
-		var queued_order_for_clear := false
+		var queued_order_for_clear: bool = false
 		if not mode.select_entity_id(worker_id):
 			push_error("Clear control test should select a P1 worker before pressing Clear")
 			ok = false
