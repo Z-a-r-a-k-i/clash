@@ -55,7 +55,7 @@ var _loaded: LoadedScenario = null
 var _tunables: Tunables = null
 var _input: DevTurnInput = DEV_TURN_INPUT_SCRIPT.new() as DevTurnInput
 var _hud_layer: CanvasLayer = null
-var _cockpit: Control = null
+var _cockpit: DevPlayCockpit = null
 var _replay_panel: PanelContainer = null
 var _escape_menu_panel: PanelContainer = null
 var _menu_save_snapshot_button: Button = null
@@ -1254,7 +1254,7 @@ func _build_hud() -> void:
 	_hud_layer.name = "DevHUD"
 	add_child(_hud_layer)
 
-	_cockpit = DEV_PLAY_COCKPIT_SCENE.instantiate() as Control
+	_cockpit = DEV_PLAY_COCKPIT_SCENE.instantiate() as DevPlayCockpit
 	if _cockpit == null:
 		push_error("DevPlayMode: failed to instantiate DevPlayCockpit.")
 		return
@@ -1646,8 +1646,7 @@ func _update_hud(override_status: String = "") -> void:
 			if _loaded != null and _loaded.state != null
 			else null
 		)
-		_cockpit.call(
-			"set_match_state",
+		_cockpit.set_match_state(
 			_input.active_player_id(),
 			_loaded.state.turn_index if _loaded != null and _loaded.state != null else 0,
 			player.minerals if player != null else 0,
@@ -1658,9 +1657,9 @@ func _update_hud(override_status: String = "") -> void:
 			_loaded.state.match_over if _loaded != null and _loaded.state != null else false,
 			_loaded.state.winner_player_id if _loaded != null and _loaded.state != null else -1
 		)
-		_cockpit.call("set_show_all_orders_enabled", _show_all_friendly_action_previews)
-		_cockpit.call("set_status_text", status_text)
-		_cockpit.call("set_selection_details", _selection_details_text(), _selection_intent_text())
+		_cockpit.set_show_all_orders_enabled(_show_all_friendly_action_previews)
+		_cockpit.set_status_text(status_text)
+		_cockpit.set_selection_details(_selection_details_text(), _selection_intent_text())
 	if _replay_label != null:
 		var replay_mode_text := "replay" if _replay_mode_active else "live"
 		_replay_label.text = (
