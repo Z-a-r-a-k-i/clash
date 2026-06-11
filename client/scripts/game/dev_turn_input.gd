@@ -1224,6 +1224,11 @@ func _can_continue_move_assist(entity: Entity, order: EntityOrder) -> bool:
 	var def: EntityDef = _def_for_entity(entity)
 	if def == null or def.movement == null or def.movement.speed_tiles_per_turn <= 0:
 		return false
+	if (
+		order.type == EntityOrder.Type.ATTACK_MOVE
+		and _attack_move_has_visible_enemy_in_range(entity)
+	):
+		return false
 	if entity.gather_state != null and entity.gather_state.phase != GatherState.Phase.IDLE:
 		return false
 	if (
@@ -1235,6 +1240,28 @@ func _can_continue_move_assist(entity: Entity, order: EntityOrder) -> bool:
 	if entity.ability_cast != null:
 		return false
 	return true
+
+
+func _attack_move_has_visible_enemy_in_range(actor: Entity) -> bool:
+	if actor == null or actor.owner_player_id < 0 or _state == null:
+		return false
+	var def: EntityDef = _def_for_entity(actor)
+	if def == null or def.combat == null:
+		return false
+	var combat: CombatDef = def.combat
+	for candidate in _state.entities:
+		var target: Entity = candidate
+		if target == null or target.current_hp <= 0:
+			continue
+		if target.owner_player_id < 0 or target.owner_player_id == actor.owner_player_id:
+			continue
+		if not combat.target_layers.has(target.current_layer):
+			continue
+		if not _is_entity_visible_to_player(target, actor.owner_player_id):
+			continue
+		if _is_target_in_range_from_origin(actor, actor.origin, target, combat):
+			return true
+	return false
 
 
 func _effective_move_assist_target_tile(entity: Entity, order: EntityOrder) -> Vector2i:

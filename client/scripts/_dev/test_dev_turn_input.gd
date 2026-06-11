@@ -58,6 +58,10 @@ func _all_tests() -> Array:
 			"dev_input_requeues_unfinished_target_move_assist",
 			_test_requeues_unfinished_target_move_assist
 		],
+		[
+			"dev_input_attack_move_requeues_until_enemy_in_range",
+			_test_attack_move_requeues_until_enemy_in_range
+		],
 		["dev_input_drops_completed_move_assist", _test_drops_completed_move_assist],
 		["dev_input_cancel_clears_move_assist", _test_cancel_clears_move_assist],
 		[
@@ -634,6 +638,73 @@ func _test_requeues_unfinished_target_move_assist() -> bool:
 		push_error("unfinished target move assist should requeue one order, got %d" % orders.size())
 		return false
 	return _expect_generated_target_move(orders[0], setup.state, setup.registry, 5, 2)
+
+
+func _test_attack_move_requeues_until_enemy_in_range() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	var state: MatchState = setup.state
+	var registry: EntityRegistry = setup.registry
+	var marine_def: EntityDef = registry.get_by_id("marine")
+	if marine_def == null or marine_def.combat == null or marine_def.vision == null:
+		push_error("attack-move continuation test needs marine combat and vision")
+		return false
+	marine_def.combat.attack_range = 3
+	marine_def.vision.sight_radius = 4
+	if not _move_entity(state, 7, Vector2i(0, 11)):
+		return false
+	if not _move_entity(state, 9, Vector2i(7, 11)):
+		return false
+	_add_entity(state, 12, "base", 1, Vector2i(8, 8), Vector2i(3, 3), 1500)
+	if not _move_entity(state, 2, Vector2i(11, 1)):
+		return false
+	input.bind_context(state, registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.issue_attack_move(Vector2i(11, 2)):
+		push_error("expected Attack Move to queue for selected marine")
+		return false
+
+	var result: ResolveResult = Resolver.resolve(
+		state, input.submit_for_player(0), SubmitTurn.new(), registry, null
+	)
+	state = result.new_state
+	input.bind_context(state, registry)
+	input.clear_submissions(false, false)
+	input.apply_resolve_events(result.events)
+	input.queue_move_assists_for_next_turn()
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("sight-only attack-move should requeue one order, got %d" % orders.size())
+		return false
+	if not _expect_order(orders[0], EntityOrder.Type.ATTACK_MOVE, 5, Vector2i(11, 2), -1, []):
+		return false
+
+	result = Resolver.resolve(state, input.submit_for_player(0), SubmitTurn.new(), registry, null)
+	state = result.new_state
+	var actor: Entity = state.get_entity_by_id(5)
+	var enemy: Entity = state.get_entity_by_id(2)
+	var actor_rect: Rect2i = state.tile_grid.entity_rect(actor.id) if actor != null else Rect2i()
+	var enemy_rect: Rect2i = state.tile_grid.entity_rect(enemy.id) if enemy != null else Rect2i()
+	var distance: int = TileGrid.distance_between_rects(actor_rect, enemy_rect)
+	if actor == null or enemy == null or distance > marine_def.combat.attack_range:
+		push_error(
+			(
+				"attack-move should advance to firing range, got distance %d at %s"
+				% [distance, str(actor.origin if actor != null else Vector2i(-1, -1))]
+			)
+		)
+		return false
+	input.bind_context(state, registry)
+	input.clear_submissions(false, false)
+	input.apply_resolve_events(result.events)
+	input.queue_move_assists_for_next_turn()
+	if input.submit_for_player(0).orders.size() != 0:
+		push_error("attack-move should stop requeueing once enemy is in weapon range")
+		return false
+	return true
 
 
 func _test_drops_completed_move_assist() -> bool:

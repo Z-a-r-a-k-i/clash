@@ -159,6 +159,10 @@ func _all_tests() -> Array:
 			_test_attack_move_without_shot_uses_full_budget
 		],
 		[
+			"attack_move_keeps_moving_when_enemy_visible_out_of_range",
+			_test_attack_move_keeps_moving_when_enemy_visible_out_of_range
+		],
+		[
 			"attack_move_does_not_fire_after_moving_into_range",
 			_test_attack_move_does_not_fire_after_moving_into_range
 		],
@@ -1798,6 +1802,38 @@ func _test_attack_move_without_shot_uses_full_budget() -> bool:
 			actor_damaged_enemy = true
 	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
 	return not actor_damaged_enemy and move_count == 4 and new_actor.origin == Vector2i(9, 5)
+
+
+func _test_attack_move_keeps_moving_when_enemy_visible_out_of_range() -> bool:
+	var registry: EntityRegistry = _combat_mover_registry(6, 3, 3)
+	registry.entities[0].vision = _vision_def(4)
+	var state: MatchState = _state_with_grid(20, 20)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(6, 5), 50, "ground")
+	var enemy: Entity = _make_entity(state, "marine", 1, Vector2i(11, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(6, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(11, 5, 1, 1))
+
+	var move: EntityOrder = EntityOrder.new()
+	move.type = EntityOrder.Type.ATTACK_MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(15, 5)
+
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit([]), registry, null
+	)
+	var move_count: int = 0
+	var damaged: bool = false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			move_count += 1
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == actor.id
+			and ev.target_id == enemy.id
+		):
+			damaged = true
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	return not damaged and move_count == 2 and new_actor.origin == Vector2i(8, 5)
 
 
 func _test_move_shoots_before_moving() -> bool:
