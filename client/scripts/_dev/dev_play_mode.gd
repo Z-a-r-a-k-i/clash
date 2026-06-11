@@ -1755,13 +1755,20 @@ func _active_idle_worker_ids() -> Array[int]:
 	var out: Array[int] = []
 	if _loaded == null or _loaded.state == null or _loaded.registry == null:
 		return out
-	for entity in _loaded.state.entities_sorted_by_id():
-		if _is_active_idle_worker(entity):
+	var candidates: Array[Entity] = []
+	var candidate_ids: Array[int] = []
+	for entity: Entity in _loaded.state.entities_sorted_by_id():
+		if _is_active_idle_worker_candidate(entity):
+			candidates.append(entity)
+			candidate_ids.append(entity.id)
+	_input.prune_move_assists_for_entities(candidate_ids)
+	for entity: Entity in candidates:
+		if not _input.has_move_assist_for_entity(entity.id):
 			out.append(entity.id)
 	return out
 
 
-func _is_active_idle_worker(entity: Entity) -> bool:
+func _is_active_idle_worker_candidate(entity: Entity) -> bool:
 	if (
 		entity == null
 		or entity.current_hp <= 0
@@ -1778,8 +1785,6 @@ func _is_active_idle_worker(entity: Entity) -> bool:
 		return false
 	if _input.future_order_count_for_entity(entity.id) > 0:
 		return false
-	if _input.has_move_assist_for_entity(entity.id):
-		return false
 	if (
 		ConstructionSystem.has_pending_build(entity)
 		or entity.locked_to_building_id >= 0
@@ -1793,8 +1798,7 @@ func _is_active_idle_worker(entity: Entity) -> bool:
 
 func _has_current_submitted_order_for_entity(entity_id: int) -> bool:
 	var submit: SubmitTurn = _input.submit_for_player(_input.active_player_id())
-	for item in submit.orders:
-		var order: EntityOrder = item
+	for order: EntityOrder in submit.orders:
 		if order != null and order.entity_id == entity_id:
 			return true
 	return false
@@ -1803,8 +1807,8 @@ func _has_current_submitted_order_for_entity(entity_id: int) -> bool:
 func _refresh_idle_worker_indicators(idle_worker_ids: Array[int]) -> void:
 	if _renderer == null or not _renderer.has_method("set_idle_worker_indicators"):
 		return
-	var indicators: Array[Dictionary] = []
-	for entity_id in idle_worker_ids:
+	var indicators: Array[Variant] = []
+	for entity_id: int in idle_worker_ids:
 		indicators.append({"entity_id": entity_id})
 	_renderer.call("set_idle_worker_indicators", indicators)
 

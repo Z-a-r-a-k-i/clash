@@ -989,8 +989,8 @@ func _test_idle_worker_indicator_excludes_busy_workers() -> bool:
 		locked_id,
 		ability_id,
 	]
-	for id in ids:
-		if id < 0:
+	for entity_id: int in ids:
+		if entity_id < 0:
 			_free_mode(mode)
 			return false
 	var gathering_worker: Entity = state.get_entity_by_id(gathering_id)
@@ -2430,7 +2430,7 @@ func _set_command_card_state(
 func _find_entity_id(state: MatchState, def_id: String, owner: int) -> int:
 	if state == null:
 		return -1
-	for entity in state.entities_sorted_by_id():
+	for entity: Entity in state.entities_sorted_by_id():
 		if entity.def_id == def_id and entity.owner_player_id == owner and entity.current_hp > 0:
 			return entity.id
 	return -1
@@ -2439,7 +2439,7 @@ func _find_entity_id(state: MatchState, def_id: String, owner: int) -> int:
 func _find_entity_id_any_hp(state: MatchState, def_id: String, owner: int) -> int:
 	if state == null:
 		return -1
-	for entity in state.entities_sorted_by_id():
+	for entity: Entity in state.entities_sorted_by_id():
 		if entity.def_id == def_id and entity.owner_player_id == owner:
 			return entity.id
 	return -1
@@ -2449,7 +2449,7 @@ func _find_entity_ids(state: MatchState, def_id: String, owner: int) -> Array[in
 	var out: Array[int] = []
 	if state == null:
 		return out
-	for entity in state.entities_sorted_by_id():
+	for entity: Entity in state.entities_sorted_by_id():
 		if entity.def_id == def_id and entity.owner_player_id == owner and entity.current_hp > 0:
 			out.append(entity.id)
 	return out
@@ -2545,7 +2545,7 @@ func _first_empty_tile(state: MatchState) -> Vector2i:
 func _set_all_workers_busy_gathering(state: MatchState, owner: int) -> void:
 	if state == null:
 		return
-	for entity in state.entities_sorted_by_id():
+	for entity: Entity in state.entities_sorted_by_id():
 		if entity.def_id != "worker" or entity.gather_state == null:
 			continue
 		if owner >= 0 and entity.owner_player_id != owner:
@@ -2594,7 +2594,7 @@ func _move_target_tile_for_entity(state: MatchState, entity_id: int) -> Vector2i
 		entity.origin + Vector2i(-1, 0),
 		entity.origin + Vector2i(0, -1),
 	]
-	for tile in candidates:
+	for tile: Vector2i in candidates:
 		if state.tile_grid.is_in_bounds(tile):
 			return tile
 	return entity.origin

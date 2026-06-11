@@ -549,12 +549,12 @@ func target_intent_preview_count() -> int:
 	return _target_intents_root.get_child_count()
 
 
-func set_idle_worker_indicators(indicators: Array) -> void:
+func set_idle_worker_indicators(indicators: Array[Variant]) -> void:
 	_resolve_internal_nodes()
 	_clear_idle_worker_indicator_nodes()
 	if _idle_worker_indicators_root == null:
 		return
-	for indicator in indicators:
+	for indicator: Variant in indicators:
 		var entity_id: int = _indicator_entity_id(indicator)
 		if entity_id < 0:
 			continue
