@@ -40,18 +40,20 @@ Every entity in the game — a marine, a barracks, a worker, a mineral patch, a 
 
 ### Capability sub-resources
 
-| Capability | What it grants | Key fields (M0) |
+Schema definitions live in the GDScript Resources below; code is the source of truth.
+
+| Capability | What it grants | Authoritative schema |
 |---|---|---|
-| `HealthDef` | Entity is destructible at zero HP. | `max_hp` |
-| `CombatDef` | Entity can fire weapons. | `damage`, `attack_range`, `target_layers`, `attack_modifiers`, `attacks_per_turn` |
-| `MovementDef` | Entity can move. | `speed_tiles_per_turn`, `default_layer`, `pathable_terrain_tags`, `impassable_terrain_tags` |
-| `VisionDef` | Entity reveals fog and (optionally) detects hidden enemies. | `sight_radius`, `detection_radius` |
-| `PopulationDef` | Entity counts in pop math. | `pop_cost`, `pop_provides` |
-| `ConstructionDef` | Entity can be built. | `build_time_turns`, `mineral_cost`, `gas_cost`, `built_by_tag`, `requires_target_tag` |
-| `ProductionDef` | Entity has a build queue. | `produces`, `researches`, `queue_capacity`, `rally_offset` |
-| `GatherDef` | Entity gathers resources. | `gather_per_turn`, `carry_amount`, `accepts_resource_types` |
-| `ResourceSourceDef` | Entity yields resources when gathered from. | `resource_type`, `yield_per_worker_per_turn`, `capacity`, `requires_extractor` |
-| `AbilitiesDef` | Entity has abilities. | `abilities: Array[AbilityDef]` |
+| `HealthDef` | Entity is destructible at zero HP. | See `HealthDef` in `client/scripts/data/health_def.gd`. |
+| `CombatDef` | Entity can fire weapons. | See `CombatDef` in `client/scripts/data/combat_def.gd`. |
+| `MovementDef` | Entity can move. | See `MovementDef` in `client/scripts/data/movement_def.gd`. |
+| `VisionDef` | Entity reveals fog and (optionally) detects hidden enemies. | See `VisionDef` in `client/scripts/data/vision_def.gd`. |
+| `PopulationDef` | Entity counts in pop math. | See `PopulationDef` in `client/scripts/data/population_def.gd`. |
+| `ConstructionDef` | Entity can be built. | See `ConstructionDef` in `client/scripts/data/construction_def.gd`. |
+| `ProductionDef` | Entity has a build queue. | See `ProductionDef` in `client/scripts/data/production_def.gd`. |
+| `GatherDef` | Entity gathers resources. | See `GatherDef` in `client/scripts/data/gather_def.gd`. |
+| `ResourceSourceDef` | Entity yields resources when gathered from. | See `ResourceSourceDef` in `client/scripts/data/resource_source_def.gd`. |
+| `AbilitiesDef` | Entity has abilities. | See `AbilitiesDef` in `client/scripts/data/abilities_def.gd` and `AbilityDef` in `client/scripts/data/ability_def.gd`. |
 
 The resolver dispatches per capability:
 

@@ -59,6 +59,11 @@ func _all_tests() -> Array:
 		["attack_modifier_applies", _test_attack_modifier_applies],
 		["lethal_attack_emits_destroyed", _test_lethal_attack_emits_destroyed],
 		["simultaneous_lethal_units_both_fire", _test_simultaneous_lethal_units_both_fire],
+		["initiative_lethal_units_both_fire", _test_initiative_lethal_units_both_fire],
+		[
+			"initiative_kill_prevents_later_normal_attack",
+			_test_initiative_kill_prevents_later_normal_attack
+		],
 		["overkill_batch_damage_before_destroy", _test_overkill_batch_damage_before_destroy],
 		# Chunk 4 — movement system.
 		["move_emits_event", _test_move_emits_event],
@@ -165,6 +170,18 @@ func _all_tests() -> Array:
 		[
 			"attack_move_does_not_fire_after_moving_into_range",
 			_test_attack_move_does_not_fire_after_moving_into_range
+		],
+		[
+			"post_movement_only_attacks_after_moving_into_range",
+			_test_post_movement_only_attacks_after_moving_into_range
+		],
+		[
+			"both_window_unit_attacks_once_per_window",
+			_test_both_window_unit_attacks_once_per_window
+		],
+		[
+			"post_movement_attack_does_not_reduce_prior_movement_budget",
+			_test_post_movement_attack_does_not_reduce_prior_movement_budget
 		],
 		["move_shoots_before_moving", _test_move_shoots_before_moving],
 		["latest_move_like_intent_wins", _test_latest_move_like_intent_wins],
@@ -704,6 +721,88 @@ func _test_simultaneous_lethal_units_both_fire() -> bool:
 	var new_right := result.new_state.get_entity_by_id(right.id)
 	return (
 		left_hit_right and right_hit_left and new_left.current_hp == 0 and new_right.current_hp == 0
+	)
+
+
+func _test_initiative_lethal_units_both_fire() -> bool:
+	var combat: CombatDef = _combat_def(50, 5, ["ground"])
+	_set_combat_timing(combat, true, false, true)
+	var d: EntityDef = _def("marine", Vector2i(1, 1), ["light", "ground"], combat, 50)
+	var registry: EntityRegistry = EntityRegistry.new()
+	registry.entities = [d]
+	var state: MatchState = _state_with_grid(20, 20)
+	var left: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var right: Entity = _make_entity(state, "marine", 1, Vector2i(7, 5), 50, "ground")
+	state.tile_grid.place(left.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(right.id, Rect2i(7, 5, 1, 1))
+
+	var result: ResolveResult = Resolver.resolve(state, _submit(), _submit(), registry, null)
+	var left_hit_right: bool = false
+	var right_hit_left: bool = false
+	for ev in result.events:
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == left.id
+			and ev.target_id == right.id
+		):
+			left_hit_right = true
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == right.id
+			and ev.target_id == left.id
+		):
+			right_hit_left = true
+	var new_left: Entity = result.new_state.get_entity_by_id(left.id)
+	var new_right: Entity = result.new_state.get_entity_by_id(right.id)
+	return (
+		left_hit_right and right_hit_left and new_left.current_hp == 0 and new_right.current_hp == 0
+	)
+
+
+func _test_initiative_kill_prevents_later_normal_attack() -> bool:
+	var initiative_combat: CombatDef = _combat_def(50, 5, ["ground"])
+	_set_combat_timing(initiative_combat, true, false, true)
+	var normal_combat: CombatDef = _combat_def(50, 5, ["ground"])
+	_set_combat_timing(normal_combat, true, false, false)
+	var initiative_def: EntityDef = _def(
+		"initiative_marine", Vector2i(1, 1), ["light", "ground"], initiative_combat, 50
+	)
+	var normal_def: EntityDef = _def(
+		"normal_marine", Vector2i(1, 1), ["light", "ground"], normal_combat, 50
+	)
+	var registry: EntityRegistry = EntityRegistry.new()
+	registry.entities = [initiative_def, normal_def]
+	var state: MatchState = _state_with_grid(20, 20)
+	var initiative_unit: Entity = _make_entity(
+		state, "initiative_marine", 0, Vector2i(5, 5), 50, "ground"
+	)
+	var normal_unit: Entity = _make_entity(state, "normal_marine", 1, Vector2i(7, 5), 50, "ground")
+	state.tile_grid.place(initiative_unit.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(normal_unit.id, Rect2i(7, 5, 1, 1))
+
+	var result: ResolveResult = Resolver.resolve(state, _submit(), _submit(), registry, null)
+	var initiative_hit: bool = false
+	var normal_hit: bool = false
+	for ev in result.events:
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == initiative_unit.id
+			and ev.target_id == normal_unit.id
+		):
+			initiative_hit = true
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == normal_unit.id
+			and ev.target_id == initiative_unit.id
+		):
+			normal_hit = true
+	var new_initiative: Entity = result.new_state.get_entity_by_id(initiative_unit.id)
+	var new_normal: Entity = result.new_state.get_entity_by_id(normal_unit.id)
+	return (
+		initiative_hit
+		and not normal_hit
+		and new_initiative.current_hp == 50
+		and new_normal.current_hp == 0
 	)
 
 
@@ -1905,6 +2004,131 @@ func _test_attack_move_does_not_fire_after_moving_into_range() -> bool:
 			damaged = true
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
 	return not damaged and move_count == 2 and new_actor.origin == Vector2i(7, 5)
+
+
+func _test_post_movement_only_attacks_after_moving_into_range() -> bool:
+	var combat: CombatDef = _combat_def(6, 3, ["ground"])
+	_set_combat_timing(combat, false, true, false)
+	var registry: EntityRegistry = EntityRegistry.new()
+	registry.entities = [
+		_def_with_movement_combat("marine", Vector2i(1, 1), ["light", "ground"], combat, 50, 4),
+	]
+	var state: MatchState = _state_with_grid(20, 20)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var enemy: Entity = _make_entity(state, "marine", 1, Vector2i(10, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(10, 5, 1, 1))
+
+	var move: EntityOrder = EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(7, 5)
+
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit(), registry, null
+	)
+	var moved_idx: int = -1
+	var damaged_idx: int = -1
+	for i in result.events.size():
+		var ev: ResolverEvent = result.events[i]
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			if moved_idx < 0:
+				moved_idx = i
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == actor.id
+			and ev.target_id == enemy.id
+		):
+			if damaged_idx < 0:
+				damaged_idx = i
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	return moved_idx >= 0 and damaged_idx > moved_idx and new_actor.origin == Vector2i(7, 5)
+
+
+func _test_both_window_unit_attacks_once_per_window() -> bool:
+	var combat: CombatDef = _combat_def(6, 3, ["ground"])
+	_set_combat_timing(combat, true, true, false)
+	var registry: EntityRegistry = EntityRegistry.new()
+	registry.entities = [
+		_def_with_movement_combat("marine", Vector2i(1, 1), ["light", "ground"], combat, 50, 4),
+	]
+	var state: MatchState = _state_with_grid(20, 20)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var enemy: Entity = _make_entity(state, "marine", 1, Vector2i(7, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(7, 5, 1, 1))
+
+	var move: EntityOrder = EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(5, 6)
+
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit(), registry, null
+	)
+	var damage_count: int = 0
+	var first_damage_idx: int = -1
+	var second_damage_idx: int = -1
+	var moved_idx: int = -1
+	for i in result.events.size():
+		var ev: ResolverEvent = result.events[i]
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			if moved_idx < 0:
+				moved_idx = i
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == actor.id
+			and ev.target_id == enemy.id
+		):
+			damage_count += 1
+			if first_damage_idx < 0:
+				first_damage_idx = i
+			else:
+				second_damage_idx = i
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	return (
+		damage_count == 2
+		and first_damage_idx >= 0
+		and moved_idx > first_damage_idx
+		and second_damage_idx > moved_idx
+		and new_actor.origin == Vector2i(5, 6)
+	)
+
+
+func _test_post_movement_attack_does_not_reduce_prior_movement_budget() -> bool:
+	var combat: CombatDef = _combat_def(6, 3, ["ground"])
+	_set_combat_timing(combat, false, true, false)
+	var registry: EntityRegistry = EntityRegistry.new()
+	registry.entities = [
+		_def_with_movement_combat("marine", Vector2i(1, 1), ["light", "ground"], combat, 50, 4),
+	]
+	var state: MatchState = _state_with_grid(20, 20)
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 5), 50, "ground")
+	var enemy: Entity = _make_entity(state, "marine", 1, Vector2i(8, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(1, 5, 1, 1))
+	state.tile_grid.place(enemy.id, Rect2i(8, 5, 1, 1))
+
+	var move: EntityOrder = EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(5, 5)
+
+	var result: ResolveResult = Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit(), registry, null
+	)
+	var move_count: int = 0
+	var damaged: bool = false
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			move_count += 1
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_DAMAGED
+			and ev.actor_id == actor.id
+			and ev.target_id == enemy.id
+		):
+			damaged = true
+	var new_actor: Entity = result.new_state.get_entity_by_id(actor.id)
+	return damaged and move_count == 4 and new_actor.origin == Vector2i(5, 5)
 
 
 func _test_latest_move_like_intent_wins() -> bool:
@@ -5928,6 +6152,19 @@ func _combat_def(damage: int, range_tiles: int, target_layers: Array[String]) ->
 	c.attack_range = range_tiles
 	c.target_layers = target_layers
 	return c
+
+
+func _set_combat_timing(
+	combat: CombatDef,
+	attacks_before_movement: bool,
+	attacks_after_movement: bool,
+	has_initiative: bool
+) -> void:
+	if combat == null:
+		return
+	combat.set("attacks_before_movement", attacks_before_movement)
+	combat.set("attacks_after_movement", attacks_after_movement)
+	combat.set("has_initiative", has_initiative)
 
 
 func _vision_def(sight_radius: int) -> VisionDef:
