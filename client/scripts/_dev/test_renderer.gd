@@ -164,6 +164,9 @@ func _all_tests() -> Array:
 			_test_focuses_player_start_at_playable_zoom
 		],
 		["match_renderer_camera_pan_and_zoom_helpers", _test_camera_pan_and_zoom_helpers],
+		# Plan m1/04 — turn playback.
+		["match_renderer_playback_beats_grouping", _test_playback_beats_grouping],
+		["match_renderer_playback_glides_and_skip", _test_playback_glides_and_skip],
 	]
 
 
@@ -2649,4 +2652,101 @@ func _test_camera_clamps_to_map_bounds() -> bool:
 	small_renderer.call("zoom_camera", 0.01)
 	ok = _camera_visible_rect_inside_map(small_camera, small_state, "tiny map max zoom-out") and ok
 	_free_renderer(small_renderer)
+	return ok
+
+
+# ---------- Plan m1/04 — turn playback ----------
+
+
+static func _move_event(actor_id: int, from: Vector2i, to: Vector2i) -> ResolverEvent:
+	var event := ResolverEvent.new()
+	event.type = ResolverEvent.Type.ENTITY_MOVED
+	event.actor_id = actor_id
+	event.from_origin = from
+	event.to_origin = to
+	return event
+
+
+static func _damage_event_for(actor_id: int, target_id: int, damage: int) -> ResolverEvent:
+	var event := ResolverEvent.new()
+	event.type = ResolverEvent.Type.ENTITY_DAMAGED
+	event.actor_id = actor_id
+	event.target_id = target_id
+	event.damage = damage
+	event.hp_after = 1
+	return event
+
+
+func _test_playback_beats_grouping() -> bool:
+	var destroyed := ResolverEvent.new()
+	destroyed.type = ResolverEvent.Type.ENTITY_DESTROYED
+	destroyed.target_id = 7
+	var trained := ResolverEvent.new()
+	trained.type = ResolverEvent.Type.TRAIN_COMPLETED
+	var events: Array[ResolverEvent] = [
+		_move_event(1, Vector2i(1, 1), Vector2i(2, 1)),
+		_move_event(2, Vector2i(5, 5), Vector2i(5, 6)),
+		# Actor 1 again: its second substep must start a new beat.
+		_move_event(1, Vector2i(2, 1), Vector2i(3, 1)),
+		_damage_event_for(5, 7, 12),
+		_damage_event_for(6, 7, 12),
+		destroyed,
+		trained,
+	]
+	var beats: Array[Dictionary] = MatchRenderer._build_playback_beats(events)
+	var ok := true
+	if beats.size() != 4:
+		push_error("expected 4 beats, got %d" % beats.size())
+		return false
+	if beats[0]["kind"] != "move" or beats[0]["events"].size() != 2:
+		push_error("first move beat should batch both actors' first steps")
+		ok = false
+	if beats[1]["kind"] != "move" or beats[1]["events"].size() != 1:
+		push_error("repeated actor should split into a second move beat")
+		ok = false
+	if beats[2]["kind"] != "volley" or beats[2]["events"].size() != 3:
+		push_error("volley beat should hold both shots and the destruction")
+		ok = false
+	if beats[3]["kind"] != "instant":
+		push_error("non-animated events should form an instant beat")
+		ok = false
+	return ok
+
+
+func _test_playback_glides_and_skip() -> bool:
+	var registry := _renderer_registry()
+	var initial := _make_renderer_state(
+		[{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1}], 10, 10
+	)
+	var final_state := _make_renderer_state(
+		[{"def_id": "marine", "owner": 0, "origin": Vector2i(3, 1), "id": 1}], 10, 10
+	)
+	var events: Array[ResolverEvent] = [
+		_move_event(1, Vector2i(1, 1), Vector2i(2, 1)),
+		_move_event(1, Vector2i(2, 1), Vector2i(3, 1)),
+	]
+	var renderer := _make_renderer()
+	renderer.bind_state(initial, registry)
+	renderer.set_turn_playback_enabled(true)
+	renderer.render_step(final_state, events)
+	var ok := true
+	if not renderer.is_turn_playback_active():
+		push_error("playback should be active after an animated render_step")
+		ok = false
+	renderer.advance_turn_playback(0.05)
+	var tile := _test_tile_size()
+	var mid := renderer.get_entity_view(1).position
+	if not (mid.x > 1.5 * tile and mid.x < 2.5 * tile):
+		push_error("mid-playback position should sit between start and first step, got %s" % mid)
+		ok = false
+	renderer.skip_turn_playback()
+	if renderer.is_turn_playback_active():
+		push_error("skip should end playback")
+		ok = false
+	var landed := renderer.get_entity_view(1).position
+	if not _approximately_equal(landed, Vector2(3.5 * tile, 1.5 * tile)):
+		push_error("skip should land the view on the final state position, got %s" % landed)
+		ok = false
+	renderer.set_turn_playback_enabled(false)
+	_free_renderer(renderer)
 	return ok

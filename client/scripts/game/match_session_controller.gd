@@ -254,6 +254,12 @@ func handle_unhandled_input(event: InputEvent) -> void:
 		if _host.session_handle_mode_key_input(key_event):
 			_set_event_handled()
 			return
+		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_SPACE:
+			var renderer: MatchRenderer = _renderer()
+			if renderer != null and renderer.is_turn_playback_active():
+				renderer.skip_turn_playback()
+				_set_event_handled()
+				return
 		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_A:
 			begin_target()
 			_set_event_handled()

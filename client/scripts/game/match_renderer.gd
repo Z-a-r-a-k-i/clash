@@ -94,6 +94,22 @@ const _ZOOM_DEBUG_FONT_SIZE := 18
 # disturbing the team-color modulate when the tween clears.
 const _HIT_FLASH_SECONDS := 0.18
 const _HIT_FLASH_COLOR := Color(2.5, 2.5, 2.5)
+
+# Turn playback (plan/m1/04): when enabled, render_step replays the
+# resolver event stream as a short animated timeline — movement glides
+# tile-by-tile, shots fire tracers in canonical order — instead of
+# snapping to the final state. Opt-in (auto-enabled outside headless),
+# so tests and tools keep the synchronous path.
+const _PLAYBACK_MOVE_BEAT_SECONDS := 0.11
+const _PLAYBACK_VOLLEY_BEAT_SECONDS := 0.22
+const _PLAYBACK_BUDGET_SECONDS := 1.5
+const _TRACER_COLOR := Color(1.0, 0.92, 0.55)
+const _TRACER_TRAIL_COLOR := Color(1.0, 0.92, 0.55, 0.22)
+const _TRACER_WIDTH := 3.0
+const _TRACER_BOLT_PIXELS := 18.0
+const _EXPLOSION_COLOR := Color(1.0, 0.62, 0.25)
+const _EXPLOSION_SECONDS := 0.4
+
 const _RESOLVE_PROFILE_FLAG_PATH := "res://resolver_profile_enabled"
 const _RENDER_PROFILE_LOG_PATH := "user://match_renderer_step_latest.log"
 const _VISIBILITY_PROFILE_LOG_PATH := "user://match_renderer_visibility_latest.log"
@@ -114,6 +130,16 @@ var _combat_log_lines: Array[String] = []
 # Cached PackedScene for spawning entity views without reloading per call.
 var _entity_view_scene: PackedScene = null
 var _texture_by_def_id: Dictionary = {}
+
+# Turn playback state. Beats are dictionaries built by
+# _build_playback_beats; glides are the per-beat tweened views.
+var _playback_enabled: bool = false
+var _playback_active: bool = false
+var _playback_beats: Array[Dictionary] = []
+var _playback_beat_index: int = -1
+var _playback_beat_elapsed: float = 0.0
+var _playback_final_state: MatchState = null
+var _playback_glides: Array[Dictionary] = []
 
 var _selected_entity_ids: Array[int] = []
 var _hover_tile: Vector2i = Vector2i.ZERO
@@ -209,6 +235,12 @@ func entity_view_count() -> int:
 # Position updates run last so attack-line endpoints reflect the
 # pre-event positions captured at the previous render_step / bind_state.
 func render_step(new_state: MatchState, events: Array[ResolverEvent]) -> void:
+	if _playback_active:
+		# A new turn arrived mid-playback: land the previous one first.
+		_finish_playback()
+	if _should_animate_playback(new_state, events):
+		_render_step_animated(new_state, events)
+		return
 	var profile_enabled := FileAccess.file_exists(_RESOLVE_PROFILE_FLAG_PATH)
 	var profile_lines: Array[String] = []
 	var profile_total_start := Time.get_ticks_usec()
@@ -332,6 +364,324 @@ func _emit_visibility_profile(lines: Array[String]) -> void:
 	var file := FileAccess.open(_VISIBILITY_PROFILE_LOG_PATH, FileAccess.WRITE)
 	if file != null:
 		file.store_string("\n".join(lines) + "\n")
+
+
+# ---------- Turn playback (plan/m1/04) ----------
+
+
+func _ready() -> void:
+	set_process(false)
+	# Headless runs (tests, dedicated server, bake scripts) keep the
+	# synchronous render_step; only a real window animates by default.
+	if not Engine.is_editor_hint() and DisplayServer.get_name() != "headless":
+		_playback_enabled = true
+
+
+func _process(delta: float) -> void:
+	advance_turn_playback(delta)
+
+
+func set_turn_playback_enabled(enabled: bool) -> void:
+	_playback_enabled = enabled
+	if not enabled and _playback_active:
+		_finish_playback()
+
+
+func is_turn_playback_active() -> bool:
+	return _playback_active
+
+
+func skip_turn_playback() -> void:
+	if _playback_active:
+		_finish_playback()
+
+
+func _should_animate_playback(new_state: MatchState, events: Array[ResolverEvent]) -> bool:
+	# _playback_enabled is false by default and only auto-enables in a
+	# real window (_ready), so tests and tools keep the synchronous path
+	# unless they opt in explicitly.
+	return _playback_enabled and new_state != null and not events.is_empty()
+
+
+func _render_step_animated(new_state: MatchState, events: Array[ResolverEvent]) -> void:
+	_resolve_internal_nodes()
+	_event_visible_entity_ids = _visible_entity_ids_for_player(_perspective_player_id)
+	# Logic reads (hit tests, selection) use the final state immediately;
+	# only the visuals catch up over the playback.
+	_state = new_state
+	var pre_existing: Dictionary = _views_by_id.duplicate()
+	_spawn_added_views(new_state)
+	# Reveal/hide views against the final visibility up front so units
+	# that entered vision this turn are watchable during the playback.
+	_refresh_all_visibility()
+	_playback_final_state = new_state
+	_playback_beats = _build_playback_beats(events)
+	for beat in _playback_beats:
+		beat["pre_existing"] = pre_existing
+	var total := 0.0
+	for beat in _playback_beats:
+		total += beat["duration"]
+	if total > _PLAYBACK_BUDGET_SECONDS:
+		var time_scale := _PLAYBACK_BUDGET_SECONDS / total
+		for beat in _playback_beats:
+			beat["duration"] = float(beat["duration"]) * time_scale
+	_playback_active = true
+	_playback_beat_index = -1
+	_playback_beat_elapsed = 0.0
+	_playback_glides = []
+	set_process(true)
+	_advance_to_next_beat()
+
+
+# Group the canonical event stream into animation beats. Consecutive
+# moves play as one parallel glide until an actor repeats (its next
+# substep must come later); damage events form volleys the same way;
+# destructions ride with the volley that caused them. Everything else
+# is instant. Pure function — unit-testable without time.
+static func _build_playback_beats(events: Array[ResolverEvent]) -> Array[Dictionary]:
+	var beats: Array[Dictionary] = []
+	var current: Dictionary = {}
+	for event in events:
+		if event == null:
+			continue
+		match event.type:
+			ResolverEvent.Type.ENTITY_MOVED:
+				if current.get("kind", "") == "move" and not current["actors"].has(event.actor_id):
+					current["events"].append(event)
+					current["actors"][event.actor_id] = true
+				else:
+					current = {
+						"kind": "move",
+						"duration": _PLAYBACK_MOVE_BEAT_SECONDS,
+						"events": [event],
+						"actors": {event.actor_id: true},
+					}
+					beats.append(current)
+			ResolverEvent.Type.ENTITY_DAMAGED:
+				if (
+					current.get("kind", "") == "volley"
+					and not current["actors"].has(event.actor_id)
+				):
+					current["events"].append(event)
+					current["actors"][event.actor_id] = true
+				else:
+					current = {
+						"kind": "volley",
+						"duration": _PLAYBACK_VOLLEY_BEAT_SECONDS,
+						"events": [event],
+						"actors": {event.actor_id: true},
+					}
+					beats.append(current)
+			ResolverEvent.Type.ENTITY_DESTROYED:
+				if current.get("kind", "") == "volley":
+					current["events"].append(event)
+				else:
+					current = {
+						"kind": "volley",
+						"duration": _PLAYBACK_VOLLEY_BEAT_SECONDS,
+						"events": [event],
+						"actors": {},
+					}
+					beats.append(current)
+			_:
+				if current.get("kind", "") == "instant":
+					current["events"].append(event)
+				else:
+					current = {"kind": "instant", "duration": 0.0, "events": [event]}
+					beats.append(current)
+	return beats
+
+
+# Public so tests can drive playback deterministically without relying
+# on _process timing.
+func advance_turn_playback(delta: float) -> void:
+	if not _playback_active:
+		return
+	var remaining := delta
+	while _playback_active and remaining > 0.0:
+		var beat: Dictionary = _playback_beats[_playback_beat_index]
+		var duration: float = beat["duration"]
+		_playback_beat_elapsed += remaining
+		if _playback_beat_elapsed < duration:
+			_update_current_beat(clampf(_playback_beat_elapsed / duration, 0.0, 1.0))
+			return
+		remaining = _playback_beat_elapsed - duration
+		_complete_current_beat()
+		_advance_to_next_beat()
+
+
+func _advance_to_next_beat() -> void:
+	while _playback_active:
+		_playback_beat_index += 1
+		_playback_beat_elapsed = 0.0
+		if _playback_beat_index >= _playback_beats.size():
+			_end_playback()
+			return
+		var beat: Dictionary = _playback_beats[_playback_beat_index]
+		_begin_beat(beat)
+		if float(beat["duration"]) > 0.0:
+			return
+		_complete_current_beat()
+
+
+func _begin_beat(beat: Dictionary) -> void:
+	var kind: String = beat["kind"]
+	if kind == "move":
+		_playback_glides = []
+		var pre_existing: Dictionary = beat.get("pre_existing", {})
+		for event: ResolverEvent in beat["events"]:
+			var view: EntityView = _views_by_id.get(event.actor_id)
+			# Views spawned this turn already sit at their final spot;
+			# gliding them would walk them past it.
+			if view == null or not pre_existing.has(event.actor_id):
+				continue
+			var step := Vector2(event.to_origin - event.from_origin)
+			(
+				_playback_glides
+				. append(
+					{
+						"view": view,
+						"from": view.position,
+						"to": view.position + step * _tile_size,
+					}
+				)
+			)
+	elif kind == "volley":
+		for event: ResolverEvent in beat["events"]:
+			if event.type != ResolverEvent.Type.ENTITY_DAMAGED:
+				continue
+			if not _was_entity_visible_for_event(event.target_id):
+				continue
+			var target_view: EntityView = _views_by_id.get(event.target_id)
+			var actor_view: EntityView = _views_by_id.get(event.actor_id)
+			if not _was_entity_visible_for_event(event.actor_id):
+				actor_view = null
+			if actor_view == null or target_view == null:
+				continue
+			_spawn_tracer(actor_view.position, target_view.position, float(beat["duration"]) * 0.8)
+	else:
+		for event: ResolverEvent in beat["events"]:
+			_render_event(event)
+
+
+func _update_current_beat(progress: float) -> void:
+	for glide in _playback_glides:
+		var view: EntityView = glide["view"]
+		if is_instance_valid(view):
+			view.position = (glide["from"] as Vector2).lerp(glide["to"], progress)
+
+
+func _complete_current_beat() -> void:
+	var beat: Dictionary = _playback_beats[_playback_beat_index]
+	var kind: String = beat["kind"]
+	if kind == "move":
+		_update_current_beat(1.0)
+		_playback_glides = []
+	elif kind == "volley":
+		for event: ResolverEvent in beat["events"]:
+			if event.type == ResolverEvent.Type.ENTITY_DAMAGED:
+				_render_damage_event(event, false)
+			elif event.type == ResolverEvent.Type.ENTITY_DESTROYED:
+				var view: EntityView = _views_by_id.get(event.target_id)
+				if view != null and _was_entity_visible_for_event(event.target_id):
+					_spawn_explosion(view.position)
+				_render_event(event)
+
+
+func _end_playback() -> void:
+	_playback_active = false
+	set_process(false)
+	_playback_beats = []
+	_playback_glides = []
+	_playback_beat_index = -1
+	_event_visible_entity_ids = {}
+	var final_state := _playback_final_state
+	_playback_final_state = null
+	if final_state == null:
+		return
+	_prune_dead_views(final_state)
+	_update_surviving_views(final_state)
+	_refresh_all_visibility()
+	_rebuild_production_progress()
+	_rebuild_construction_progress()
+
+
+# Skip / interrupt: land every remaining state-affecting effect (combat
+# log, destruction bookkeeping) without cosmetics, then run the normal
+# end-of-playback sync.
+func _finish_playback() -> void:
+	if not _playback_active:
+		return
+	while _playback_beat_index < _playback_beats.size():
+		var beat: Dictionary = _playback_beats[_playback_beat_index]
+		if beat["kind"] == "volley":
+			for event: ResolverEvent in beat["events"]:
+				if event.type == ResolverEvent.Type.ENTITY_DAMAGED:
+					_append_damage_log(event)
+				elif event.type == ResolverEvent.Type.ENTITY_DESTROYED:
+					_render_event(event)
+		elif beat["kind"] == "instant":
+			# Un-begun instant beats (the in-flight beat is always a
+			# timed one, so anything from here on never ran _begin_beat).
+			for event: ResolverEvent in beat["events"]:
+				_render_event(event)
+		_playback_beat_index += 1
+		_playback_beat_elapsed = 0.0
+	_end_playback()
+
+
+func _spawn_tracer(from: Vector2, to: Vector2, duration: float) -> void:
+	if _attack_lines_root == null:
+		return
+	var direction := (to - from).normalized()
+	if direction == Vector2.ZERO:
+		direction = Vector2.RIGHT
+	# Faint full-path trail for readability plus a bright bolt that
+	# travels it.
+	var trail := Line2D.new()
+	trail.default_color = _TRACER_TRAIL_COLOR
+	trail.width = _TRACER_WIDTH * 0.7
+	trail.points = PackedVector2Array([from, to])
+	_attack_lines_root.add_child(trail)
+	var bolt := Line2D.new()
+	bolt.default_color = _TRACER_COLOR
+	bolt.width = _TRACER_WIDTH
+	var bolt_length := minf(_TRACER_BOLT_PIXELS, from.distance_to(to))
+	bolt.points = PackedVector2Array([Vector2.ZERO, direction * bolt_length])
+	bolt.position = from
+	_attack_lines_root.add_child(bolt)
+	if not bolt.is_inside_tree() or Engine.is_editor_hint():
+		return
+	var travel := maxf(duration, 0.05)
+	var bolt_tween := bolt.create_tween()
+	bolt_tween.tween_property(bolt, "position", to - direction * bolt_length, travel)
+	bolt_tween.tween_callback(bolt.queue_free)
+	var trail_tween := trail.create_tween()
+	trail_tween.tween_property(trail, "modulate:a", 0.0, travel + 0.25)
+	trail_tween.tween_callback(trail.queue_free)
+
+
+func _spawn_explosion(at: Vector2) -> void:
+	if _attack_lines_root == null:
+		return
+	var ring := Line2D.new()
+	ring.closed = true
+	ring.default_color = _EXPLOSION_COLOR
+	ring.width = 3.0
+	var points := PackedVector2Array()
+	for i in range(16):
+		var angle := TAU * float(i) / 16.0
+		points.append(Vector2(cos(angle), sin(angle)) * 6.0)
+	ring.points = points
+	ring.position = at
+	_attack_lines_root.add_child(ring)
+	if not ring.is_inside_tree() or Engine.is_editor_hint():
+		return
+	var tween := ring.create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(ring, "scale", Vector2(4.0, 4.0), _EXPLOSION_SECONDS)
+	tween.tween_property(ring, "modulate:a", 0.0, _EXPLOSION_SECONDS)
+	tween.chain().tween_callback(ring.queue_free)
 
 
 # Lookup helper for tests — fastest way to assert on overlay state.
@@ -2308,24 +2658,7 @@ func _render_event(event: ResolverEvent) -> void:
 		return
 	match event.type:
 		ResolverEvent.Type.ENTITY_DAMAGED:
-			var target_visible := _was_entity_visible_for_event(event.target_id)
-			if not target_visible:
-				return
-			var actor_visible := _was_entity_visible_for_event(event.actor_id)
-			if actor_visible:
-				_render_attack_overlay(event.actor_id, event.target_id)
-			_render_damage_label(event.target_id, event.damage)
-			if actor_visible:
-				_append_combat_log(
-					(
-						"#%d hit #%d for %d (HP %d)"
-						% [event.actor_id, event.target_id, event.damage, event.hp_after]
-					)
-				)
-			else:
-				_append_combat_log(
-					"#%d took %d damage (HP %d)" % [event.target_id, event.damage, event.hp_after]
-				)
+			_render_damage_event(event, true)
 		ResolverEvent.Type.ENTITY_DESTROYED:
 			if not _was_entity_visible_for_event(event.target_id):
 				return
@@ -2349,6 +2682,34 @@ func _render_event(event: ResolverEvent) -> void:
 			# Other event types are silent at chunk 4 — production /
 			# build / move events get HUD treatment in 07b3+.
 			pass
+
+
+# Damage feedback shared by the synchronous path (with the fading
+# attack line) and the playback path (tracers already drew the shot, so
+# draw_line is false there).
+func _render_damage_event(event: ResolverEvent, draw_line: bool) -> void:
+	if not _was_entity_visible_for_event(event.target_id):
+		return
+	if _was_entity_visible_for_event(event.actor_id) and draw_line:
+		_render_attack_overlay(event.actor_id, event.target_id)
+	_render_damage_label(event.target_id, event.damage)
+	_append_damage_log(event)
+
+
+func _append_damage_log(event: ResolverEvent) -> void:
+	if not _was_entity_visible_for_event(event.target_id):
+		return
+	if _was_entity_visible_for_event(event.actor_id):
+		_append_combat_log(
+			(
+				"#%d hit #%d for %d (HP %d)"
+				% [event.actor_id, event.target_id, event.damage, event.hp_after]
+			)
+		)
+	else:
+		_append_combat_log(
+			"#%d took %d damage (HP %d)" % [event.target_id, event.damage, event.hp_after]
+		)
 
 
 func _render_attack_overlay(actor_id: int, target_id: int) -> void:
