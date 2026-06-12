@@ -352,7 +352,7 @@ static func _effective_def_id(entity: Entity) -> String:
 
 
 static func _finalize(
-	state: MatchState,
+	_state: MatchState,
 	registry: EntityRegistry,
 	building: Entity,
 	worker: Entity,
@@ -363,12 +363,9 @@ static func _finalize(
 	building.construction_worker_id = -1
 	if worker != null:
 		worker.locked_to_building_id = -1
-	# Apply pop_provides if the def carries population.
+	# Pop cap is a fixed match rule (Tunables.pop_cap); completed
+	# buildings do not grant supply.
 	var def: EntityDef = registry.get_by_id(building.current_def_id) if registry != null else null
-	if def != null and def.population != null:
-		var player: PlayerState = state.get_player(building.owner_player_id)
-		if player != null:
-			player.pop_cap += def.population.pop_provides
 	var ev: ResolverEvent = ResolverEvent.new()
 	ev.type = ResolverEvent.Type.BUILD_COMPLETED
 	ev.actor_id = building.id

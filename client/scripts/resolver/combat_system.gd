@@ -361,18 +361,13 @@ static func _destroy_entity(
 			)
 
 	# Pop accounting (plan node 05). A dying unit returns its pop_cost.
-	# A dying COMPLETED building returns its pop_provides (i.e. pop_cap
-	# drops). Buildings still under construction never granted pop_provides
-	# in the first place — they only had cost paid up front, which is NOT
-	# refunded on death (death isn't cancel).
+	# Pop cap is a fixed match rule (Tunables.pop_cap); buildings never
+	# grant or remove supply, so building death leaves pop_cap untouched.
 	var def: EntityDef = registry.get_by_id(dead.current_def_id) if registry != null else null
 	if def != null:
 		var player := state.get_player(dead.owner_player_id)
 		if player != null and def.population != null:
-			if def.tags.has("building"):
-				if not dead.is_constructing:
-					player.pop_cap = max(0, player.pop_cap - def.population.pop_provides)
-			else:
+			if not def.tags.has("building"):
 				player.pop_used = max(0, player.pop_used - def.population.pop_cost)
 
 	# If a worker dies before its build site exists, cancel the reserved

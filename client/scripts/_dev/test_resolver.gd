@@ -105,6 +105,10 @@ func _all_tests() -> Array:
 			"movement_respects_impassable_terrain_tags",
 			_test_movement_respects_impassable_terrain_tags
 		],
+		[
+			"diagonal_step_cannot_cut_between_corner_blocked_tiles",
+			_test_diagonal_step_cannot_cut_between_corner_blocked_tiles
+		],
 		["blocked_target_uses_closest_reachable", _test_blocked_target_uses_closest_reachable],
 		[
 			"move_to_enemy_occupied_tile_fires_and_moves_to_nearest_open",
@@ -317,9 +321,9 @@ func _all_tests() -> Array:
 			"construction_worker_travel_uses_full_speed_budget",
 			_test_construction_worker_travel_uses_full_speed_budget
 		],
-		["build_completes_applies_pop_provides", _test_build_completes_applies_pop_provides],
+		["build_completes_leaves_pop_cap_fixed", _test_build_completes_leaves_pop_cap_fixed],
 		["build_locked_worker_rejects_new_orders", _test_build_locked_worker_rejects_new_orders],
-		["building_death_drops_pop_cap", _test_building_death_drops_pop_cap],
+		["building_death_leaves_pop_cap_fixed", _test_building_death_leaves_pop_cap_fixed],
 		["build_worker_death_pauses", _test_build_worker_death_pauses],
 		["build_resume_via_new_worker", _test_build_resume_via_new_worker],
 		[
@@ -1312,6 +1316,53 @@ func _test_cached_next_step_validates_only_next_step() -> bool:
 		push_error("blocked next step should invalidate the cached route")
 		return false
 	return not path_cache.has(actor.id)
+
+
+# No corner cutting: two impassable tiles touching only diagonally must
+# not let a unit slip between them; both pathfinding flavours (A* and the
+# shared flow field) have to route around.
+func _test_diagonal_step_cannot_cut_between_corner_blocked_tiles() -> bool:
+	var registry: EntityRegistry = _movable_registry(2)
+	var def: EntityDef = registry.get_by_id("marine")
+	def.movement.impassable_terrain_tags = ["cliff"]
+	var state: MatchState = _state_with_grid(8, 8)
+	# Cliffs at (2,2) and (3,3): the only "gap" is their shared corner.
+	state.tile_grid.set_tile_terrain_tags(Vector2i(2, 2), ["cliff"])
+	state.tile_grid.set_tile_terrain_tags(Vector2i(3, 3), ["cliff"])
+	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(3, 2), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(3, 2, 1, 1))
+
+	# A*: (3,2) -> (2,3) is diagonal through the corner; must detour.
+	var path: Array[Vector2i] = _PATHFINDING.find_path(state, actor, Vector2i(2, 3), registry)
+	if path.is_empty() or path[path.size() - 1] != Vector2i(2, 3):
+		push_error("corner-cut test path should still reach the goal")
+		return false
+	if path.size() < 3:
+		push_error("path should detour around the corner, got %s" % str(path))
+		return false
+	for index in range(path.size()):
+		var from: Vector2i = actor.origin if index == 0 else path[index - 1]
+		var step: Vector2i = path[index] - from
+		if step.x != 0 and step.y != 0:
+			var side_a := from + Vector2i(step.x, 0)
+			var side_b := from + Vector2i(0, step.y)
+			if (
+				state.tile_grid.tile_terrain_tags(side_a).has("cliff")
+				and state.tile_grid.tile_terrain_tags(side_b).has("cliff")
+			):
+				push_error("path cuts the corner at %s" % str(path[index]))
+				return false
+
+	# Flow field: distance from (3,2) to goal (2,3) must reflect the detour.
+	var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, registry)
+	var field: Dictionary = _PATHFINDING.build_flow_field(
+		state.tile_grid, movement, {}, Vector2i(2, 3), Rect2i(2, 3, 1, 1), 0, true
+	)
+	var field_distance: int = field.get(Vector2i(3, 2), -1)
+	if field_distance < 3:
+		push_error("flow field should not cut the corner (distance %d)" % field_distance)
+		return false
+	return true
 
 
 func _test_movement_respects_impassable_terrain_tags() -> bool:
@@ -5168,8 +5219,9 @@ func _test_construction_worker_travel_uses_full_speed_budget() -> bool:
 	)
 
 
-func _test_build_completes_applies_pop_provides() -> bool:
-	# A barracks that completes adds its pop_provides to player.pop_cap.
+func _test_build_completes_leaves_pop_cap_fixed() -> bool:
+	# Pop cap is a fixed match rule: a completing building must NOT add
+	# supply (even if its def still carries pop_provides).
 	var registry := _build_registry()
 	# Add pop_provides to barracks for this test.
 	registry.entities[1].population = PopulationDef.new()
@@ -5200,7 +5252,7 @@ func _test_build_completes_applies_pop_provides() -> bool:
 	if not saw_completed:
 		return false
 	var p := result.new_state.get_player(0)
-	return p.pop_cap == 8
+	return p.pop_cap == 0
 
 
 func _test_build_locked_worker_rejects_new_orders() -> bool:
@@ -5244,8 +5296,9 @@ func _test_build_locked_worker_rejects_new_orders() -> bool:
 	return false
 
 
-func _test_building_death_drops_pop_cap() -> bool:
-	# A completed barracks (pop_provides = 8) is killed → pop_cap drops by 8.
+func _test_building_death_leaves_pop_cap_fixed() -> bool:
+	# Pop cap is a fixed match rule: a completed building dying must NOT
+	# change it (even if its def still carries pop_provides).
 	var registry := _two_unit_registry(2000, 5, ["ground"], 50)
 	# Add a barracks def to this combat-style registry.
 	var b_def := EntityDef.new()
@@ -5261,7 +5314,7 @@ func _test_building_death_drops_pop_cap() -> bool:
 
 	var state := _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
-	state.players[0].pop_cap = 8  # already credited by the (already-built) barracks
+	state.players[0].pop_cap = 8
 	var attacker := _make_entity(state, "marine", 1, Vector2i(0, 5), 50, "ground")
 	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 5), 1, "ground")
 	# Barracks is_constructing = false (already complete).
@@ -5273,7 +5326,7 @@ func _test_building_death_drops_pop_cap() -> bool:
 	atk.entity_id = attacker.id
 	atk.target_priority_chain = [barracks.id]
 	var result := Resolver.resolve(state, _submit(), _submit([atk]), registry, null)
-	return result.new_state.get_player(0).pop_cap == 0
+	return result.new_state.get_player(0).pop_cap == 8
 
 
 func _test_production_determinism_golden() -> bool:
@@ -5866,9 +5919,9 @@ func _test_scenario_loader_minimal() -> bool:
 
 
 func _test_scenario_loader_applies_starting_resources() -> bool:
-	# Loader applies starting_resources_per_player and auto-credits
-	# pop_provides from placed buildings. Values derived from the
-	# scenario + def so balance changes don't break the test.
+	# Loader applies starting_resources_per_player. Pop cap is a fixed
+	# match rule (Tunables.pop_cap; 50 fallback without tunables) —
+	# buildings and scenarios cannot modify it.
 	var registry := _load_data_registry()
 	if registry == null:
 		return false
@@ -5880,21 +5933,20 @@ func _test_scenario_loader_applies_starting_resources() -> bool:
 		return false
 	var state: MatchState = loaded.state
 	var base_def: EntityDef = registry.get_by_id("base")
-	if base_def == null or base_def.population == null:
+	if base_def == null:
+		return false
+	if base_def.population != null:
+		push_error("base def should not carry population data (fixed pop cap)")
 		return false
 	for p in state.players:
 		var src: Dictionary = scenario.starting_resources_per_player.get(p.player_id, {})
 		var expected_minerals: int = src.get("minerals", 0)
 		var expected_gas: int = src.get("gas", 0)
-		var starting_pop_cap: int = src.get("pop_cap", 0)
-		# Each player owns exactly one base in smoke_minimal; it credits
-		# pop_provides into pop_cap on top of the starting value.
-		var expected_pop_cap: int = starting_pop_cap + base_def.population.pop_provides
 		if p.minerals != expected_minerals:
 			return false
 		if p.gas != expected_gas:
 			return false
-		if p.pop_cap != expected_pop_cap:
+		if p.pop_cap != 50:
 			return false
 		if p.pop_used != 0:
 			return false

@@ -70,7 +70,7 @@ static func load(
 				state.tile_grid.set_tile_terrain_tags(tile, merged)
 
 	# Two-player init. Plan-04+ already encodes the 0/1 convention.
-	state.players = [_make_player(0), _make_player(1)]
+	state.players = [_make_player(0, _tunables), _make_player(1, _tunables)]
 	_apply_starting_resources(state, scenario)
 
 	# Process placements.
@@ -104,11 +104,9 @@ static func load(
 			continue
 		state.entities.append(entity)
 
-	# Auto-account placement pop costs into pop_used and pop_provides
-	# into pop_cap. Walks state.entities (only successfully-placed
-	# entities) so skipped placements don't get charged.
+	# Auto-account placement pop costs into pop_used. Pop cap is fixed by
+	# Tunables; buildings do not grant or remove supply.
 	_apply_placement_pop_used(state, effective_registry)
-	_apply_placement_pop_cap_from_buildings(state, effective_registry)
 	if scenario.auto_start_workers_on_minerals:
 		_auto_start_workers_on_minerals(state, effective_registry)
 
@@ -121,9 +119,12 @@ static func load(
 # ---------- Internals ----------
 
 
-static func _make_player(player_id: int) -> PlayerState:
+static func _make_player(player_id: int, tunables: Tunables) -> PlayerState:
 	var p := PlayerState.new()
 	p.player_id = player_id
+	# Pop cap is a fixed match rule (Tunables.pop_cap), not something
+	# buildings grant or remove.
+	p.pop_cap = tunables.pop_cap if tunables != null else 50
 	return p
 
 
@@ -138,8 +139,6 @@ static func _apply_starting_resources(state: MatchState, scenario: ScenarioDef) 
 			player.minerals = resources["minerals"]
 		if resources.has("gas"):
 			player.gas = resources["gas"]
-		if resources.has("pop_cap"):
-			player.pop_cap = resources["pop_cap"]
 		if resources.has("pop_used"):
 			player.pop_used = resources["pop_used"]
 
@@ -232,23 +231,6 @@ static func _apply_placement_pop_used(state: MatchState, registry: EntityRegistr
 # Buildings placed in a scenario are assumed already-built (not under
 # construction) — apply their pop_provides to pop_cap so the player
 # can immediately train units up to the expected supply.
-static func _apply_placement_pop_cap_from_buildings(
-	state: MatchState, registry: EntityRegistry
-) -> void:
-	for entity in state.entities:
-		if entity == null:
-			continue
-		var def: EntityDef = registry.get_by_id(entity.current_def_id)
-		if def == null or def.population == null:
-			continue
-		if not def.tags.has("building"):
-			continue
-		var player := state.get_player(entity.owner_player_id)
-		if player == null:
-			continue
-		player.pop_cap += def.population.pop_provides
-
-
 static func _auto_start_workers_on_minerals(state: MatchState, registry: EntityRegistry) -> void:
 	if state == null or registry == null or state.tile_grid == null:
 		return

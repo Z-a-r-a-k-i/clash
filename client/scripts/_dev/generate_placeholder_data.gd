@@ -159,7 +159,6 @@ func _gen_buildings() -> int:
 	base.tags = ["building", "base", "structure", "ground"]
 	base.health = _health(1000)
 	base.vision = _vision(5)
-	base.population = _pop_provides(15)
 	base.construction = _construction(5, 400, 0, "worker")
 	var base_prod := ProductionDef.new()
 	base_prod.produces = ["worker"]
@@ -416,13 +415,6 @@ func _pop_cost(cost: int) -> PopulationDef:
 	var p := PopulationDef.new()
 	p.pop_cost = cost
 	p.pop_provides = 0
-	return p
-
-
-func _pop_provides(provides: int) -> PopulationDef:
-	var p := PopulationDef.new()
-	p.pop_cost = 0
-	p.pop_provides = provides
 	return p
 
 

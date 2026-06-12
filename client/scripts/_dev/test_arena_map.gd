@@ -68,8 +68,20 @@ func _test_bake_is_mirror_symmetric() -> bool:
 		for placement in scenario.placements:
 			if placement.def_id == "base" and placement.owner_player_id == 0:
 				p0_bases += 1
-		if p0_bases != 3:
-			push_error("each player should have 3 bases, got %d" % p0_bases)
+		if p0_bases != 1:
+			push_error("each player should start with exactly 1 base, got %d" % p0_bases)
+			ok = false
+		var expansion_fields := {"mineral_patch": 0, "gas_geyser": 0}
+		for placement in scenario.placements:
+			if expansion_fields.has(placement.def_id):
+				expansion_fields[placement.def_id] += 1
+		if expansion_fields["mineral_patch"] != 44 or expansion_fields["gas_geyser"] != 6:
+			push_error(
+				(
+					"expected 44 mineral patches and 6 geysers (3 fields/player), got %s"
+					% str(expansion_fields)
+				)
+			)
 			ok = false
 	# Every placement has its exact mirror (geometry symmetry).
 	var keys: Dictionary = {}

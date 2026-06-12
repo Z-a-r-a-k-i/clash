@@ -101,8 +101,15 @@ static func find_path(
 	)
 	var best_cost: int = 0
 	var expanded_nodes := 0
+	# Generous enough for long walled detours (scales with the map), but
+	# still prevents the unreachable-goal worst case from flooding the
+	# entire grid several times over.
 	var max_expansions: int = options.get(
-		OPTION_MAX_EXPANSIONS, _EXPANSION_CAP_PER_DISTANCE * best_distance + _EXPANSION_CAP_BASE
+		OPTION_MAX_EXPANSIONS,
+		maxi(
+			_EXPANSION_CAP_PER_DISTANCE * best_distance + _EXPANSION_CAP_BASE,
+			grid_width * state.tile_grid.height / 2
+		)
 	)
 
 	while not open.is_empty():
@@ -150,6 +157,10 @@ static func find_path(
 				continue
 			if not _can_occupy_origin_with_blockers(
 				state.tile_grid, next, footprint, movement, occupancy_blockers
+			):
+				continue
+			if _diagonal_step_blocked(
+				state.tile_grid, current, delta, footprint, movement, occupancy_blockers
 			):
 				continue
 			var tentative_cost: int = current_cost + 1
@@ -395,6 +406,31 @@ static func _tile_blocked(blocked_tiles: Dictionary, passable: Dictionary, tile:
 	return true
 
 
+# No squeezing through corner seams: a diagonal step is blocked when
+# BOTH orthogonally-adjacent cells are blocked, so units can never slip
+# between two blocked tiles that touch only at a corner (cliff seams,
+# building corners). Rounding a single corner stays allowed — that is
+# normal smooth movement. Mover-occupied cells stay passable through the
+# usual `passable` set.
+static func _diagonal_step_blocked(
+	grid: TileGrid,
+	from: Vector2i,
+	delta: Vector2i,
+	footprint: Vector2i,
+	movement: MovementDef,
+	occupancy_blockers: Dictionary
+) -> bool:
+	if delta.x == 0 or delta.y == 0:
+		return false
+	if _can_occupy_origin_with_blockers(
+		grid, from + Vector2i(delta.x, 0), footprint, movement, occupancy_blockers
+	):
+		return false
+	return not _can_occupy_origin_with_blockers(
+		grid, from + Vector2i(0, delta.y), footprint, movement, occupancy_blockers
+	)
+
+
 # ---------- Flow fields ----------
 #
 # A flow field is a multi-source BFS distance map computed once per goal
@@ -494,6 +530,10 @@ static func build_flow_field(
 				continue
 			if _tile_blocked(blocked_tiles, passable, next):
 				continue
+			if _diagonal_step_blocked(
+				grid, current, delta, Vector2i.ONE, movement, occupancy_blockers
+			):
+				continue
 			dist[next] = next_distance
 			queue.append(next)
 	return dist
@@ -582,6 +622,8 @@ static func _monotonic_next_origin(
 			grid, next, footprint, movement, occupancy_blockers
 		):
 			continue
+		if _diagonal_step_blocked(grid, current, delta, footprint, movement, occupancy_blockers):
+			continue
 		var next_distance: int = _goal_distance(
 			next, footprint, target_origin, goal_rect, goal_range, exact_origin
 		)
@@ -633,6 +675,8 @@ static func _exact_monotonic_next_origin(
 		if not _can_occupy_origin_with_blockers(
 			grid, next, footprint, movement, occupancy_blockers
 		):
+			continue
+		if _diagonal_step_blocked(grid, current, delta, footprint, movement, occupancy_blockers):
 			continue
 		var next_dx: int = abs(next.x - target_origin.x)
 		var next_dy: int = abs(next.y - target_origin.y)

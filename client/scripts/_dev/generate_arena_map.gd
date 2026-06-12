@@ -8,15 +8,19 @@ extends SceneTree
 # source-of-truth; subsequent edits happen in the editor, and the baker
 # (run_arena_bake.gd) mirrors the LEFT half across the vertical axis.
 #
-# Layout (72x56, left half; mirrored for P1):
+# Layout (72x56, left half; mirrored for P1). Players start with ONE
+# pre-built base (the main); the natural and third are unclaimed resource
+# fields players expand to by building new bases.
 # - MAIN    base (6,6), 8 minerals + geyser behind it, walled plateau with
 #           a single 4-wide choke opening south toward the natural.
-# - NATURAL base (8,20) outside the main choke; 8 minerals + geyser; a
-#           wall segment east leaves a wider 6-tile choke to the open map.
-# - THIRD   base (6,38) along the south edge; 6 minerals + geyser; open
-#           approach — held by map control, not walls.
-# - CENTER  2 golden mineral patches per side near the axis, plus an
-#           on-axis cliff block splitting the north into two lanes.
+# - NATURAL resource field in a pocket below the main choke; its east
+#           wall shares the main wall's columns (orthogonally connected —
+#           no diagonal seams) and leaves a 4-tall choke at its south
+#           end, plus a 2-wide back door toward the third.
+# - THIRD   resource field along the south edge; open approach.
+# - LANES   an on-axis north block, a mid-field cliff island per side,
+#           and an on-axis south block carve the open ground into north /
+#           center / south attack lanes around the contested golds.
 
 const MAP_SCENE_PATH := "res://data/scenarios/arena_1v1.tscn"
 const ROOT_SCRIPT_PATH := "res://scripts/data/mvp_map_root.gd"
@@ -133,8 +137,7 @@ func _all_placements() -> Array[Dictionary]:
 			)
 		)
 
-	# ---------- NATURAL (outside the main choke) ----------
-	out.append({"name": "P0Natural", "def_id": "base", "owner": 0, "tile": Vector2i(8, 20)})
+	# ---------- NATURAL (resource field only; players expand here) ----------
 	for i in range(4):
 		(
 			out
@@ -163,8 +166,7 @@ func _all_placements() -> Array[Dictionary]:
 		{"name": "P0NaturalGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(2, 21)}
 	)
 
-	# ---------- THIRD (south edge, open) ----------
-	out.append({"name": "P0Third", "def_id": "base", "owner": 0, "tile": Vector2i(6, 38)})
+	# ---------- THIRD (resource field only; players expand here) ----------
 	for i in range(6):
 		(
 			out
@@ -210,20 +212,40 @@ func _all_placements() -> Array[Dictionary]:
 
 func _all_terrain() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
-	# Main plateau east wall: seals x=14..15 down to y=15.
+	# Main plateau east wall: seals x=14..15, y=0..15.
 	out.append({"name": "MainWallEast", "position": Vector2i(14, 0), "size": Vector2i(2, 16)})
 	# Main plateau south wall: x=0..9, leaving the 4-wide choke x=10..13.
 	out.append({"name": "MainWallSouth", "position": Vector2i(0, 14), "size": Vector2i(10, 2)})
-	# Natural east wall: y=16..23, leaving a wider gap south of it.
-	out.append({"name": "NaturalWallEast", "position": Vector2i(16, 16), "size": Vector2i(2, 8)})
-	# On-axis center block: splits the north into two attack lanes.
+	# Natural east wall: SAME columns as the main east wall (x=14..15) so
+	# the two connect orthogonally — never corner-to-corner. Spans
+	# y=16..23, leaving the 4-tall natural choke at y=24..27.
+	out.append({"name": "NaturalWallEast", "position": Vector2i(14, 16), "size": Vector2i(2, 8)})
+	# Natural south wall: separates the natural pocket from the third
+	# lane, with a 2-wide back door at x=12..13.
+	out.append({"name": "NaturalWallSouth", "position": Vector2i(0, 28), "size": Vector2i(12, 2)})
+	# Mid-field island: separates the natural exit lane from the center
+	# gold lane.
+	out.append({"name": "MidIsland", "position": Vector2i(24, 22), "size": Vector2i(4, 8)})
+	# On-axis north block: splits the top into two attack lanes.
 	(
 		out
 		. append(
 			{
-				"name": "CenterBlock",
-				"position": Vector2i(32, 10),
-				"size": Vector2i(8, 4),
+				"name": "NorthBlock",
+				"position": Vector2i(32, 8),
+				"size": Vector2i(8, 6),
+				"on_axis": true,
+			}
+		)
+	)
+	# On-axis south block: splits the bottom lane around the thirds.
+	(
+		out
+		. append(
+			{
+				"name": "SouthBlock",
+				"position": Vector2i(33, 40),
+				"size": Vector2i(6, 6),
 				"on_axis": true,
 			}
 		)

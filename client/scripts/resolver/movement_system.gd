@@ -388,6 +388,8 @@ static func _flow_next_step(
 		var next: Vector2i = start + delta
 		if not field.has(next):
 			continue
+		if _PATHFINDING._diagonal_step_blocked(grid, start, delta, footprint, movement, blockers):
+			continue
 		var next_distance: int = field[next]
 		if next_distance >= current_distance:
 			continue
@@ -456,6 +458,11 @@ static func _cached_next_step(
 	# whole tail every substep just forced constant full re-paths.
 	if not _PATHFINDING._can_occupy_origin_with_blockers(
 		grid, next_origin, footprint, movement, occupancy_blockers
+	):
+		path_cache.erase(actor.id)
+		return {}
+	if _PATHFINDING._diagonal_step_blocked(
+		grid, actor.origin, next_origin - actor.origin, footprint, movement, occupancy_blockers
 	):
 		path_cache.erase(actor.id)
 		return {}
@@ -806,6 +813,15 @@ static func _movement_candidate_origins(
 				continue
 			if not _PATHFINDING._can_occupy_origin_with_blockers(
 				state.tile_grid, candidate, footprint, movement, occupancy_blockers
+			):
+				continue
+			if _PATHFINDING._diagonal_step_blocked(
+				state.tile_grid,
+				actor.origin,
+				candidate - actor.origin,
+				footprint,
+				movement,
+				occupancy_blockers
 			):
 				continue
 			var goal_distance: int = _candidate_goal_distance(

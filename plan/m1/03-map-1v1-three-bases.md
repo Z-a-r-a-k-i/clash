@@ -58,9 +58,21 @@ natural choke, increasingly exposed third).
   placeholder paint, ground units carry `impassable_terrain_tags=["cliff"]`,
   and BUILD placement rejects `UNBUILDABLE_TERRAIN_TAGS` tiles.
 - `generate_arena_map.gd` → `arena_1v1.tscn` (authoring canon) and
-  `run_arena_bake.gd` → `arena_1v1.tres` (72x56; main/natural/third per
-  player; walled main with a 4-wide choke; on-axis center cliff block; two
-  golden patches per side near the axis).
+  `run_arena_bake.gd` → `arena_1v1.tres` (72x56). Players start with ONE
+  pre-built base; the natural and third are unclaimed resource fields to
+  expand into. Lanes: walled main (4-wide choke) → natural pocket (4-tall
+  east choke + 2-wide back door toward the third), a mid-field island per
+  side, on-axis north and south blocks, contested golds at center.
+- Engine rule (from playtest feedback): a diagonal step is blocked when
+  BOTH orthogonal cells are blocked, so units can never squeeze through
+  wall seams that touch only at a corner; rounding a single corner stays
+  allowed. Applies to A*, the greedy path, flow fields, sidestep
+  candidates, and cached-path validation. Arena wall rects also share
+  columns where they meet (orthogonal connection, defense in depth).
+- Pop rule (same feedback round): pop cap is fixed at `Tunables.pop_cap`
+  (50) — bases carry no `pop_provides`, building completion grants
+  nothing, building death removes nothing, and scenarios cannot override
+  the cap.
 - Symmetry decision: kept the baker's horizontal mirror (equally fair to
   both players) instead of adding a 180-degree rotation mode.
 - Tests: `test_arena_map.gd` (symmetry, terrain round-trip, ground-vs-air
