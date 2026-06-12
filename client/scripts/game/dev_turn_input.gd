@@ -8,6 +8,8 @@ extends RefCounted
 
 const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
 const _PATHFINDING := preload("res://scripts/resolver/pathfinding_system.gd")
+const _MAX_FORMATION_RADIUS := 8
+const _FORMATION_RADIUS_PADDING := 2
 const _FIRING_TILE_NEIGHBORS: Array[Vector2i] = [
 	Vector2i(1, 0),
 	Vector2i(1, 1),
@@ -1748,7 +1750,9 @@ func _formation_target_tiles(actors: Array[Entity], target_tile: Vector2i) -> Di
 	for actor in actors:
 		if actor != null:
 			passable_entity_ids[actor.id] = true
-	var candidates: Array[Vector2i] = _formation_candidate_tiles(target_tile)
+	var candidates: Array[Vector2i] = _formation_candidate_tiles(
+		target_tile, _formation_radius_for_actor_count(actors.size())
+	)
 	var center: Vector2 = _formation_center(actors)
 	var reserved_by_layer: Dictionary = {}
 	for actor in actors:
@@ -1787,13 +1791,20 @@ func _formation_desired_tile(actor: Entity, target_tile: Vector2i, center: Vecto
 	)
 
 
-func _formation_candidate_tiles(target_tile: Vector2i) -> Array[Vector2i]:
+func _formation_radius_for_actor_count(actor_count: int) -> int:
+	return mini(
+		_MAX_FORMATION_RADIUS,
+		maxi(2, ceili(sqrt(float(maxi(actor_count, 1)))) + _FORMATION_RADIUS_PADDING)
+	)
+
+
+func _formation_candidate_tiles(target_tile: Vector2i, max_radius: int) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	if _state == null or _state.tile_grid == null:
 		out.append(target_tile)
 		return out
-	var max_radius: int = maxi(_state.tile_grid.width, _state.tile_grid.height)
-	for radius in range(max_radius + 1):
+	var bounded_radius: int = maxi(max_radius, 0)
+	for radius in range(bounded_radius + 1):
 		for y in range(target_tile.y - radius, target_tile.y + radius + 1):
 			for x in range(target_tile.x - radius, target_tile.x + radius + 1):
 				if maxi(abs(x - target_tile.x), abs(y - target_tile.y)) != radius:

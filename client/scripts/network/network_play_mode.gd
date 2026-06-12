@@ -1291,6 +1291,8 @@ func _event_inside_game_viewport(event: InputEventMouse) -> bool:
 	if DisplayServer.get_name() == "headless":
 		return true
 	var game_rect: Rect2 = _game_viewport_screen_rect()
+	# _game_viewport_screen_rect() is root/screen space; _game_viewport_local_rect()
+	# is the same viewport size at local origin for already-local input events.
 	return (
 		game_rect.has_point(event.position)
 		or _game_viewport_local_rect(game_rect).has_point(event.position)
@@ -1300,6 +1302,8 @@ func _event_inside_game_viewport(event: InputEventMouse) -> bool:
 func _screen_to_game_viewport_position(screen_position: Vector2) -> Vector2:
 	var game_rect: Rect2 = _game_viewport_screen_rect()
 	var local_rect: Rect2 = _game_viewport_local_rect(game_rect)
+	# Keep viewport-local positions unchanged; screen/global positions subtract
+	# the _game_viewport_screen_rect() offset.
 	if local_rect.has_point(screen_position) and not game_rect.has_point(screen_position):
 		return screen_position
 	return screen_position - game_rect.position

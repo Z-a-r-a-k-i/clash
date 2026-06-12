@@ -783,8 +783,16 @@ func _test_network_game_viewport_position_accepts_screen_and_local_events() -> b
 	var mode: Node = script.new()
 	add_child(mode)
 	mode.call("ensure_initialized")
+	var loaded: LoadedScenario = _load_combat()
+	if loaded == null:
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
 	var viewport_rect: Rect2 = mode.call("_game_viewport_screen_rect")
-	var local_position: Vector2 = Vector2(96.0, maxf(viewport_rect.position.y * 0.5, 1.0))
+	var local_position: Vector2 = Vector2(
+		minf(96.0, maxf(viewport_rect.size.x * 0.5, 1.0)), maxf(viewport_rect.size.y * 0.05, 1.0)
+	)
 	var screen_position: Vector2 = local_position + viewport_rect.position
 	var from_screen: Vector2 = mode.call("_screen_to_game_viewport_position", screen_position)
 	var from_local: Vector2 = mode.call("_screen_to_game_viewport_position", local_position)
