@@ -1262,6 +1262,10 @@ func _test_network_preserves_orders_after_next_turn_started() -> bool:
 	):
 		push_error("next turn_started should not clear client-side queued follow-up orders")
 		ok = false
+	var income_label: Label = mode.find_child("Income", true, false) as Label
+	if income_label == null or not income_label.visible or not income_label.text.begins_with("+"):
+		push_error("network top bar should show last-resolve income after an authoritative result")
+		ok = false
 	remove_child(mode)
 	mode.queue_free()
 	return ok
