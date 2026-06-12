@@ -182,6 +182,23 @@ func _all_tests() -> Array:
 			_test_selecting_a_resource_shows_remaining_amount
 		],
 		["dev_play_mode_uses_authored_cockpit_shell", _test_uses_authored_cockpit_shell],
+		["cockpit_styles_derive_from_ui_tokens", _test_cockpit_styles_derive_from_ui_tokens],
+		[
+			"cockpit_economy_state_renders_income_and_committed",
+			_test_cockpit_economy_state_renders_income_and_committed
+		],
+		[
+			"cockpit_selection_stats_renders_hp_bar_statuses_and_preview",
+			_test_cockpit_selection_stats_renders_hp_bar_statuses_and_preview
+		],
+		[
+			"cockpit_production_state_builds_chips_with_cancel_indices",
+			_test_cockpit_production_state_builds_chips_with_cancel_indices
+		],
+		[
+			"cockpit_idle_worker_button_visibility_and_signal",
+			_test_cockpit_idle_worker_button_visibility_and_signal
+		],
 		["dev_play_mode_queues_and_resolves_turn", _test_queues_and_resolves_turn],
 		["dev_play_mode_routes_context_actions", _test_routes_context_actions],
 		["dev_play_mode_context_cursor_classifier", _test_context_cursor_classifier],
@@ -682,7 +699,296 @@ func _test_uses_authored_cockpit_shell() -> bool:
 	if resolve_button == null or not resolve_button.has_theme_stylebox_override("normal"):
 		push_error("Resolve should use an authored amber command style")
 		ok = false
+	for cluster_path in [
+		"TopBar/Row/MineralsCluster/Value",
+		"TopBar/Row/GasCluster/Value",
+		"TopBar/Row/SupplyCluster/Value",
+	]:
+		if cockpit.get_node_or_null(cluster_path) == null:
+			push_error("cockpit top bar should expose %s" % cluster_path)
+			ok = false
 	_free_mode(mode)
+	return ok
+
+
+func _make_cockpit() -> Control:
+	var scene: PackedScene = load(DEV_PLAY_COCKPIT_SCENE_PATH) as PackedScene
+	if scene == null:
+		push_error("could not load the cockpit scene")
+		return null
+	var cockpit: Control = scene.instantiate() as Control
+	if cockpit == null:
+		push_error("cockpit scene root should be a Control")
+		return null
+	add_child(cockpit)
+	# Headless runners drive tests from SceneTree._init, before deferred
+	# _ready notifications run; feed an initial state the way play modes do
+	# so the cockpit resolves its nodes and applies the token theme.
+	cockpit.call("set_match_state", 0, 0, 0, 0, 0, 0, false, -1)
+	return cockpit
+
+
+func _test_cockpit_styles_derive_from_ui_tokens() -> bool:
+	var cockpit: Control = _make_cockpit()
+	if cockpit == null:
+		return false
+	var ok := true
+	var ramp: Array[int] = [
+		UiTokens.FONT_CAPTION,
+		UiTokens.FONT_BODY,
+		UiTokens.FONT_EMPHASIS,
+		UiTokens.FONT_TITLE,
+		UiTokens.FONT_DISPLAY,
+	]
+	for label in cockpit.find_children("*", "Label", true, false):
+		var typed_label: Label = label as Label
+		var size: int = typed_label.get_theme_font_size("font_size")
+		if not ramp.has(size):
+			push_error("label '%s' font size %d is off the token ramp" % [typed_label.name, size])
+			ok = false
+	var top_style: StyleBoxFlat = (
+		(cockpit.get_node("TopBar") as PanelContainer).get_theme_stylebox("panel") as StyleBoxFlat
+	)
+	if top_style == null or top_style.bg_color != UiTokens.COLOR_BG:
+		push_error("top bar panel should use the UiTokens raised surface")
+		ok = false
+	var selection_style: StyleBoxFlat = (
+		(cockpit.get_node("BottomDeck/Row/SelectionPanel") as PanelContainer).get_theme_stylebox(
+			"panel"
+		)
+		as StyleBoxFlat
+	)
+	if selection_style == null or selection_style.bg_color != UiTokens.COLOR_SURFACE:
+		push_error("inner panels should use the UiTokens surface color")
+		ok = false
+	var resolve_style: StyleBoxFlat = (
+		_find_exact_button(cockpit, "Resolve").get_theme_stylebox("normal") as StyleBoxFlat
+	)
+	if resolve_style == null or resolve_style.bg_color != UiTokens.COLOR_AMBER:
+		push_error("resolve button should use the UiTokens amber role")
+		ok = false
+	_free_mode(cockpit)
+	return ok
+
+
+func _test_cockpit_economy_state_renders_income_and_committed() -> bool:
+	var cockpit: Control = _make_cockpit()
+	if cockpit == null:
+		return false
+	var ok := true
+	cockpit.call("set_match_state", 0, 3, 120, 40, 8, 20, false, -1)
+	(
+		cockpit
+		. call(
+			"set_economy_state",
+			{
+				"income_minerals": 18,
+				"income_gas": 4,
+				"income_known": true,
+				"committed_minerals": 50,
+				"committed_gas": 25,
+				"committed_pop": 2,
+			}
+		)
+	)
+	var checks: Dictionary = {
+		"TopBar/Row/MineralsCluster/Value": "120",
+		"TopBar/Row/MineralsCluster/Income": "+18/turn",
+		"TopBar/Row/MineralsCluster/Committed": "-50",
+		"TopBar/Row/GasCluster/Value": "40",
+		"TopBar/Row/GasCluster/Income": "+4/turn",
+		"TopBar/Row/GasCluster/Committed": "-25",
+		"TopBar/Row/SupplyCluster/Value": "8/20",
+		"TopBar/Row/SupplyCluster/Committed": "+2",
+	}
+	for path: String in checks:
+		var label: Label = cockpit.get_node_or_null(path) as Label
+		if label == null or not label.visible or label.text != checks[path]:
+			push_error(
+				(
+					"economy label %s should show '%s', got '%s'"
+					% [path, checks[path], label.text if label != null else "<missing>"]
+				)
+			)
+			ok = false
+	cockpit.call("set_economy_state", {})
+	for path in [
+		"TopBar/Row/MineralsCluster/Income",
+		"TopBar/Row/MineralsCluster/Committed",
+		"TopBar/Row/SupplyCluster/Committed",
+	]:
+		var label: Label = cockpit.get_node_or_null(path) as Label
+		if label != null and label.visible:
+			push_error("economy label %s should hide when no economy data is reported" % path)
+			ok = false
+	_free_mode(cockpit)
+	return ok
+
+
+func _test_cockpit_selection_stats_renders_hp_bar_statuses_and_preview() -> bool:
+	var cockpit: Control = _make_cockpit()
+	if cockpit == null:
+		return false
+	var ok := true
+	(
+		cockpit
+		. call(
+			"set_selection_stats",
+			{
+				"hp": 9,
+				"hp_max": 45,
+				"damage": 18,
+				"range": 5,
+				"speed": 3,
+				"statuses": [{"id": "sieged", "duration": -1}, {"id": "slowed", "duration": 2}],
+				"worker_state": "Gathering minerals",
+				"damage_preview": {"target_label": "Tank", "amount": 18},
+			}
+		)
+	)
+	var stats_block: Control = cockpit.find_child("StatsBlock", true, false) as Control
+	if stats_block == null or not stats_block.visible:
+		push_error("stats block should show for a populated selection")
+		ok = false
+	var hp_bar: ProgressBar = cockpit.find_child("HpBar", true, false) as ProgressBar
+	if hp_bar == null or hp_bar.max_value != 45.0 or hp_bar.value != 9.0:
+		push_error("hp bar should reflect hp/hp_max")
+		ok = false
+	else:
+		var fill: StyleBoxFlat = hp_bar.get_theme_stylebox("fill") as StyleBoxFlat
+		if fill == null or fill.bg_color != UiTokens.COLOR_HP_LOW:
+			push_error("hp bar fill should use the low-HP token color at 20%")
+			ok = false
+	if _find_label_with_substring(cockpit, "9/45") == null:
+		push_error("hp caption should show current/max")
+		ok = false
+	var stat_row: Label = cockpit.find_child("StatRow", true, false) as Label
+	if stat_row == null or not stat_row.visible:
+		push_error("stat row should be visible")
+		ok = false
+	else:
+		for needle in ["DMG 18", "RNG 5", "SPD 3"]:
+			if not stat_row.text.contains(needle):
+				push_error("stat row should contain '%s', got '%s'" % [needle, stat_row.text])
+				ok = false
+	if _find_label_with_substring(cockpit, "SIEGED ∞") == null:
+		push_error("indefinite statuses should render with the infinity duration")
+		ok = false
+	if _find_label_with_substring(cockpit, "SLOWED 2") == null:
+		push_error("finite statuses should render their remaining turns")
+		ok = false
+	if _find_label_with_substring(cockpit, "Gathering minerals") == null:
+		push_error("worker state should surface in the context row")
+		ok = false
+	var preview_row: Label = cockpit.find_child("PreviewRow", true, false) as Label
+	if (
+		preview_row == null
+		or not preview_row.visible
+		or not preview_row.text.contains("18")
+		or not preview_row.text.contains("Tank")
+	):
+		push_error("damage preview should show amount and target")
+		ok = false
+	cockpit.call("set_selection_stats", {})
+	if stats_block != null and stats_block.visible:
+		push_error("stats block should hide for an empty selection")
+		ok = false
+	_free_mode(cockpit)
+	return ok
+
+
+func _test_cockpit_production_state_builds_chips_with_cancel_indices() -> bool:
+	var cockpit: Control = _make_cockpit()
+	if cockpit == null:
+		return false
+	var ok := true
+	var captured: Array[int] = []
+	cockpit.connect("cancel_requested", func(index: int) -> void: captured.append(index))
+	(
+		cockpit
+		. call(
+			"set_production_state",
+			{
+				"visible": true,
+				"active": {"label": "Marine", "turns_remaining": 1, "total_turns": 2},
+				"queue": [{"label": "Marine"}, {"label": "Tank"}],
+				"pending": [{"label": "Helicopter"}],
+				"pending_cancel_indices": [],
+			}
+		)
+	)
+	var strip: Control = cockpit.find_child("ProductionStrip", true, false) as Control
+	var items: Control = cockpit.find_child("Items", true, false) as Control
+	if strip == null or not strip.visible or items == null or items.get_child_count() != 4:
+		push_error("production strip should show active + 2 queue + 1 pending chips")
+		ok = false
+		_free_mode(cockpit)
+		return ok
+	var progress: ProgressBar = items.find_children("*", "ProgressBar", true, false).front()
+	if progress == null or progress.max_value != 2.0 or progress.value != 1.0:
+		push_error("active chip should show production progress (1 of 2 turns elapsed)")
+		ok = false
+	var cancel_buttons: Array[Node] = items.find_children("*", "Button", true, false)
+	if cancel_buttons.size() != 3:
+		push_error("only active + queue chips should expose cancel buttons")
+		ok = false
+	else:
+		for button in cancel_buttons:
+			(button as Button).pressed.emit()
+		if captured != [0, 1, 2]:
+			push_error("cancel buttons should emit resolver cancel indices, got %s" % [captured])
+			ok = false
+	(
+		cockpit
+		. call(
+			"set_production_state",
+			{
+				"visible": true,
+				"active": {"label": "Marine", "turns_remaining": 1, "total_turns": 2},
+				"queue": [{"label": "Marine"}, {"label": "Tank"}],
+				"pending": [],
+				"pending_cancel_indices": [2],
+			}
+		)
+	)
+	var refreshed_buttons: Array[Node] = items.find_children("*", "Button", true, false)
+	var disabled_count: int = 0
+	for button in refreshed_buttons:
+		if (button as Button).disabled:
+			disabled_count += 1
+	if disabled_count != 1:
+		push_error("a pending cancel should disable exactly its own chip button")
+		ok = false
+	cockpit.call("set_production_state", {"visible": false})
+	if strip.visible:
+		push_error("production strip should hide when not visible")
+		ok = false
+	_free_mode(cockpit)
+	return ok
+
+
+func _test_cockpit_idle_worker_button_visibility_and_signal() -> bool:
+	var cockpit: Control = _make_cockpit()
+	if cockpit == null:
+		return false
+	var ok := true
+	var presses: Array[int] = []
+	cockpit.connect("idle_workers_requested", func() -> void: presses.append(1))
+	var idle_button: Button = cockpit.find_child("IdleWorkers", true, false) as Button
+	cockpit.call("set_idle_worker_state", 0)
+	if idle_button == null or idle_button.visible:
+		push_error("idle worker button should hide at zero idle workers")
+		ok = false
+	cockpit.call("set_idle_worker_state", 3)
+	if idle_button == null or not idle_button.visible or idle_button.text != "Idle 3":
+		push_error("idle worker button should show the idle count")
+		ok = false
+	if idle_button != null:
+		idle_button.pressed.emit()
+	if presses.size() != 1:
+		push_error("pressing the idle worker button should emit idle_workers_requested")
+		ok = false
+	_free_mode(cockpit)
 	return ok
 
 

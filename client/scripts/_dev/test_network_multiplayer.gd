@@ -426,17 +426,30 @@ func _test_network_ui_surface() -> bool:
 	loaded.state.get_player(0).minerals = 150
 	loaded.state.get_player(0).gas = 25
 	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
-	var resources_label: Label = mode.find_child("Resources", true, false) as Label
-	if resources_label == null:
-		push_error("network match HUD should expose a named Resources label")
+	var minerals_cluster: Control = mode.find_child("MineralsCluster", true, false) as Control
+	var gas_cluster: Control = mode.find_child("GasCluster", true, false) as Control
+	if minerals_cluster == null or gas_cluster == null:
+		push_error("network match HUD should expose Minerals and Gas top-bar clusters")
 		ok = false
-	elif (
-		resources_label.text.find("Minerals 150") == -1 or resources_label.text.find("Gas 25") == -1
-	):
-		push_error(
-			"network resources label should show minerals and gas, got: %s" % resources_label.text
-		)
-		ok = false
+	else:
+		var minerals_value: Label = minerals_cluster.get_node_or_null("Value") as Label
+		var gas_value: Label = gas_cluster.get_node_or_null("Value") as Label
+		if minerals_value == null or minerals_value.text != "150":
+			push_error(
+				(
+					"network minerals cluster should show the player's minerals, got: %s"
+					% (minerals_value.text if minerals_value != null else "<missing>")
+				)
+			)
+			ok = false
+		if gas_value == null or gas_value.text != "25":
+			push_error(
+				(
+					"network gas cluster should show the player's gas, got: %s"
+					% (gas_value.text if gas_value != null else "<missing>")
+				)
+			)
+			ok = false
 	(
 		mode
 		. call(
