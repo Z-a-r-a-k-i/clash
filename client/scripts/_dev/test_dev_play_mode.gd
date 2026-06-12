@@ -199,6 +199,10 @@ func _all_tests() -> Array:
 			"cockpit_idle_worker_button_visibility_and_signal",
 			_test_cockpit_idle_worker_button_visibility_and_signal
 		],
+		[
+			"dev_play_mode_top_bar_shows_income_and_committed_spend",
+			_test_top_bar_shows_income_and_committed_spend
+		],
 		["dev_play_mode_queues_and_resolves_turn", _test_queues_and_resolves_turn],
 		["dev_play_mode_routes_context_actions", _test_routes_context_actions],
 		["dev_play_mode_context_cursor_classifier", _test_context_cursor_classifier],
@@ -964,6 +968,70 @@ func _test_cockpit_production_state_builds_chips_with_cancel_indices() -> bool:
 		push_error("production strip should hide when not visible")
 		ok = false
 	_free_mode(cockpit)
+	return ok
+
+
+func _test_top_bar_shows_income_and_committed_spend() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var cockpit: Control = mode.find_child("DevPlayCockpit", true, false) as Control
+	var income_label: Label = cockpit.get_node_or_null("TopBar/Row/MineralsCluster/Income") as Label
+	var committed_label: Label = (
+		cockpit.get_node_or_null("TopBar/Row/MineralsCluster/Committed") as Label
+	)
+	if income_label == null or committed_label == null:
+		push_error("cockpit top bar should expose minerals income and committed labels")
+		_free_mode(mode)
+		return false
+	var ok := true
+	if income_label.visible:
+		push_error("income should stay hidden before the first resolve")
+		ok = false
+	mode.current_state().get_player(0).minerals = 500
+	var base_id: int = _find_entity_id(mode.current_state(), "base", 0)
+	if base_id < 0 or not mode.select_entity_id(base_id):
+		push_error("expected a selectable P0 base")
+		_free_mode(mode)
+		return false
+	if not mode.issue_train_selected("worker"):
+		push_error("expected a worker train order to queue")
+		_free_mode(mode)
+		return false
+	mode.call("_update_hud")
+	var registry: EntityRegistry = _load_registry()
+	var worker_def: EntityDef = registry.get_by_id("worker") if registry != null else null
+	var worker_cost: int = (
+		worker_def.construction.mineral_cost
+		if worker_def != null and worker_def.construction != null
+		else 0
+	)
+	if worker_cost <= 0:
+		push_error("MVP worker def should carry a mineral cost for this test")
+		ok = false
+	elif not committed_label.visible or committed_label.text != "-%d" % worker_cost:
+		push_error(
+			(
+				"committed label should show the queued worker cost -%d, got '%s' (visible=%s)"
+				% [worker_cost, committed_label.text, committed_label.visible]
+			)
+		)
+		ok = false
+	mode.resolve_turn()
+	if not income_label.visible or not income_label.text.begins_with("+"):
+		push_error(
+			(
+				"income label should report last-resolve income, got '%s' (visible=%s)"
+				% [income_label.text, income_label.visible]
+			)
+		)
+		ok = false
+	_free_mode(mode)
 	return ok
 
 

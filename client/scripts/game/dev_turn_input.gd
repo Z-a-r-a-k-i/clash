@@ -30,6 +30,8 @@ var _move_assists: Dictionary[int, EntityOrder] = {}
 var _future_orders: Dictionary[int, Array] = {}
 var _queue_modifier_active: bool = false
 var _status_message: String = ""
+var _last_income_by_player: Dictionary[int, Dictionary] = {}
+var _income_recorded: bool = false
 
 
 func _init() -> void:
@@ -504,6 +506,8 @@ func clear_submissions(clear_move_assists: bool = true, clear_future_orders: boo
 	_queue_modifier_active = false
 	if clear_move_assists:
 		_move_assists.clear()
+		_last_income_by_player.clear()
+		_income_recorded = false
 	if clear_future_orders:
 		_future_orders.clear()
 	_status_message = "Queues cleared."
@@ -575,11 +579,73 @@ func queue_move_assists_for_next_turn() -> void:
 
 
 func apply_resolve_events(events: Array[ResolverEvent]) -> void:
+	_record_last_income(events)
 	for event in events:
 		if event == null:
 			continue
 		if event.type == ResolverEvent.Type.MOVE_COMPLETED:
 			_clear_move_assist(event.actor_id)
+
+
+# Per-player income gathered during the last resolve, split by resource
+# kind. Sources removed by depletion in the same resolve are skipped, so a
+# depletion turn can undercount by that source's final tick.
+func _record_last_income(events: Array[ResolverEvent]) -> void:
+	_last_income_by_player.clear()
+	_income_recorded = true
+	if _state == null or _registry == null:
+		return
+	for event in events:
+		if event == null or event.type != ResolverEvent.Type.WORKER_GATHERED:
+			continue
+		var worker: Entity = _state.get_entity_by_id(event.actor_id)
+		var source: Entity = _state.get_entity_by_id(event.target_id)
+		if worker == null or source == null:
+			continue
+		var def_id: String = source.current_def_id if source.current_def_id != "" else source.def_id
+		var def: EntityDef = _registry.get_by_id(def_id)
+		if def == null or def.resource_source == null:
+			continue
+		var income: Dictionary = _last_income_by_player.get(
+			worker.owner_player_id, {"minerals": 0, "gas": 0}
+		)
+		var kind: String = "gas" if def.resource_source.resource_type == "gas" else "minerals"
+		income[kind] += event.amount
+		_last_income_by_player[worker.owner_player_id] = income
+
+
+func last_income_for_player(player_id: int) -> Dictionary:
+	var income: Dictionary = _last_income_by_player.get(player_id, {"minerals": 0, "gas": 0})
+	return {
+		"minerals": int(income.get("minerals", 0)),
+		"gas": int(income.get("gas", 0)),
+		"known": _income_recorded,
+	}
+
+
+# Cost of this turn's queued TRAIN/BUILD/RESEARCH orders — what the next
+# resolve will try to deduct from the player's stockpile.
+func committed_spend_for_player(player_id: int) -> Dictionary:
+	var out: Dictionary = {"minerals": 0, "gas": 0, "pop": 0}
+	if _registry == null:
+		return out
+	for order: EntityOrder in _submission_for(player_id).orders:
+		if order == null:
+			continue
+		match order.type:
+			EntityOrder.Type.TRAIN, EntityOrder.Type.BUILD:
+				var def: EntityDef = _registry.get_by_id(order.def_id)
+				if def != null and def.construction != null:
+					out["minerals"] += def.construction.mineral_cost
+					out["gas"] += def.construction.gas_cost
+				if order.type == EntityOrder.Type.TRAIN and def != null and def.population != null:
+					out["pop"] += def.population.pop_cost
+			EntityOrder.Type.RESEARCH:
+				var research: ResearchDef = _registry.get_research_by_id(order.def_id)
+				if research != null:
+					out["minerals"] += research.mineral_cost
+					out["gas"] += research.gas_cost
+	return out
 
 
 func queue_rally_orders_for_train_completed(events: Array[ResolverEvent]) -> void:

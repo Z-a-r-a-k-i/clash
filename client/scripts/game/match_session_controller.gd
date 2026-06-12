@@ -938,6 +938,27 @@ func refresh_action_previews() -> void:
 		renderer.call("set_target_intent_previews", target_intents)
 
 
+# ---------- HUD payloads ----------
+
+
+# Economy summary for the cockpit top bar: last-resolve income plus the
+# cost of this turn's queued production orders, for the local player.
+func economy_payload() -> Dictionary:
+	var player_id: int = _host.session_local_player_id() if _host != null else -1
+	if player_id < 0 or _input == null:
+		return {}
+	var income: Dictionary = _input.last_income_for_player(player_id)
+	var committed: Dictionary = _input.committed_spend_for_player(player_id)
+	return {
+		"income_minerals": income.get("minerals", 0),
+		"income_gas": income.get("gas", 0),
+		"income_known": income.get("known", false),
+		"committed_minerals": committed.get("minerals", 0),
+		"committed_gas": committed.get("gas", 0),
+		"committed_pop": committed.get("pop", 0),
+	}
+
+
 # ---------- Idle workers ----------
 
 

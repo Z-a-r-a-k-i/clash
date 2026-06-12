@@ -154,7 +154,110 @@ func _all_tests() -> Array:
 		],
 		["dev_input_clears_submissions_after_resolve", _test_clears_submissions],
 		["dev_input_surrender_only_marks_active_player", _test_surrender_active_player],
+		[
+			"dev_input_records_last_resolve_income_per_player",
+			_test_records_last_resolve_income_per_player
+		],
+		[
+			"dev_input_committed_spend_sums_queued_production_orders",
+			_test_committed_spend_sums_queued_production_orders
+		],
 	]
+
+
+func _test_records_last_resolve_income_per_player() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	input.bind_context(setup.state, setup.registry)
+	if input.last_income_for_player(0).get("known", true):
+		push_error("income should be unknown before the first resolve")
+		return false
+	var events: Array[ResolverEvent] = [
+		_gather_event(1, 3, 2),
+		_gather_event(1, 3, 3),
+		_gather_event(1, 10, 2),
+		_gather_event(2, 3, 4),
+		_gather_event(1, 999, 7),
+	]
+	input.apply_resolve_events(events)
+	var income_p0: Dictionary = input.last_income_for_player(0)
+	if not income_p0.get("known", false):
+		push_error("income should be known after a resolve")
+		return false
+	if income_p0.get("minerals", -1) != 5 or income_p0.get("gas", -1) != 2:
+		push_error("P0 income should split by resource kind, got %s" % [income_p0])
+		return false
+	var income_p1: Dictionary = input.last_income_for_player(1)
+	if income_p1.get("minerals", -1) != 4 or income_p1.get("gas", -1) != 0:
+		push_error("P1 income should only count P1 gatherers, got %s" % [income_p1])
+		return false
+	input.apply_resolve_events([] as Array[ResolverEvent])
+	income_p0 = input.last_income_for_player(0)
+	if income_p0.get("minerals", -1) != 0 or not income_p0.get("known", false):
+		push_error("a resolve with no gathering should report known zero income")
+		return false
+	input.clear_submissions()
+	if input.last_income_for_player(0).get("known", true):
+		push_error("a full queue clear (fresh session) should reset income to unknown")
+		return false
+	return true
+
+
+func _test_committed_spend_sums_queued_production_orders() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	var registry: EntityRegistry = setup.registry
+	var marine_def: EntityDef = registry.get_by_id("marine")
+	marine_def.construction.mineral_cost = 50
+	marine_def.construction.gas_cost = 25
+	marine_def.population = PopulationDef.new()
+	marine_def.population.pop_cost = 2
+	input.bind_context(setup.state, registry)
+	var spend_before: Dictionary = input.committed_spend_for_player(0)
+	if spend_before.get("minerals", -1) != 0 or spend_before.get("pop", -1) != 0:
+		push_error("an empty submit should commit nothing, got %s" % [spend_before])
+		return false
+	var submit: SubmitTurn = input.submit_for_player(0)
+	submit.orders.append(_production_order(EntityOrder.Type.TRAIN, 6, "marine"))
+	submit.orders.append(_production_order(EntityOrder.Type.TRAIN, 6, "marine"))
+	submit.orders.append(_production_order(EntityOrder.Type.BUILD, 1, "barracks"))
+	submit.orders.append(_production_order(EntityOrder.Type.RESEARCH, 6, "surge_research"))
+	var spend: Dictionary = input.committed_spend_for_player(0)
+	if spend.get("minerals", -1) != 350:
+		push_error("committed minerals should sum train+build+research, got %s" % [spend])
+		return false
+	if spend.get("gas", -1) != 50:
+		push_error("committed gas should sum both marine trains, got %s" % [spend])
+		return false
+	if spend.get("pop", -1) != 4:
+		push_error("committed pop should only count trained units, got %s" % [spend])
+		return false
+	var enemy_spend: Dictionary = input.committed_spend_for_player(1)
+	if enemy_spend.get("minerals", -1) != 0:
+		push_error("the other player's committed spend should stay zero")
+		return false
+	return true
+
+
+func _gather_event(actor_id: int, target_id: int, amount: int) -> ResolverEvent:
+	var event: ResolverEvent = ResolverEvent.new()
+	event.type = ResolverEvent.Type.WORKER_GATHERED
+	event.actor_id = actor_id
+	event.target_id = target_id
+	event.amount = amount
+	return event
+
+
+func _production_order(order_type: EntityOrder.Type, entity_id: int, def_id: String) -> EntityOrder:
+	var order: EntityOrder = EntityOrder.new()
+	order.type = order_type
+	order.entity_id = entity_id
+	order.def_id = def_id
+	return order
 
 
 func _test_selects_owned_live_entity() -> bool:
