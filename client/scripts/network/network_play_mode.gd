@@ -633,6 +633,7 @@ func _update_hud() -> void:
 		_cockpit.set_status_text(_network_cockpit_status_text(idle_worker_ids, submit_state_text))
 		_cockpit.set_selection_details(_controller.selection_resource_text(), "")
 		_cockpit.set_economy_state(_controller.economy_payload())
+		_cockpit.set_selection_stats(_controller.selection_stats_payload())
 		_cockpit.set_submit_state_text(submit_state_text)
 		_cockpit.set_command_state(
 			_input.selected_entity_label(),

@@ -347,6 +347,18 @@ static func _resolve_rect(state: MatchState, e: Entity, registry: EntityRegistry
 # ---------- Damage computation ----------
 
 
+# UI-only entry point: what one attack from `attacker` would deal to
+# `target` right now (def damage + status overrides + tag modifiers +
+# status multipliers). Pure query; never mutates state.
+static func preview_damage(attacker: Entity, target: Entity, registry: EntityRegistry) -> int:
+	if attacker == null or target == null:
+		return 0
+	var combat: CombatDef = _MECHANICS_SYSTEM.combat_def_for_entity(attacker, registry)
+	if combat == null:
+		return 0
+	return _compute_damage(combat, target, attacker, registry)
+
+
 static func _compute_damage(
 	combat: CombatDef, target: Entity, attacker: Entity, registry: EntityRegistry
 ) -> int:

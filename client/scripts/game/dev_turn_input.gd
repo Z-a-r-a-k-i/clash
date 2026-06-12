@@ -651,7 +651,7 @@ func committed_spend_for_player(player_id: int) -> Dictionary:
 func queue_rally_orders_for_train_completed(events: Array[ResolverEvent]) -> void:
 	if _state == null or _registry == null:
 		return
-	var source_assignments: Dictionary[int, Array] = GatherSystem._source_assignments_by_source(
+	var source_assignments: Dictionary[int, Array] = GatherSystem.source_assignments_by_source(
 		_state, _registry
 	)
 	for ev in events:

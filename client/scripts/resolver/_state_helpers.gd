@@ -51,7 +51,7 @@ static func distribute_orders(
 	# updated incrementally as orders assign workers. Recomputing it per
 	# GATHER order re-scanned every entity per worker (playtest
 	# 2026-06-12 hang).
-	var gather_assignments: Dictionary[int, Array] = GatherSystem._source_assignments_by_source(
+	var gather_assignments: Dictionary[int, Array] = GatherSystem.source_assignments_by_source(
 		state, registry
 	)
 	_distribute_one(

@@ -1209,6 +1209,7 @@ func _update_hud(override_status: String = "") -> void:
 		_cockpit.set_status_text(status_text)
 		_cockpit.set_selection_details(_selection_details_text(), _selection_intent_text())
 		_cockpit.set_economy_state(_controller.economy_payload())
+		_cockpit.set_selection_stats(_controller.selection_stats_payload())
 	if _replay_label != null:
 		var replay_mode_text := "replay" if _replay_mode_active else "live"
 		_replay_label.text = (

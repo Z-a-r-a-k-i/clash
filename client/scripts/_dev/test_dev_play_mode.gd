@@ -203,6 +203,18 @@ func _all_tests() -> Array:
 			"dev_play_mode_top_bar_shows_income_and_committed_spend",
 			_test_top_bar_shows_income_and_committed_spend
 		],
+		[
+			"dev_play_mode_selection_panel_shows_effective_stats_statuses_and_hp",
+			_test_selection_panel_shows_effective_stats_statuses_and_hp
+		],
+		[
+			"dev_play_mode_selection_panel_shows_worker_state_and_occupancy",
+			_test_selection_panel_shows_worker_state_and_occupancy
+		],
+		[
+			"dev_play_mode_damage_preview_for_ordered_target",
+			_test_damage_preview_for_ordered_target
+		],
 		["dev_play_mode_queues_and_resolves_turn", _test_queues_and_resolves_turn],
 		["dev_play_mode_routes_context_actions", _test_routes_context_actions],
 		["dev_play_mode_context_cursor_classifier", _test_context_cursor_classifier],
@@ -1028,6 +1040,166 @@ func _test_top_bar_shows_income_and_committed_spend() -> bool:
 			(
 				"income label should report last-resolve income, got '%s' (visible=%s)"
 				% [income_label.text, income_label.visible]
+			)
+		)
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_selection_panel_shows_effective_stats_statuses_and_hp() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var marine_id: int = _find_entity_id(mode.current_state(), "marine", 0)
+	var marine: Entity = mode.current_state().get_entity_by_id(marine_id)
+	if marine == null:
+		push_error("expected a P0 marine in the combat scenario")
+		_free_mode(mode)
+		return false
+	marine.current_hp = 10
+	var template := StatusEffect.new()
+	template.status_id = "sieged"
+	template.duration_turns = StatusEffect.INDEFINITE
+	template.damage_override = 99
+	var events: Array[ResolverEvent] = []
+	StatusSystem.apply_status(marine, template, events)
+	var ok := true
+	if not mode.select_entity_id(marine_id):
+		push_error("expected to select the marine")
+		ok = false
+	mode.call("_update_hud")
+	var cockpit: Control = mode.find_child("DevPlayCockpit", true, false) as Control
+	var stat_row: Label = cockpit.find_child("StatRow", true, false) as Label
+	if stat_row == null or not stat_row.visible or not stat_row.text.contains("DMG 99"):
+		push_error(
+			(
+				"stat row should show status-modified effective damage, got '%s'"
+				% (stat_row.text if stat_row != null else "<missing>")
+			)
+		)
+		ok = false
+	var registry: EntityRegistry = _load_registry()
+	var marine_max_hp: int = registry.get_by_id("marine").health.max_hp
+	var hp_bar: ProgressBar = cockpit.find_child("HpBar", true, false) as ProgressBar
+	if hp_bar == null or hp_bar.value != 10.0 or hp_bar.max_value != float(marine_max_hp):
+		push_error("selection hp bar should reflect the unit's current/max hp")
+		ok = false
+	if _find_label_with_substring(cockpit, "SIEGED ∞") == null:
+		push_error("indefinite statuses should show as chips with the infinity marker")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_selection_panel_shows_worker_state_and_occupancy() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	var patch_id: int = _find_entity_id_any_hp(mode.current_state(), "mineral_patch", -1)
+	var worker: Entity = mode.current_state().get_entity_by_id(worker_id)
+	var patch: Entity = mode.current_state().get_entity_by_id(patch_id)
+	if worker == null or worker.gather_state == null or patch == null:
+		push_error("expected an MVP worker with gather state and a mineral patch")
+		_free_mode(mode)
+		return false
+	worker.gather_state.phase = GatherState.Phase.GATHERING
+	worker.gather_state.assigned_source_entity_id = patch_id
+	var ok := true
+	if not mode.select_entity_id(worker_id):
+		push_error("expected to select the worker")
+		ok = false
+	mode.call("_update_hud")
+	var cockpit: Control = mode.find_child("DevPlayCockpit", true, false) as Control
+	var context_row: Label = cockpit.find_child("ContextRow", true, false) as Label
+	if context_row == null or not context_row.visible or context_row.text != "Gathering minerals":
+		push_error(
+			(
+				"a gathering worker should show its state, got '%s'"
+				% (context_row.text if context_row != null else "<missing>")
+			)
+		)
+		ok = false
+	if not mode.select_entity_id(patch_id):
+		push_error("expected the mineral patch to be selectable")
+		ok = false
+	mode.call("_update_hud")
+	var registry: EntityRegistry = _load_registry()
+	var cap: int = registry.get_by_id("mineral_patch").resource_source.max_gatherers
+	var expected: String = "Workers 1/%d" % cap
+	if context_row == null or not context_row.visible or context_row.text != expected:
+		push_error(
+			(
+				"a selected source should show gatherer occupancy '%s', got '%s'"
+				% [expected, context_row.text if context_row != null else "<missing>"]
+			)
+		)
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_damage_preview_for_ordered_target() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var state: MatchState = mode.current_state()
+	var marine_id: int = _find_entity_id(state, "marine", 0)
+	var tank_id: int = _find_entity_id(state, "tank", 1)
+	if marine_id < 0 or tank_id < 0:
+		push_error("expected a P0 marine and a P1 tank")
+		_free_mode(mode)
+		return false
+	if (
+		not _move_entity_to(state, marine_id, Vector2i(6, 11))
+		or not _move_entity_to(state, tank_id, Vector2i(10, 11))
+	):
+		_free_mode(mode)
+		return false
+	mode.renderer().bind_state(state, _load_registry())
+	var ok := true
+	if not mode.select_entity_id(marine_id):
+		push_error("expected to select the marine")
+		ok = false
+	if not mode.issue_attack_selected(tank_id):
+		push_error("expected the attack order to queue: %s" % mode.input_model().status_message())
+		ok = false
+	mode.call("_update_hud")
+	var registry: EntityRegistry = _load_registry()
+	var marine: Entity = state.get_entity_by_id(marine_id)
+	var tank: Entity = state.get_entity_by_id(tank_id)
+	var expected_damage: int = CombatSystem.preview_damage(marine, tank, registry)
+	if expected_damage <= 0:
+		push_error("marine vs tank preview damage should be positive")
+		ok = false
+	var cockpit: Control = mode.find_child("DevPlayCockpit", true, false) as Control
+	var preview_row: Label = cockpit.find_child("PreviewRow", true, false) as Label
+	if (
+		preview_row == null
+		or not preview_row.visible
+		or not preview_row.text.contains("%d dmg" % expected_damage)
+		or not preview_row.text.contains("Tank")
+	):
+		push_error(
+			(
+				"damage preview should show '%d dmg vs Tank', got '%s'"
+				% [expected_damage, preview_row.text if preview_row != null else "<missing>"]
 			)
 		)
 		ok = false

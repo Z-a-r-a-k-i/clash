@@ -595,7 +595,7 @@ static func _movement_intents(
 			and actor.gather_state.phase == GatherState.Phase.MOVING_TO_SOURCE
 			and not has_source_assignments
 		):
-			source_assignments = GatherSystem._source_assignments_by_source(state, registry)
+			source_assignments = GatherSystem.source_assignments_by_source(state, registry)
 			has_source_assignments = true
 		var gather_intent: Dictionary = _gather_move_intent(
 			state, actor, registry, source_assignments, context

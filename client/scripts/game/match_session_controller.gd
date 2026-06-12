@@ -72,6 +72,8 @@ var _show_all_orders: bool = false
 var _is_panning_camera: bool = false
 var _pending_command: String = PENDING_NONE
 var _pending_build_def_id: String = ""
+var _hover_tile: Vector2i = Vector2i.ZERO
+var _has_hover_tile: bool = false
 
 
 func setup(host: Node, input: DevTurnInput, drag_threshold_pixels: float) -> void:
@@ -260,6 +262,7 @@ func handle_unhandled_input(event: InputEvent) -> void:
 			return
 	if event is InputEventMouse and not _event_inside_game_viewport(event as InputEventMouse):
 		reset_selection_drag()
+		_has_hover_tile = false
 		_host.session_on_pointer_exited_viewport()
 		return
 	if event is InputEventMouseMotion:
@@ -877,6 +880,8 @@ func set_hover_tile(tile: Vector2i) -> void:
 	var renderer: MatchRenderer = _renderer()
 	if renderer == null:
 		return
+	_hover_tile = tile
+	_has_hover_tile = true
 	renderer.set_hover_tile(tile)
 	if _pending_command == PENDING_BUILD:
 		_refresh_build_placement_preview(tile)
@@ -957,6 +962,120 @@ func economy_payload() -> Dictionary:
 		"committed_gas": committed.get("gas", 0),
 		"committed_pop": committed.get("pop", 0),
 	}
+
+
+# Live stats for the cockpit selection panel: effective combat values,
+# statuses with durations, worker context, source occupancy, and a damage
+# preview against the hovered/ordered target. {} for empty/multi selection.
+func selection_stats_payload() -> Dictionary:
+	var state: MatchState = _host.session_state()
+	var registry: EntityRegistry = _host.session_registry()
+	if state == null or registry == null or _input.selected_entity_ids().size() != 1:
+		return {}
+	var entity: Entity = selected_entity()
+	if entity == null:
+		return {}
+	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
+	var def: EntityDef = registry.get_by_id(def_id)
+	if def == null:
+		return {}
+	var stats: Dictionary = {}
+	if def.health != null and def.health.max_hp > 0:
+		stats["hp"] = entity.current_hp
+		stats["hp_max"] = def.health.max_hp
+	var combat: CombatDef = MechanicsSystem.combat_def_for_entity(entity, registry)
+	if combat != null:
+		stats["damage"] = MechanicsSystem.effective_damage(entity, combat)
+		stats["range"] = MechanicsSystem.effective_attack_range(entity, combat)
+	if def.movement != null:
+		stats["speed"] = MechanicsSystem.movement_speed_for_entity(entity, registry)
+	var statuses: Array[Dictionary] = []
+	for status: StatusEffect in entity.statuses:
+		if status != null and status.status_id != "":
+			statuses.append({"id": status.status_id, "duration": status.duration_turns})
+	if not statuses.is_empty():
+		stats["statuses"] = statuses
+	var worker_state: String = _worker_state_text(entity, state, registry)
+	if worker_state != "":
+		stats["worker_state"] = worker_state
+	var occupancy: Dictionary = GatherSystem.gatherer_occupancy(
+		state, registry, entity.id, _host.session_local_player_id()
+	)
+	if not occupancy.is_empty():
+		stats["gatherers"] = {"assigned": occupancy["assigned"], "cap": occupancy["cap"]}
+	var preview: Dictionary = _damage_preview_payload(entity, state, registry)
+	if not preview.is_empty():
+		stats["damage_preview"] = preview
+	return stats
+
+
+func _worker_state_text(entity: Entity, state: MatchState, registry: EntityRegistry) -> String:
+	if entity.pending_build_def_id != "":
+		return "Building %s" % _def_display_label(registry, entity.pending_build_def_id)
+	if entity.locked_to_building_id >= 0:
+		var building: Entity = state.get_entity_by_id(entity.locked_to_building_id)
+		if building != null:
+			return "Building %s" % _def_display_label(registry, building.current_def_id)
+		return "Building"
+	if entity.gather_state != null and entity.gather_state.phase != GatherState.Phase.IDLE:
+		var source: Entity = state.get_entity_by_id(entity.gather_state.assigned_source_entity_id)
+		var kind: String = "resources"
+		if source != null:
+			var source_def: EntityDef = registry.get_by_id(source.current_def_id)
+			if source_def != null and source_def.resource_source != null:
+				kind = source_def.resource_source.resource_type
+		return "Gathering %s" % kind
+	return ""
+
+
+func _damage_preview_payload(
+	entity: Entity, state: MatchState, registry: EntityRegistry
+) -> Dictionary:
+	var target: Entity = _damage_preview_target(entity, state)
+	if target == null or target.id == entity.id or target.current_hp <= 0:
+		return {}
+	var amount: int = CombatSystem.preview_damage(entity, target, registry)
+	if amount <= 0:
+		return {}
+	return {
+		"amount": amount,
+		"target_label": _def_display_label(registry, target.current_def_id),
+	}
+
+
+# Preview target priority: enemy under the cursor while picking an attack
+# target, then the unit's standing focus target, then the newest queued
+# TARGET order's primary target.
+func _damage_preview_target(entity: Entity, state: MatchState) -> Entity:
+	if _pending_command == PENDING_TARGET and _has_hover_tile and state.tile_grid != null:
+		var hovered_id: int = state.tile_grid.entity_at(_hover_tile)
+		if hovered_id >= 0:
+			var hovered: Entity = state.get_entity_by_id(hovered_id)
+			if hovered != null and hovered.owner_player_id != entity.owner_player_id:
+				return hovered
+	if entity.focus_target_entity_id >= 0:
+		return state.get_entity_by_id(entity.focus_target_entity_id)
+	var player_id: int = _host.session_local_player_id()
+	if player_id < 0:
+		return null
+	var orders: Array[EntityOrder] = _input.submit_for_player(player_id).orders
+	for order_index in range(orders.size() - 1, -1, -1):
+		var order: EntityOrder = orders[order_index]
+		if (
+			order != null
+			and order.entity_id == entity.id
+			and order.type == EntityOrder.Type.TARGET
+			and not order.target_priority_chain.is_empty()
+		):
+			return state.get_entity_by_id(order.target_priority_chain[0])
+	return null
+
+
+func _def_display_label(registry: EntityRegistry, def_id: String) -> String:
+	var def: EntityDef = registry.get_by_id(def_id) if registry != null else null
+	if def != null and def.display_name != "":
+		return def.display_name
+	return def_id.capitalize()
 
 
 # ---------- Idle workers ----------
