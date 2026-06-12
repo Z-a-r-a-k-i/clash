@@ -4,177 +4,177 @@
 [ext_resource type="Script" path="res://scripts/data/entity_placement.gd" id="2_l1hqu"]
 [ext_resource type="Script" path="res://scripts/data/terrain_patch.gd" id="3_4ye3c"]
 
-[node name="Arena1v1" type="Node2D" unique_id=1469360567]
+[node name="Arena1v1" type="Node2D" unique_id=879668210]
 script = ExtResource("1_akmyc")
 
-[node name="Placements" type="Node2D" parent="." unique_id=1576232115]
+[node name="Placements" type="Node2D" parent="." unique_id=1494712491]
 
-[node name="P0Main" type="Node2D" parent="Placements" unique_id=1134946070]
+[node name="P0Main" type="Node2D" parent="Placements" unique_id=2105957089]
 script = ExtResource("2_l1hqu")
 def_id = "base"
 owner_player_id = 0
 tile_position = Vector2i(8, 8)
 
-[node name="P0MainMineral_1" type="Node2D" parent="Placements" unique_id=474484776]
+[node name="P0MainMineral_1" type="Node2D" parent="Placements" unique_id=514943387]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(6, 5)
 
-[node name="P0MainMineral_2" type="Node2D" parent="Placements" unique_id=2067360604]
+[node name="P0MainMineral_2" type="Node2D" parent="Placements" unique_id=1314655505]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(7, 5)
 
-[node name="P0MainMineral_3" type="Node2D" parent="Placements" unique_id=1952994273]
+[node name="P0MainMineral_3" type="Node2D" parent="Placements" unique_id=456175092]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(8, 5)
 
-[node name="P0MainMineral_4" type="Node2D" parent="Placements" unique_id=816388690]
+[node name="P0MainMineral_4" type="Node2D" parent="Placements" unique_id=767996544]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(9, 5)
 
-[node name="P0MainMineral_5" type="Node2D" parent="Placements" unique_id=1529728781]
+[node name="P0MainMineral_5" type="Node2D" parent="Placements" unique_id=946703818]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(10, 5)
 
-[node name="P0MainMineral_6" type="Node2D" parent="Placements" unique_id=1905460672]
+[node name="P0MainMineral_6" type="Node2D" parent="Placements" unique_id=613490495]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(11, 5)
 
-[node name="P0MainMineral_7" type="Node2D" parent="Placements" unique_id=970350811]
+[node name="P0MainMineral_7" type="Node2D" parent="Placements" unique_id=601433951]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(12, 5)
 
-[node name="P0MainMineral_8" type="Node2D" parent="Placements" unique_id=1223763943]
+[node name="P0MainMineral_8" type="Node2D" parent="Placements" unique_id=2144166989]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(13, 5)
 
-[node name="P0MainGeyser" type="Node2D" parent="Placements" unique_id=1212340831]
+[node name="P0MainGeyser" type="Node2D" parent="Placements" unique_id=36201480]
 script = ExtResource("2_l1hqu")
 def_id = "gas_geyser"
 tile_position = Vector2i(3, 3)
 
-[node name="P0Worker_1" type="Node2D" parent="Placements" unique_id=399750153]
+[node name="P0Worker_1" type="Node2D" parent="Placements" unique_id=106073037]
 script = ExtResource("2_l1hqu")
 def_id = "worker"
 owner_player_id = 0
 tile_position = Vector2i(8, 13)
 
-[node name="P0Worker_2" type="Node2D" parent="Placements" unique_id=111990011]
+[node name="P0Worker_2" type="Node2D" parent="Placements" unique_id=1800589628]
 script = ExtResource("2_l1hqu")
 def_id = "worker"
 owner_player_id = 0
 tile_position = Vector2i(9, 13)
 
-[node name="P0Worker_3" type="Node2D" parent="Placements" unique_id=1681045801]
+[node name="P0Worker_3" type="Node2D" parent="Placements" unique_id=1529414861]
 script = ExtResource("2_l1hqu")
 def_id = "worker"
 owner_player_id = 0
 tile_position = Vector2i(10, 13)
 
-[node name="P0Worker_4" type="Node2D" parent="Placements" unique_id=780668542]
+[node name="P0Worker_4" type="Node2D" parent="Placements" unique_id=553716925]
 script = ExtResource("2_l1hqu")
 def_id = "worker"
 owner_player_id = 0
 tile_position = Vector2i(11, 13)
 
-[node name="P0NaturalMineral_west_1" type="Node2D" parent="Placements" unique_id=693636424]
+[node name="P0NaturalMineral_west_1" type="Node2D" parent="Placements" unique_id=2118109845]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(5, 26)
 
-[node name="P0NaturalMineral_west_2" type="Node2D" parent="Placements" unique_id=707170673]
+[node name="P0NaturalMineral_west_2" type="Node2D" parent="Placements" unique_id=362702146]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(5, 27)
 
-[node name="P0NaturalMineral_west_3" type="Node2D" parent="Placements" unique_id=181897206]
+[node name="P0NaturalMineral_west_3" type="Node2D" parent="Placements" unique_id=1233898296]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(5, 28)
 
-[node name="P0NaturalMineral_west_4" type="Node2D" parent="Placements" unique_id=217543215]
+[node name="P0NaturalMineral_west_4" type="Node2D" parent="Placements" unique_id=867439159]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(5, 29)
 
-[node name="P0NaturalMineral_south_1" type="Node2D" parent="Placements" unique_id=1053791491]
+[node name="P0NaturalMineral_south_1" type="Node2D" parent="Placements" unique_id=1747003521]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(6, 32)
 
-[node name="P0NaturalMineral_south_2" type="Node2D" parent="Placements" unique_id=285166694]
+[node name="P0NaturalMineral_south_2" type="Node2D" parent="Placements" unique_id=927642500]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(7, 32)
 
-[node name="P0NaturalMineral_south_3" type="Node2D" parent="Placements" unique_id=1007646728]
+[node name="P0NaturalMineral_south_3" type="Node2D" parent="Placements" unique_id=1882033189]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(8, 32)
 
-[node name="P0NaturalMineral_south_4" type="Node2D" parent="Placements" unique_id=460301308]
+[node name="P0NaturalMineral_south_4" type="Node2D" parent="Placements" unique_id=1977874819]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch"
 tile_position = Vector2i(9, 32)
 
-[node name="P0NaturalGeyser" type="Node2D" parent="Placements" unique_id=908176871]
+[node name="P0NaturalGeyser" type="Node2D" parent="Placements" unique_id=1834894825]
 script = ExtResource("2_l1hqu")
 def_id = "gas_geyser"
 tile_position = Vector2i(2, 29)
 
-[node name="CenterGold_north" type="Node2D" parent="Placements" unique_id=508011785]
+[node name="CenterGold_north" type="Node2D" parent="Placements" unique_id=1818768687]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch_gold"
-tile_position = Vector2i(38, 29)
+tile_position = Vector2i(30, 29)
 
-[node name="CenterGold_south" type="Node2D" parent="Placements" unique_id=1525391323]
+[node name="CenterGold_south" type="Node2D" parent="Placements" unique_id=2068109259]
 script = ExtResource("2_l1hqu")
 def_id = "mineral_patch_gold"
-tile_position = Vector2i(38, 31)
+tile_position = Vector2i(30, 31)
 
-[node name="Terrain" type="Node2D" parent="." unique_id=1518453060]
+[node name="Terrain" type="Node2D" parent="." unique_id=1480772818]
 
-[node name="MainWallEast" type="Node2D" parent="Terrain" unique_id=1245139750]
+[node name="MainWallEast" type="Node2D" parent="Terrain" unique_id=118541930]
 position = Vector2(576, 0)
 script = ExtResource("3_4ye3c")
 rect_position = Vector2i(18, 0)
 rect_size = Vector2i(2, 12)
 
-[node name="MainWallSouth" type="Node2D" parent="Terrain" unique_id=2022816892]
+[node name="MainWallSouth" type="Node2D" parent="Terrain" unique_id=1394666333]
 position = Vector2(0, 576)
 script = ExtResource("3_4ye3c")
 rect_position = Vector2i(0, 18)
 rect_size = Vector2i(12, 2)
 
-[node name="NaturalWallEast" type="Node2D" parent="Terrain" unique_id=2145518172]
+[node name="NaturalWallEast" type="Node2D" parent="Terrain" unique_id=669127491]
 position = Vector2(512, 832)
 script = ExtResource("3_4ye3c")
 rect_position = Vector2i(16, 26)
 rect_size = Vector2i(2, 8)
 
-[node name="MidIsland" type="Node2D" parent="Terrain" unique_id=1980778375]
+[node name="MidIsland" type="Node2D" parent="Terrain" unique_id=909068659]
 position = Vector2(832, 768)
 script = ExtResource("3_4ye3c")
 rect_position = Vector2i(26, 24)
 rect_size = Vector2i(4, 8)
 
-[node name="NorthBlock" type="Node2D" parent="Terrain" unique_id=499628683]
-position = Vector2(1152, 320)
+[node name="NorthBlock" type="Node2D" parent="Terrain" unique_id=712352861]
+position = Vector2(896, 320)
 script = ExtResource("3_4ye3c")
-rect_position = Vector2i(36, 10)
+rect_position = Vector2i(28, 10)
 rect_size = Vector2i(8, 6)
 on_axis = true
 
-[node name="SouthBlock" type="Node2D" parent="Terrain" unique_id=902752814]
-position = Vector2(1184, 1408)
+[node name="SouthBlock" type="Node2D" parent="Terrain" unique_id=1770793609]
+position = Vector2(928, 1408)
 script = ExtResource("3_4ye3c")
-rect_position = Vector2i(37, 44)
+rect_position = Vector2i(29, 44)
 rect_size = Vector2i(6, 6)
 on_axis = true

@@ -137,6 +137,13 @@ static func try_start_pending_build(
 	var rect: Rect2i = layout["rect"]
 	if not _is_adjacent_to_rect(state, worker, rect):
 		return false
+	# A worker standing INSIDE the footprint counts as distance 0 (and so
+	# "adjacent"), but spawning would fail on its own tile and cancel the
+	# build. Wait instead — the construction move intent walks it out to
+	# the ring first (placement deliberately allows ordering from inside,
+	# playtest 2026-06-12).
+	if state.tile_grid.entity_rect(worker.id).intersects(rect):
+		return false
 	var def: EntityDef = layout["def"]
 	var overlap_target_id: int = layout.get("overlap_target_id", -1)
 	var building := Entity.new()
@@ -384,6 +391,40 @@ static func _is_adjacent_to(state: MatchState, a: Entity, b: Entity) -> bool:
 	if ar.size == Vector2i.ZERO or br.size == Vector2i.ZERO:
 		return false
 	return TileGrid.distance_between_rects(ar, br) <= 1
+
+
+# Nearest free tile on the 1-ring around `rect` for a worker that must
+# step out of its own build footprint. Deterministic: nearest by
+# chebyshev distance to the worker, ties broken by clockwise ring order
+# from the top-left corner. Returns (-1, -1) when the ring is full.
+static func step_out_tile(state: MatchState, worker: Entity, rect: Rect2i) -> Vector2i:
+	if state == null or state.tile_grid == null or worker == null:
+		return Vector2i(-1, -1)
+	var ring: Array[Vector2i] = []
+	var top := rect.position.y - 1
+	var bottom := rect.position.y + rect.size.y
+	var left := rect.position.x - 1
+	var right := rect.position.x + rect.size.x
+	for x in range(left, right + 1):
+		ring.append(Vector2i(x, top))
+	for y in range(rect.position.y, bottom):
+		ring.append(Vector2i(right, y))
+	for x in range(right, left - 1, -1):
+		ring.append(Vector2i(x, bottom))
+	for y in range(bottom - 1, rect.position.y - 1, -1):
+		ring.append(Vector2i(left, y))
+	var best := Vector2i(-1, -1)
+	var best_distance := -1
+	for tile in ring:
+		if not state.tile_grid.is_in_bounds(tile):
+			continue
+		if state.tile_grid.entity_at(tile) != -1:
+			continue
+		var distance := maxi(absi(tile.x - worker.origin.x), absi(tile.y - worker.origin.y))
+		if best_distance < 0 or distance < best_distance:
+			best = tile
+			best_distance = distance
+	return best
 
 
 static func _is_adjacent_to_rect(state: MatchState, entity: Entity, rect: Rect2i) -> bool:

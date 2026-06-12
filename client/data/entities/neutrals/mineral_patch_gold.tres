@@ -5,9 +5,9 @@
 
 [sub_resource type="Resource" id="Resource_gold"]
 script = ExtResource("1_rsd")
-yield_per_worker_per_turn = 2
+yield_per_worker_per_turn = 3
 capacity = 2400
-max_gatherers = 2
+max_gatherers = 1
 
 [resource]
 script = ExtResource("2_edef")

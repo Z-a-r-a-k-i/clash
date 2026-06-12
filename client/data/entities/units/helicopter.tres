@@ -34,7 +34,7 @@ max_hp = 140
 
 [sub_resource type="Resource" id="Resource_5viv5"]
 script = ExtResource("5_g8u0g")
-speed_tiles_per_turn = 14
+speed_tiles_per_turn = 16
 default_layer = "flying"
 
 [sub_resource type="Resource" id="Resource_g8u0g"]

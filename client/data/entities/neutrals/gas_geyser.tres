@@ -7,6 +7,7 @@
 script = ExtResource("1_gu3yx")
 resource_type = "gas"
 requires_extractor = true
+yield_per_worker_per_turn = 2
 max_gatherers = 3
 
 [resource]

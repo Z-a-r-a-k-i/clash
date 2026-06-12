@@ -20,6 +20,11 @@ extends RefCounted
 const _SOURCE_TYPE_MINERALS := "minerals"
 const _SOURCE_TYPE_GAS := "gas"
 const RALLY_GATHER_MAX_PATH_TILES := 12
+# A resource is gatherable only while it sits within this many tiles
+# (rect-to-rect chebyshev) of one of the owner's completed bases —
+# rallying/gathering works from ANY owned base, and far-away resources
+# stay invalid until a base is built nearby (plan m1/06 wave 3).
+const GATHER_BASE_PROXIMITY_TILES := 10
 const _PATHFINDING := preload("res://scripts/resolver/pathfinding_system.gd")
 const _PRODUCTION := preload("res://scripts/resolver/production_system.gd")
 
@@ -266,11 +271,7 @@ static func rally_gather_source_for_producer(
 	)
 	if source == null:
 		return null
-	var probe: Entity = _rally_worker_probe_for_producer(state, registry, producer)
-	if probe == null:
-		return null
-	var distance: int = _path_distance_to_source(state, registry, probe, source)
-	if distance < 0 or distance > RALLY_GATHER_MAX_PATH_TILES:
+	if not source_near_owned_base(state, registry, producer.owner_player_id, source):
 		return null
 	return source
 
@@ -313,6 +314,8 @@ static func _best_source_for_worker(
 		if source == null or source.id != candidate.id:
 			continue
 		if _resource_type_for_source(registry, source) != requested_type:
+			continue
+		if not source_near_owned_base(state, registry, actor.owner_player_id, source):
 			continue
 		var distance: int = _path_distance_to_source(state, registry, actor, source, context)
 		if distance < 0:
@@ -447,6 +450,34 @@ static func _assigned_gatherer_count_for_source(
 	return count
 
 
+static func source_near_owned_base(
+	state: MatchState,
+	registry: EntityRegistry,
+	owner_id: int,
+	source: Entity,
+	max_tiles: int = GATHER_BASE_PROXIMITY_TILES
+) -> bool:
+	if state == null or registry == null or source == null or state.tile_grid == null:
+		return false
+	var source_rect: Rect2i = state.tile_grid.entity_rect(source.id)
+	if source_rect.size == Vector2i.ZERO:
+		return false
+	for entity in state.entities_sorted_by_id():
+		if entity.owner_player_id != owner_id or entity.current_hp <= 0:
+			continue
+		if entity.is_constructing:
+			continue
+		var def: EntityDef = registry.get_by_id(entity.current_def_id)
+		if def == null or def.id != "base":
+			continue
+		var base_rect: Rect2i = state.tile_grid.entity_rect(entity.id)
+		if base_rect.size == Vector2i.ZERO:
+			continue
+		if TileGrid.distance_between_rects(source_rect, base_rect) <= max_tiles:
+			return true
+	return false
+
+
 static func _source_is_available_to_worker(
 	state: MatchState,
 	registry: EntityRegistry,
@@ -460,6 +491,8 @@ static func _source_is_available_to_worker(
 	if cap <= 0:
 		return false
 	if _assigned_gatherer_count_for_source(source_assignments, source.id, actor.id) >= cap:
+		return false
+	if not source_near_owned_base(state, registry, actor.owner_player_id, source):
 		return false
 	var distance: int = _path_distance_to_source(state, registry, actor, source, context)
 	if distance < 0:

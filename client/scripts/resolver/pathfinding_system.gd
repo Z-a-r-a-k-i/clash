@@ -11,6 +11,11 @@ const OPTION_GOAL_RANGE := "goal_range"
 const OPTION_EXACT_ORIGIN := "exact_origin"
 const OPTION_OCCUPANCY_BLOCKERS := "occupancy_blockers"
 const OPTION_COMPLETE_BLOCKED_AT_CURRENT := "complete_blocked_at_current"
+# Movers-only id set for exact-target completion checks: with friendly
+# pass-through, allies are passable for ROUTING but an exact MOVE target
+# occupied by a stationary ally must still complete-adjacent instead of
+# walking into it forever.
+const OPTION_MOVER_IDS := "mover_ids"
 const OPTION_MAX_EXPANSIONS := "max_expansions"
 const OPTION_PROFILE := "_profile"
 
@@ -244,6 +249,13 @@ static func find_next_step(
 	var start: Vector2i = actor.origin
 	if _is_goal(start, footprint, target_origin, goal_rect, goal_range, exact_origin):
 		return {}
+	var completion_blockers: Dictionary = occupancy_blockers
+	if options.has(OPTION_MOVER_IDS):
+		completion_blockers = {
+			"tiles": occupancy_blockers.get("tiles", {}),
+			"passable": _id_set(options.get(OPTION_MOVER_IDS, {})),
+			"terrain_blocked": occupancy_blockers.get("terrain_blocked"),
+		}
 	if (
 		exact_origin
 		and (
@@ -251,7 +263,7 @@ static func find_next_step(
 			<= 1
 		)
 		and not _can_occupy_origin_with_blockers(
-			state.tile_grid, target_origin, footprint, movement, occupancy_blockers
+			state.tile_grid, target_origin, footprint, movement, completion_blockers
 		)
 	):
 		_count_profile(profile, "pathfinding.exact_blocked_adjacent_no_progress")

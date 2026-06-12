@@ -109,6 +109,44 @@ static func apply_attack_intents(
 			if not killer_by_target.has(target_id):
 				killer_by_target[target_id] = actor_id
 
+		# Splash (plan m1/06 wave 3): sieged attackers damage everything
+		# around the target — friendly fire included — at a falloff.
+		var splash: Dictionary = _MECHANICS_SYSTEM.splash_for(state.get_entity_by_id(actor_id))
+		if not splash.is_empty() and state.tile_grid != null:
+			var target_rect: Rect2i = state.tile_grid.entity_rect(target_id)
+			var splash_damage: int = _MECHANICS_SYSTEM.scale_by_pct(
+				damage, int(splash["falloff_pct"])
+			)
+			if target_rect.size != Vector2i.ZERO and splash_damage > 0:
+				for other in state.entities_sorted_by_id():
+					if other.id == target_id or other.id == actor_id:
+						continue
+					if other.current_hp <= 0:
+						continue
+					var other_def: EntityDef = registry.get_by_id(other.current_def_id)
+					if other_def == null or other_def.resource_source != null:
+						continue
+					var other_rect: Rect2i = state.tile_grid.entity_rect(other.id)
+					if other_rect.size == Vector2i.ZERO:
+						continue
+					if (
+						TileGrid.distance_between_rects(target_rect, other_rect)
+						> int(splash["radius"])
+					):
+						continue
+					other.current_hp = max(0, other.current_hp - splash_damage)
+					var splashed := ResolverEvent.new()
+					splashed.type = ResolverEvent.Type.ENTITY_DAMAGED
+					splashed.actor_id = actor_id
+					splashed.target_id = other.id
+					splashed.damage = splash_damage
+					splashed.hp_after = other.current_hp
+					events.append(splashed)
+					if other.current_hp <= 0:
+						destroyed_targets[other.id] = true
+						if not killer_by_target.has(other.id):
+							killer_by_target[other.id] = actor_id
+
 	var destroyed_ids: Array[int] = []
 	for target_id in destroyed_targets.keys():
 		destroyed_ids.append(target_id)

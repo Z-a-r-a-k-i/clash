@@ -8,7 +8,7 @@ extends SceneTree
 # source-of-truth; subsequent edits happen in the editor, and the baker
 # (run_arena_bake.gd) mirrors the LEFT half across the vertical axis.
 #
-# Layout (80x60, left half; mirrored for P1). Players start with ONE
+# Layout (64x60, left half; mirrored for P1). Players start with ONE
 # pre-built base (the main); the natural is an unclaimed resource field
 # they expand to by building a new base.
 # - MAIN    base (8,8) on a roomy 20x20 plateau; 8 minerals + geyser
@@ -25,7 +25,7 @@ const ROOT_SCRIPT_PATH := "res://scripts/data/mvp_map_root.gd"
 const PLACEMENT_SCRIPT_PATH := "res://scripts/data/entity_placement.gd"
 const TERRAIN_PATCH_SCRIPT_PATH := "res://scripts/data/terrain_patch.gd"
 
-const MAP_WIDTH := 80
+const MAP_WIDTH := 64
 const MAP_HEIGHT := 60
 
 
@@ -160,7 +160,7 @@ func _all_placements() -> Array[Dictionary]:
 				"name": "CenterGold_north",
 				"def_id": "mineral_patch_gold",
 				"owner": -1,
-				"tile": Vector2i(38, 29),
+				"tile": Vector2i(30, 29),
 			}
 		)
 	)
@@ -171,7 +171,7 @@ func _all_placements() -> Array[Dictionary]:
 				"name": "CenterGold_south",
 				"def_id": "mineral_patch_gold",
 				"owner": -1,
-				"tile": Vector2i(38, 31),
+				"tile": Vector2i(30, 31),
 			}
 		)
 	)
@@ -198,7 +198,7 @@ func _all_terrain() -> Array[Dictionary]:
 		. append(
 			{
 				"name": "NorthBlock",
-				"position": Vector2i(36, 10),
+				"position": Vector2i(28, 10),
 				"size": Vector2i(8, 6),
 				"on_axis": true,
 			}
@@ -210,7 +210,7 @@ func _all_terrain() -> Array[Dictionary]:
 		. append(
 			{
 				"name": "SouthBlock",
-				"position": Vector2i(37, 44),
+				"position": Vector2i(29, 44),
 				"size": Vector2i(6, 6),
 				"on_axis": true,
 			}

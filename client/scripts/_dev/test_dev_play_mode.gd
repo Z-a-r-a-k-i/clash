@@ -1923,7 +1923,19 @@ func _test_direct_attack_preview_tracks_live_target() -> bool:
 	if not _move_entity_to(state, actor.id, Vector2i(6, 10)):
 		_free_mode(mode)
 		return false
-	if not _move_entity_to(state, target.id, Vector2i(10, 14)):
+	# Within CIRCULAR sight of the marine (dx^2 + dy^2 <= r^2 = 16) but
+	# outside attack range 3, so the preview routes a movement path. A
+	# second marine spots the live tile after the target relocates.
+	if not _move_entity_to(state, target.id, Vector2i(10, 10)):
+		_free_mode(mode)
+		return false
+	var spotter_id: int = -1
+	for entity: Entity in state.entities_sorted_by_id():
+		if entity.def_id == "marine" and entity.owner_player_id == 0 and entity.id != actor_id:
+			spotter_id = entity.id
+			break
+	if spotter_id < 0 or not _move_entity_to(state, spotter_id, Vector2i(8, 8)):
+		push_error("expected a spotter marine for the live-target tile")
 		_free_mode(mode)
 		return false
 	if not mode.select_entity_id(actor.id) or not mode.issue_attack_selected(target.id):
@@ -1931,7 +1943,9 @@ func _test_direct_attack_preview_tracks_live_target() -> bool:
 		_free_mode(mode)
 		return false
 	var stale_target_tile: Vector2i = target.origin
-	var live_target_tile: Vector2i = stale_target_tile + Vector2i(0, -4)
+	# The live hop stays out of attack range but inside the spotter's
+	# circular sight.
+	var live_target_tile: Vector2i = stale_target_tile + Vector2i(0, -2)
 	if not state.tile_grid.is_rect_clear(Rect2i(live_target_tile, Vector2i.ONE)):
 		live_target_tile = _find_clear_rect_origin_near(state, live_target_tile, Vector2i.ONE)
 	if not state.tile_grid.move(target.id, live_target_tile):
@@ -1966,11 +1980,13 @@ func _test_direct_attack_preview_tracks_live_target() -> bool:
 		if movement_end.distance_to(stale_target_center) <= 0.5:
 			push_error("movement preview should not end at the stale fallback target tile")
 			ok = false
-		if (
-			movement_end.distance_to(live_target_center)
-			>= movement_end.distance_to(stale_target_center)
-		):
-			push_error("movement preview should route toward the live target tile")
+		# Tracking the LIVE target means the planned stop is a firing
+		# tile for the live rect (within attack range), not a march to
+		# the stale tile.
+		var end_tile := Vector2i(int(movement_end.x / 32.0), int(movement_end.y / 32.0))
+		var live_rect: Rect2i = state.tile_grid.entity_rect(target.id)
+		if TileGrid.distance_between_rects(Rect2i(end_tile, Vector2i.ONE), live_rect) > 3:
+			push_error("movement preview should stop within firing range of the live target")
 			ok = false
 		if intent_points.size() >= 2:
 			var intent_start: Vector2 = intent_points[0]
@@ -2332,21 +2348,9 @@ func _test_routes_command_card_orders() -> bool:
 		push_error("train signal should queue TRAIN marine")
 		_free_mode(mode)
 		return false
-	var factory_id: int = _add_runtime_entity(mode.current_state(), "factory", 0, Vector2i(26, 2))
-	if factory_id < 0 or not mode.select_entity_id(factory_id):
-		push_error("expected to select injected factory")
-		_free_mode(mode)
-		return false
-	card.emit_signal("research_requested", "siege_mode_research")
-	orders = mode.input_model().submit_for_player(0).orders
-	var research_order: EntityOrder = orders[orders.size() - 1]
-	if (
-		research_order.type != EntityOrder.Type.RESEARCH
-		or research_order.def_id != "siege_mode_research"
-	):
-		push_error("research signal should queue RESEARCH siege_mode_research")
-		_free_mode(mode)
-		return false
+	# No researches remain in the roster (siege tech removed, plan m1/06
+	# wave 1); RESEARCH order routing stays covered by resolver tests
+	# with synthetic registries.
 	if not mode.select_entity_id(barracks_id):
 		push_error("expected to reselect barracks")
 		_free_mode(mode)

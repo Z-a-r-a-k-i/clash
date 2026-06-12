@@ -21,13 +21,13 @@ origin = Vector2i(3, 3)
 script = ExtResource("1_u4r6n")
 def_id = "gas_geyser"
 owner_player_id = -1
-origin = Vector2i(75, 3)
+origin = Vector2i(59, 3)
 
 [sub_resource type="Resource" id="Resource_gfa3n"]
 script = ExtResource("1_u4r6n")
 def_id = "gas_geyser"
 owner_player_id = -1
-origin = Vector2i(76, 29)
+origin = Vector2i(60, 29)
 
 [sub_resource type="Resource" id="Resource_16bwb"]
 script = ExtResource("1_u4r6n")
@@ -129,121 +129,121 @@ origin = Vector2i(13, 5)
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(66, 5)
+origin = Vector2i(50, 5)
 
 [sub_resource type="Resource" id="Resource_djecj"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(67, 5)
+origin = Vector2i(51, 5)
 
 [sub_resource type="Resource" id="Resource_0r1eh"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(68, 5)
+origin = Vector2i(52, 5)
 
 [sub_resource type="Resource" id="Resource_s76n2"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(69, 5)
+origin = Vector2i(53, 5)
 
 [sub_resource type="Resource" id="Resource_d6wlr"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(70, 5)
+origin = Vector2i(54, 5)
 
 [sub_resource type="Resource" id="Resource_fixut"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(70, 32)
+origin = Vector2i(54, 32)
 
 [sub_resource type="Resource" id="Resource_v2tcf"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(71, 5)
+origin = Vector2i(55, 5)
 
 [sub_resource type="Resource" id="Resource_x166n"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(71, 32)
+origin = Vector2i(55, 32)
 
 [sub_resource type="Resource" id="Resource_kt82j"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(72, 5)
+origin = Vector2i(56, 5)
 
 [sub_resource type="Resource" id="Resource_ygawm"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(72, 32)
+origin = Vector2i(56, 32)
 
 [sub_resource type="Resource" id="Resource_2q6pp"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(73, 5)
+origin = Vector2i(57, 5)
 
 [sub_resource type="Resource" id="Resource_odj85"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(73, 32)
+origin = Vector2i(57, 32)
 
 [sub_resource type="Resource" id="Resource_4yl6n"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(74, 26)
+origin = Vector2i(58, 26)
 
 [sub_resource type="Resource" id="Resource_t0n30"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(74, 27)
+origin = Vector2i(58, 27)
 
 [sub_resource type="Resource" id="Resource_koifm"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(74, 28)
+origin = Vector2i(58, 28)
 
 [sub_resource type="Resource" id="Resource_le8q7"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch"
 owner_player_id = -1
-origin = Vector2i(74, 29)
+origin = Vector2i(58, 29)
 
 [sub_resource type="Resource" id="Resource_t2f70"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch_gold"
 owner_player_id = -1
-origin = Vector2i(38, 29)
+origin = Vector2i(30, 29)
 
 [sub_resource type="Resource" id="Resource_gg1x1"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch_gold"
 owner_player_id = -1
-origin = Vector2i(38, 31)
+origin = Vector2i(30, 31)
 
 [sub_resource type="Resource" id="Resource_ylafx"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch_gold"
 owner_player_id = -1
-origin = Vector2i(41, 29)
+origin = Vector2i(33, 29)
 
 [sub_resource type="Resource" id="Resource_iucmb"]
 script = ExtResource("1_u4r6n")
 def_id = "mineral_patch_gold"
 owner_player_id = -1
-origin = Vector2i(41, 31)
+origin = Vector2i(33, 31)
 
 [sub_resource type="Resource" id="Resource_fui6j"]
 script = ExtResource("1_u4r6n")
@@ -274,31 +274,31 @@ origin = Vector2i(11, 13)
 script = ExtResource("1_u4r6n")
 def_id = "base"
 owner_player_id = 1
-origin = Vector2i(68, 8)
+origin = Vector2i(52, 8)
 
 [sub_resource type="Resource" id="Resource_lcxxb"]
 script = ExtResource("1_u4r6n")
 def_id = "worker"
 owner_player_id = 1
-origin = Vector2i(68, 13)
+origin = Vector2i(52, 13)
 
 [sub_resource type="Resource" id="Resource_7vhp1"]
 script = ExtResource("1_u4r6n")
 def_id = "worker"
 owner_player_id = 1
-origin = Vector2i(69, 13)
+origin = Vector2i(53, 13)
 
 [sub_resource type="Resource" id="Resource_8oo57"]
 script = ExtResource("1_u4r6n")
 def_id = "worker"
 owner_player_id = 1
-origin = Vector2i(70, 13)
+origin = Vector2i(54, 13)
 
 [sub_resource type="Resource" id="Resource_ihxcg"]
 script = ExtResource("1_u4r6n")
 def_id = "worker"
 owner_player_id = 1
-origin = Vector2i(71, 13)
+origin = Vector2i(55, 13)
 
 [sub_resource type="Resource" id="Resource_42by5"]
 script = ExtResource("4_y1b5t")
@@ -322,37 +322,37 @@ tags = Array[String](["cliff"])
 
 [sub_resource type="Resource" id="Resource_i50pb"]
 script = ExtResource("4_y1b5t")
-rect = Rect2i(36, 10, 8, 6)
+rect = Rect2i(28, 10, 8, 6)
 tags = Array[String](["cliff"])
 
 [sub_resource type="Resource" id="Resource_650s8"]
 script = ExtResource("4_y1b5t")
-rect = Rect2i(37, 44, 6, 6)
+rect = Rect2i(29, 44, 6, 6)
 tags = Array[String](["cliff"])
 
 [sub_resource type="Resource" id="Resource_4oj6y"]
 script = ExtResource("4_y1b5t")
-rect = Rect2i(50, 24, 4, 8)
+rect = Rect2i(34, 24, 4, 8)
 tags = Array[String](["cliff"])
 
 [sub_resource type="Resource" id="Resource_ullvp"]
 script = ExtResource("4_y1b5t")
-rect = Rect2i(60, 0, 2, 12)
+rect = Rect2i(44, 0, 2, 12)
 tags = Array[String](["cliff"])
 
 [sub_resource type="Resource" id="Resource_jt0gg"]
 script = ExtResource("4_y1b5t")
-rect = Rect2i(62, 26, 2, 8)
+rect = Rect2i(46, 26, 2, 8)
 tags = Array[String](["cliff"])
 
 [sub_resource type="Resource" id="Resource_6o18m"]
 script = ExtResource("4_y1b5t")
-rect = Rect2i(68, 18, 12, 2)
+rect = Rect2i(52, 18, 12, 2)
 tags = Array[String](["cliff"])
 
 [resource]
 script = ExtResource("2_yf1h2")
-map_width = 80
+map_width = 64
 map_height = 60
 starting_resources_per_player = {
 0: {

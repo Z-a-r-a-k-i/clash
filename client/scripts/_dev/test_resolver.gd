@@ -312,6 +312,14 @@ func _all_tests() -> Array:
 			_test_build_without_health_starts_with_positive_hp
 		],
 		["build_far_worker_delays_site_creation", _test_build_far_worker_delays_site_creation],
+		[
+			"build_worker_inside_footprint_walks_out_and_builds",
+			_test_build_worker_inside_footprint_walks_out_and_builds
+		],
+		["trained_unit_spawns_toward_rally", _test_trained_unit_spawns_toward_rally],
+		["sieged_splash_hits_ring_with_friendly_fire", _test_sieged_splash_ring_friendly_fire],
+		["gather_rejected_far_from_any_base", _test_gather_rejected_far_from_any_base],
+		["rally_gather_valid_near_other_base", _test_rally_gather_valid_near_other_base],
 		["build_worker_walks_to_site", _test_build_worker_walks_to_site],
 		[
 			"build_progress_only_while_worker_adjacent",
@@ -1640,6 +1648,7 @@ func _test_failed_mover_remains_blocker() -> bool:
 func _test_gather_travel_worker_is_passable() -> bool:
 	var registry: EntityRegistry = _gather_registry(5, 1, 1)
 	var state: MatchState = _state_with_grid(7, 3)
+	_add_gather_base(state, registry, 0, Vector2i(5, 0))
 	var marine: Entity = _make_entity(state, "worker", 0, Vector2i(1, 1), 50, "ground")
 	marine.gather_state = GatherState.new()
 	var worker: Entity = _make_gather_worker(state, 0, Vector2i(2, 1))
@@ -2645,6 +2654,101 @@ func _test_status_expires_at_zero() -> bool:
 	return new_actor.statuses.is_empty()
 
 
+func _test_sieged_splash_ring_friendly_fire() -> bool:
+	# Plan m1/06 wave 3: a splashing attacker (sieged tank) deals full
+	# damage to the target and falloff damage to EVERY adjacent entity —
+	# friendly fire included. Resources are immune.
+	var registry := _two_unit_registry(10, 6, ["ground"] as Array[String], 50)
+	var state := _state_with_grid(20, 20)
+	var attacker := _make_entity(state, "marine", 0, Vector2i(2, 5), 50, "ground")
+	state.tile_grid.place(attacker.id, Rect2i(2, 5, 1, 1))
+	var splash_status := StatusEffect.new()
+	splash_status.status_id = "sieged"
+	splash_status.duration_turns = StatusEffect.INDEFINITE
+	splash_status.splash_radius = 1
+	splash_status.splash_falloff_pct = 50
+	attacker.statuses = [splash_status]
+	var target := _make_entity(state, "marine", 1, Vector2i(6, 5), 50, "ground")
+	state.tile_grid.place(target.id, Rect2i(6, 5, 1, 1))
+	var enemy_neighbor := _make_entity(state, "marine", 1, Vector2i(7, 5), 50, "ground")
+	state.tile_grid.place(enemy_neighbor.id, Rect2i(7, 5, 1, 1))
+	var friendly_neighbor := _make_entity(state, "marine", 0, Vector2i(6, 6), 50, "ground")
+	state.tile_grid.place(friendly_neighbor.id, Rect2i(6, 6, 1, 1))
+	var far_enemy := _make_entity(state, "marine", 1, Vector2i(9, 5), 50, "ground")
+	state.tile_grid.place(far_enemy.id, Rect2i(9, 5, 1, 1))
+	# Muzzle every bystander so only the splash shot moves hp.
+	for bystander: Entity in [target, enemy_neighbor, friendly_neighbor, far_enemy]:
+		var muzzle := StatusEffect.new()
+		muzzle.status_id = "muzzled"
+		muzzle.duration_turns = StatusEffect.INDEFINITE
+		muzzle.blocks_attack = true
+		bystander.statuses.append(muzzle)
+
+	var order := EntityOrder.new()
+	order.type = EntityOrder.Type.TARGET
+	order.entity_id = attacker.id
+	order.target_entity_id = target.id
+	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
+
+	var new_target := result.new_state.get_entity_by_id(target.id)
+	var new_enemy := result.new_state.get_entity_by_id(enemy_neighbor.id)
+	var new_friendly := result.new_state.get_entity_by_id(friendly_neighbor.id)
+	var new_far := result.new_state.get_entity_by_id(far_enemy.id)
+	if new_target.current_hp != 40:
+		push_error("target should take full damage, hp=%d" % new_target.current_hp)
+		return false
+	if new_enemy.current_hp != 45:
+		push_error("adjacent enemy should take 50%% splash, hp=%d" % new_enemy.current_hp)
+		return false
+	if new_friendly.current_hp != 45:
+		push_error("adjacent FRIENDLY should take splash too, hp=%d" % new_friendly.current_hp)
+		return false
+	if new_far.current_hp != 50:
+		push_error("units outside the ring must be untouched")
+		return false
+	return true
+
+
+func _test_gather_rejected_far_from_any_base() -> bool:
+	# Plan m1/06 wave 3: resources count as gatherable only near an
+	# owned completed base. No base nearby -> GATHER is rejected.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(40, 10)
+	_add_gather_base(state, registry, 0, Vector2i(1, 1))
+	var worker := _make_gather_worker(state, 0, Vector2i(30, 5))
+	var patch := _make_entity(state, "minpatch", -1, Vector2i(32, 5), 100, "ground")
+	patch.current_resource_amount = 1500
+	state.tile_grid.place(patch.id, Rect2i(32, 5, 1, 1))
+
+	var orders := OrderBuilder.fan_out_gather([worker.id] as Array[int], patch.id)
+	var result := Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	var new_worker := result.new_state.get_entity_by_id(worker.id)
+	if new_worker.gather_state.phase != GatherState.Phase.IDLE:
+		push_error("worker should stay idle when the source is far from every base")
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.ORDER_REJECTED)
+
+
+func _test_rally_gather_valid_near_other_base() -> bool:
+	# Plan m1/06 wave 3: a producer can rally-gather to a resource that
+	# sits near ANY owned base, not just near itself.
+	var registry := _gather_registry(5, 1, 4)
+	var state := _state_with_grid(40, 10)
+	# Producer base far on the left; second base right beside the patch.
+	var producer := _add_gather_base(state, registry, 0, Vector2i(1, 1))
+	producer.production_state = ProductionState.new()
+	_add_gather_base(state, registry, 0, Vector2i(28, 4))
+	var patch := _make_entity(state, "minpatch", -1, Vector2i(32, 5), 100, "ground")
+	patch.current_resource_amount = 1500
+	state.tile_grid.place(patch.id, Rect2i(32, 5, 1, 1))
+
+	var source := GatherSystem.rally_gather_source_for_producer(state, registry, producer, patch.id)
+	if source == null or source.id != patch.id:
+		push_error("rally gather should accept a source near another owned base")
+		return false
+	return true
+
+
 func _test_status_indefinite_persists() -> bool:
 	# INDEFINITE duration never ticks away; it stays until cleared.
 	var registry := _movable_registry(4)
@@ -3632,6 +3736,7 @@ func _test_gather_order_distribution_sets_phase() -> bool:
 	# MOVING_TO_SOURCE after the single forced tick.
 	var registry := _gather_registry(5, 1, 4)
 	var state := _state_with_grid(30, 30)
+	_add_gather_base(state, registry, 0, Vector2i(25, 8))
 	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
 	worker.gather_state = GatherState.new()
 	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
@@ -3658,6 +3763,7 @@ func _test_gather_stationary_minerals_credit_each_tick() -> bool:
 	worker.gather_state = GatherState.new()
 	worker.gather_state.phase = GatherState.Phase.GATHERING
 	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	_add_gather_base(state, registry, 0, Vector2i(10, 8))
 	var patch: Entity = _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
 	patch.current_resource_amount = 100
 	state.tile_grid.place(patch.id, Rect2i(6, 5, 1, 1))
@@ -3716,6 +3822,7 @@ func _test_gather_stationary_gas_credit_each_tick() -> bool:
 func _test_gather_rejects_third_worker_on_minerals() -> bool:
 	var registry: EntityRegistry = _gather_registry(50, 1, 4)
 	var state: MatchState = _state_with_grid(20, 20)
+	_add_gather_base(state, registry, 0, Vector2i(10, 8))
 	var patch: Entity = _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
 	patch.current_resource_amount = 100
 	state.tile_grid.place(patch.id, Rect2i(6, 5, 1, 1))
@@ -3776,6 +3883,7 @@ func _test_gather_rejects_fourth_worker_on_gas() -> bool:
 func _test_gather_saturation_is_global_per_source() -> bool:
 	var registry: EntityRegistry = _gather_registry(50, 1, 4)
 	var state: MatchState = _state_with_grid(20, 20)
+	_add_gather_base(state, registry, 0, Vector2i(10, 8))
 	var patch: Entity = _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
 	patch.current_resource_amount = 100
 	state.tile_grid.place(patch.id, Rect2i(6, 5, 1, 1))
@@ -3803,6 +3911,7 @@ func _test_gather_saturation_is_global_per_source() -> bool:
 func _test_gather_retargets_saturated_mineral_source() -> bool:
 	var registry: EntityRegistry = _gather_registry(50, 1, 4)
 	var state: MatchState = _state_with_grid(20, 20)
+	_add_gather_base(state, registry, 0, Vector2i(10, 8))
 	var full_patch: Entity = _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
 	full_patch.current_resource_amount = 100
 	state.tile_grid.place(full_patch.id, Rect2i(6, 5, 1, 1))
@@ -3976,6 +4085,7 @@ func _test_gather_travel_uses_full_speed_budget() -> bool:
 	var worker := _make_entity(state, "worker", 0, Vector2i(5, 5), 50, "ground")
 	worker.gather_state = GatherState.new()
 	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	_add_gather_base(state, registry, 0, Vector2i(20, 8))
 	var patch := _make_entity(state, "minpatch", -1, Vector2i(20, 5), 1500, "ground")
 	patch.current_resource_amount = 1500
 	state.tile_grid.place(patch.id, Rect2i(20, 5, 1, 1))
@@ -4064,6 +4174,7 @@ func _test_gather_does_not_need_deposit_sink() -> bool:
 	worker.gather_state = GatherState.new()
 	worker.gather_state.phase = GatherState.Phase.GATHERING
 	state.tile_grid.place(worker.id, Rect2i(5, 5, 1, 1))
+	_add_gather_base(state, registry, 0, Vector2i(10, 8))
 	var patch: Entity = _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
 	patch.current_resource_amount = 100
 	state.tile_grid.place(patch.id, Rect2i(6, 5, 1, 1))
@@ -5023,6 +5134,71 @@ func _test_build_adjacent_worker_starts_constructing_entity() -> bool:
 	)
 
 
+func _test_build_worker_inside_footprint_walks_out_and_builds() -> bool:
+	# Playtest 2026-06-12: ordering a building on the worker's own tile
+	# was rejected ("worker blocks its own building"). The order must be
+	# accepted, the worker walks out to the ring, and construction starts.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(6, 6), 50, "ground")
+	worker.def_id = "worker"
+	worker.current_def_id = "worker"
+	state.tile_grid.place(worker.id, Rect2i(6, 6, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	if _has_event_of_type(result.events, ResolverEvent.Type.ORDER_REJECTED):
+		push_error("BUILD on the worker's own tile should not be rejected")
+		return false
+	var found_building: Entity = null
+	for e in result.new_state.entities:
+		if e != null and e.def_id == "barracks":
+			found_building = e
+	if found_building == null:
+		push_error("worker should walk out of the footprint and start the build")
+		return false
+	if not found_building.is_constructing:
+		return false
+	var w := result.new_state.get_entity_by_id(worker.id)
+	var rect := Rect2i(5, 5, 3, 3)
+	if rect.intersects(Rect2i(w.origin, Vector2i.ONE)):
+		push_error("worker should have stepped out of the build footprint")
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_STARTED)
+
+
+func _test_trained_unit_spawns_toward_rally() -> bool:
+	# Playtest 2026-06-12: units always popped out on the producer's top
+	# edge. With a rally point set, the spawn tile must lean toward it.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	barracks.production_state.rally_mode = ProductionState.RALLY_MODE_MOVE
+	barracks.production_state.rally_target_tile = Vector2i(6, 14)
+	state.tile_grid.place(barracks.id, Rect2i(5, 5, 3, 3))
+	var marine_def: EntityDef = registry.get_by_id("marine")
+	var spawn := ProductionSystem.find_spawn_tile(state, registry, barracks, marine_def)
+	if spawn.y != 8:
+		push_error("spawn should land on the rally-facing bottom edge, got %s" % str(spawn))
+		return false
+	# Without a rally the perimeter order still yields a deterministic
+	# adjacent tile.
+	barracks.production_state.rally_mode = ProductionState.RALLY_MODE_NONE
+	var fallback := ProductionSystem.find_spawn_tile(state, registry, barracks, marine_def)
+	if fallback == Vector2i(-1, -1):
+		return false
+	return true
+
+
 func _test_build_without_health_starts_with_positive_hp() -> bool:
 	var registry: EntityRegistry = _build_registry()
 	var barracks_def: EntityDef = registry.get_by_id("barracks")
@@ -5880,9 +6056,10 @@ func _test_registry_loads_from_data() -> bool:
 	for building in ["base", "barracks", "factory", "starport", "refinery"]:
 		if registry.get_by_id(building) == null:
 			return false
-	for research in ["siege_mode_research"]:
-		if registry.get_research_by_id(research) == null:
-			return false
+	# No researches in the roster since siege tech was removed (plan
+	# m1/06 wave 1); the registry must still load with an empty list.
+	if registry.researches == null:
+		return false
 	return true
 
 
@@ -6056,18 +6233,19 @@ func _test_scenario_loader_auto_start_respects_mineral_saturation() -> bool:
 			assigned += 1
 		elif entity.gather_state.phase == GatherState.Phase.IDLE:
 			idle += 1
-	if assigned != 2:
+	# 3 workers, 1 slot on the patch: the other two stay idle.
+	if assigned != 1:
 		push_error(
 			(
 				(
 					"[scenario_loader_auto_start_respects_mineral_saturation] "
-					+ "expected 2 assigned workers, got %d"
+					+ "expected 1 assigned worker (cap 1/crystal), got %d"
 				)
 				% assigned
 			)
 		)
 		return false
-	return idle == 1
+	return idle == 2
 
 
 func _test_scenario_loader_snaps_refinery_to_geyser_origin() -> bool:
@@ -6474,6 +6652,29 @@ func _make_gather_worker(state: MatchState, owner: int, origin: Vector2i) -> Ent
 
 func _add_opponent_keepalive_building(state: MatchState, registry: EntityRegistry) -> Entity:
 	return _add_player_keepalive_building(state, registry, 1)
+
+
+func _add_gather_base(
+	state: MatchState, registry: EntityRegistry, owner: int, origin: Vector2i
+) -> Entity:
+	# Gathering requires a completed owned base near the source (plan
+	# m1/06 wave 3); gather fixtures plant one beside their patches.
+	var has_def := false
+	for existing in registry.entities:
+		if existing != null and existing.id == "base":
+			has_def = true
+			break
+	if not has_def:
+		var def := EntityDef.new()
+		def.id = "base"
+		def.footprint = Vector2i(2, 2)
+		def.tags.append("building")
+		var defs: Array[EntityDef] = registry.entities.duplicate()
+		defs.append(def)
+		registry.entities = defs
+	var base := _make_entity(state, "base", owner, origin, 1000, "ground")
+	state.tile_grid.place(base.id, Rect2i(origin, Vector2i(2, 2)))
+	return base
 
 
 func _add_player_keepalive_building(

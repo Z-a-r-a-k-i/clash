@@ -44,6 +44,13 @@ const OVERRIDE_ON := 1
 @export var damage_override: int = -1
 @export var attack_range_override: int = -1
 
+# Splash: attacks by an entity carrying this status also damage every
+# entity (any owner — friendly fire) whose rect lies within
+# `splash_radius` tiles of the target's rect, for `splash_falloff_pct`
+# percent of the attack damage. 0 = no splash.
+@export var splash_radius: int = 0
+@export var splash_falloff_pct: int = 50
+
 # Turn-hook: applied at end of turn. Negative = damage (can destroy),
 # positive = regeneration (capped at max HP).
 @export var end_of_turn_hp_delta: int = 0
@@ -67,6 +74,8 @@ func clone() -> StatusEffect:
 	c.override_attacks_after_movement = override_attacks_after_movement
 	c.damage_override = damage_override
 	c.attack_range_override = attack_range_override
+	c.splash_radius = splash_radius
+	c.splash_falloff_pct = splash_falloff_pct
 	c.end_of_turn_hp_delta = end_of_turn_hp_delta
 	c.sprite_key = sprite_key
 	c.overlay_keys = overlay_keys.duplicate()

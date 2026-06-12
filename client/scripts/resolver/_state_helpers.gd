@@ -397,7 +397,11 @@ static func _handle_build_order(
 	elif not state.tile_grid.is_rect_in_bounds(rect):
 		_emit_order_rejected(order.entity_id, "off_grid", events)
 		return
-	elif not _can_place_build_rect(state, rect):
+	# The ordering worker may stand inside the rect: it walks out to an
+	# adjacent tile before the building spawns, so only OTHER occupants
+	# block placement (playtest 2026-06-12: "worker blocks its own
+	# building").
+	elif not _can_place_build_rect(state, rect, worker.id):
 		_emit_order_rejected(order.entity_id, "tile_occupied", events)
 		return
 	var player := state.get_player(worker.owner_player_id)
