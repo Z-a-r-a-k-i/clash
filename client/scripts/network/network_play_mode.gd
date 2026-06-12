@@ -1103,20 +1103,33 @@ func _update_outcome_overlay(state: MatchState) -> void:
 
 func _refresh_action_previews() -> void:
 	var renderer: MatchRenderer = _renderer()
-	if renderer == null or not renderer.has_method("set_action_previews"):
+	if renderer == null:
 		return
 	var state: MatchState = _surface.current_state() if _surface != null else null
-	var previews: Array[Dictionary] = _action_preview_builder.build(
-		state,
-		_registry,
-		_input,
-		_player_slot,
-		_input.selected_entity_id(),
-		_show_all_orders,
-		renderer,
-		_input.selected_entity_ids()
-	)
-	renderer.call("set_action_previews", previews)
+	if renderer.has_method("set_action_previews"):
+		var previews: Array[Dictionary] = _action_preview_builder.build(
+			state,
+			_registry,
+			_input,
+			_player_slot,
+			_input.selected_entity_id(),
+			_show_all_orders,
+			renderer,
+			_input.selected_entity_ids()
+		)
+		renderer.call("set_action_previews", previews)
+	if renderer.has_method("set_target_intent_previews"):
+		var target_intents: Array[Dictionary] = _action_preview_builder.build_target_intents(
+			state,
+			_registry,
+			_input,
+			_player_slot,
+			_input.selected_entity_id(),
+			_show_all_orders,
+			renderer,
+			_input.selected_entity_ids()
+		)
+		renderer.call("set_target_intent_previews", target_intents)
 
 
 func _active_idle_worker_ids() -> Array[int]:

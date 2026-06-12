@@ -62,6 +62,14 @@ func _all_tests() -> Array:
 			"dev_input_attack_move_requeues_until_enemy_in_range",
 			_test_attack_move_requeues_until_enemy_in_range
 		],
+		[
+			"dev_input_attack_move_prefers_queued_target_priority",
+			_test_attack_move_prefers_queued_target_priority
+		],
+		[
+			"dev_input_attack_move_uses_focus_target_priority",
+			_test_attack_move_uses_focus_target_priority
+		],
 		["dev_input_drops_completed_move_assist", _test_drops_completed_move_assist],
 		["dev_input_cancel_clears_move_assist", _test_cancel_clears_move_assist],
 		[
@@ -719,6 +727,50 @@ func _test_attack_move_requeues_until_enemy_in_range() -> bool:
 		push_error("attack-move should stop requeueing once enemy is in weapon range")
 		return false
 	return true
+
+
+func _test_attack_move_prefers_queued_target_priority() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	_add_entity(setup.state, 8, "marine", 1, Vector2i(8, 2), Vector2i(1, 1), 45)
+	var actor: Entity = setup.state.get_entity_by_id(5)
+	actor.focus_target_entity_id = 8
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.issue_target(2):
+		push_error("expected TARGET to queue for selected marine")
+		return false
+	if not input.issue_attack_move(Vector2i(11, 2)):
+		push_error("expected Attack Move to queue for selected marine")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("attack-move should replace queued target orders, got %d" % orders.size())
+		return false
+	return _expect_order(orders[0], EntityOrder.Type.ATTACK_MOVE, 5, Vector2i(11, 2), -1, [2])
+
+
+func _test_attack_move_uses_focus_target_priority() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	var actor: Entity = setup.state.get_entity_by_id(5)
+	actor.focus_target_entity_id = 2
+	input.bind_context(setup.state, setup.registry)
+	input.set_active_player_id(0)
+	input.select_entity(5)
+	if not input.issue_attack_move(Vector2i(11, 2)):
+		push_error("expected Attack Move to queue for selected marine")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 1:
+		push_error("attack-move should queue one order, got %d" % orders.size())
+		return false
+	return _expect_order(orders[0], EntityOrder.Type.ATTACK_MOVE, 5, Vector2i(11, 2), -1, [2])
 
 
 func _test_drops_completed_move_assist() -> bool:

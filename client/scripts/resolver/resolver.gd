@@ -501,12 +501,32 @@ static func _attack_order_for_opportunity(
 	if queued_order != null:
 		if queued_order.type == EntityOrder.Type.TARGET:
 			return queued_order
-		if (
-			queued_order.type == EntityOrder.Type.MOVE
-			or queued_order.type == EntityOrder.Type.ATTACK_MOVE
-		):
+		if queued_order.type == EntityOrder.Type.ATTACK_MOVE:
+			return _attack_order_for_queued_attack_move(
+				state, entity, queued_order, registry, visibility_by_player
+			)
+		if queued_order.type == EntityOrder.Type.MOVE:
 			return _standing_attack_order(state, entity, registry, false, visibility_by_player)
 	return _standing_attack_order(state, entity, registry, false, visibility_by_player)
+
+
+static func _attack_order_for_queued_attack_move(
+	state: MatchState,
+	entity: Entity,
+	queued_order: EntityOrder,
+	registry: EntityRegistry,
+	visibility_by_player: Dictionary
+) -> EntityOrder:
+	var attack_order: EntityOrder = _standing_attack_order(
+		state, entity, registry, false, visibility_by_player
+	)
+	if attack_order == null:
+		return null
+	if queued_order == null or queued_order.target_priority_chain.is_empty():
+		return attack_order
+	attack_order.target_priority_chain = queued_order.target_priority_chain.duplicate()
+	attack_order.target_entity_id = attack_order.target_priority_chain[0]
+	return attack_order
 
 
 static func _max_live_movement_speed(state: MatchState, registry: EntityRegistry) -> int:
@@ -537,8 +557,8 @@ static func _attack_move_halted_entity_ids(
 		var order := _STATE_HELPERS.action_at(per_entity, entity.id, tick)
 		if order == null or order.type != EntityOrder.Type.ATTACK_MOVE:
 			continue
-		var attack_order: EntityOrder = _standing_attack_order(
-			state, entity, registry, false, visibility_by_player
+		var attack_order: EntityOrder = _attack_order_for_queued_attack_move(
+			state, entity, order, registry, visibility_by_player
 		)
 		if (
 			attack_order != null

@@ -193,12 +193,15 @@ func issue_attack_move(target_tile: Vector2i) -> bool:
 	var queue_requested: bool = _consume_queue_modifier()
 	var target_tiles_by_entity: Dictionary = _formation_target_tiles(eligible, target_tile)
 	for actor in eligible:
+		var priority_chain: Array[int] = _attack_move_priority_chain_for_actor(actor)
 		var order: EntityOrder = EntityOrder.new()
 		order.type = EntityOrder.Type.ATTACK_MOVE
 		order.entity_id = actor.id
 		order.target_tile = target_tiles_by_entity.get(actor.id, target_tile)
+		order.target_priority_chain = priority_chain
 		actor.focus_target_entity_id = -1
-		_append_order_with_queue_request(order, queue_requested)
+		if _append_order_with_queue_request(order, queue_requested):
+			_remove_standing_target_for_entity(actor.id)
 	_status_message = _group_order_status(
 		"Queued Attack", eligible, selected.size() - eligible.size(), "to %s" % str(target_tile)
 	)
@@ -1538,6 +1541,39 @@ func _remove_standing_target_for_entity(entity_id: int) -> void:
 				and order.type == EntityOrder.Type.TARGET
 			):
 				submit_turn.orders.remove_at(i)
+
+
+func _attack_move_priority_chain_for_actor(actor: Entity) -> Array[int]:
+	if actor == null:
+		return []
+	var queued_target: EntityOrder = _latest_queued_target_order_for_actor(actor.id)
+	if queued_target != null:
+		var chain: Array[int] = _chain_copy(queued_target.target_priority_chain)
+		if chain.is_empty() and queued_target.target_entity_id >= 0:
+			chain.append(queued_target.target_entity_id)
+		if not chain.is_empty():
+			return chain
+	if actor.focus_target_entity_id >= 0:
+		var focus: Entity = _live_enemy_for_actor(actor, actor.focus_target_entity_id)
+		if focus != null and _is_entity_visible_to_player(focus, actor.owner_player_id):
+			return [focus.id]
+	return []
+
+
+func _latest_queued_target_order_for_actor(entity_id: int) -> EntityOrder:
+	var submit: SubmitTurn = _submission_for(_active_player_id)
+	for i in range(submit.orders.size() - 1, -1, -1):
+		var order: EntityOrder = submit.orders[i]
+		if order != null and order.entity_id == entity_id and order.type == EntityOrder.Type.TARGET:
+			return order
+	return null
+
+
+func _chain_copy(source: Array[int]) -> Array[int]:
+	var out: Array[int] = []
+	for target_id in source:
+		out.append(target_id)
+	return out
 
 
 func _prune_future_orders() -> void:

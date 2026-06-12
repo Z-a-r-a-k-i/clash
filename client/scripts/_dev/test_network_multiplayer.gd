@@ -72,6 +72,10 @@ func _all_tests() -> Array[Array]:
 		["network_group_right_click_fans_out", _test_network_group_orders],
 		["network_right_click_enemy_queues_target", _test_network_right_click_enemy_queues_target],
 		[
+			"network_right_click_enemy_queues_attack_target",
+			_test_network_right_click_enemy_queues_attack_target
+		],
+		[
 			"network_submit_in_flight_blocks_local_edits",
 			_test_network_submit_in_flight_blocks_local_edits
 		],
@@ -914,6 +918,90 @@ func _test_network_right_click_enemy_queues_target() -> bool:
 		or orders[0].target_tile != enemy.origin
 	):
 		push_error("network right-click on enemy should queue a direct TARGET order")
+		ok = false
+	remove_child(mode)
+	mode.queue_free()
+	return ok
+
+
+func _test_network_right_click_enemy_queues_attack_target() -> bool:
+	var ok: bool = true
+	if not _network_right_click_enemy_queues_attack_target_for_slot(0):
+		ok = false
+	if not _network_right_click_enemy_queues_attack_target_for_slot(1):
+		ok = false
+	return ok
+
+
+func _network_right_click_enemy_queues_attack_target_for_slot(player_slot: int) -> bool:
+	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
+		return false
+	var mode: Node = script.new()
+	add_child(mode)
+	mode.call("ensure_initialized")
+	var loaded: LoadedScenario = _load_combat()
+	if loaded == null:
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	var actor_id: int = _first_target_capable_entity_id(loaded.state, loaded.registry, player_slot)
+	var enemy_id: int = _first_enemy_entity_id(loaded.state, player_slot)
+	var enemy: Entity = loaded.state.get_entity_by_id(enemy_id)
+	if enemy != null and loaded.state.tile_grid != null:
+		var visible_enemy_origin: Vector2i = (
+			Vector2i(8, 10) if player_slot == 0 else Vector2i(10, 10)
+		)
+		if loaded.state.tile_grid.move(enemy.id, visible_enemy_origin):
+			enemy.origin = visible_enemy_origin
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, player_slot)
+	var input: DevTurnInput = mode.call("input_model") as DevTurnInput
+	if actor_id < 0 or enemy == null or input == null:
+		push_error(
+			(
+				"network right-click target test requires combat actor, enemy, and input for P%d"
+				% player_slot
+			)
+		)
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("select_entity_id", actor_id)
+	mode.call(
+		"_unhandled_input", _mouse_button(MOUSE_BUTTON_RIGHT, true, _tile_center_px(enemy.origin))
+	)
+	var ok: bool = true
+	var actor: Entity = loaded.state.get_entity_by_id(actor_id)
+	if actor == null or actor.focus_target_entity_id != -1:
+		push_error(
+			(
+				"network right-click target should not mutate focus before resolve for P%d"
+				% player_slot
+			)
+		)
+		ok = false
+	var orders: Array[EntityOrder] = input.submit_for_player(player_slot).orders
+	if (
+		orders.size() != 1
+		or orders[0].type != EntityOrder.Type.TARGET
+		or orders[0].target_priority_chain != ([enemy_id] as Array[int])
+		or orders[0].target_entity_id != enemy_id
+		or orders[0].target_tile != enemy.origin
+	):
+		push_error(
+			(
+				"network right-click enemy should queue TARGET against the clicked enemy for P%d"
+				% player_slot
+			)
+		)
+		ok = false
+	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var renderer: MatchRenderer = surface.renderer() if surface != null else null
+	if renderer == null or renderer.call("target_intent_preview_count") != 1:
+		push_error(
+			"network right-click enemy should show a target intent preview for P%d" % player_slot
+		)
 		ok = false
 	remove_child(mode)
 	mode.queue_free()

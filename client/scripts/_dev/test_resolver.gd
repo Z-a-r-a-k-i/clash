@@ -140,6 +140,14 @@ func _all_tests() -> Array:
 			"attack_move_fires_before_moving_when_enemy_in_range",
 			_test_move_and_auto_attack_resolve_independently
 		],
+		[
+			"attack_move_priority_target_in_range_wins_over_closest",
+			_test_attack_move_priority_target_in_range_wins_over_closest
+		],
+		[
+			"attack_move_priority_target_out_of_range_falls_back_to_closest",
+			_test_attack_move_priority_target_out_of_range_falls_back_to_closest
+		],
 		["multiple_moves_latest_destination_wins", _test_multiple_moves_latest_destination_wins],
 		["multiple_targets_latest_focus_wins", _test_multiple_targets_latest_focus_wins],
 		[
@@ -1699,6 +1707,86 @@ func _test_move_and_auto_attack_resolve_independently() -> bool:
 			move_count += 1
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
 	return damaged and move_count == 0 and new_actor.origin == Vector2i(5, 5)
+
+
+func _test_attack_move_priority_target_in_range_wins_over_closest() -> bool:
+	var registry := _combat_mover_registry(6, 3, 4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var priority_enemy := _make_entity(state, "marine", 1, Vector2i(8, 5), 50, "ground")
+	var closer_enemy := _make_entity(state, "marine", 1, Vector2i(5, 7), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(priority_enemy.id, Rect2i(8, 5, 1, 1))
+	state.tile_grid.place(closer_enemy.id, Rect2i(5, 7, 1, 1))
+
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.ATTACK_MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(12, 5)
+	move.target_priority_chain = [priority_enemy.id]
+
+	var result := Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit(), registry, null
+	)
+	var priority_damaged := false
+	var closer_damaged := false
+	var move_count := 0
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
+			priority_damaged = priority_damaged or ev.target_id == priority_enemy.id
+			closer_damaged = closer_damaged or ev.target_id == closer_enemy.id
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			move_count += 1
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return (
+		priority_damaged
+		and not closer_damaged
+		and move_count == 0
+		and new_actor.origin == actor.origin
+	)
+
+
+func _test_attack_move_priority_target_out_of_range_falls_back_to_closest() -> bool:
+	var registry := _combat_mover_registry(6, 3, 4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var far_priority := _make_entity(state, "marine", 1, Vector2i(12, 5), 50, "ground")
+	var close_enemy := _make_entity(state, "marine", 1, Vector2i(7, 5), 50, "ground")
+	var stale_focus := _make_entity(state, "marine", 1, Vector2i(8, 5), 50, "ground")
+	actor.focus_target_entity_id = stale_focus.id
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(far_priority.id, Rect2i(12, 5, 1, 1))
+	state.tile_grid.place(close_enemy.id, Rect2i(7, 5, 1, 1))
+	state.tile_grid.place(stale_focus.id, Rect2i(8, 5, 1, 1))
+
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.ATTACK_MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(12, 5)
+	move.target_priority_chain = [far_priority.id]
+
+	var result := Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit(), registry, null
+	)
+	var far_damaged := false
+	var close_damaged := false
+	var stale_focus_damaged := false
+	var move_count := 0
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == actor.id:
+			far_damaged = far_damaged or ev.target_id == far_priority.id
+			close_damaged = close_damaged or ev.target_id == close_enemy.id
+			stale_focus_damaged = stale_focus_damaged or ev.target_id == stale_focus.id
+		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == actor.id:
+			move_count += 1
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return (
+		close_damaged
+		and not far_damaged
+		and not stale_focus_damaged
+		and move_count == 0
+		and new_actor.origin == actor.origin
+	)
 
 
 func _test_multiple_moves_latest_destination_wins() -> bool:

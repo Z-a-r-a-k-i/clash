@@ -53,9 +53,9 @@ enum Type {
 # MOVE / ATTACK_MOVE / BUILD — destination tile.
 @export var target_tile: Vector2i = Vector2i.ZERO
 
-# TARGET — priority list. Resolver fires at the first live, visible entity in
-# this list; if the target is invalid or out of range, falls back to closest
-# visible enemy in range. Primary target lives at index 0.
+# TARGET / ATTACK_MOVE — priority list. Resolver fires at the first live,
+# visible entity in this list; if the target is invalid or out of range, falls
+# back to closest visible enemy in range. Primary target lives at index 0.
 @export var target_priority_chain: Array[int] = []
 
 # BUILD / TRAIN / RESEARCH / USE_ABILITY — what to produce or use, by string id.
