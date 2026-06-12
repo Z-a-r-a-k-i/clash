@@ -180,18 +180,43 @@ static func _mark_radius(
 ) -> void:
 	if visibility == null or grid == null or rect.size.x <= 0 or rect.size.y <= 0:
 		return
-	# Chebyshev distance <= radius around a rect is exactly the rect grown
-	# by `radius`, so the sight area is one clamped rectangle of row spans.
+	# Circular sight (plan m1/06): each row's half-width is
+	# floor(sqrt(r^2 - dy^2)) from the rect's edge, so the area is a
+	# rounded rectangle instead of a square — diagonals no longer see
+	# farther, and the fog reads organically. Integer math only.
 	var safe_radius: int = max(radius, 0)
-	var min_x: int = maxi(rect.position.x - safe_radius, 0)
-	var min_y: int = maxi(rect.position.y - safe_radius, 0)
-	var max_x: int = mini(rect.position.x + rect.size.x - 1 + safe_radius, grid.width - 1)
-	var max_y: int = mini(rect.position.y + rect.size.y - 1 + safe_radius, grid.height - 1)
+	var radius_sq: int = safe_radius * safe_radius
+	var rect_min_y: int = rect.position.y
+	var rect_max_y: int = rect.position.y + rect.size.y - 1
+	var min_y: int = maxi(rect_min_y - safe_radius, 0)
+	var max_y: int = mini(rect_max_y + safe_radius, grid.height - 1)
 	for y in range(min_y, max_y + 1):
+		var dy: int = 0
+		if y < rect_min_y:
+			dy = rect_min_y - y
+		elif y > rect_max_y:
+			dy = y - rect_max_y
+		var half_width: int = _isqrt(radius_sq - dy * dy)
+		var min_x: int = maxi(rect.position.x - half_width, 0)
+		var max_x: int = mini(rect.position.x + rect.size.x - 1 + half_width, grid.width - 1)
+		if min_x > max_x:
+			continue
 		if detector:
 			visibility.mark_detected_span(y, min_x, max_x)
 		else:
 			visibility.mark_visible_span(y, min_x, max_x)
+
+
+# Integer square root (floor); avoids float math in the resolver path.
+static func _isqrt(value: int) -> int:
+	if value <= 0:
+		return 0
+	var result: int = int(sqrt(float(value)))
+	while (result + 1) * (result + 1) <= value:
+		result += 1
+	while result * result > value:
+		result -= 1
+	return result
 
 
 static func _tile_distance_to_rect(tile: Vector2i, rect: Rect2i) -> int:
