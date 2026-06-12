@@ -26,6 +26,13 @@ const RADIUS_MD := 4
 const BORDER_W := 1
 const BORDER_W_HOT := 2
 
+# ---------- Control metrics (derived from the spacing scale) ----------
+const CONTROL_H_LG := SPACE_6 + SPACE_2  # primary action buttons
+const CONTROL_H_MD := SPACE_6 + SPACE_1  # option-list buttons
+const CONTROL_H_SM := SPACE_6  # inline chip buttons (e.g. cancel)
+const BAR_H := SPACE_3  # HP / progress bars
+const SWATCH := SPACE_3  # resource color swatches
+
 # ---------- Color roles (cyberpunk dark surface) ----------
 const COLOR_BG := Color(0.010, 0.018, 0.034, 0.98)
 const COLOR_SURFACE := Color(0.025, 0.038, 0.070, 0.96)
@@ -45,6 +52,19 @@ const COLOR_DANGER := Color(1.000, 0.250, 0.300, 1.0)
 const COLOR_HP_HIGH := Color(0.25, 1.0, 0.65, 1.0)
 const COLOR_HP_LOW := Color(1.0, 0.20, 0.30, 1.0)
 const COLOR_PROGRESS_BACK := Color(0.0, 0.0, 0.0, 0.68)
+
+# ---------- Interaction-state derivations ----------
+const STATE_HOVER_LIGHTEN := 0.12
+const STATE_PRESSED_DARKEN := 0.18
+
+
+static func hover_color(base: Color) -> Color:
+	return base.lightened(STATE_HOVER_LIGHTEN)
+
+
+static func pressed_color(base: Color) -> Color:
+	return base.darkened(STATE_PRESSED_DARKEN)
+
 
 # ---------- Shared stylebox builders ----------
 

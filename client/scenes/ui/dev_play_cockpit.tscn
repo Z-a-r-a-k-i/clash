@@ -20,35 +20,111 @@ offset_bottom = 46.0
 
 [node name="Row" type="HBoxContainer" parent="TopBar" unique_id=1341393116]
 layout_mode = 2
-theme_override_constants/separation = 12
 
 [node name="ActivePlayer" type="Label" parent="TopBar/Row" unique_id=991373904]
 layout_mode = 2
-size_flags_horizontal = 3
 text = "ActivePlayer"
 vertical_alignment = 1
 
 [node name="Turn" type="Label" parent="TopBar/Row" unique_id=635579718]
 layout_mode = 2
-size_flags_horizontal = 3
 text = "Turn"
 vertical_alignment = 1
 
-[node name="Resources" type="Label" parent="TopBar/Row" unique_id=1468122364]
+[node name="SubmitState" type="Label" parent="TopBar/Row"]
+visible = false
 layout_mode = 2
-size_flags_horizontal = 3
-text = "Resources"
+text = ""
 vertical_alignment = 1
 
-[node name="Population" type="Label" parent="TopBar/Row" unique_id=1226797390]
+[node name="IdleWorkers" type="Button" parent="TopBar/Row"]
+visible = false
+layout_mode = 2
+text = "Idle 0"
+
+[node name="SpacerL" type="Control" parent="TopBar/Row"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Population"
+
+[node name="MineralsCluster" type="HBoxContainer" parent="TopBar/Row"]
+layout_mode = 2
+
+[node name="Swatch" type="ColorRect" parent="TopBar/Row/MineralsCluster"]
+layout_mode = 2
+size_flags_vertical = 4
+
+[node name="Caption" type="Label" parent="TopBar/Row/MineralsCluster"]
+layout_mode = 2
+text = "Minerals"
+vertical_alignment = 1
+
+[node name="Value" type="Label" parent="TopBar/Row/MineralsCluster"]
+layout_mode = 2
+text = "0"
+vertical_alignment = 1
+
+[node name="Income" type="Label" parent="TopBar/Row/MineralsCluster"]
+visible = false
+layout_mode = 2
+text = ""
+vertical_alignment = 1
+
+[node name="Committed" type="Label" parent="TopBar/Row/MineralsCluster"]
+visible = false
+layout_mode = 2
+text = ""
+vertical_alignment = 1
+
+[node name="GasCluster" type="HBoxContainer" parent="TopBar/Row"]
+layout_mode = 2
+
+[node name="Swatch" type="ColorRect" parent="TopBar/Row/GasCluster"]
+layout_mode = 2
+size_flags_vertical = 4
+
+[node name="Caption" type="Label" parent="TopBar/Row/GasCluster"]
+layout_mode = 2
+text = "Gas"
+vertical_alignment = 1
+
+[node name="Value" type="Label" parent="TopBar/Row/GasCluster"]
+layout_mode = 2
+text = "0"
+vertical_alignment = 1
+
+[node name="Income" type="Label" parent="TopBar/Row/GasCluster"]
+visible = false
+layout_mode = 2
+text = ""
+vertical_alignment = 1
+
+[node name="Committed" type="Label" parent="TopBar/Row/GasCluster"]
+visible = false
+layout_mode = 2
+text = ""
+vertical_alignment = 1
+
+[node name="SupplyCluster" type="HBoxContainer" parent="TopBar/Row"]
+layout_mode = 2
+
+[node name="Caption" type="Label" parent="TopBar/Row/SupplyCluster"]
+layout_mode = 2
+text = "Pop"
+vertical_alignment = 1
+
+[node name="Value" type="Label" parent="TopBar/Row/SupplyCluster"]
+layout_mode = 2
+text = "0/0"
+vertical_alignment = 1
+
+[node name="Committed" type="Label" parent="TopBar/Row/SupplyCluster"]
+visible = false
+layout_mode = 2
+text = ""
 vertical_alignment = 1
 
 [node name="Outcome" type="Label" parent="TopBar/Row"]
 layout_mode = 2
-size_flags_horizontal = 3
 text = ""
 vertical_alignment = 1
 
@@ -66,7 +142,6 @@ offset_bottom = 0.0
 [node name="Row" type="HBoxContainer" parent="BottomDeck" unique_id=2097771551]
 layout_mode = 2
 clip_contents = true
-theme_override_constants/separation = 10
 
 [node name="SelectionPanel" type="PanelContainer" parent="BottomDeck/Row" unique_id=1571672896]
 custom_minimum_size = Vector2(360, 0)
@@ -75,7 +150,6 @@ size_flags_horizontal = 3
 
 [node name="Stack" type="VBoxContainer" parent="BottomDeck/Row/SelectionPanel"]
 layout_mode = 2
-theme_override_constants/separation = 5
 
 [node name="Header" type="Label" parent="BottomDeck/Row/SelectionPanel/Stack"]
 layout_mode = 2
@@ -86,6 +160,59 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "Selection"
 autowrap_mode = 3
+
+[node name="StatsBlock" type="VBoxContainer" parent="BottomDeck/Row/SelectionPanel/Stack"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="HpRow" type="HBoxContainer" parent="BottomDeck/Row/SelectionPanel/Stack/StatsBlock"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="HpBar" type="ProgressBar" parent="BottomDeck/Row/SelectionPanel/Stack/StatsBlock/HpRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+show_percentage = false
+
+[node name="HpLabel" type="Label" parent="BottomDeck/Row/SelectionPanel/Stack/StatsBlock/HpRow"]
+layout_mode = 2
+text = ""
+vertical_alignment = 1
+
+[node name="StatRow" type="Label" parent="BottomDeck/Row/SelectionPanel/Stack/StatsBlock"]
+visible = false
+layout_mode = 2
+text = ""
+
+[node name="StatusRow" type="HBoxContainer" parent="BottomDeck/Row/SelectionPanel/Stack/StatsBlock"]
+visible = false
+layout_mode = 2
+
+[node name="ContextRow" type="Label" parent="BottomDeck/Row/SelectionPanel/Stack/StatsBlock"]
+visible = false
+layout_mode = 2
+text = ""
+autowrap_mode = 3
+
+[node name="PreviewRow" type="Label" parent="BottomDeck/Row/SelectionPanel/Stack/StatsBlock"]
+visible = false
+layout_mode = 2
+text = ""
+
+[node name="ProductionStrip" type="VBoxContainer" parent="BottomDeck/Row/SelectionPanel/Stack"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="StripHeader" type="Label" parent="BottomDeck/Row/SelectionPanel/Stack/ProductionStrip"]
+layout_mode = 2
+text = "Production"
+
+[node name="Items" type="HBoxContainer" parent="BottomDeck/Row/SelectionPanel/Stack/ProductionStrip"]
+layout_mode = 2
+size_flags_horizontal = 3
 
 [node name="Details" type="Label" parent="BottomDeck/Row/SelectionPanel/Stack" unique_id=1731232152]
 layout_mode = 2
@@ -112,7 +239,6 @@ size_flags_horizontal = 3
 
 [node name="Stack" type="VBoxContainer" parent="BottomDeck/Row/CommandPanel"]
 layout_mode = 2
-theme_override_constants/separation = 7
 
 [node name="Header" type="Label" parent="BottomDeck/Row/CommandPanel/Stack"]
 layout_mode = 2
@@ -122,8 +248,6 @@ text = "Commands"
 layout_mode = 2
 size_flags_horizontal = 3
 columns = 4
-theme_override_constants/h_separation = 6
-theme_override_constants/v_separation = 6
 
 [node name="Move" type="Button" parent="BottomDeck/Row/CommandPanel/Stack/CommandGrid" unique_id=1080712007]
 layout_mode = 2
@@ -153,7 +277,6 @@ clip_contents = true
 
 [node name="Stack" type="VBoxContainer" parent="BottomDeck/Row/BuildPanel"]
 layout_mode = 2
-theme_override_constants/separation = 5
 
 [node name="Header" type="Label" parent="BottomDeck/Row/BuildPanel/Stack"]
 layout_mode = 2
@@ -162,7 +285,6 @@ text = "Build"
 [node name="ProductionControls" type="HBoxContainer" parent="BottomDeck/Row/BuildPanel/Stack"]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/separation = 6
 
 [node name="Cancel" type="Button" parent="BottomDeck/Row/BuildPanel/Stack/ProductionControls" unique_id=807403957]
 layout_mode = 2
@@ -178,13 +300,11 @@ text = "Repeat Train"
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-theme_override_constants/separation = 8
 
 [node name="Build" type="VBoxContainer" parent="BottomDeck/Row/BuildPanel/Stack/OptionColumns" unique_id=500186332]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-theme_override_constants/separation = 4
 
 [node name="BuildLabel" type="Label" parent="BottomDeck/Row/BuildPanel/Stack/OptionColumns/Build" unique_id=417043349]
 layout_mode = 2
@@ -194,14 +314,11 @@ text = "Build"
 layout_mode = 2
 size_flags_horizontal = 3
 columns = 2
-theme_override_constants/h_separation = 5
-theme_override_constants/v_separation = 4
 
 [node name="Train" type="VBoxContainer" parent="BottomDeck/Row/BuildPanel/Stack/OptionColumns" unique_id=358156089]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-theme_override_constants/separation = 4
 
 [node name="TrainLabel" type="Label" parent="BottomDeck/Row/BuildPanel/Stack/OptionColumns/Train" unique_id=2116094227]
 layout_mode = 2
@@ -211,14 +328,11 @@ text = "Train"
 layout_mode = 2
 size_flags_horizontal = 3
 columns = 2
-theme_override_constants/h_separation = 5
-theme_override_constants/v_separation = 4
 
 [node name="Research" type="VBoxContainer" parent="BottomDeck/Row/BuildPanel/Stack/OptionColumns" unique_id=1748537377]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-theme_override_constants/separation = 4
 
 [node name="ResearchLabel" type="Label" parent="BottomDeck/Row/BuildPanel/Stack/OptionColumns/Research" unique_id=1112903238]
 layout_mode = 2
@@ -228,14 +342,11 @@ text = "Research"
 layout_mode = 2
 size_flags_horizontal = 3
 columns = 2
-theme_override_constants/h_separation = 5
-theme_override_constants/v_separation = 4
 
 [node name="Abilities" type="VBoxContainer" parent="BottomDeck/Row/BuildPanel/Stack/OptionColumns" unique_id=1586081556]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-theme_override_constants/separation = 4
 
 [node name="AbilitiesLabel" type="Label" parent="BottomDeck/Row/BuildPanel/Stack/OptionColumns/Abilities" unique_id=1812914424]
 layout_mode = 2
@@ -245,8 +356,6 @@ text = "Abilities"
 layout_mode = 2
 size_flags_horizontal = 3
 columns = 2
-theme_override_constants/h_separation = 5
-theme_override_constants/v_separation = 4
 
 [node name="ResolvePanel" type="PanelContainer" parent="BottomDeck/Row" unique_id=403173609]
 custom_minimum_size = Vector2(190, 0)
@@ -254,7 +363,6 @@ layout_mode = 2
 
 [node name="Stack" type="VBoxContainer" parent="BottomDeck/Row/ResolvePanel"]
 layout_mode = 2
-theme_override_constants/separation = 8
 
 [node name="Header" type="Label" parent="BottomDeck/Row/ResolvePanel/Stack"]
 layout_mode = 2
