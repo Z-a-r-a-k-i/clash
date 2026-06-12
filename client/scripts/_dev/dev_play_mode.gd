@@ -14,7 +14,7 @@ const _DEV_SNAPSHOT_DIR := "user://tmp/snapshots"
 const _DEV_SNAPSHOT_PREFIX := "dev_snapshot"
 const _DEV_REPLAY_AUTO_DIR := "user://tmp/replays"
 const _DEV_REPLAY_AUTO_PREFIX := "dev_replay"
-const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
+const DEV_PLAY_COCKPIT_SCENE := preload("res://scenes/ui/dev_play_cockpit.tscn")
 const ACTION_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/action_preview_builder.gd")
 const TACTICAL_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/tactical_preview_builder.gd")
 const COMMAND_OPTION_BUILDER := preload("res://scripts/game/command_option_builder.gd")
@@ -36,12 +36,15 @@ const CONTEXT_RALLY_GATHER := "rally_gather"
 const CONTEXT_INVALID := "invalid"
 const HUD_MARGIN := 12.0
 const HUD_WIDTH := 440.0
-const HUD_HEIGHT := 720.0
 const REPLAY_PANEL_LEFT := 384.0
 const REPLAY_PANEL_TOP := HUD_MARGIN
 const REPLAY_PANEL_HEIGHT := 220.0
 const ESCAPE_MENU_WIDTH := 360.0
-const ESCAPE_MENU_HEIGHT := 300.0
+const ESCAPE_MENU_HEIGHT := 420.0
+const GAME_VIEWPORT_MARGIN_LEFT := 0.0
+const GAME_VIEWPORT_MARGIN_RIGHT := 0.0
+const FALLBACK_TOP_HUD_HEIGHT := 46.0
+const FALLBACK_BOTTOM_HUD_HEIGHT := 190.0
 const REPLAY_PLAY_STEP_SECONDS := 0.75
 const MENU_LOAD_SNAPSHOT := 0
 const MENU_LOAD_REPLAY := 1
@@ -55,16 +58,14 @@ var _renderer: MatchRenderer = null
 var _loaded: LoadedScenario = null
 var _tunables: Tunables = null
 var _input: DevTurnInput = DEV_TURN_INPUT_SCRIPT.new() as DevTurnInput
+var _game_viewport_container: SubViewportContainer = null
+var _game_viewport: SubViewport = null
 var _hud_layer: CanvasLayer = null
-var _play_panel: PanelContainer = null
+var _cockpit: DevPlayCockpit = null
 var _replay_panel: PanelContainer = null
 var _escape_menu_panel: PanelContainer = null
 var _menu_save_snapshot_button: Button = null
 var _menu_load_kind: OptionButton = null
-var _active_label: Label = null
-var _resources_label: Label = null
-var _queue_label: Label = null
-var _idle_workers_label: Label = null
 var _replay_label: Label = null
 var _replay_turn_label: Label = null
 var _replay_timeline: HSlider = null
@@ -72,13 +73,13 @@ var _replay_play_button: Button = null
 var _replay_play_timer: Timer = null
 var _snapshot_file_dialog: FileDialog = null
 var _replay_file_dialog: FileDialog = null
-var _status_label: Label = null
 var _command_card: Control = null
 var _pending_command: String = PENDING_NONE
 var _pending_build_def_id: String = ""
 var _is_panning_camera: bool = false
 var _selection_drag: Variant = SELECTION_DRAG_CONTROLLER_SCRIPT.new()
 var _show_all_friendly_action_previews: bool = false
+var _debug_info_visible: bool = false
 var _range_projection_active: bool = false
 var _last_hover_tile: Vector2i = Vector2i.ZERO
 var _has_last_hover_tile: bool = false
@@ -100,6 +101,10 @@ var _tactical_preview_builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = (
 func _ready() -> void:
 	_selection_drag.threshold_pixels = CAMERA_DRAG_THRESHOLD
 	_build_hud()
+	_ensure_game_viewport()
+	var viewport: Viewport = get_viewport()
+	if viewport != null and not viewport.size_changed.is_connected(_sync_game_viewport_rect):
+		viewport.size_changed.connect(_sync_game_viewport_rect)
 	if _loaded == null:
 		load_scenario_path(scenario_path)
 
@@ -881,6 +886,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			if viewport != null:
 				viewport.set_input_as_handled()
 			return
+	if event is InputEventMouse and not _event_inside_game_viewport(event as InputEventMouse):
+		if event is InputEventMouseMotion:
+			_has_last_hover_tile = false
+			_refresh_range_previews()
+			_reset_context_cursor()
+		return
 	if event is InputEventMouseMotion:
 		var motion: InputEventMouseMotion = event as InputEventMouseMotion
 		if _is_panning_camera:
@@ -950,9 +961,87 @@ func _notification(what: int) -> void:
 		_reset_context_cursor()
 
 
+func _ensure_game_viewport() -> void:
+	if _game_viewport_container != null and _game_viewport != null:
+		_sync_game_viewport_rect()
+		return
+	_game_viewport_container = SubViewportContainer.new()
+	_game_viewport_container.name = "GameViewportContainer"
+	_game_viewport_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_game_viewport_container.stretch = false
+	_game_viewport_container.anchor_left = 0.0
+	_game_viewport_container.anchor_right = 0.0
+	_game_viewport_container.anchor_top = 0.0
+	_game_viewport_container.anchor_bottom = 0.0
+	_game_viewport_container.offset_left = GAME_VIEWPORT_MARGIN_LEFT
+	_game_viewport_container.offset_top = _top_hud_height()
+	_game_viewport_container.offset_right = -GAME_VIEWPORT_MARGIN_RIGHT
+	_game_viewport_container.offset_bottom = -_bottom_hud_height()
+	add_child(_game_viewport_container)
+
+	_game_viewport = SubViewport.new()
+	_game_viewport.name = "GameViewport"
+	_game_viewport.disable_3d = true
+	_game_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	_game_viewport_container.add_child(_game_viewport)
+	_sync_game_viewport_rect()
+
+
+func _sync_game_viewport_rect() -> void:
+	if _game_viewport_container == null:
+		return
+	var top_hud_height: float = _top_hud_height()
+	var bottom_hud_height: float = _bottom_hud_height()
+	_game_viewport_container.offset_left = GAME_VIEWPORT_MARGIN_LEFT
+	_game_viewport_container.offset_top = top_hud_height
+	_game_viewport_container.offset_right = -GAME_VIEWPORT_MARGIN_RIGHT
+	_game_viewport_container.offset_bottom = -bottom_hud_height
+	if _game_viewport == null:
+		return
+	var viewport_size: Vector2 = _root_viewport_size()
+	var game_width: float = maxf(
+		viewport_size.x - GAME_VIEWPORT_MARGIN_LEFT - GAME_VIEWPORT_MARGIN_RIGHT, 1.0
+	)
+	var game_height: float = maxf(viewport_size.y - top_hud_height - bottom_hud_height, 1.0)
+	_game_viewport_container.position = Vector2(GAME_VIEWPORT_MARGIN_LEFT, top_hud_height)
+	_game_viewport_container.size = Vector2(game_width, game_height)
+	_game_viewport.size = Vector2i(roundi(game_width), roundi(game_height))
+
+
+func _root_viewport_size() -> Vector2:
+	var viewport: Viewport = get_viewport()
+	if viewport != null:
+		var size: Vector2 = viewport.get_visible_rect().size
+		if size.x > 0.0 and size.y > 0.0:
+			return size
+	return Vector2(
+		float(ProjectSettings.get_setting("display/window/size/viewport_width", 1920.0)),
+		float(ProjectSettings.get_setting("display/window/size/viewport_height", 1080.0))
+	)
+
+
+func _top_hud_height() -> float:
+	var top_bar: Control = null
+	if _cockpit != null:
+		top_bar = _cockpit.get_node_or_null("TopBar") as Control
+	if top_bar == null:
+		return FALLBACK_TOP_HUD_HEIGHT
+	return maxf(top_bar.offset_bottom - top_bar.offset_top, 1.0)
+
+
+func _bottom_hud_height() -> float:
+	var bottom_deck: Control = null
+	if _cockpit != null:
+		bottom_deck = _cockpit.get_node_or_null("BottomDeck") as Control
+	if bottom_deck == null:
+		return FALLBACK_BOTTOM_HUD_HEIGHT
+	return maxf(bottom_deck.offset_bottom - bottom_deck.offset_top, 1.0)
+
+
 func _ensure_renderer() -> void:
 	if _renderer != null:
 		return
+	_ensure_game_viewport()
 	var packed: PackedScene = load(MATCH_SCENE_PATH) as PackedScene
 	if packed == null:
 		push_error("DevPlayMode: failed to load %s" % MATCH_SCENE_PATH)
@@ -961,7 +1050,8 @@ func _ensure_renderer() -> void:
 	if _renderer == null:
 		push_error("DevPlayMode: match scene root is not a MatchRenderer.")
 		return
-	add_child(_renderer)
+	_game_viewport.add_child(_renderer)
+	_set_renderer_debug_info_visible()
 
 
 func _ensure_tunables() -> bool:
@@ -1173,7 +1263,32 @@ func _event_world_position(event: InputEventMouse) -> Vector2:
 		return event.position
 	if DisplayServer.get_name() == "headless":
 		return event.position
+	var game_position: Vector2 = _screen_to_game_viewport_position(event.position)
+	if _renderer.has_method("screen_to_world"):
+		return _renderer.call("screen_to_world", game_position)
 	return _renderer.get_global_mouse_position()
+
+
+func _event_inside_game_viewport(event: InputEventMouse) -> bool:
+	if DisplayServer.get_name() == "headless":
+		return true
+	return _game_viewport_screen_rect().has_point(event.position)
+
+
+func _screen_to_game_viewport_position(screen_position: Vector2) -> Vector2:
+	return screen_position - _game_viewport_screen_rect().position
+
+
+func _game_viewport_screen_rect() -> Rect2:
+	var viewport_size: Vector2 = _root_viewport_size()
+	var top_hud_height: float = _top_hud_height()
+	var bottom_hud_height: float = _bottom_hud_height()
+	var position := Vector2(GAME_VIEWPORT_MARGIN_LEFT, top_hud_height)
+	var size := Vector2(
+		maxf(viewport_size.x - GAME_VIEWPORT_MARGIN_LEFT - GAME_VIEWPORT_MARGIN_RIGHT, 1.0),
+		maxf(viewport_size.y - top_hud_height - bottom_hud_height, 1.0)
+	)
+	return Rect2(position, size)
 
 
 func _reset_selection_drag() -> void:
@@ -1260,88 +1375,26 @@ func _build_hud() -> void:
 	_hud_layer.name = "DevHUD"
 	add_child(_hud_layer)
 
-	_play_panel = PanelContainer.new()
-	_play_panel.name = "Panel"
-	_play_panel.anchor_left = 1.0
-	_play_panel.anchor_right = 1.0
-	_play_panel.anchor_top = 0.0
-	_play_panel.anchor_bottom = 0.0
-	_play_panel.offset_left = -HUD_WIDTH - HUD_MARGIN
-	_play_panel.offset_top = HUD_MARGIN
-	_play_panel.offset_right = -HUD_MARGIN
-	_play_panel.offset_bottom = HUD_MARGIN + HUD_HEIGHT
-	_hud_layer.add_child(_play_panel)
-
-	var root: VBoxContainer = VBoxContainer.new()
-	root.name = "Root"
-	_play_panel.add_child(root)
-
-	var buttons: HBoxContainer = HBoxContainer.new()
-	buttons.name = "Buttons"
-	root.add_child(buttons)
-
-	var p0_button: Button = _button("P0")
-	p0_button.pressed.connect(func() -> void: set_active_player_id(0))
-	buttons.add_child(p0_button)
-
-	var p1_button: Button = _button("P1")
-	p1_button.pressed.connect(func() -> void: set_active_player_id(1))
-	buttons.add_child(p1_button)
-
-	var resolve_button: Button = _button("Resolve")
-	resolve_button.pressed.connect(resolve_turn)
-	buttons.add_child(resolve_button)
-
-	var clear_button: Button = _button("Clear")
-	clear_button.pressed.connect(_clear_queues_from_hud)
-	buttons.add_child(clear_button)
-
-	var surrender_button: Button = _button("Surrender")
-	surrender_button.pressed.connect(_surrender_from_hud)
-	buttons.add_child(surrender_button)
-
-	var preview_toggle := CheckBox.new()
-	preview_toggle.name = "ShowFriendlyPreviews"
-	preview_toggle.text = "Show all friendly orders"
-	preview_toggle.button_pressed = _show_all_friendly_action_previews
-	preview_toggle.add_theme_font_size_override("font_size", 18)
-	preview_toggle.toggled.connect(set_show_all_friendly_action_previews)
-	root.add_child(preview_toggle)
-
-	_active_label = Label.new()
-	_active_label.name = "ActivePlayer"
-	_style_label(_active_label)
-	root.add_child(_active_label)
-	_resources_label = Label.new()
-	_resources_label.name = "Resources"
-	_style_label(_resources_label)
-	root.add_child(_resources_label)
-	_queue_label = Label.new()
-	_queue_label.name = "QueuedOrders"
-	_style_label(_queue_label)
-	root.add_child(_queue_label)
-	_idle_workers_label = Label.new()
-	_idle_workers_label.name = "IdleWorkers"
-	_idle_workers_label.visible = false
-	_style_label(_idle_workers_label)
-	root.add_child(_idle_workers_label)
-	_status_label = Label.new()
-	_status_label.name = "Status"
-	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_style_label(_status_label)
-	root.add_child(_status_label)
-
-	_command_card = COMMAND_CARD_SCRIPT.new() as Control
-	_command_card.connect("move_requested", Callable(self, "begin_move"))
-	_command_card.connect("target_requested", Callable(self, "begin_target"))
-	_command_card.connect("gather_requested", Callable(self, "begin_gather"))
-	_command_card.connect("build_requested", Callable(self, "begin_build"))
-	_command_card.connect("train_requested", Callable(self, "issue_train_selected"))
-	_command_card.connect("research_requested", Callable(self, "issue_research_selected"))
-	_command_card.connect("ability_requested", Callable(self, "issue_ability_selected"))
-	_command_card.connect("cancel_requested", Callable(self, "issue_cancel_selected"))
-	_command_card.connect("repeat_train_toggled", Callable(self, "issue_repeat_train_selected"))
-	root.add_child(_command_card)
+	_cockpit = DEV_PLAY_COCKPIT_SCENE.instantiate() as DevPlayCockpit
+	if _cockpit == null:
+		push_error("DevPlayMode: failed to instantiate DevPlayCockpit.")
+		return
+	_cockpit.name = "DevPlayCockpit"
+	_cockpit.connect("move_requested", Callable(self, "begin_move"))
+	_cockpit.connect("target_requested", Callable(self, "begin_target"))
+	_cockpit.connect("gather_requested", Callable(self, "begin_gather"))
+	_cockpit.connect("build_requested", Callable(self, "begin_build"))
+	_cockpit.connect("train_requested", Callable(self, "issue_train_selected"))
+	_cockpit.connect("research_requested", Callable(self, "issue_research_selected"))
+	_cockpit.connect("ability_requested", Callable(self, "issue_ability_selected"))
+	_cockpit.connect("cancel_requested", Callable(self, "issue_cancel_selected"))
+	_cockpit.connect("repeat_train_toggled", Callable(self, "issue_repeat_train_selected"))
+	_cockpit.connect("resolve_requested", Callable(self, "resolve_turn"))
+	_cockpit.connect(
+		"show_all_orders_toggled", Callable(self, "set_show_all_friendly_action_previews")
+	)
+	_hud_layer.add_child(_cockpit)
+	_command_card = _cockpit
 	_build_replay_panel()
 	_build_escape_menu()
 	_build_file_dialogs()
@@ -1468,6 +1521,39 @@ func _build_escape_menu() -> void:
 	resume_button.pressed.connect(func() -> void: _set_escape_menu_visible(false))
 	root.add_child(resume_button)
 
+	var player_row: HBoxContainer = HBoxContainer.new()
+	player_row.name = "PlayerSwitch"
+	root.add_child(player_row)
+
+	var p0_button: Button = _button("P1")
+	p0_button.pressed.connect(func() -> void: set_active_player_id(0))
+	player_row.add_child(p0_button)
+
+	var p1_button: Button = _button("P2")
+	p1_button.pressed.connect(func() -> void: set_active_player_id(1))
+	player_row.add_child(p1_button)
+
+	var debug_info_toggle := CheckBox.new()
+	debug_info_toggle.name = "DebugInfo"
+	debug_info_toggle.text = "Debug Info"
+	debug_info_toggle.button_pressed = _debug_info_visible
+	debug_info_toggle.custom_minimum_size = Vector2(0.0, 34.0)
+	debug_info_toggle.add_theme_font_size_override("font_size", 18)
+	debug_info_toggle.toggled.connect(_set_debug_info_visible)
+	root.add_child(debug_info_toggle)
+
+	var debug_row: HBoxContainer = HBoxContainer.new()
+	debug_row.name = "DebugActions"
+	root.add_child(debug_row)
+
+	var clear_button: Button = _button("Clear")
+	clear_button.pressed.connect(_clear_queues_from_hud)
+	debug_row.add_child(clear_button)
+
+	var surrender_button: Button = _button("Surrender")
+	surrender_button.pressed.connect(_surrender_from_hud)
+	debug_row.add_child(surrender_button)
+
 	var new_game_button: Button = _button("New Game")
 	new_game_button.pressed.connect(_new_game_from_menu)
 	root.add_child(new_game_button)
@@ -1481,6 +1567,11 @@ func _build_escape_menu() -> void:
 	_menu_save_snapshot_button.name = "SaveSnapshot"
 	_menu_save_snapshot_button.pressed.connect(save_snapshot_to_folder)
 	root.add_child(_menu_save_snapshot_button)
+
+	var replay_button: Button = _button("Replay")
+	replay_button.name = "Replay"
+	replay_button.pressed.connect(_open_replay_load_dialog)
+	root.add_child(replay_button)
 
 	var load_row: HBoxContainer = HBoxContainer.new()
 	load_row.name = "LoadRow"
@@ -1500,6 +1591,18 @@ func _build_escape_menu() -> void:
 	load_button.pressed.connect(_open_menu_load_dialog)
 	load_row.add_child(load_button)
 	_sync_mode_ui()
+
+
+func _set_debug_info_visible(visible: bool) -> void:
+	_debug_info_visible = visible
+	_set_renderer_debug_info_visible()
+
+
+func _set_renderer_debug_info_visible() -> void:
+	if _renderer == null:
+		return
+	if _renderer.has_method("set_zoom_debug_visible"):
+		_renderer.call("set_zoom_debug_visible", _debug_info_visible)
 
 
 func _build_file_dialogs() -> void:
@@ -1533,8 +1636,8 @@ func _set_escape_menu_visible(visible: bool) -> void:
 
 
 func _sync_mode_ui() -> void:
-	if _play_panel != null:
-		_play_panel.visible = not _replay_mode_active
+	if _cockpit != null:
+		_cockpit.visible = not _replay_mode_active
 	if _replay_panel != null:
 		_replay_panel.visible = _replay_mode_active
 	if _menu_save_snapshot_button != null:
@@ -1560,6 +1663,12 @@ func _open_menu_load_dialog() -> void:
 		_open_file_dialog(_replay_file_dialog, _DEV_REPLAY_AUTO_DIR)
 	else:
 		_open_file_dialog(_snapshot_file_dialog, _DEV_SNAPSHOT_DIR)
+
+
+func _open_replay_load_dialog() -> void:
+	if _menu_load_kind != null:
+		_menu_load_kind.select(MENU_LOAD_REPLAY)
+	_open_file_dialog(_replay_file_dialog, _DEV_REPLAY_AUTO_DIR)
 
 
 func _open_file_dialog(dialog: FileDialog, dir_path: String) -> void:
@@ -1683,29 +1792,28 @@ func _surrender_from_hud() -> void:
 
 func _update_hud(override_status: String = "") -> void:
 	_sync_mode_ui()
-	if _active_label != null:
-		_active_label.text = "Active player: P%d" % _input.active_player_id()
-	if _resources_label != null:
-		var player := (
-			_loaded.state.get_player(_input.active_player_id()) if _loaded != null else null
-		)
-		if player == null:
-			_resources_label.text = ""
-		else:
-			_resources_label.text = (
-				"Minerals: %d  Gas: %d  Pop: %d/%d"
-				% [player.minerals, player.gas, player.pop_used, player.pop_cap]
-			)
-	if _queue_label != null:
-		_queue_label.visible = false
-		_queue_label.text = ""
+	var status_text: String = _hud_status_text(override_status)
 	var idle_worker_ids: Array[int] = _active_idle_worker_ids()
-	if _idle_workers_label != null:
-		_idle_workers_label.visible = idle_worker_ids.size() > 0
-		_idle_workers_label.text = (
-			"Idle workers: %d" % idle_worker_ids.size() if idle_worker_ids.size() > 0 else ""
-		)
 	_refresh_idle_worker_indicators(idle_worker_ids)
+	if _cockpit != null:
+		var player: PlayerState = (
+			_loaded.state.get_player(_input.active_player_id())
+			if _loaded != null and _loaded.state != null
+			else null
+		)
+		_cockpit.set_match_state(
+			_input.active_player_id(),
+			_loaded.state.turn_index if _loaded != null and _loaded.state != null else 0,
+			player.minerals if player != null else 0,
+			player.gas if player != null else 0,
+			player.pop_used if player != null else 0,
+			player.pop_cap if player != null else 0,
+			_loaded.state.match_over if _loaded != null and _loaded.state != null else false,
+			_loaded.state.winner_player_id if _loaded != null and _loaded.state != null else -1
+		)
+		_cockpit.set_show_all_orders_enabled(_show_all_friendly_action_previews)
+		_cockpit.set_status_text(status_text)
+		_cockpit.set_selection_details(_selection_details_text(), _selection_intent_text())
 	if _replay_label != null:
 		var replay_mode_text := "replay" if _replay_mode_active else "live"
 		_replay_label.text = (
@@ -1725,27 +1833,6 @@ func _update_hud(override_status: String = "") -> void:
 		_updating_replay_timeline = false
 	if _replay_turn_label != null:
 		_replay_turn_label.text = "%d / %d" % [_replay_cursor_turn, _latest_checkpoint_turn()]
-	if _status_label != null:
-		var status_message: String = _input.status_message()
-		if override_status != "":
-			_status_label.text = override_status
-		elif (
-			_pending_command != PENDING_NONE
-			and status_message != ""
-			and not status_message.begins_with("Queued")
-			and not status_message.begins_with("Selected")
-		):
-			_status_label.text = status_message
-		elif _pending_command == PENDING_MOVE:
-			_status_label.text = "Pending Move: click target tile."
-		elif _pending_command == PENDING_TARGET:
-			_status_label.text = "Pending Attack: click an enemy or destination tile."
-		elif _pending_command == PENDING_BUILD:
-			_status_label.text = "Pending BUILD %s: click placement tile." % _pending_build_def_id
-		elif _pending_command == PENDING_GATHER:
-			_status_label.text = "Pending GATHER: click a mineral patch or refinery."
-		else:
-			_status_label.text = status_message
 	_refresh_command_card()
 	_refresh_action_previews()
 	_refresh_range_previews()
@@ -1811,6 +1898,156 @@ func _refresh_idle_worker_indicators(idle_worker_ids: Array[int]) -> void:
 	for entity_id: int in idle_worker_ids:
 		indicators.append({"entity_id": entity_id})
 	_renderer.call("set_idle_worker_indicators", indicators)
+
+
+func _hud_status_text(override_status: String = "") -> String:
+	var status_message: String = _input.status_message()
+	if override_status != "":
+		return override_status
+	if (
+		_pending_command != PENDING_NONE
+		and status_message != ""
+		and not status_message.begins_with("Queued")
+		and not status_message.begins_with("Selected")
+	):
+		return status_message
+	if _pending_command == PENDING_MOVE:
+		return "Pending Move: click target tile."
+	if _pending_command == PENDING_TARGET:
+		return "Pending Attack: click an enemy or destination tile."
+	if _pending_command == PENDING_BUILD:
+		return "Pending BUILD %s: click placement tile." % _pending_build_def_id
+	if _pending_command == PENDING_GATHER:
+		return "Pending GATHER: click a mineral patch or refinery."
+	if status_message.begins_with("Selected"):
+		return ""
+	return status_message
+
+
+func _selection_details_text() -> String:
+	if _replay_mode_active:
+		return "Replay timeline is read-only."
+	var selected_ids: Array[int] = _input.selected_entity_ids()
+	if selected_ids.is_empty():
+		return "Select a unit or building."
+	if selected_ids.size() > 1:
+		return (
+			"%d selected | %d planned orders"
+			% [
+				selected_ids.size(),
+				_planned_order_count_for_selection(selected_ids),
+			]
+		)
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		return ""
+	var parts: Array[String] = []
+	var def: EntityDef = null
+	if _loaded != null and _loaded.registry != null:
+		var def_id: String = actor.current_def_id if actor.current_def_id != "" else actor.def_id
+		def = _loaded.registry.get_by_id(def_id)
+	if def != null and def.health != null:
+		parts.append("HP %d/%d" % [actor.current_hp, def.health.max_hp])
+	if actor.is_constructing:
+		parts.append("Construction %d turns" % maxi(actor.construction_turns_remaining, 0))
+	if actor.production_state != null:
+		if not actor.production_state.active.is_empty():
+			var active: Dictionary = actor.production_state.active
+			var active_id: String = active.get(ProductionState.KEY_DEF_ID, "")
+			var turns: int = int(active.get(ProductionState.KEY_TURNS_REMAINING, 0))
+			parts.append("Producing %s (%d turns)" % [active_id, turns])
+		if not actor.production_state.queue.is_empty():
+			parts.append("%d production queued" % actor.production_state.queue.size())
+	if actor.gather_state != null and actor.gather_state.assigned_source_entity_id >= 0:
+		parts.append("Gathering")
+	if actor.ability_cast != null:
+		parts.append("Casting %s" % actor.ability_cast.ability_id)
+	return " | ".join(parts) if not parts.is_empty() else "Ready"
+
+
+func _selection_intent_text() -> String:
+	if _replay_mode_active:
+		return "Intent: replay"
+	var selected_ids: Array[int] = _input.selected_entity_ids()
+	if selected_ids.is_empty():
+		return "Intent: none"
+	if selected_ids.size() > 1:
+		var planned: int = _planned_order_count_for_selection(selected_ids)
+		return "Intent: %d planned orders" % planned if planned > 0 else "Intent: mixed idle"
+	var actor: Entity = _selected_entity()
+	if actor == null:
+		return "Intent: none"
+	var order: EntityOrder = _latest_planned_order_for_entity(actor.id)
+	if order != null:
+		return "Intent: %s" % _order_label(order)
+	if actor.focus_target_entity_id >= 0:
+		return "Intent: target focus"
+	if actor.gather_state != null and actor.gather_state.assigned_source_entity_id >= 0:
+		return "Intent: gather"
+	if actor.pending_build_def_id != "":
+		return "Intent: build %s" % actor.pending_build_def_id
+	if actor.locked_to_building_id >= 0:
+		return "Intent: construct"
+	if actor.production_state != null and not actor.production_state.active.is_empty():
+		return "Intent: production"
+	return "Intent: idle"
+
+
+func _planned_order_count_for_selection(entity_ids: Array[int]) -> int:
+	var count := 0
+	var submit: SubmitTurn = _input.submit_for_player(_input.active_player_id())
+	if submit != null:
+		for item in submit.orders:
+			var order: EntityOrder = item
+			if order != null and entity_ids.has(order.entity_id):
+				count += 1
+	for entity_id in entity_ids:
+		count += _input.future_order_count_for_entity(entity_id)
+	return count
+
+
+func _latest_planned_order_for_entity(entity_id: int) -> EntityOrder:
+	var submit: SubmitTurn = _input.submit_for_player(_input.active_player_id())
+	var latest: EntityOrder = null
+	if submit != null:
+		for item in submit.orders:
+			var order: EntityOrder = item
+			if order != null and order.entity_id == entity_id:
+				latest = order
+	var future_orders: Array[EntityOrder] = _input.future_orders_for_entity(entity_id)
+	if not future_orders.is_empty():
+		latest = future_orders[future_orders.size() - 1]
+	return latest
+
+
+func _order_label(order: EntityOrder) -> String:
+	if order == null:
+		return "none"
+	match order.type:
+		EntityOrder.Type.MOVE:
+			return "move"
+		EntityOrder.Type.ATTACK_MOVE:
+			return "attack move"
+		EntityOrder.Type.TARGET:
+			return "target"
+		EntityOrder.Type.BUILD:
+			return "build %s" % order.def_id
+		EntityOrder.Type.TRAIN:
+			return "train %s" % order.def_id
+		EntityOrder.Type.RESEARCH:
+			return "research %s" % order.def_id
+		EntityOrder.Type.CANCEL:
+			return "cancel"
+		EntityOrder.Type.GATHER:
+			return "gather"
+		EntityOrder.Type.USE_ABILITY:
+			return "ability %s" % order.def_id
+		EntityOrder.Type.SET_RALLY_POINT:
+			return "rally"
+		EntityOrder.Type.REPEAT_TRAIN_TOGGLE:
+			return "repeat train"
+		_:
+			return "unknown"
 
 
 func _context_result(
@@ -1981,9 +2218,11 @@ func _refresh_command_card() -> void:
 		COMMAND_OPTION_BUILDER.entity_options(_input, _input.train_option_ids()),
 		COMMAND_OPTION_BUILDER.research_options(_input, _input.research_option_ids()),
 		COMMAND_OPTION_BUILDER.ability_options(_input, _input.ability_option_ids()),
-		_input.can_issue_cancel(),
+		_input.can_issue_unit_cancel(),
 		_input.can_issue_repeat_train_toggle(),
-		_input.selected_repeat_train_enabled()
+		_input.selected_repeat_train_enabled(),
+		_input.can_issue_build_cancel(),
+		true
 	)
 
 

@@ -304,11 +304,25 @@ func _test_group_move_fan_out() -> bool:
 		push_error("expected three MOVE orders and one skipped building, got %d" % orders.size())
 		return false
 	var expected_ids: Array[int] = [1, 5, 9]
+	var target_tiles: Array[Vector2i] = []
 	for i in orders.size():
-		if not _expect_order(
-			orders[i], EntityOrder.Type.MOVE, expected_ids[i], Vector2i(11, 11), -1, []
+		var order: EntityOrder = orders[i]
+		if (
+			order == null
+			or order.type != EntityOrder.Type.MOVE
+			or order.entity_id != expected_ids[i]
 		):
+			push_error("expected MOVE for selected unit #%d" % expected_ids[i])
 			return false
+		target_tiles.append(order.target_tile)
+	if not target_tiles.has(Vector2i(11, 11)):
+		push_error("group move formation should include clicked tile, got %s" % str(target_tiles))
+		return false
+	if _unique_tile_count(target_tiles) != expected_ids.size():
+		push_error(
+			"group move formation should assign distinct targets, got %s" % str(target_tiles)
+		)
+		return false
 	if input.status_message().find("Skipped 1") == -1:
 		push_error("group move status should include skipped count: %s" % input.status_message())
 		return false
@@ -1764,6 +1778,13 @@ func _selected_ids_for_test(input: DevTurnInput) -> Array[int]:
 	for item in raw:
 		out.append(int(item))
 	return out
+
+
+func _unique_tile_count(tiles: Array[Vector2i]) -> int:
+	var seen: Dictionary = {}
+	for tile in tiles:
+		seen[tile] = true
+	return seen.size()
 
 
 func _make_input_setup() -> Dictionary:

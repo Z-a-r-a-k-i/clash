@@ -3,6 +3,7 @@ extends Node
 
 const DEV_PLAY_MODE_PATH := "res://scripts/_dev/dev_play_mode.gd"
 const COMMAND_CARD_PATH := "res://scripts/game/command_card.gd"
+const DEV_PLAY_COCKPIT_SCENE_PATH := "res://scenes/ui/dev_play_cockpit.tscn"
 const COMBAT_SCENARIO_PATH := "res://data/scenarios/combat_marines_vs_tanks.tres"
 const MVP_SCENARIO_PATH := "res://data/scenarios/mvp_map.tres"
 const TUNABLES_PATH := "res://data/tunables.tres"
@@ -36,6 +37,7 @@ func _run_all() -> int:
 func _all_tests() -> Array:
 	return [
 		["dev_play_mode_loads_scenario_and_binds_renderer", _test_loads_scenario],
+		["dev_play_mode_uses_authored_cockpit_shell", _test_uses_authored_cockpit_shell],
 		["dev_play_mode_queues_and_resolves_turn", _test_queues_and_resolves_turn],
 		["dev_play_mode_routes_context_actions", _test_routes_context_actions],
 		["dev_play_mode_context_cursor_classifier", _test_context_cursor_classifier],
@@ -79,6 +81,7 @@ func _all_tests() -> Array:
 			"dev_play_mode_idle_worker_indicator_excludes_busy_workers",
 			_test_idle_worker_indicator_excludes_busy_workers
 		],
+		["dev_play_mode_cockpit_all_orders_toggle_routes", _test_cockpit_all_orders_toggle_routes],
 		["dev_play_mode_selected_combat_unit_shows_range", _test_selected_combat_unit_shows_range],
 		[
 			"dev_play_mode_alt_projects_range_from_hover_tile",
@@ -146,9 +149,18 @@ func _all_tests() -> Array:
 			"dev_play_mode_escape_resets_active_selection_drag",
 			_test_escape_resets_active_selection_drag
 		],
+		["dev_play_mode_escape_menu_contains_debug_controls", _test_escape_debug_controls],
 		[
 			"dev_play_mode_switching_player_keeps_camera_bounded",
 			_test_switching_player_keeps_camera_bounded
+		],
+		[
+			"dev_play_mode_zoom_debug_hidden_until_menu_toggle",
+			_test_zoom_debug_hidden_until_menu_toggle
+		],
+		[
+			"dev_play_mode_hud_stays_inside_window_and_camera_uses_safe_area",
+			_test_hud_stays_inside_window_and_camera_uses_safe_area
 		],
 	]
 
@@ -351,6 +363,286 @@ func _test_switches_input_and_render_perspective() -> bool:
 	return ok
 
 
+func _test_uses_authored_cockpit_shell() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var cockpit: Control = mode.find_child("DevPlayCockpit", true, false) as Control
+	if cockpit == null:
+		push_error("dev play should instantiate the authored DevPlayCockpit scene")
+		_free_mode(mode)
+		return false
+	var ok := true
+	if cockpit.scene_file_path != DEV_PLAY_COCKPIT_SCENE_PATH:
+		push_error(
+			(
+				"cockpit should come from %s, got %s"
+				% [DEV_PLAY_COCKPIT_SCENE_PATH, cockpit.scene_file_path]
+			)
+		)
+		ok = false
+	for expected in ["P1", "Turn 0", "Minerals", "Gas", "Pop"]:
+		if _find_label_with_substring(cockpit, expected) == null:
+			push_error("cockpit should show '%s' in its player-facing HUD" % expected)
+			ok = false
+	for hidden_text in ["P0", "Queued", "Planning"]:
+		if _find_label_with_substring(cockpit, hidden_text) != null:
+			push_error("cockpit should not show default debug label '%s'" % hidden_text)
+			ok = false
+	if _find_button_with_substring(cockpit, "Resolve") == null:
+		push_error("cockpit should expose Resolve as a player-facing command")
+		ok = false
+	if _find_check_box_with_substring(cockpit, "All Orders") == null:
+		push_error("cockpit should expose an all-orders toggle")
+		ok = false
+	var top_bar: PanelContainer = cockpit.get_node_or_null("TopBar") as PanelContainer
+	if top_bar == null:
+		push_error("cockpit should have a TopBar")
+		ok = false
+	elif top_bar.offset_left != 0.0 or top_bar.offset_top != 0.0 or top_bar.offset_right != 0.0:
+		push_error("top bar should be full-width and flush to the top edge, got %s" % top_bar)
+		ok = false
+	var bottom_deck: PanelContainer = cockpit.get_node_or_null("BottomDeck") as PanelContainer
+	if bottom_deck == null or not bottom_deck.has_theme_stylebox_override("panel"):
+		push_error("bottom deck should use the authored RTS console panel style")
+		ok = false
+	elif (
+		bottom_deck.offset_left != 0.0
+		or bottom_deck.offset_right != 0.0
+		or bottom_deck.offset_bottom != 0.0
+	):
+		push_error("bottom deck should be full-width and flush to the bottom edge")
+		ok = false
+	if cockpit.find_child("CommandGrid", true, false) == null:
+		push_error("cockpit should organize actions in a stable command grid")
+		ok = false
+	var command_panel: PanelContainer = (
+		cockpit.get_node_or_null("BottomDeck/Row/CommandPanel") as PanelContainer
+	)
+	var build_panel: PanelContainer = (
+		cockpit.get_node_or_null("BottomDeck/Row/BuildPanel") as PanelContainer
+	)
+	if command_panel == null:
+		push_error("cockpit should keep primary commands in their own panel")
+		ok = false
+	if build_panel == null:
+		push_error("cockpit should split build options into a separate right-hand panel")
+		ok = false
+	elif command_panel != null and build_panel.get_index() <= command_panel.get_index():
+		push_error("build panel should sit to the right of the command panel")
+		ok = false
+	if cockpit.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/OptionColumns") != null:
+		push_error("build options should not live inside the command panel")
+		ok = false
+	if cockpit.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/BuildScroll") != null:
+		push_error("build panel should avoid scrollbars by showing all options in its own box")
+		ok = false
+	if cockpit.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/OptionColumns") == null:
+		push_error("build panel should lay out option columns directly in the visible build box")
+		ok = false
+	for section_name in ["Build", "Train", "Research", "Abilities"]:
+		var button_grid: GridContainer = (
+			cockpit.get_node_or_null(
+				"BottomDeck/Row/BuildPanel/Stack/OptionColumns/%s/Buttons" % section_name
+			)
+			as GridContainer
+		)
+		if button_grid == null or button_grid.columns != 2:
+			push_error("%s options should use a compact two-column button grid" % section_name)
+			ok = false
+	if (
+		cockpit.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/RepeatTrain")
+		!= null
+	):
+		push_error("repeat train should not live in the primary command grid")
+		ok = false
+	var unit_cancel_button: Button = (
+		cockpit.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Cancel") as Button
+	)
+	if unit_cancel_button == null:
+		push_error("unit cancel should live in the primary command grid")
+		ok = false
+	var build_cancel_button: Button = (
+		cockpit.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/ProductionControls/Cancel")
+		as Button
+	)
+	if build_cancel_button == null:
+		push_error("cancel training should live in the build command box")
+		ok = false
+	var repeat_train_toggle: CheckBox = (
+		cockpit.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/ProductionControls/RepeatTrain")
+		as CheckBox
+	)
+	if repeat_train_toggle == null:
+		push_error("repeat train should live in the build command box")
+		ok = false
+	else:
+		var empty_options: Array[Dictionary] = []
+		cockpit.call(
+			"set_command_state",
+			"Producer",
+			false,
+			false,
+			false,
+			empty_options,
+			empty_options,
+			empty_options,
+			empty_options,
+			false,
+			true,
+			true
+		)
+		if not build_panel.visible or command_panel.visible:
+			push_error("repeat train alone should show the build box without the command box")
+			ok = false
+		if not repeat_train_toggle.visible or not repeat_train_toggle.button_pressed:
+			push_error("repeat train should be visible and stateful inside the build box")
+			ok = false
+		if (
+			not repeat_train_toggle.has_theme_stylebox_override("normal")
+			or not repeat_train_toggle.has_theme_stylebox_override("hover")
+			or not repeat_train_toggle.has_theme_stylebox_override("pressed")
+		):
+			push_error("repeat train should keep an explicit dark background while hovering")
+			ok = false
+	if build_cancel_button != null:
+		var empty_options: Array[Dictionary] = []
+		cockpit.call(
+			"set_command_state",
+			"Producer",
+			false,
+			false,
+			false,
+			empty_options,
+			empty_options,
+			empty_options,
+			empty_options,
+			true,
+			false,
+			false
+		)
+		if not build_panel.visible or command_panel.visible:
+			push_error("cancel training alone should show the build box without the command box")
+			ok = false
+		if not build_cancel_button.visible:
+			push_error("cancel training should be visible inside the build box")
+			ok = false
+		if unit_cancel_button != null and unit_cancel_button.visible:
+			push_error("unit cancel should stay hidden for production cancellation")
+			ok = false
+	var resolve_button: Button = _find_exact_button(cockpit, "Resolve")
+	if resolve_button == null or not resolve_button.has_theme_stylebox_override("normal"):
+		push_error("Resolve should use an authored amber command style")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_hud_stays_inside_window_and_camera_uses_safe_area() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var cockpit: Control = mode.find_child("DevPlayCockpit", true, false) as Control
+	var renderer: MatchRenderer = mode.renderer()
+	var camera: Camera2D = (
+		renderer.get_node_or_null("Camera2D") as Camera2D if renderer != null else null
+	)
+	if cockpit == null or renderer == null or camera == null:
+		push_error("test setup expected cockpit, renderer, and camera")
+		_free_mode(mode)
+		return false
+	var ok := true
+	var viewport_size: Vector2 = _logical_viewport_size()
+	var top_bar: Control = cockpit.get_node_or_null("TopBar") as Control
+	var bottom_deck: Control = cockpit.get_node_or_null("BottomDeck") as Control
+	if top_bar == null or bottom_deck == null:
+		push_error("cockpit should have top and bottom HUD bands")
+		ok = false
+	else:
+		var top_height: float = top_bar.offset_bottom - top_bar.offset_top
+		if top_bar.offset_top != 0.0 or top_height <= 0.0:
+			push_error("top bar should occupy only its required top strip, got %s" % top_bar)
+			ok = false
+		var deck_top: float = viewport_size.y + bottom_deck.offset_top
+		var deck_bottom: float = viewport_size.y + bottom_deck.offset_bottom
+		if deck_top < 0.0 or deck_bottom != viewport_size.y or deck_bottom <= deck_top:
+			push_error(
+				(
+					"bottom deck should occupy only its required bottom strip, top=%s bottom=%s viewport=%s"
+					% [deck_top, deck_bottom, viewport_size.y]
+				)
+			)
+			ok = false
+		var deck_height: float = deck_bottom - deck_top
+		if deck_height < 188.0:
+			push_error("bottom deck should keep stable console height, got %s" % deck_height)
+			ok = false
+		if deck_height > 190.0:
+			push_error("bottom deck should keep the previous compact height, got %s" % deck_height)
+			ok = false
+		if not bottom_deck.clip_contents:
+			push_error("bottom deck should clip child content instead of drawing under the window")
+			ok = false
+		var build_panel: Control = cockpit.get_node_or_null("BottomDeck/Row/BuildPanel") as Control
+		if build_panel == null or not build_panel.clip_contents:
+			push_error("build panel should clip overflowing build content inside the bottom strip")
+			ok = false
+	if renderer.get_node_or_null("HUD/CombatLog") != null:
+		push_error("legacy renderer CombatLog overlay should not reserve screen space")
+		ok = false
+	var game_container: SubViewportContainer = (
+		mode.find_child("GameViewportContainer", true, false) as SubViewportContainer
+	)
+	if game_container == null:
+		push_error("game renderer should live in a reserved middle viewport container")
+		ok = false
+	else:
+		var top_height: float = (
+			top_bar.offset_bottom - top_bar.offset_top if top_bar != null else 46.0
+		)
+		var reserved_bottom: float = absf(bottom_deck.offset_top) if bottom_deck != null else 190.0
+		var expected_height: float = viewport_size.y - top_height - reserved_bottom
+		if (
+			game_container.position != Vector2(0.0, top_height)
+			or game_container.size.x != viewport_size.x
+			or absf(game_container.size.y - expected_height) > 1.0
+		):
+			push_error(
+				(
+					"game viewport should fill exactly between HUD bands, position=%s size=%s expected_height=%s"
+					% [game_container.position, game_container.size, expected_height]
+				)
+			)
+			ok = false
+		var renderer_viewport: SubViewport = renderer.get_parent() as SubViewport
+		if renderer_viewport == null or renderer_viewport.get_parent() != game_container:
+			push_error("renderer should be parented inside the reserved child SubViewport")
+			ok = false
+		else:
+			var renderer_view_size: Vector2 = Vector2(renderer_viewport.size)
+			if absf(renderer_view_size.y - expected_height) > 1.0:
+				push_error(
+					(
+						"renderer viewport should match reserved middle height, got %s expected %s"
+						% [renderer_view_size.y, expected_height]
+					)
+				)
+				ok = false
+	if camera.offset != Vector2.ZERO:
+		push_error("camera should not fake HUD layout with screen offset, got %s" % camera.offset)
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
 func _test_command_card_tracks_selection() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -397,23 +689,23 @@ func _test_command_card_hides_when_not_actionable() -> bool:
 		_free_mode(mode)
 		return false
 	var ok: bool = true
-	if card.visible:
-		push_error("command card should be hidden while nothing actionable is selected")
+	if _command_surface_visible(card):
+		push_error("command surface should be hidden while nothing actionable is selected")
 		ok = false
 	mode.set_active_player_id(0)
 	var mineral_id: int = _find_entity_id_any_hp(mode.current_state(), "mineral_patch", -1)
 	if mineral_id < 0 or mode.select_entity_id(mineral_id):
 		push_error("neutral mineral should not become an actionable selection")
 		ok = false
-	if card.visible:
-		push_error("command card should stay hidden after selecting a non-owned target")
+	if _command_surface_visible(card):
+		push_error("command surface should stay hidden after selecting a non-owned target")
 		ok = false
 	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
 	if worker_id < 0 or not mode.select_entity_id(worker_id):
 		push_error("expected to select a P0 worker")
 		ok = false
-	if not card.visible:
-		push_error("command card should become visible for an actionable worker")
+	if not _command_surface_visible(card):
+		push_error("command surface should become visible for an actionable worker")
 		ok = false
 	if _find_label_with_substring(card, "#") != null:
 		push_error("command card should not expose debug entity ids")
@@ -949,11 +1241,8 @@ func _test_idle_worker_indicator_counts_active_idle_workers() -> bool:
 	mode.call("_update_hud")
 	var label: Label = mode.find_child("IdleWorkers", true, false) as Label
 	var ok: bool = true
-	if label == null:
-		push_error("dev HUD should expose IdleWorkers label")
-		ok = false
-	elif not label.visible or label.text != "Idle workers: 1":
-		push_error("IdleWorkers label should show one active-player idle worker")
+	if label != null:
+		push_error("cockpit HUD should not reintroduce the old IdleWorkers label")
 		ok = false
 	if renderer.call("idle_worker_indicator_count") != 1:
 		push_error("renderer should show one idle worker badge for the active player")
@@ -1020,14 +1309,70 @@ func _test_idle_worker_indicator_excludes_busy_workers() -> bool:
 	mode.call("_update_hud")
 	var label: Label = mode.find_child("IdleWorkers", true, false) as Label
 	var ok: bool = true
-	if label != null and label.visible:
-		push_error("IdleWorkers label should hide when no active worker is idle")
+	if label != null:
+		push_error("cockpit HUD should not reintroduce the old IdleWorkers label")
 		ok = false
 	if renderer.call("idle_worker_indicator_count") != 0:
 		push_error("busy active workers should not receive idle worker badges")
 		ok = false
 	_free_mode(mode)
 	return ok
+
+
+func _test_cockpit_all_orders_toggle_routes() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var renderer: MatchRenderer = mode.renderer()
+	var cockpit: Control = mode.find_child("DevPlayCockpit", true, false) as Control
+	if renderer == null or cockpit == null:
+		push_error("expected renderer and cockpit")
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var workers: Array[int] = _find_entity_ids(mode.current_state(), "worker", 0)
+	if workers.size() < 2:
+		push_error("expected multiple P0 workers")
+		_free_mode(mode)
+		return false
+	if not mode.select_entity_id(workers[0]) or not mode.issue_move_selected(Vector2i(13, 22)):
+		push_error("expected first worker move preview")
+		_free_mode(mode)
+		return false
+	if not mode.select_entity_id(workers[1]) or not mode.issue_move_selected(Vector2i(13, 25)):
+		push_error("expected second worker move preview")
+		_free_mode(mode)
+		return false
+	var toggle: CheckBox = _find_check_box_with_substring(cockpit, "All Orders")
+	if toggle == null:
+		push_error("cockpit should contain All Orders toggle")
+		_free_mode(mode)
+		return false
+	if toggle.button_pressed:
+		push_error("all-orders toggle should be off by default")
+		_free_mode(mode)
+		return false
+	if renderer.call("action_preview_count") != 1:
+		push_error("selected intent should be the only default action preview")
+		_free_mode(mode)
+		return false
+	toggle.button_pressed = true
+	var expected_previews: int = workers.size()
+	if renderer.call("action_preview_count") != expected_previews:
+		push_error(
+			(
+				"cockpit toggle should route all-friendly previews, got %d expected %d"
+				% [renderer.call("action_preview_count"), expected_previews]
+			)
+		)
+		_free_mode(mode)
+		return false
+	_free_mode(mode)
+	return true
 
 
 func _test_selected_and_friendly_target_intents() -> bool:
@@ -1657,10 +2002,10 @@ func _test_tied_same_target_move_completes_for_future_queue() -> bool:
 	var left_after: Entity = mode.current_state().get_entity_by_id(left_id)
 	var right_after: Entity = mode.current_state().get_entity_by_id(right_id)
 	var ok := true
-	if left_after.origin != Vector2i(5, 10) or right_after.origin != Vector2i(5, 12):
+	if left_after.origin != Vector2i(6, 10) or right_after.origin != Vector2i(6, 12):
 		push_error(
 			(
-				"tied movers should stop before the contested target, got %s and %s"
+				"tied movers should stop at reachable spaces around the contested target, got %s and %s"
 				% [str(left_after.origin), str(right_after.origin)]
 			)
 		)
@@ -1713,8 +2058,18 @@ func _test_routes_command_card_orders() -> bool:
 		push_error("expected MOVE after pending Move click")
 		_free_mode(mode)
 		return false
-	if not _expect_button_visibility(card, "Cancel", true):
-		push_error("selected worker with a queued order should expose Cancel")
+	var unit_cancel_button: Button = (
+		card.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Cancel") as Button
+	)
+	var build_cancel_button: Button = (
+		card.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/ProductionControls/Cancel") as Button
+	)
+	if unit_cancel_button == null or not unit_cancel_button.visible:
+		push_error("selected unit with a queued order should expose Cancel in Commands")
+		_free_mode(mode)
+		return false
+	if build_cancel_button != null and build_cancel_button.visible:
+		push_error("selected unit with a queued order should not expose Cancel in Build")
 		_free_mode(mode)
 		return false
 	card.emit_signal("cancel_requested", -1)
@@ -1831,6 +2186,20 @@ func _test_routes_command_card_orders() -> bool:
 		return false
 	if orders[1].type != EntityOrder.Type.RESEARCH or orders[1].def_id != "stim_research":
 		push_error("research signal should queue RESEARCH stim_research")
+		_free_mode(mode)
+		return false
+	build_cancel_button = (
+		card.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/ProductionControls/Cancel") as Button
+	)
+	unit_cancel_button = (
+		card.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Cancel") as Button
+	)
+	if build_cancel_button == null or not build_cancel_button.visible:
+		push_error("selected building with queued production should expose Cancel in Build")
+		_free_mode(mode)
+		return false
+	if unit_cancel_button != null and unit_cancel_button.visible:
+		push_error("selected building with queued production should not expose Cancel in Commands")
 		_free_mode(mode)
 		return false
 	mode.input_model().clear_submissions()
@@ -2226,9 +2595,25 @@ func _test_group_right_click_orders() -> bool:
 		)
 		ok = false
 	else:
+		var target_tiles: Array[Vector2i] = []
 		for i in orders.size():
-			if not _expect_order(orders[i], EntityOrder.Type.MOVE, ids[i], target_tile):
+			var order: EntityOrder = orders[i]
+			if order == null or order.type != EntityOrder.Type.MOVE or order.entity_id != ids[i]:
+				push_error("expected MOVE for selected unit #%d" % ids[i])
 				ok = false
+			else:
+				target_tiles.append(order.target_tile)
+		if not target_tiles.has(target_tile):
+			push_error("group right-click formation should include clicked tile")
+			ok = false
+		if _unique_tile_count(target_tiles) != ids.size():
+			push_error(
+				(
+					"group right-click should assign distinct formation targets, got %s"
+					% str(target_tiles)
+				)
+			)
+			ok = false
 	_free_mode(mode)
 	return ok
 
@@ -2301,6 +2686,123 @@ func _test_escape_resets_active_selection_drag() -> bool:
 	var ok: bool = selected == [ids[0]]
 	if not ok:
 		push_error("Escape should cancel active selection drag, got %s" % str(selected))
+	_free_mode(mode)
+	return ok
+
+
+func _test_escape_debug_controls() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.call("_set_escape_menu_visible", true)
+	var menu: Control = mode.find_child("EscapeMenu", true, false) as Control
+	if menu == null or not menu.visible:
+		push_error("escape menu should be visible for debug controls")
+		_free_mode(mode)
+		return false
+	var ok := true
+	for label in [
+		"P1",
+		"P2",
+		"Clear",
+		"Surrender",
+		"Save Snapshot",
+		"Load",
+		"Replay",
+		"New Game",
+		"Main Menu",
+	]:
+		if _find_button_with_substring(menu, label) == null:
+			push_error("escape menu should expose debug control '%s'" % label)
+			ok = false
+	if _find_exact_button(menu, "P0") != null:
+		push_error("escape menu should use one-based player labels")
+		ok = false
+	var p2_button: Button = _find_exact_button(menu, "P2")
+	if p2_button != null:
+		p2_button.emit_signal("pressed")
+		if mode.input_model().active_player_id() != 1:
+			push_error("P2 debug button should switch to internal player 1")
+			ok = false
+	var p1_button: Button = _find_exact_button(menu, "P1")
+	if p1_button != null:
+		p1_button.emit_signal("pressed")
+		if mode.input_model().active_player_id() != 0:
+			push_error("P1 debug button should switch to internal player 0")
+			ok = false
+	if _find_check_box_with_substring(menu, "Debug Info") == null:
+		push_error("escape menu should expose a Debug Info toggle")
+		ok = false
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 1)
+	if worker_id >= 0:
+		mode.set_active_player_id(1)
+		var queued_order_for_clear: bool = false
+		if not mode.select_entity_id(worker_id):
+			push_error("Clear control test should select a P1 worker before pressing Clear")
+			ok = false
+		elif not mode.issue_move_selected(Vector2i(24, 14)):
+			push_error("Clear control test should queue a P1 move before pressing Clear")
+			ok = false
+		elif mode.pending_order_count(1) != 1:
+			push_error("Clear control test expected one queued P1 order before pressing Clear")
+			ok = false
+		else:
+			queued_order_for_clear = true
+		var clear_button: Button = _find_button_with_substring(menu, "Clear")
+		if clear_button != null and queued_order_for_clear:
+			clear_button.emit_signal("pressed")
+			if mode.pending_order_count(1) != 0:
+				push_error("Clear debug button should clear active-player queued orders")
+				ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_zoom_debug_hidden_until_menu_toggle() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var renderer: MatchRenderer = mode.renderer()
+	if renderer == null:
+		push_error("expected renderer")
+		_free_mode(mode)
+		return false
+	var zoom_label: Label = renderer.get_node_or_null("HUD/ZoomDebug") as Label
+	var ok := true
+	if renderer.zoom_debug_text().find("Zoom") == -1:
+		push_error("renderer should keep zoom debug text available internally")
+		ok = false
+	if zoom_label == null:
+		push_error("renderer should keep a ZoomDebug label for opt-in diagnostics")
+		ok = false
+	elif zoom_label.visible:
+		push_error("ZoomDebug should be hidden by default")
+		ok = false
+	mode.call("_set_escape_menu_visible", true)
+	var menu: Control = mode.find_child("EscapeMenu", true, false) as Control
+	var debug_toggle: CheckBox = _find_check_box_with_substring(menu, "Debug Info")
+	if debug_toggle == null:
+		push_error("Debug Info toggle should exist in escape menu")
+		ok = false
+	else:
+		debug_toggle.button_pressed = true
+		debug_toggle.emit_signal("toggled", true)
+		if zoom_label == null or not zoom_label.visible:
+			push_error("Debug Info should show the ZoomDebug label")
+			ok = false
+		debug_toggle.button_pressed = false
+		debug_toggle.emit_signal("toggled", false)
+		if zoom_label != null and zoom_label.visible:
+			push_error("Debug Info off should hide the ZoomDebug label again")
+			ok = false
 	_free_mode(mode)
 	return ok
 
@@ -2386,6 +2888,13 @@ func _camera_visible_rect_inside_state(
 			)
 		)
 	return ok
+
+
+func _logical_viewport_size() -> Vector2:
+	return Vector2(
+		float(ProjectSettings.get_setting("display/window/size/viewport_width", 1920.0)),
+		float(ProjectSettings.get_setting("display/window/size/viewport_height", 1080.0))
+	)
 
 
 func _make_mode() -> Node:
@@ -2475,6 +2984,13 @@ func _selected_ids_for_test(input: DevTurnInput) -> Array[int]:
 	for item in raw:
 		out.append(int(item))
 	return out
+
+
+func _unique_tile_count(tiles: Array[Vector2i]) -> int:
+	var seen: Dictionary = {}
+	for tile in tiles:
+		seen[tile] = true
+	return seen.size()
 
 
 func _boxed_ids_for_test(mode: Node, box: Rect2) -> Array[int]:
@@ -2734,6 +3250,15 @@ func _command_card_ids(card: Control, method_name: String) -> Array[String]:
 		var id: String = item
 		out.append(id)
 	return out
+
+
+func _command_surface_visible(card: Control) -> bool:
+	if card == null:
+		return false
+	if not card.has_method("command_surface_visible"):
+		push_error("CommandCard should expose command_surface_visible")
+		return false
+	return bool(card.call("command_surface_visible"))
 
 
 func _expect_order(

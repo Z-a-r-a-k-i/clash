@@ -73,6 +73,8 @@ ln -s \
 
 Use the same local `godot-ai-plugin` addon target as the main checkout unless the user explicitly asks for a different plugin checkout.
 
+**Junction cleanup safety:** `client/addons/godot_ai` is a link to an external plugin checkout, not disposable worktree content. Never recursively delete, move, clean, or enumerate-and-delete inside this path. On Windows, treat `LinkType = Junction` / `ReparsePoint` as a hard stop: remove only the junction entry itself when explicitly cleaning a worktree, for example `Remove-Item "<worktree>\client\addons\godot_ai"` without `-Recurse`. Do not run commands such as `Get-ChildItem client/addons/godot_ai -Recurse | Remove-Item` or `Remove-Item client/addons/godot_ai\* -Recurse`; those delete files from the shared external `godot-ai-plugin` checkout.
+
 ## Documentation Philosophy
 
 Code is the source of truth. Define types and schemas in code (proto); never duplicate them in markdown. Use docs for design rationale, architecture decisions, and how things connect, not for restating field lists or enum values.

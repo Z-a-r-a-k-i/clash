@@ -139,6 +139,9 @@ static func resolve_movement_substep(
 		var next_origin: Vector2i = step.get("next_origin", actor.origin)
 		if next_origin == actor.origin:
 			continue
+		var candidate_origins: Array[Vector2i] = _movement_candidate_origins(
+			state, actor, target_origin, footprint, movement, options, intent, next_origin
+		)
 		(
 			proposals
 			. append(
@@ -150,6 +153,9 @@ static func resolve_movement_substep(
 					"target_rect": Rect2i(next_origin, footprint),
 					"layer": actor_layer,
 					"path_distance": int(step.get("path_distance", 1)),
+					"candidate_origins": candidate_origins,
+					"candidate_index": 0,
+					"footprint": footprint,
 					"intent": intent,
 				}
 			)
@@ -474,7 +480,7 @@ static func _winning_proposals(
 		changed = false
 		var conflict_result: Dictionary = _target_conflict_result(remaining)
 		var blocked: Dictionary = conflict_result.get("losers", {})
-		_emit_completed_tied_moves(conflict_result.get("completed", {}), remaining, events)
+		var complete_on_stop: Dictionary = conflict_result.get("complete_on_stop", {})
 		var moving_ids: Dictionary = {}
 		for entity_id in remaining.keys():
 			if not blocked.has(entity_id):
@@ -489,7 +495,21 @@ static func _winning_proposals(
 			if _target_blocked_by_non_mover(proposal, non_mover_blockers_by_layer):
 				blocked[entity_id] = true
 		if not blocked.is_empty():
+			var blocked_ids: Array[int] = []
 			for entity_id in blocked.keys():
+				blocked_ids.append(int(entity_id))
+			blocked_ids.sort()
+			for entity_id in blocked_ids:
+				var proposal: Dictionary = remaining.get(entity_id, {})
+				if complete_on_stop.has(entity_id):
+					proposal["complete_after_move"] = true
+				if _advance_proposal_to_next_candidate(proposal):
+					continue
+				if (
+					complete_on_stop.has(entity_id)
+					or bool(proposal.get("complete_after_move", false))
+				):
+					_emit_completed_at_stop(proposal, events)
 				remaining.erase(entity_id)
 			changed = true
 	var winners: Array[Dictionary] = []
@@ -502,9 +522,119 @@ static func _winning_proposals(
 	return winners
 
 
+static func _movement_candidate_origins(
+	state: MatchState,
+	actor: Entity,
+	target_origin: Vector2i,
+	footprint: Vector2i,
+	movement: MovementDef,
+	options: Dictionary,
+	_intent: Dictionary,
+	primary_origin: Vector2i
+) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	if actor == null or state == null or state.tile_grid == null or movement == null:
+		return out
+	out.append(primary_origin)
+	if footprint != Vector2i.ONE:
+		return out
+	var occupancy_blockers: Dictionary = options.get(_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS, {})
+	var goal_rect: Rect2i = options.get(
+		_PATHFINDING.OPTION_GOAL_RECT, Rect2i(target_origin, footprint)
+	)
+	var goal_range: int = int(options.get(_PATHFINDING.OPTION_GOAL_RANGE, 0))
+	var exact_origin: bool = bool(options.get(_PATHFINDING.OPTION_EXACT_ORIGIN, true))
+	var current_goal_distance: int = _PATHFINDING._goal_distance(
+		actor.origin, footprint, target_origin, goal_rect, goal_range, exact_origin
+	)
+	var current_manhattan: int = _PATHFINDING._manhattan_distance(
+		actor.origin, footprint, target_origin, goal_rect, goal_range, exact_origin
+	)
+	var candidates: Array[Dictionary] = []
+	for y in range(actor.origin.y - 1, actor.origin.y + 2):
+		for x in range(actor.origin.x - 1, actor.origin.x + 2):
+			var candidate := Vector2i(x, y)
+			if candidate == actor.origin or candidate == primary_origin:
+				continue
+			if not _PATHFINDING._can_occupy_origin_with_blockers(
+				state.tile_grid, candidate, footprint, movement, occupancy_blockers
+			):
+				continue
+			var goal_distance: int = _PATHFINDING._goal_distance(
+				candidate, footprint, target_origin, goal_rect, goal_range, exact_origin
+			)
+			var manhattan: int = _PATHFINDING._manhattan_distance(
+				candidate, footprint, target_origin, goal_rect, goal_range, exact_origin
+			)
+			if (
+				goal_distance > current_goal_distance
+				or (goal_distance == current_goal_distance and manhattan >= current_manhattan)
+			):
+				continue
+			(
+				candidates
+				. append(
+					{
+						"origin": candidate,
+						"goal_distance": goal_distance,
+						"manhattan": manhattan,
+						"primary_delta": _chebyshev_distance(candidate, primary_origin),
+						"direction_delta":
+						_direction_delta_score(actor.origin, candidate, target_origin),
+						"y": candidate.y,
+						"x": candidate.x,
+					}
+				)
+			)
+	candidates.sort_custom(_movement_candidate_less)
+	for item in candidates:
+		var candidate_origin: Vector2i = item.get("origin", primary_origin)
+		if not out.has(candidate_origin):
+			out.append(candidate_origin)
+	return out
+
+
+static func _advance_proposal_to_next_candidate(proposal: Dictionary) -> bool:
+	if proposal.is_empty():
+		return false
+	var candidate_origins: Array = proposal.get("candidate_origins", [])
+	var next_index: int = int(proposal.get("candidate_index", 0)) + 1
+	if next_index < 0 or next_index >= candidate_origins.size():
+		return false
+	var next_origin: Vector2i = candidate_origins[next_index]
+	var footprint: Vector2i = proposal.get("footprint", Vector2i.ONE)
+	proposal["candidate_index"] = next_index
+	proposal["to_origin"] = next_origin
+	proposal["target_rect"] = Rect2i(next_origin, footprint)
+	return true
+
+
+static func _movement_candidate_less(a: Dictionary, b: Dictionary) -> bool:
+	for key in ["goal_distance", "manhattan", "primary_delta", "direction_delta", "y", "x"]:
+		var a_value: int = int(a.get(key, 0))
+		var b_value: int = int(b.get(key, 0))
+		if a_value != b_value:
+			return a_value < b_value
+	return false
+
+
+static func _direction_delta_score(
+	from_origin: Vector2i, candidate_origin: Vector2i, target_origin: Vector2i
+) -> int:
+	var wanted := Vector2i(
+		signi(target_origin.x - from_origin.x), signi(target_origin.y - from_origin.y)
+	)
+	var actual := candidate_origin - from_origin
+	return abs(actual.x - wanted.x) + abs(actual.y - wanted.y)
+
+
+static func _chebyshev_distance(a: Vector2i, b: Vector2i) -> int:
+	return maxi(abs(a.x - b.x), abs(a.y - b.y))
+
+
 static func _target_conflict_result(remaining: Dictionary) -> Dictionary:
 	var losers: Dictionary = {}
-	var completed: Dictionary = {}
+	var complete_on_stop: Dictionary = {}
 	var ids: Array[int] = []
 	for entity_id in remaining.keys():
 		ids.append(int(entity_id))
@@ -533,8 +663,8 @@ static func _target_conflict_result(remaining: Dictionary) -> Dictionary:
 			var single_winner_ids: Array[int] = [winner_id]
 			_mark_direct_conflict_losers(single_winner_ids, component, remaining, losers)
 		else:
-			_process_equal_distance_minima(min_ids, component, remaining, losers, completed)
-	return {"losers": losers, "completed": completed}
+			_process_equal_distance_minima(min_ids, component, remaining, losers, complete_on_stop)
+	return {"losers": losers, "complete_on_stop": complete_on_stop}
 
 
 static func _process_equal_distance_minima(
@@ -542,7 +672,7 @@ static func _process_equal_distance_minima(
 	component: Array[int],
 	remaining: Dictionary,
 	losers: Dictionary,
-	completed: Dictionary
+	complete_on_stop: Dictionary
 ) -> void:
 	var visited: Dictionary = {}
 	for start_id in min_ids:
@@ -554,17 +684,19 @@ static func _process_equal_distance_minima(
 		if group.size() <= 1:
 			_mark_direct_conflict_losers(group, component, remaining, losers)
 			continue
-		var winner_ids: Array[int] = _non_conflicting_min_winners(group, remaining)
-		if winner_ids.size() <= 1:
+		if _is_final_exact_target_tie(group, remaining):
 			for entity_id in group:
 				losers[entity_id] = true
+				complete_on_stop[entity_id] = true
 			_mark_direct_conflict_losers(group, component, remaining, losers)
-			_mark_completed_same_target_tie_groups(group, remaining, completed)
 			continue
-		_mark_direct_conflict_losers(winner_ids, component, remaining, losers)
+		var winner_ids: Array[int] = _non_conflicting_min_winners(group, remaining)
+		if winner_ids.is_empty():
+			continue
 		for entity_id in group:
 			if not winner_ids.has(entity_id):
 				losers[entity_id] = true
+		_mark_direct_conflict_losers(winner_ids, component, remaining, losers)
 
 
 static func _min_conflict_group(
@@ -651,76 +783,27 @@ static func _proposals_directly_conflict(a_id: int, b_id: int, remaining: Dictio
 	return a.get("layer", "ground") == b.get("layer", "ground") and a_rect.intersects(b_rect)
 
 
-static func _mark_completed_same_target_tie_groups(
-	tied_ids: Array[int], remaining: Dictionary, completed: Dictionary
-) -> void:
-	var visited: Dictionary = {}
-	for start_id in tied_ids:
-		if visited.has(start_id):
-			continue
-		var group: Array[int] = []
-		var queue: Array[int] = [start_id]
-		visited[start_id] = true
-		while not queue.is_empty():
-			var current_id: int = queue.pop_front()
-			group.append(current_id)
-			for other_id in tied_ids:
-				if visited.has(other_id):
-					continue
-				if _proposals_directly_conflict(current_id, other_id, remaining):
-					visited[other_id] = true
-					queue.append(other_id)
-		group.sort()
-		for completed_id in _completed_same_target_tie_ids(group, remaining):
-			completed[completed_id] = true
-
-
-static func _completed_same_target_tie_ids(
-	tied_ids: Array[int], remaining: Dictionary
-) -> Array[int]:
+static func _is_final_exact_target_tie(tied_ids: Array[int], remaining: Dictionary) -> bool:
 	if tied_ids.size() <= 1:
-		return []
+		return false
 	var target_origin: Vector2i = Vector2i.ZERO
 	var has_target: bool = false
 	for entity_id in tied_ids:
 		var proposal: Dictionary = remaining.get(entity_id, {})
 		var intent: Dictionary = proposal.get("intent", {})
 		if intent.get("kind", "") != "move":
-			return []
+			return false
 		if not intent.get("exact_origin", true) or int(intent.get("goal_range", 0)) != 0:
-			return []
+			return false
 		var intent_target: Vector2i = intent.get("target_origin", Vector2i.ZERO)
 		if proposal.get("to_origin", Vector2i.ZERO) != intent_target:
-			return []
+			return false
 		if not has_target:
 			target_origin = intent_target
 			has_target = true
 		elif intent_target != target_origin:
-			return []
-	return tied_ids.duplicate()
-
-
-static func _emit_completed_tied_moves(
-	completed_ids: Dictionary, remaining: Dictionary, events: Array[ResolverEvent]
-) -> void:
-	var ids: Array[int] = []
-	for entity_id in completed_ids.keys():
-		ids.append(int(entity_id))
-	ids.sort()
-	for entity_id in ids:
-		var proposal: Dictionary = remaining.get(entity_id, {})
-		var actor: Entity = proposal.get("actor") as Entity
-		if actor == null:
-			continue
-		var intent: Dictionary = proposal.get("intent", {})
-		var movement_budget: int = int(intent.get("movement_budget", actor.moves_used_this_turn))
-		actor.moves_used_this_turn = max(actor.moves_used_this_turn, movement_budget)
-		var ev := ResolverEvent.new()
-		ev.type = ResolverEvent.Type.MOVE_COMPLETED
-		ev.actor_id = actor.id
-		ev.from_origin = proposal.get("from_origin", actor.origin)
-		ev.to_origin = intent.get("target_origin", actor.origin)
-		events.append(ev)
+			return false
+	return has_target
 
 
 static func _emit_completed_at_origin(
@@ -735,6 +818,22 @@ static func _emit_completed_at_origin(
 	ev.actor_id = actor.id
 	ev.from_origin = actor.origin
 	ev.to_origin = actor.origin
+	events.append(ev)
+
+
+static func _emit_completed_at_stop(proposal: Dictionary, events: Array[ResolverEvent]) -> void:
+	var actor: Entity = proposal.get("actor") as Entity
+	if actor == null:
+		return
+	var intent: Dictionary = proposal.get("intent", {})
+	var movement_budget: int = int(intent.get("movement_budget", actor.moves_used_this_turn))
+	actor.moves_used_this_turn = max(actor.moves_used_this_turn, movement_budget)
+	var stop_origin: Vector2i = proposal.get("from_origin", actor.origin)
+	var ev := ResolverEvent.new()
+	ev.type = ResolverEvent.Type.MOVE_COMPLETED
+	ev.actor_id = actor.id
+	ev.from_origin = stop_origin
+	ev.to_origin = stop_origin
 	events.append(ev)
 
 
@@ -826,18 +925,30 @@ static func _commit_proposal(
 		and intent.get("exact_origin", true)
 		and to_origin == intent.get("target_origin", to_origin)
 	):
-		var complete_ev := ResolverEvent.new()
-		complete_ev.type = ResolverEvent.Type.MOVE_COMPLETED
-		complete_ev.actor_id = actor.id
-		complete_ev.from_origin = to_origin
-		complete_ev.to_origin = to_origin
-		events.append(complete_ev)
+		_emit_move_completed(actor, to_origin, to_origin, events)
+	elif kind == "move" and bool(proposal.get("complete_after_move", false)):
+		var movement_budget: int = int(intent.get("movement_budget", actor.moves_used_this_turn))
+		actor.moves_used_this_turn = max(actor.moves_used_this_turn, movement_budget)
+		_emit_move_completed(actor, to_origin, to_origin, events)
 	elif kind == "construction":
 		var building: Entity = state.get_entity_by_id(intent.get("target_entity_id", -1))
 		if building == null or building.current_hp <= 0 or not building.is_constructing:
 			actor.locked_to_building_id = -1
 	elif kind == "pending_construction":
 		ConstructionSystem.try_start_pending_build(state, actor, registry, events)
+
+
+static func _emit_move_completed(
+	actor: Entity, from_origin: Vector2i, to_origin: Vector2i, events: Array[ResolverEvent]
+) -> void:
+	if actor == null:
+		return
+	var complete_ev := ResolverEvent.new()
+	complete_ev.type = ResolverEvent.Type.MOVE_COMPLETED
+	complete_ev.actor_id = actor.id
+	complete_ev.from_origin = from_origin
+	complete_ev.to_origin = to_origin
+	events.append(complete_ev)
 
 
 static func _action_at(per_entity: Dictionary, entity_id: int, tick: int) -> EntityOrder:

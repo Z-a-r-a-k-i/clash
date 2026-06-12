@@ -3,10 +3,10 @@ extends Node
 
 const MESSAGE := preload("res://scripts/network/network_message.gd")
 const SURFACE_SCRIPT := preload("res://scripts/network/match_play_surface.gd")
-const COMMAND_CARD_SCRIPT := preload("res://scripts/game/command_card.gd")
 const COMMAND_OPTION_BUILDER := preload("res://scripts/game/command_option_builder.gd")
 const SERVER_SCRIPT := preload("res://scripts/network/network_match_server.gd")
 const ACTION_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/action_preview_builder.gd")
+const SHARED_COCKPIT_SCENE := preload("res://scenes/ui/dev_play_cockpit.tscn")
 const SELECTION_DRAG_CONTROLLER_SCRIPT: Script = preload(
 	"res://scripts/game/selection_drag_controller.gd"
 )
@@ -33,8 +33,14 @@ const CONTEXT_GATHER := "gather"
 const CONTEXT_RALLY_MOVE := "rally_move"
 const CONTEXT_RALLY_GATHER := "rally_gather"
 const CONTEXT_INVALID := "invalid"
+const FALLBACK_TOP_HUD_HEIGHT: float = 46.0
+const FALLBACK_BOTTOM_HUD_HEIGHT: float = 190.0
+const GAME_VIEWPORT_MARGIN_LEFT: float = 0.0
+const GAME_VIEWPORT_MARGIN_RIGHT: float = 0.0
 
 var _surface: MatchPlaySurface = null
+var _game_viewport_container: SubViewportContainer = null
+var _game_viewport: SubViewport = null
 var _client_controller: NetworkClientController = NetworkClientController.new()
 var _client: NetworkClient = null
 var _input: DevTurnInput = DevTurnInput.new()
@@ -43,27 +49,21 @@ var _action_preview_builder: ActionPreviewBuilder = (
 )
 var _hud_layer: CanvasLayer = null
 var _lobby_panel: PanelContainer = null
-var _match_hud_panel: PanelContainer = null
+var _cockpit: DevPlayCockpit = null
 var _escape_menu_panel: PanelContainer = null
 var _outcome_overlay_panel: PanelContainer = null
 var _outcome_title_label: Label = null
 var _outcome_detail_label: Label = null
 var _lobby_status_label: Label = null
-var _match_status_label: Label = null
-var _code_label: Label = null
-var _slot_label: Label = null
-var _resources_label: Label = null
-var _idle_workers_label: Label = null
-var _submit_label: Label = null
 var _submit_button: Button = null
 var _show_all_orders_button: BaseButton = null
 var _interface_toggle_button: Button = null
 var _url_edit: LineEdit = null
 var _code_edit: LineEdit = null
-var _command_card: Control = null
 var _player_slot: int = -1
 var _registry: EntityRegistry = null
 var _match_code: String = ""
+var _connection_status: String = "Disconnected"
 var _match_started: bool = false
 var _show_all_orders: bool = false
 var _interface_hidden: bool = false
@@ -78,6 +78,9 @@ var _pending_build_def_id: String = ""
 
 func _ready() -> void:
 	_selection_drag.threshold_pixels = CAMERA_DRAG_THRESHOLD
+	var viewport: Viewport = get_viewport()
+	if viewport != null and not viewport.size_changed.is_connected(_sync_game_viewport_rect):
+		viewport.size_changed.connect(_sync_game_viewport_rect)
 	ensure_initialized()
 	call_deferred("_auto_connect_default_server")
 
@@ -85,6 +88,7 @@ func _ready() -> void:
 func ensure_initialized() -> void:
 	_build_surface()
 	_build_hud()
+	_sync_game_viewport_rect()
 	_sync_ui()
 
 
@@ -181,8 +185,8 @@ func remember_server_url(url: String) -> void:
 
 func set_show_all_orders(show_all: bool) -> void:
 	_show_all_orders = show_all
-	if _show_all_orders_button != null:
-		_show_all_orders_button.set_pressed_no_signal(show_all)
+	if _cockpit != null:
+		_cockpit.set_show_all_orders_enabled(show_all)
 	_refresh_action_previews()
 
 
@@ -546,12 +550,8 @@ func submit_queued_turn() -> bool:
 		_update_hud()
 		return false
 	_submit_in_flight = true
-	if _submit_label != null:
-		_submit_label.text = "Submit: sending"
 	set_connection_status("Submit sent. Waiting for server.")
 	_update_hud()
-	if _submit_label != null:
-		_submit_label.text = "Submit: sending"
 	return true
 
 
@@ -587,20 +587,19 @@ func _reject_edit_while_submit_sending() -> bool:
 
 
 func set_connection_status(status: String) -> void:
+	_connection_status = status
 	if _lobby_status_label != null:
 		_lobby_status_label.text = status
-	if _match_status_label != null:
-		_match_status_label.text = status
+	_update_hud()
 
 
 func set_invite_code(code: String) -> void:
 	var normalized: String = code.strip_edges().to_upper()
 	if normalized != "":
 		_match_code = normalized
-	if _code_label != null:
-		_code_label.text = "Code: %s" % (_match_code if _match_code != "" else "-")
 	if _code_edit != null and _match_code != "":
 		_code_edit.text = _match_code
+	_update_hud()
 
 
 func set_error(message: String) -> void:
@@ -615,9 +614,90 @@ func set_escape_menu_visible(visible: bool) -> void:
 func _build_surface() -> void:
 	if _surface != null:
 		return
+	_ensure_game_viewport()
 	_surface = SURFACE_SCRIPT.new() as MatchPlaySurface
 	_surface.name = "MatchPlaySurface"
-	add_child(_surface)
+	if _game_viewport != null:
+		_game_viewport.add_child(_surface)
+	else:
+		add_child(_surface)
+
+
+func _ensure_game_viewport() -> void:
+	if _game_viewport_container != null and _game_viewport != null:
+		_sync_game_viewport_rect()
+		return
+	_game_viewport_container = SubViewportContainer.new()
+	_game_viewport_container.name = "GameViewportContainer"
+	_game_viewport_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_game_viewport_container.stretch = false
+	_game_viewport_container.anchor_left = 0.0
+	_game_viewport_container.anchor_right = 0.0
+	_game_viewport_container.anchor_top = 0.0
+	_game_viewport_container.anchor_bottom = 0.0
+	_game_viewport_container.offset_left = GAME_VIEWPORT_MARGIN_LEFT
+	_game_viewport_container.offset_top = _top_hud_height()
+	_game_viewport_container.offset_right = -GAME_VIEWPORT_MARGIN_RIGHT
+	_game_viewport_container.offset_bottom = -_bottom_hud_height()
+	add_child(_game_viewport_container)
+
+	_game_viewport = SubViewport.new()
+	_game_viewport.name = "GameViewport"
+	_game_viewport.disable_3d = true
+	_game_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	_game_viewport_container.add_child(_game_viewport)
+	_sync_game_viewport_rect()
+
+
+func _sync_game_viewport_rect() -> void:
+	if _game_viewport_container == null:
+		return
+	var top_hud_height: float = _top_hud_height()
+	var bottom_hud_height: float = _bottom_hud_height()
+	_game_viewport_container.offset_left = GAME_VIEWPORT_MARGIN_LEFT
+	_game_viewport_container.offset_top = top_hud_height
+	_game_viewport_container.offset_right = -GAME_VIEWPORT_MARGIN_RIGHT
+	_game_viewport_container.offset_bottom = -bottom_hud_height
+	if _game_viewport == null:
+		return
+	var viewport_size: Vector2 = _root_viewport_size()
+	var game_width: float = maxf(
+		viewport_size.x - GAME_VIEWPORT_MARGIN_LEFT - GAME_VIEWPORT_MARGIN_RIGHT, 1.0
+	)
+	var game_height: float = maxf(viewport_size.y - top_hud_height - bottom_hud_height, 1.0)
+	_game_viewport_container.position = Vector2(GAME_VIEWPORT_MARGIN_LEFT, top_hud_height)
+	_game_viewport_container.size = Vector2(game_width, game_height)
+	_game_viewport.size = Vector2i(roundi(game_width), roundi(game_height))
+
+
+func _root_viewport_size() -> Vector2:
+	var viewport: Viewport = get_viewport()
+	if viewport != null:
+		var size: Vector2 = viewport.get_visible_rect().size
+		if size.x > 0.0 and size.y > 0.0:
+			return size
+	return Vector2(
+		float(ProjectSettings.get_setting("display/window/size/viewport_width", 1920.0)),
+		float(ProjectSettings.get_setting("display/window/size/viewport_height", 1080.0))
+	)
+
+
+func _top_hud_height() -> float:
+	var top_bar: Control = null
+	if _cockpit != null:
+		top_bar = _cockpit.get_node_or_null("TopBar") as Control
+	if top_bar == null:
+		return FALLBACK_TOP_HUD_HEIGHT
+	return maxf(top_bar.offset_bottom - top_bar.offset_top, 1.0)
+
+
+func _bottom_hud_height() -> float:
+	var bottom_deck: Control = null
+	if _cockpit != null:
+		bottom_deck = _cockpit.get_node_or_null("BottomDeck") as Control
+	if bottom_deck == null:
+		return FALLBACK_BOTTOM_HUD_HEIGHT
+	return maxf(bottom_deck.offset_bottom - bottom_deck.offset_top, 1.0)
 
 
 func _build_hud() -> void:
@@ -627,7 +707,7 @@ func _build_hud() -> void:
 	_hud_layer.name = "NetworkHUD"
 	add_child(_hud_layer)
 	_build_lobby_panel()
-	_build_match_hud_panel()
+	_build_cockpit()
 	_build_outcome_overlay()
 	_build_escape_menu()
 
@@ -688,7 +768,7 @@ func _build_lobby_panel() -> void:
 	root.add_child(main_menu_button)
 
 
-func _build_match_hud_panel() -> void:
+func _build_cockpit() -> void:
 	_interface_toggle_button = _button("Hide UI")
 	_interface_toggle_button.name = "InterfaceToggle"
 	_interface_toggle_button.anchor_left = 0.0
@@ -699,62 +779,27 @@ func _build_match_hud_panel() -> void:
 	_interface_toggle_button.offset_bottom = HUD_MARGIN + 34.0
 	_interface_toggle_button.pressed.connect(_interface_toggle_pressed)
 	_hud_layer.add_child(_interface_toggle_button)
-	_match_hud_panel = PanelContainer.new()
-	_match_hud_panel.name = "MatchHUD"
-	_match_hud_panel.anchor_left = 1.0
-	_match_hud_panel.anchor_right = 1.0
-	_match_hud_panel.offset_left = -HUD_WIDTH - HUD_MARGIN
-	_match_hud_panel.offset_right = -HUD_MARGIN
-	_match_hud_panel.offset_top = HUD_MARGIN
-	_match_hud_panel.offset_bottom = 520.0
-	_hud_layer.add_child(_match_hud_panel)
-	var root: VBoxContainer = VBoxContainer.new()
-	root.name = "Root"
-	root.add_theme_constant_override("separation", 8)
-	_match_hud_panel.add_child(root)
-	_submit_button = _button("Submit Turn")
-	_submit_button.name = "SubmitTurn"
-	_submit_button.toggle_mode = true
-	_submit_button.custom_minimum_size = Vector2(HUD_WIDTH - HUD_MARGIN * 2.0, 44.0)
-	_submit_button.toggled.connect(_submit_toggle_changed)
-	root.add_child(_submit_button)
-	_match_status_label = _label("Waiting")
-	_match_status_label.name = "MatchStatus"
-	root.add_child(_match_status_label)
-	_code_label = _label("Code: -")
-	_code_label.name = "InviteCode"
-	root.add_child(_code_label)
-	_slot_label = _label("Slot: -")
-	_slot_label.name = "PlayerSlot"
-	root.add_child(_slot_label)
-	_resources_label = _label("Minerals: -  Gas: -  Pop: -/-")
-	_resources_label.name = "Resources"
-	root.add_child(_resources_label)
-	_idle_workers_label = _label("")
-	_idle_workers_label.name = "IdleWorkers"
-	_idle_workers_label.visible = false
-	root.add_child(_idle_workers_label)
-	_submit_label = _label("Submit: idle")
-	_submit_label.name = "SubmitState"
-	root.add_child(_submit_label)
-	_show_all_orders_button = CheckButton.new()
-	_show_all_orders_button.name = "ShowAllOrders"
-	_show_all_orders_button.text = "Show All Orders"
-	_show_all_orders_button.toggle_mode = true
-	_show_all_orders_button.toggled.connect(set_show_all_orders)
-	root.add_child(_show_all_orders_button)
-	_command_card = COMMAND_CARD_SCRIPT.new() as Control
-	_command_card.name = "CommandCard"
-	_command_card.connect("move_requested", Callable(self, "begin_move"))
-	_command_card.connect("target_requested", Callable(self, "begin_target"))
-	_command_card.connect("gather_requested", Callable(self, "begin_gather"))
-	_command_card.connect("build_requested", Callable(self, "begin_build"))
-	_command_card.connect("cancel_requested", Callable(self, "issue_cancel_selected"))
-	_command_card.connect("train_requested", Callable(self, "issue_train_selected"))
-	_command_card.connect("research_requested", Callable(self, "issue_research_selected"))
-	_command_card.connect("ability_requested", Callable(self, "issue_ability_selected"))
-	_command_card.connect("repeat_train_toggled", Callable(self, "issue_repeat_train_selected"))
-	root.add_child(_command_card)
+	_cockpit = SHARED_COCKPIT_SCENE.instantiate() as DevPlayCockpit
+	if _cockpit == null:
+		push_error("NetworkPlayMode: failed to instantiate shared cockpit HUD.")
+		return
+	_cockpit.name = "DevPlayCockpit"
+	_cockpit.visible = false
+	_cockpit.connect("move_requested", Callable(self, "begin_move"))
+	_cockpit.connect("target_requested", Callable(self, "begin_target"))
+	_cockpit.connect("gather_requested", Callable(self, "begin_gather"))
+	_cockpit.connect("build_requested", Callable(self, "begin_build"))
+	_cockpit.connect("cancel_requested", Callable(self, "issue_cancel_selected"))
+	_cockpit.connect("train_requested", Callable(self, "issue_train_selected"))
+	_cockpit.connect("research_requested", Callable(self, "issue_research_selected"))
+	_cockpit.connect("ability_requested", Callable(self, "issue_ability_selected"))
+	_cockpit.connect("repeat_train_toggled", Callable(self, "issue_repeat_train_selected"))
+	_cockpit.connect("resolve_requested", Callable(self, "_submit_turn_button_pressed"))
+	_cockpit.connect("show_all_orders_toggled", Callable(self, "set_show_all_orders"))
+	_hud_layer.add_child(_cockpit)
+	_submit_button = _cockpit.find_child("Resolve", true, false) as Button
+	_show_all_orders_button = _cockpit.find_child("ShowAllOrders", true, false) as BaseButton
+	_cockpit.set_turn_action_state("Submit Turn", false, false, true)
 
 
 func _build_outcome_overlay() -> void:
@@ -960,52 +1005,45 @@ func _handle_network_message(message: Dictionary) -> void:
 func _sync_ui() -> void:
 	if _lobby_panel != null:
 		_lobby_panel.visible = not _match_started
-	if _match_hud_panel != null:
-		_match_hud_panel.visible = _match_started and not _interface_hidden
+	if _cockpit != null:
+		_cockpit.visible = _match_started and not _interface_hidden
 	if _interface_toggle_button != null:
 		_interface_toggle_button.visible = _match_started
 		_interface_toggle_button.text = "Show UI" if _interface_hidden else "Hide UI"
 
 
 func _update_hud() -> void:
-	if _slot_label != null:
-		_slot_label.text = "Slot: %s" % (str(_player_slot) if _player_slot >= 0 else "-")
-	if _resources_label != null:
-		var state: MatchState = _current_state()
-		var player: PlayerState = state.get_player(_player_slot) if state != null else null
-		if player == null:
-			_resources_label.text = "Minerals: -  Gas: -  Pop: -/-"
-		else:
-			_resources_label.text = (
-				"Minerals: %d  Gas: %d  Pop: %d/%d"
-				% [player.minerals, player.gas, player.pop_used, player.pop_cap]
-			)
+	var state: MatchState = _current_state()
+	var player: PlayerState = state.get_player(_player_slot) if state != null else null
 	var idle_worker_ids: Array[int] = _active_idle_worker_ids()
-	if _idle_workers_label != null:
-		_idle_workers_label.visible = idle_worker_ids.size() > 0
-		_idle_workers_label.text = (
-			"Idle workers: %d" % idle_worker_ids.size() if idle_worker_ids.size() > 0 else ""
-		)
 	_refresh_idle_worker_indicators(idle_worker_ids)
-	if _submit_label != null:
-		if _submit_in_flight:
-			_submit_label.text = "Submit: sending"
-		else:
-			_submit_label.text = (
-				"Submit: pending" if _client_controller.submit_pending() else "Submit: idle"
-			)
+	var submit_state_text: String = _submit_state_text()
 	if _submit_button != null:
 		var submit_active: bool = _client_controller.submit_pending() or _submit_in_flight
 		_syncing_submit_button = true
-		_submit_button.set_pressed_no_signal(submit_active)
-		_submit_button.text = "Cancel Submit" if submit_active else "Submit Turn"
-		_submit_button.disabled = _submit_in_flight
+		if _cockpit != null:
+			_cockpit.set_turn_action_state(
+				"Cancel Submit" if submit_active else "Submit Turn",
+				_submit_in_flight,
+				submit_active,
+				true
+			)
 		_syncing_submit_button = false
-	if _show_all_orders_button != null:
-		_show_all_orders_button.set_pressed_no_signal(_show_all_orders)
-	if _command_card != null:
-		_command_card.call(
-			"set_command_state",
+	if _cockpit != null:
+		_cockpit.set_match_state(
+			_player_slot,
+			state.turn_index if state != null else 0,
+			player.minerals if player != null else 0,
+			player.gas if player != null else 0,
+			player.pop_used if player != null else 0,
+			player.pop_cap if player != null else 0,
+			state.match_over if state != null else false,
+			state.winner_player_id if state != null else -1
+		)
+		_cockpit.set_show_all_orders_enabled(_show_all_orders)
+		_cockpit.set_status_text(_network_cockpit_status_text(idle_worker_ids, submit_state_text))
+		_cockpit.set_selection_details("", "")
+		_cockpit.set_command_state(
 			_input.selected_entity_label(),
 			_input.can_issue_move(),
 			_input.can_issue_target(),
@@ -1014,10 +1052,34 @@ func _update_hud() -> void:
 			COMMAND_OPTION_BUILDER.entity_options(_input, _input.train_option_ids()),
 			COMMAND_OPTION_BUILDER.research_options(_input, _input.research_option_ids()),
 			COMMAND_OPTION_BUILDER.ability_options(_input, _input.ability_option_ids()),
-			_input.can_issue_cancel(),
+			_input.can_issue_unit_cancel(),
 			_input.can_issue_repeat_train_toggle(),
-			_input.selected_repeat_train_enabled()
+			_input.selected_repeat_train_enabled(),
+			_input.can_issue_build_cancel(),
+			true
 		)
+
+
+func _submit_state_text() -> String:
+	if _submit_in_flight:
+		return "Submit: sending"
+	return "Submit: pending" if _client_controller.submit_pending() else "Submit: idle"
+
+
+func _network_cockpit_status_text(idle_worker_ids: Array[int], submit_state_text: String) -> String:
+	var lines: Array[String] = []
+	if _connection_status != "":
+		lines.append(_connection_status)
+	lines.append("Code: %s" % (_match_code if _match_code != "" else "-"))
+	lines.append("Slot: %s" % (_player_label(_player_slot) if _player_slot >= 0 else "-"))
+	lines.append(submit_state_text)
+	if idle_worker_ids.size() > 0:
+		lines.append("Idle workers: %d" % idle_worker_ids.size())
+	return "\n".join(lines)
+
+
+func _player_label(player_id: int) -> String:
+	return "P%d" % (player_id + 1)
 
 
 func _update_outcome_overlay(state: MatchState) -> void:
@@ -1147,6 +1209,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			if viewport != null:
 				viewport.set_input_as_handled()
 			return
+	if event is InputEventMouse and not _event_inside_game_viewport(event as InputEventMouse):
+		_reset_selection_drag()
+		return
 	if event is InputEventMouseMotion:
 		var motion: InputEventMouseMotion = event as InputEventMouseMotion
 		if _is_panning_camera:
@@ -1210,11 +1275,54 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _event_world_position(event: InputEventMouse) -> Vector2:
 	var renderer: MatchRenderer = _renderer()
-	if renderer == null or renderer.get_viewport() == null:
+	if renderer == null:
+		return event.position
+	if renderer.get_viewport() == null:
 		return event.position
 	if DisplayServer.get_name() == "headless":
 		return event.position
+	var game_position: Vector2 = _screen_to_game_viewport_position(event.position)
+	if renderer.has_method("screen_to_world"):
+		return renderer.call("screen_to_world", game_position)
 	return renderer.get_global_mouse_position()
+
+
+func _event_inside_game_viewport(event: InputEventMouse) -> bool:
+	if DisplayServer.get_name() == "headless":
+		return true
+	var game_rect: Rect2 = _game_viewport_screen_rect()
+	# _game_viewport_screen_rect() is root/screen space; _game_viewport_local_rect()
+	# is the same viewport size at local origin for already-local input events.
+	return (
+		game_rect.has_point(event.position)
+		or _game_viewport_local_rect(game_rect).has_point(event.position)
+	)
+
+
+func _screen_to_game_viewport_position(screen_position: Vector2) -> Vector2:
+	var game_rect: Rect2 = _game_viewport_screen_rect()
+	var local_rect: Rect2 = _game_viewport_local_rect(game_rect)
+	# Keep viewport-local positions unchanged; screen/global positions subtract
+	# the _game_viewport_screen_rect() offset.
+	if local_rect.has_point(screen_position) and not game_rect.has_point(screen_position):
+		return screen_position
+	return screen_position - game_rect.position
+
+
+func _game_viewport_screen_rect() -> Rect2:
+	var viewport_size: Vector2 = _root_viewport_size()
+	var top_hud_height: float = _top_hud_height()
+	var bottom_hud_height: float = _bottom_hud_height()
+	var position: Vector2 = Vector2(GAME_VIEWPORT_MARGIN_LEFT, top_hud_height)
+	var size: Vector2 = Vector2(
+		maxf(viewport_size.x - GAME_VIEWPORT_MARGIN_LEFT - GAME_VIEWPORT_MARGIN_RIGHT, 1.0),
+		maxf(viewport_size.y - top_hud_height - bottom_hud_height, 1.0)
+	)
+	return Rect2(position, size)
+
+
+func _game_viewport_local_rect(game_rect: Rect2) -> Rect2:
+	return Rect2(Vector2.ZERO, game_rect.size)
 
 
 func _reset_selection_drag() -> void:
@@ -1578,10 +1686,11 @@ func _move_button_pressed() -> void:
 	set_connection_status("Right-click a tile for Move.")
 
 
-func _submit_toggle_changed(pressed: bool) -> void:
+func _submit_turn_button_pressed() -> void:
 	if _syncing_submit_button:
 		return
-	var ok: bool = submit_queued_turn() if pressed else cancel_submitted_turn()
+	var submit_active: bool = _client_controller.submit_pending() or _submit_in_flight
+	var ok: bool = cancel_submitted_turn() if submit_active else submit_queued_turn()
 	if not ok and _submit_button != null:
 		_syncing_submit_button = true
 		_submit_button.set_pressed_no_signal(

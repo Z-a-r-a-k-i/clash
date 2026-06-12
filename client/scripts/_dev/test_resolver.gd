@@ -76,7 +76,14 @@ func _all_tests() -> Array:
 			"equal_distance_chain_keeps_non_overlapping_survivors",
 			_test_equal_distance_chain_keeps_non_overlapping_survivors
 		],
-		["equidistant_same_target_tie_stops", _test_equidistant_same_target_tie_stops],
+		[
+			"equidistant_same_target_tie_completes_at_reachable_stops",
+			_test_equidistant_same_target_tie_completes_at_reachable_stops
+		],
+		[
+			"equidistant_contested_destination_still_progresses",
+			_test_equidistant_contested_destination_still_progresses
+		],
 		[
 			"pathfinding_goal_range_distances_ignore_satisfied_range",
 			_test_pathfinding_goal_range_distances_ignore_satisfied_range
@@ -1057,7 +1064,7 @@ func _test_equal_distance_chain_keeps_non_overlapping_survivors() -> bool:
 	return true
 
 
-func _test_equidistant_same_target_tie_stops() -> bool:
+func _test_equidistant_same_target_tie_completes_at_reachable_stops() -> bool:
 	var registry: EntityRegistry = _movable_registry(1)
 	var state: MatchState = _state_with_grid(7, 3)
 	var left: Entity = _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
@@ -1085,20 +1092,58 @@ func _test_equidistant_same_target_tie_stops() -> bool:
 	)
 	var new_left: Entity = result.new_state.get_entity_by_id(left.id)
 	var new_right: Entity = result.new_state.get_entity_by_id(right.id)
-	var completed_ids: Array[int] = []
+	var completed_stops: Dictionary = {}
 	for ev in result.events:
-		if ev.type != ResolverEvent.Type.MOVE_COMPLETED:
-			continue
-		if ev.to_origin != Vector2i(3, 1):
-			push_error("MOVE_COMPLETED should point at the contested target")
+		if (
+			ev.type == ResolverEvent.Type.ENTITY_MOVED
+			and (ev.actor_id == left.id or ev.actor_id == right.id)
+		):
+			push_error("equidistant same-target tie should not enter the contested tile")
 			return false
-		completed_ids.append(ev.actor_id)
-	completed_ids.sort()
+		if (
+			ev.type == ResolverEvent.Type.MOVE_COMPLETED
+			and (ev.actor_id == left.id or ev.actor_id == right.id)
+		):
+			if ev.to_origin == Vector2i(3, 1):
+				push_error("same-target tie should not complete at the contested target")
+				return false
+			completed_stops[ev.actor_id] = ev.to_origin
 	return (
 		new_left.origin == Vector2i(2, 1)
 		and new_right.origin == Vector2i(4, 1)
-		and completed_ids == [left.id, right.id]
+		and completed_stops.get(left.id, Vector2i.ZERO) == Vector2i(2, 1)
+		and completed_stops.get(right.id, Vector2i.ZERO) == Vector2i(4, 1)
 	)
+
+
+func _test_equidistant_contested_destination_still_progresses() -> bool:
+	var registry: EntityRegistry = _movable_registry(1)
+	var state: MatchState = _state_with_grid(11, 5)
+	var left: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
+	var right: Entity = _make_entity(state, "marine", 1, Vector2i(1, 3), 50, "ground")
+	state.tile_grid.place(left.id, Rect2i(1, 1, 1, 1))
+	state.tile_grid.place(right.id, Rect2i(1, 3, 1, 1))
+
+	var result: ResolveResult = Resolver.resolve(
+		state,
+		_submit([_move_order(left.id, EntityOrder.Type.MOVE, Vector2i(8, 2))]),
+		_submit([_move_order(right.id, EntityOrder.Type.MOVE, Vector2i(8, 2))]),
+		registry,
+		null
+	)
+	var new_left: Entity = result.new_state.get_entity_by_id(left.id)
+	var new_right: Entity = result.new_state.get_entity_by_id(right.id)
+	if new_left.origin != Vector2i(2, 2):
+		push_error(
+			"left should still progress toward contested distant target, got %s" % new_left.origin
+		)
+		return false
+	if new_right.origin != Vector2i(2, 3):
+		push_error(
+			"right should still progress toward contested distant target, got %s" % new_right.origin
+		)
+		return false
+	return true
 
 
 func _test_pathfinding_goal_range_distances_ignore_satisfied_range() -> bool:

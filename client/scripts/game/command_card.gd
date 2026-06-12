@@ -48,7 +48,9 @@ func set_command_state(
 	ability_options: Array[Dictionary],
 	can_cancel: bool,
 	can_repeat_train: bool = false,
-	repeat_train_enabled: bool = false
+	repeat_train_enabled: bool = false,
+	can_build_cancel: bool = false,
+	_use_split_cancel: bool = false
 ) -> void:
 	_ensure_ui()
 	_repeat_train_enabled = repeat_train_enabled
@@ -63,7 +65,7 @@ func set_command_state(
 	_target_button.disabled = false
 	_gather_button.visible = can_gather
 	_gather_button.disabled = false
-	_cancel_button.visible = can_cancel
+	_cancel_button.visible = can_cancel or can_build_cancel
 	_cancel_button.disabled = false
 	_repeat_train_toggle.visible = can_repeat_train
 	_repeat_train_toggle.set_pressed_no_signal(repeat_train_enabled)
@@ -72,7 +74,7 @@ func set_command_state(
 	_rebuild_option_buttons(_research_list, _research_options, research_requested)
 	_rebuild_option_buttons(_ability_list, _ability_options, ability_requested)
 	_action_row.visible = can_move or can_gather
-	_state_row.visible = can_target or can_cancel or can_repeat_train
+	_state_row.visible = can_target or can_cancel or can_build_cancel or can_repeat_train
 	visible = (
 		_action_row.visible
 		or _state_row.visible
