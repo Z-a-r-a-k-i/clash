@@ -119,7 +119,7 @@ func _test_known_rows_exist() -> bool:
 	if not _ensure_csv_loaded():
 		return false
 	var ok := true
-	for id in ["marine", "base", "siege_mode_research", "siege_mode"]:
+	for id in ["marine", "base", "siege_mode"]:
 		if _row_by_id(id).is_empty():
 			push_error("missing expected balance row for id '%s'" % id)
 			ok = false
@@ -152,16 +152,13 @@ func _test_nested_values_are_exported() -> bool:
 
 	var mineral_patch := _row_by_id("mineral_patch")
 	ok = _expect_cell(mineral_patch, "resource_type", "minerals") and ok
-	ok = _expect_cell(mineral_patch, "resource_yield_per_worker", "1") and ok
+	ok = _expect_cell(mineral_patch, "resource_yield_per_worker", "2") and ok
 	ok = _expect_cell(mineral_patch, "resource_capacity", "1500") and ok
 	ok = _expect_cell(mineral_patch, "resource_requires_extractor", "false") and ok
 
 	var gas_geyser := _row_by_id("gas_geyser")
 	ok = _expect_cell(gas_geyser, "resource_type", "gas") and ok
 	ok = _expect_cell(gas_geyser, "resource_requires_extractor", "true") and ok
-
-	var research := _row_by_id("siege_mode_research")
-	ok = _expect_cell(research, "kind", "research") and ok
 
 	var siege_mode := _row_by_id("siege_mode")
 	ok = _expect_cell(siege_mode, "kind", "ability") and ok
@@ -183,26 +180,26 @@ func _test_balance_adjustments_are_exported() -> bool:
 	var ok := true
 
 	var worker := _row_by_id("worker")
-	ok = _expect_cell(worker, "movement_speed", "6") and ok
+	ok = _expect_cell(worker, "movement_speed", "8") and ok
 
 	var marine := _row_by_id("marine")
 	ok = _expect_cell(marine, "health_max_hp", "45") and ok
 	ok = _expect_cell(marine, "combat_damage", "18") and ok
 	ok = _expect_cell(marine, "combat_attack_range", "3") and ok
-	ok = _expect_cell(marine, "movement_speed", "10") and ok
+	ok = _expect_cell(marine, "movement_speed", "12") and ok
 	ok = _expect_cell(marine, "vision_sight_radius", "4") and ok
 
 	var tank := _row_by_id("tank")
 	ok = _expect_cell(tank, "health_max_hp", "175") and ok
 	ok = _expect_cell(tank, "combat_damage", "30") and ok
 	ok = _expect_cell(tank, "combat_attack_range", "3") and ok
-	ok = _expect_cell(tank, "movement_speed", "8") and ok
+	ok = _expect_cell(tank, "movement_speed", "11") and ok
 	ok = _expect_cell(tank, "construction_gas_cost", "125") and ok
 
 	var helicopter := _row_by_id("helicopter")
 	ok = _expect_cell(helicopter, "combat_damage", "25") and ok
 	ok = _expect_cell(helicopter, "combat_attack_range", "3") and ok
-	ok = _expect_cell(helicopter, "movement_speed", "14") and ok
+	ok = _expect_cell(helicopter, "movement_speed", "16") and ok
 	ok = _expect_cell(helicopter, "vision_sight_radius", "4") and ok
 	ok = _expect_cell(helicopter, "combat_attack_modifiers", "heavy:150") and ok
 

@@ -32,15 +32,22 @@ hand-edited, never regenerated)
 
 Decided: apply all at once, then re-playtest.
 
-- [ ] Gathering rate up (games must not sit at 22 uneventful turns).
-- [ ] Movement range up across the board; tanks notably faster.
-- [ ] One worker per mineral crystal (cap 2 → 1) to force expansions.
-- [ ] Remove the siege research gate — tanks siege from the moment
-      they're built.
-- [ ] Production starts with one cycle already done (ordering a unit
-      counts the order turn as the first build turn).
-- [ ] Arena: bring the mains closer together (players too far apart);
-      re-bake + symmetry tests.
+- [x] Gathering rate doubled: minerals 1→2/worker/turn, gold 2→3,
+      gas 1→2.
+- [x] Speeds: worker 6→8, marine 10→12, tank 8→11, helicopter 14→16.
+- [x] One worker per mineral crystal (cap 2→1, gold too) — same peak
+      income per base with half the workers; more income requires
+      expanding.
+- [x] Siege research removed (the ability was never actually gated by
+      it; the research was a dead purchase). Factory researches = [],
+      def deleted, registry/tests updated.
+- [x] Production already counts the order turn as the first build turn
+      (verified by `train_idle_producer_immediate_install`); the
+      complaint is a visibility problem — moved to the HUD wave
+      (production progress display).
+- [x] Arena width 80→64 (mains ~25% closer); on-axis blocks and the
+      center golds recentered; regenerated + rebaked, symmetry tests
+      green.
 
 ## Wave 2 — HUD/UX (extends node 05's scope)
 

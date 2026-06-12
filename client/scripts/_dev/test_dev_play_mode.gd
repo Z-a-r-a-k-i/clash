@@ -2332,21 +2332,9 @@ func _test_routes_command_card_orders() -> bool:
 		push_error("train signal should queue TRAIN marine")
 		_free_mode(mode)
 		return false
-	var factory_id: int = _add_runtime_entity(mode.current_state(), "factory", 0, Vector2i(26, 2))
-	if factory_id < 0 or not mode.select_entity_id(factory_id):
-		push_error("expected to select injected factory")
-		_free_mode(mode)
-		return false
-	card.emit_signal("research_requested", "siege_mode_research")
-	orders = mode.input_model().submit_for_player(0).orders
-	var research_order: EntityOrder = orders[orders.size() - 1]
-	if (
-		research_order.type != EntityOrder.Type.RESEARCH
-		or research_order.def_id != "siege_mode_research"
-	):
-		push_error("research signal should queue RESEARCH siege_mode_research")
-		_free_mode(mode)
-		return false
+	# No researches remain in the roster (siege tech removed, plan m1/06
+	# wave 1); RESEARCH order routing stays covered by resolver tests
+	# with synthetic registries.
 	if not mode.select_entity_id(barracks_id):
 		push_error("expected to reselect barracks")
 		_free_mode(mode)

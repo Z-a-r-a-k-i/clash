@@ -5950,9 +5950,10 @@ func _test_registry_loads_from_data() -> bool:
 	for building in ["base", "barracks", "factory", "starport", "refinery"]:
 		if registry.get_by_id(building) == null:
 			return false
-	for research in ["siege_mode_research"]:
-		if registry.get_research_by_id(research) == null:
-			return false
+	# No researches in the roster since siege tech was removed (plan
+	# m1/06 wave 1); the registry must still load with an empty list.
+	if registry.researches == null:
+		return false
 	return true
 
 
@@ -6126,18 +6127,19 @@ func _test_scenario_loader_auto_start_respects_mineral_saturation() -> bool:
 			assigned += 1
 		elif entity.gather_state.phase == GatherState.Phase.IDLE:
 			idle += 1
-	if assigned != 2:
+	# 3 workers, 1 slot on the patch: the other two stay idle.
+	if assigned != 1:
 		push_error(
 			(
 				(
 					"[scenario_loader_auto_start_respects_mineral_saturation] "
-					+ "expected 2 assigned workers, got %d"
+					+ "expected 1 assigned worker (cap 1/crystal), got %d"
 				)
 				% assigned
 			)
 		)
 		return false
-	return idle == 1
+	return idle == 2
 
 
 func _test_scenario_loader_snaps_refinery_to_geyser_origin() -> bool:
