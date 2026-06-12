@@ -41,7 +41,7 @@ static func advance_move_phase(
 ) -> void:
 	if state.tile_grid == null:
 		return
-	var source_assignments: Dictionary[int, Array] = _source_assignments_by_source(state, registry)
+	var source_assignments: Dictionary[int, Array] = source_assignments_by_source(state, registry)
 	for actor in state.entities_sorted_by_id():
 		if actor.current_hp <= 0:
 			continue
@@ -60,7 +60,7 @@ static func advance_move_phase(
 static func advance_state_phase(
 	state: MatchState, registry: EntityRegistry, _tunables: Tunables, events: Array[ResolverEvent]
 ) -> void:
-	var source_assignments: Dictionary[int, Array] = _source_assignments_by_source(state, registry)
+	var source_assignments: Dictionary[int, Array] = source_assignments_by_source(state, registry)
 	for actor in state.entities_sorted_by_id():
 		if actor.current_hp <= 0:
 			continue
@@ -232,7 +232,7 @@ static func source_has_open_slot(
 	var cap: int = source_gatherer_cap(registry, source)
 	if cap <= 0:
 		return false
-	var source_assignments: Dictionary[int, Array] = _source_assignments_by_source(state, registry)
+	var source_assignments: Dictionary[int, Array] = source_assignments_by_source(state, registry)
 	return _assigned_gatherer_count_for_source(source_assignments, source.id, actor_id) < cap
 
 
@@ -290,7 +290,7 @@ static func _best_source_for_worker(
 	var assignments: Dictionary[int, Array] = (
 		source_assignments
 		if not source_assignments.is_empty()
-		else _source_assignments_by_source(state, registry)
+		else source_assignments_by_source(state, registry)
 	)
 	if _source_is_available_to_worker(
 		state, registry, actor, requested_source, assignments, max_path_tiles, context
@@ -414,7 +414,25 @@ static func _resolve_source(
 	return null
 
 
-static func _source_assignments_by_source(
+# HUD query: occupancy of the resource source behind `target_entity_id`
+# for `owner_id` (a refinery id resolves to its underlying geyser).
+# Returns {} when the target doesn't resolve to a workable source.
+static func gatherer_occupancy(
+	state: MatchState, registry: EntityRegistry, target_entity_id: int, owner_id: int
+) -> Dictionary:
+	var source: Entity = _resolve_source(state, registry, target_entity_id, owner_id)
+	if source == null:
+		return {}
+	var assignments: Dictionary[int, Array] = source_assignments_by_source(state, registry)
+	var assigned: Array = assignments.get(source.id, [])
+	return {
+		"source_id": source.id,
+		"assigned": assigned.size(),
+		"cap": source_gatherer_cap(registry, source),
+	}
+
+
+static func source_assignments_by_source(
 	state: MatchState, registry: EntityRegistry
 ) -> Dictionary[int, Array]:
 	var assignments: Dictionary[int, Array] = {}

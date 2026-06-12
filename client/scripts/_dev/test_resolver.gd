@@ -258,6 +258,10 @@ func _all_tests() -> Array:
 		],
 		["gather_full_cycle_gas_via_refinery", _test_gather_full_cycle_gas_via_refinery],
 		["gather_fails_geyser_without_refinery", _test_gather_fails_geyser_without_refinery],
+		[
+			"gather_occupancy_query_counts_assigned_and_cap",
+			_test_gather_occupancy_query_counts_assigned_and_cap
+		],
 		["gather_travel_uses_full_speed_budget", _test_gather_travel_uses_full_speed_budget],
 		["patch_depletes_at_capacity_zero", _test_patch_depletes_at_capacity_zero],
 		[
@@ -3817,6 +3821,43 @@ func _test_gather_stationary_gas_credit_each_tick() -> bool:
 		push_error("stationary gas gather should remain in GATHERING")
 		return false
 	return not _has_event_of_type(result.events, ResolverEvent.Type.WORKER_DEPOSITED)
+
+
+func _test_gather_occupancy_query_counts_assigned_and_cap() -> bool:
+	var registry: EntityRegistry = _gather_registry(50, 1, 4)
+	var state: MatchState = _state_with_grid(20, 20)
+	var patch: Entity = _make_entity(state, "minpatch", -1, Vector2i(6, 5), 100, "ground")
+	patch.current_resource_amount = 100
+	state.tile_grid.place(patch.id, Rect2i(6, 5, 1, 1))
+	var w1: Entity = _make_gather_worker(state, 0, Vector2i(5, 5))
+	w1.gather_state.phase = GatherState.Phase.GATHERING
+	w1.gather_state.assigned_source_entity_id = patch.id
+	var geyser: Entity = _make_entity(state, "geyser", -1, Vector2i(10, 5), 1000, "ground")
+	geyser.current_resource_amount = -1
+	state.tile_grid.place(geyser.id, Rect2i(10, 5, 1, 1))
+	var refinery: Entity = _make_entity(state, "refinery", 0, Vector2i(10, 5), 750, "ground")
+	state.tile_grid.place_overlapping(refinery.id, Rect2i(10, 5, 1, 1), geyser.id)
+	var w2: Entity = _make_gather_worker(state, 0, Vector2i(9, 5))
+	w2.gather_state.phase = GatherState.Phase.GATHERING
+	w2.gather_state.assigned_source_entity_id = refinery.id
+	var patch_occupancy: Dictionary = GatherSystem.gatherer_occupancy(state, registry, patch.id, 0)
+	if patch_occupancy.get("assigned", -1) != 1 or patch_occupancy.get("cap", -1) != 2:
+		push_error("patch occupancy should be 1 assigned of cap 2, got %s" % [patch_occupancy])
+		return false
+	var via_refinery: Dictionary = GatherSystem.gatherer_occupancy(state, registry, refinery.id, 0)
+	var via_geyser: Dictionary = GatherSystem.gatherer_occupancy(state, registry, geyser.id, 0)
+	if via_refinery.get("source_id", -1) != geyser.id or via_refinery.get("assigned", -1) != 1:
+		push_error("refinery occupancy should resolve to its geyser, got %s" % [via_refinery])
+		return false
+	if via_geyser != via_refinery:
+		push_error(
+			"geyser and refinery queries should agree, got %s vs %s" % [via_geyser, via_refinery]
+		)
+		return false
+	if not GatherSystem.gatherer_occupancy(state, registry, geyser.id, 1).is_empty():
+		push_error("an enemy without their own refinery should get no gas occupancy")
+		return false
+	return true
 
 
 func _test_gather_rejects_third_worker_on_minerals() -> bool:
