@@ -159,5 +159,14 @@ static func movement_budget_for_entity(
 	return speed
 
 
-static func can_spend_movement(actor: Entity, movement_budget: int) -> bool:
-	return actor != null and movement_budget > 0 and actor.moves_used_this_turn < movement_budget
+static func can_spend_movement(actor: Entity, movement_budget_tiles: int) -> bool:
+	# Budgets are tile counts; moves_used_this_turn is octile cost units
+	# (orthogonal 2 / diagonal 3).
+	return (
+		actor != null
+		and movement_budget_tiles > 0
+		and (
+			actor.moves_used_this_turn + _PATHFINDING.STEP_COST_ORTHOGONAL
+			<= movement_budget_tiles * _PATHFINDING.STEP_COST_ORTHOGONAL
+		)
+	)

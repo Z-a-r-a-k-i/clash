@@ -631,7 +631,7 @@ func _update_hud() -> void:
 		)
 		_cockpit.set_show_all_orders_enabled(_show_all_orders)
 		_cockpit.set_status_text(_network_cockpit_status_text(idle_worker_ids, submit_state_text))
-		_cockpit.set_selection_details("", "")
+		_cockpit.set_selection_details(_controller.selection_resource_text(), "")
 		_cockpit.set_command_state(
 			_input.selected_entity_label(),
 			_input.can_issue_move(),

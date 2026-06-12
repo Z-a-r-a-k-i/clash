@@ -4,8 +4,8 @@ extends SceneTree
 # authored arena_1v1.tscn and writes arena_1v1.tres. Run via:
 #   godot --headless --path client --script scripts/_dev/run_arena_bake.gd
 
-const MAP_WIDTH := 72
-const MAP_HEIGHT := 56
+const MAP_WIDTH := 80
+const MAP_HEIGHT := 60
 
 
 func _init() -> void:

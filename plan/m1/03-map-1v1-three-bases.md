@@ -58,11 +58,17 @@ natural choke, increasingly exposed third).
   placeholder paint, ground units carry `impassable_terrain_tags=["cliff"]`,
   and BUILD placement rejects `UNBUILDABLE_TERRAIN_TAGS` tiles.
 - `generate_arena_map.gd` → `arena_1v1.tscn` (authoring canon) and
-  `run_arena_bake.gd` → `arena_1v1.tres` (72x56). Players start with ONE
-  pre-built base; the natural and third are unclaimed resource fields to
-  expand into. Lanes: walled main (4-wide choke) → natural pocket (4-tall
-  east choke + 2-wide back door toward the third), a mid-field island per
-  side, on-axis north and south blocks, contested golds at center.
+  `run_arena_bake.gd` → `arena_1v1.tres` (80x60, v3 after playtest
+  feedback). Players start with ONE pre-built base on a roomy 20x20
+  plateau with TWO entrances (6-tall east gap, 6-wide south gap; short
+  walls) — defendable but flankable/attackable. One expansion field (the
+  natural) in a soft pocket; mid-field island per side, on-axis north and
+  south blocks, contested golds at center.
+- Movement metric (same feedback round): octile step costs — orthogonal 2,
+  diagonal 3, budget = speed x 2 — so diagonals no longer give ~41% free
+  distance. A final diagonal may overdraw by 1 cost unit (not carried).
+  Flow fields use a deterministic bucket Dijkstra; A* and cached paths
+  report distances in cost units.
 - Engine rule (from playtest feedback): a diagonal step is blocked when
   BOTH orthogonal cells are blocked, so units can never squeeze through
   wall seams that touch only at a corner; rounding a single corner stays

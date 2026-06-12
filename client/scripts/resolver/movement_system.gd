@@ -7,9 +7,11 @@ extends RefCounted
 # - MOVE / ATTACK_MOVE: advance one tile toward order.target_tile if the entity has
 #   move budget remaining. Ignores enemies along the path.
 #
-# Per-turn budget: an entity can move at most `def.movement.speed_tiles_per_turn`
-# tiles in one turn, accumulated across all ticks. Tracked via
-# Entity.moves_used_this_turn (reset at end-of-turn).
+# Per-turn budget: `def.movement.speed_tiles_per_turn` orthogonal steps
+# per turn, tracked in octile COST units on Entity.moves_used_this_turn
+# (orthogonal step = 2, diagonal = 3, budget = speed * 2; reset at
+# end-of-turn). Diagonals therefore cover ~1.41x distance for 1.5x cost
+# instead of being free extra distance.
 #
 const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
 const _MECHANICS_SYSTEM := preload("res://scripts/resolver/mechanics_system.gd")
@@ -36,12 +38,13 @@ static func resolve_move(
 	)
 	if movement_speed <= 0:
 		return  # Not movement-capable.
-	if actor.moves_used_this_turn >= movement_speed:
+	if not _can_spend_movement(actor, movement_speed):
 		return
 
 	var target_tile: Vector2i = _target_tile_for_order(state, actor, order)
+	var from_origin: Vector2i = actor.origin
 	if step_toward(state, actor, target_tile, events):
-		actor.moves_used_this_turn += 1
+		actor.moves_used_this_turn += _PATHFINDING.step_cost(from_origin, actor.origin)
 
 
 static func resolve_movement_substep(
@@ -390,6 +393,8 @@ static func _flow_next_step(
 			continue
 		if _PATHFINDING._diagonal_step_blocked(grid, start, delta, footprint, movement, blockers):
 			continue
+		if not _can_afford_step(actor, intent, start, next):
+			continue
 		var next_distance: int = field[next]
 		if next_distance >= current_distance:
 			continue
@@ -466,11 +471,14 @@ static func _cached_next_step(
 	):
 		path_cache.erase(actor.id)
 		return {}
+	if not _can_afford_step(actor, intent, actor.origin, next_origin):
+		# Keep the cache; the next turn's fresh budget can afford it.
+		return {"next_origin": actor.origin, "path_distance": 0}
 	cached["path"] = path
 	path_cache[actor.id] = cached
 	return {
 		"next_origin": next_origin,
-		"path_distance": path.size(),
+		"path_distance": _PATHFINDING.path_cost(actor.origin, path),
 	}
 
 
@@ -645,6 +653,7 @@ static func _gather_move_intent(
 	if source_rect.size.x <= 0 or source_rect.size.y <= 0:
 		return {}
 	return {
+		"movement_budget": movement_speed_for_entity(actor, registry),
 		"kind": "gather",
 		"entity_id": actor.id,
 		"actor": actor,
@@ -676,6 +685,7 @@ static func _construction_move_intent(
 			ConstructionSystem.try_start_pending_build(state, actor, registry, events)
 			return {}
 		return {
+			"movement_budget": movement_speed_for_entity(actor, registry),
 			"kind": "pending_construction",
 			"entity_id": actor.id,
 			"actor": actor,
@@ -701,6 +711,7 @@ static func _construction_move_intent(
 	if building_rect.size.x <= 0 or building_rect.size.y <= 0:
 		return {}
 	return {
+		"movement_budget": movement_speed_for_entity(actor, registry),
 		"kind": "construction",
 		"entity_id": actor.id,
 		"actor": actor,
@@ -823,6 +834,8 @@ static func _movement_candidate_origins(
 				movement,
 				occupancy_blockers
 			):
+				continue
+			if not _can_afford_step(actor, _intent, actor.origin, candidate):
 				continue
 			var goal_distance: int = _candidate_goal_distance(
 				candidate, footprint, target_origin, goal_rect, goal_range, exact_origin, field
@@ -1110,7 +1123,7 @@ static func _emit_completed_at_origin(
 ) -> void:
 	if actor == null:
 		return
-	var movement_budget: int = int(intent.get("movement_budget", actor.moves_used_this_turn))
+	var movement_budget: int = cost_budget(int(intent.get("movement_budget", 0)))
 	actor.moves_used_this_turn = max(actor.moves_used_this_turn, movement_budget)
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.MOVE_COMPLETED
@@ -1125,7 +1138,7 @@ static func _emit_completed_at_stop(proposal: Dictionary, events: Array[Resolver
 	if actor == null:
 		return
 	var intent: Dictionary = proposal.get("intent", {})
-	var movement_budget: int = int(intent.get("movement_budget", actor.moves_used_this_turn))
+	var movement_budget: int = cost_budget(int(intent.get("movement_budget", 0)))
 	actor.moves_used_this_turn = max(actor.moves_used_this_turn, movement_budget)
 	var stop_origin: Vector2i = proposal.get("from_origin", actor.origin)
 	var ev := ResolverEvent.new()
@@ -1226,7 +1239,7 @@ static func _commit_proposal(
 	var from_origin: Vector2i = proposal.get("from_origin", actor.origin)
 	var to_origin: Vector2i = proposal.get("to_origin", actor.origin)
 	actor.origin = to_origin
-	actor.moves_used_this_turn += 1
+	actor.moves_used_this_turn += _PATHFINDING.step_cost(from_origin, to_origin)
 	if context is ResolveContext:
 		var footprint: Vector2i = proposal.get("footprint", Vector2i.ONE)
 		context.on_entity_moved(
@@ -1255,7 +1268,7 @@ static func _commit_proposal(
 	):
 		_emit_move_completed(actor, to_origin, to_origin, events)
 	elif kind == "move" and bool(proposal.get("complete_after_move", false)):
-		var movement_budget: int = int(intent.get("movement_budget", actor.moves_used_this_turn))
+		var movement_budget: int = cost_budget(int(intent.get("movement_budget", 0)))
 		actor.moves_used_this_turn = max(actor.moves_used_this_turn, movement_budget)
 		_emit_move_completed(actor, to_origin, to_origin, events)
 	elif kind == "construction":
@@ -1288,8 +1301,36 @@ static func _action_at(per_entity: Dictionary, entity_id: int, tick: int) -> Ent
 	return queue[tick]
 
 
-static func _can_spend_movement(actor: Entity, movement_budget: int) -> bool:
-	return movement_budget > 0 and actor.moves_used_this_turn < movement_budget
+static func _can_spend_movement(actor: Entity, movement_budget_tiles: int) -> bool:
+	# Affordability of the cheapest (orthogonal) step against the cost-unit
+	# budget; per-step diagonal affordability is checked at step selection.
+	return (
+		movement_budget_tiles > 0
+		and (
+			actor.moves_used_this_turn + _PATHFINDING.STEP_COST_ORTHOGONAL
+			<= cost_budget(movement_budget_tiles)
+		)
+	)
+
+
+static func cost_budget(movement_budget_tiles: int) -> int:
+	return movement_budget_tiles * _PATHFINDING.STEP_COST_ORTHOGONAL
+
+
+# Remaining cost-unit budget for the actor of `intent` this turn.
+static func _remaining_step_budget(actor: Entity, intent: Dictionary) -> int:
+	var budget_tiles: int = int(intent.get("movement_budget", 0))
+	return cost_budget(budget_tiles) - actor.moves_used_this_turn
+
+
+# A step is affordable while at least one orthogonal step of budget
+# remains; a final diagonal may overdraw by 1 cost unit (not carried into
+# the next turn). This keeps single-step-per-turn behavior intuitive for
+# slow units while still charging diagonals 1.5x across a turn.
+static func _can_afford_step(
+	actor: Entity, intent: Dictionary, _from: Vector2i, _to: Vector2i
+) -> bool:
+	return _remaining_step_budget(actor, intent) >= _PATHFINDING.STEP_COST_ORTHOGONAL
 
 
 static func _count_profile(profile: Variant, label: String, amount: int = 1) -> void:

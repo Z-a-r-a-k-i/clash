@@ -8,18 +8,16 @@ extends SceneTree
 # source-of-truth; subsequent edits happen in the editor, and the baker
 # (run_arena_bake.gd) mirrors the LEFT half across the vertical axis.
 #
-# Layout (72x56, left half; mirrored for P1). Players start with ONE
-# pre-built base (the main); the natural and third are unclaimed resource
-# fields players expand to by building new bases.
-# - MAIN    base (6,6), 8 minerals + geyser behind it, walled plateau with
-#           a single 4-wide choke opening south toward the natural.
-# - NATURAL resource field in a pocket below the main choke; its east
-#           wall shares the main wall's columns (orthogonally connected —
-#           no diagonal seams) and leaves a 4-tall choke at its south
-#           end, plus a 2-wide back door toward the third.
-# - THIRD   resource field along the south edge; open approach.
-# - LANES   an on-axis north block, a mid-field cliff island per side,
-#           and an on-axis south block carve the open ground into north /
+# Layout (80x60, left half; mirrored for P1). Players start with ONE
+# pre-built base (the main); the natural is an unclaimed resource field
+# they expand to by building a new base.
+# - MAIN    base (8,8) on a roomy 20x20 plateau; 8 minerals + geyser
+#           behind it. Two short walls leave TWO entrances: a 6-tall
+#           east gap and a 6-wide south gap — defendable, but flankable.
+# - NATURAL resource field to the south in a soft pocket (one short east
+#           wall, open north and south).
+# - LANES   an on-axis north block, a mid-field island per side, and an
+#           on-axis south block split the open ground into north /
 #           center / south attack lanes around the contested golds.
 
 const MAP_SCENE_PATH := "res://data/scenarios/arena_1v1.tscn"
@@ -27,8 +25,8 @@ const ROOT_SCRIPT_PATH := "res://scripts/data/mvp_map_root.gd"
 const PLACEMENT_SCRIPT_PATH := "res://scripts/data/entity_placement.gd"
 const TERRAIN_PATCH_SCRIPT_PATH := "res://scripts/data/terrain_patch.gd"
 
-const MAP_WIDTH := 72
-const MAP_HEIGHT := 56
+const MAP_WIDTH := 80
+const MAP_HEIGHT := 60
 
 
 func _init() -> void:
@@ -95,34 +93,22 @@ func _init() -> void:
 func _all_placements() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 
-	# ---------- MAIN (walled plateau, choke south) ----------
-	out.append({"name": "P0Main", "def_id": "base", "owner": 0, "tile": Vector2i(6, 6)})
-	for i in range(4):
+	# ---------- MAIN (roomy plateau, two entrances) ----------
+	out.append({"name": "P0Main", "def_id": "base", "owner": 0, "tile": Vector2i(8, 8)})
+	for i in range(8):
 		(
 			out
 			. append(
 				{
-					"name": "P0MainMineral_top_%d" % (i + 1),
+					"name": "P0MainMineral_%d" % (i + 1),
 					"def_id": "mineral_patch",
 					"owner": -1,
-					"tile": Vector2i(5 + i, 4),
-				}
-			)
-		)
-	for i in range(4):
-		(
-			out
-			. append(
-				{
-					"name": "P0MainMineral_west_%d" % (i + 1),
-					"def_id": "mineral_patch",
-					"owner": -1,
-					"tile": Vector2i(4, 6 + i),
+					"tile": Vector2i(6 + i, 5),
 				}
 			)
 		)
 	out.append(
-		{"name": "P0MainGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(2, 2)}
+		{"name": "P0MainGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(3, 3)}
 	)
 	for i in range(4):
 		(
@@ -132,7 +118,7 @@ func _all_placements() -> Array[Dictionary]:
 					"name": "P0Worker_%d" % (i + 1),
 					"def_id": "worker",
 					"owner": 0,
-					"tile": Vector2i(6 + i, 10),
+					"tile": Vector2i(8 + i, 13),
 				}
 			)
 		)
@@ -146,7 +132,7 @@ func _all_placements() -> Array[Dictionary]:
 					"name": "P0NaturalMineral_west_%d" % (i + 1),
 					"def_id": "mineral_patch",
 					"owner": -1,
-					"tile": Vector2i(5, 19 + i),
+					"tile": Vector2i(5, 26 + i),
 				}
 			)
 		)
@@ -158,29 +144,12 @@ func _all_placements() -> Array[Dictionary]:
 					"name": "P0NaturalMineral_south_%d" % (i + 1),
 					"def_id": "mineral_patch",
 					"owner": -1,
-					"tile": Vector2i(6 + i, 25),
+					"tile": Vector2i(6 + i, 32),
 				}
 			)
 		)
 	out.append(
-		{"name": "P0NaturalGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(2, 21)}
-	)
-
-	# ---------- THIRD (resource field only; players expand here) ----------
-	for i in range(6):
-		(
-			out
-			. append(
-				{
-					"name": "P0ThirdMineral_%d" % (i + 1),
-					"def_id": "mineral_patch",
-					"owner": -1,
-					"tile": Vector2i(5 + i, 36),
-				}
-			)
-		)
-	out.append(
-		{"name": "P0ThirdGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(2, 39)}
+		{"name": "P0NaturalGeyser", "def_id": "gas_geyser", "owner": -1, "tile": Vector2i(2, 29)}
 	)
 
 	# ---------- CENTER (contested golds near the axis) ----------
@@ -191,7 +160,7 @@ func _all_placements() -> Array[Dictionary]:
 				"name": "CenterGold_north",
 				"def_id": "mineral_patch_gold",
 				"owner": -1,
-				"tile": Vector2i(34, 27),
+				"tile": Vector2i(38, 29),
 			}
 		)
 	)
@@ -202,7 +171,7 @@ func _all_placements() -> Array[Dictionary]:
 				"name": "CenterGold_south",
 				"def_id": "mineral_patch_gold",
 				"owner": -1,
-				"tile": Vector2i(34, 29),
+				"tile": Vector2i(38, 31),
 			}
 		)
 	)
@@ -212,39 +181,36 @@ func _all_placements() -> Array[Dictionary]:
 
 func _all_terrain() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
-	# Main plateau east wall: seals x=14..15, y=0..15.
-	out.append({"name": "MainWallEast", "position": Vector2i(14, 0), "size": Vector2i(2, 16)})
-	# Main plateau south wall: x=0..9, leaving the 4-wide choke x=10..13.
-	out.append({"name": "MainWallSouth", "position": Vector2i(0, 14), "size": Vector2i(10, 2)})
-	# Natural east wall: SAME columns as the main east wall (x=14..15) so
-	# the two connect orthogonally — never corner-to-corner. Spans
-	# y=16..23, leaving the 4-tall natural choke at y=24..27.
-	out.append({"name": "NaturalWallEast", "position": Vector2i(14, 16), "size": Vector2i(2, 8)})
-	# Natural south wall: separates the natural pocket from the third
-	# lane, with a 2-wide back door at x=12..13.
-	out.append({"name": "NaturalWallSouth", "position": Vector2i(0, 28), "size": Vector2i(12, 2)})
-	# Mid-field island: separates the natural exit lane from the center
-	# gold lane.
-	out.append({"name": "MidIsland", "position": Vector2i(24, 22), "size": Vector2i(4, 8)})
+	# Main east wall: x=18..19, y=0..11; the 6-tall east entrance is the
+	# gap y=12..17 between this wall and the south wall.
+	out.append({"name": "MainWallEast", "position": Vector2i(18, 0), "size": Vector2i(2, 12)})
+	# Main south wall: x=0..11, y=18..19; the 6-wide south entrance is the
+	# gap x=12..17.
+	out.append({"name": "MainWallSouth", "position": Vector2i(0, 18), "size": Vector2i(12, 2)})
+	# Natural pocket wall: a single short segment east of the field; the
+	# pocket stays open north and south.
+	out.append({"name": "NaturalWallEast", "position": Vector2i(16, 26), "size": Vector2i(2, 8)})
+	# Mid-field island: separates the natural lane from the center golds.
+	out.append({"name": "MidIsland", "position": Vector2i(26, 24), "size": Vector2i(4, 8)})
 	# On-axis north block: splits the top into two attack lanes.
 	(
 		out
 		. append(
 			{
 				"name": "NorthBlock",
-				"position": Vector2i(32, 8),
+				"position": Vector2i(36, 10),
 				"size": Vector2i(8, 6),
 				"on_axis": true,
 			}
 		)
 	)
-	# On-axis south block: splits the bottom lane around the thirds.
+	# On-axis south block: splits the bottom lane.
 	(
 		out
 		. append(
 			{
 				"name": "SouthBlock",
-				"position": Vector2i(33, 40),
+				"position": Vector2i(37, 44),
 				"size": Vector2i(6, 6),
 				"on_axis": true,
 			}

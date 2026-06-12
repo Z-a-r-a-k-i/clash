@@ -75,10 +75,10 @@ func _test_bake_is_mirror_symmetric() -> bool:
 		for placement in scenario.placements:
 			if expansion_fields.has(placement.def_id):
 				expansion_fields[placement.def_id] += 1
-		if expansion_fields["mineral_patch"] != 44 or expansion_fields["gas_geyser"] != 6:
+		if expansion_fields["mineral_patch"] != 32 or expansion_fields["gas_geyser"] != 4:
 			push_error(
 				(
-					"expected 44 mineral patches and 6 geysers (3 fields/player), got %s"
+					"expected 32 mineral patches and 4 geysers (main + natural per player), got %s"
 					% str(expansion_fields)
 				)
 			)
@@ -152,15 +152,15 @@ func _test_terrain_loads_into_grid() -> bool:
 func _test_ground_choke_flying_over() -> bool:
 	# A marine inside the main plateau pathing to a tile straight across
 	# the east wall must detour (path longer than chebyshev); a helicopter
-	# flies straight over. Start (12,8); goal (20,8) across the x=14..15
-	# wall (sealed until y=15, choke at the south gap x=10..13,y=14..15).
+	# flies straight over. Start (14,4); goal (24,4) across the x=18..19
+	# wall (y=0..11; nearest opening is the east entrance at y=12..17).
 	var loaded: LoadedScenario = _load_arena()
 	if loaded == null:
 		return false
 	var state: MatchState = loaded.state
 	var registry: EntityRegistry = loaded.registry
-	var start := Vector2i(12, 8)
-	var goal := Vector2i(20, 8)
+	var start := Vector2i(14, 4)
+	var goal := Vector2i(24, 4)
 	var chebyshev: int = maxi(absi(goal.x - start.x), absi(goal.y - start.y))
 
 	var marine := Entity.new()
@@ -240,7 +240,7 @@ func _test_build_rejected_on_cliff() -> bool:
 	order.type = EntityOrder.Type.BUILD
 	order.entity_id = worker.id
 	order.def_id = "barracks"
-	order.target_tile = Vector2i(14, 4)  # on the main east wall
+	order.target_tile = Vector2i(18, 4)  # on the main east wall
 	var submit := SubmitTurn.new()
 	submit.orders = [order]
 	var result: ResolveResult = Resolver.resolve(

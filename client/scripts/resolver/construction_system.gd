@@ -69,8 +69,9 @@ static func advance_move_phase(
 		var building_rect: Rect2i = state.tile_grid.entity_rect(building.id)
 		if building_rect.size == Vector2i.ZERO:
 			continue
+		var step_from: Vector2i = actor.origin
 		if MovementSystem.step_toward(state, actor, building_rect.position, events):
-			actor.moves_used_this_turn += 1
+			actor.moves_used_this_turn += PathfindingSystem.step_cost(step_from, actor.origin)
 
 
 # EOT hook — runs before ProductionSystem.advance_queues so a freshly
@@ -218,8 +219,9 @@ static func _advance_pending_build_worker(
 		_reject_pending_build(state, actor, registry, reason, events)
 		return
 	var target_rect: Rect2i = layout["rect"]
+	var step_from: Vector2i = actor.origin
 	if MovementSystem.step_toward(state, actor, target_rect.position, events):
-		actor.moves_used_this_turn += 1
+		actor.moves_used_this_turn += PathfindingSystem.step_cost(step_from, actor.origin)
 		try_start_pending_build(state, actor, registry, events)
 
 
@@ -399,4 +401,7 @@ static func _can_step(actor: Entity, registry: EntityRegistry) -> bool:
 	var def: EntityDef = registry.get_by_id(actor.current_def_id)
 	if def == null or def.movement == null:
 		return false
-	return actor.moves_used_this_turn < def.movement.speed_tiles_per_turn
+	return (
+		actor.moves_used_this_turn + PathfindingSystem.STEP_COST_ORTHOGONAL
+		<= def.movement.speed_tiles_per_turn * PathfindingSystem.STEP_COST_ORTHOGONAL
+	)

@@ -93,9 +93,41 @@ class StubSessionHost:
 		pass
 
 
+func _test_selecting_a_resource_shows_remaining_amount() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var patch_id: int = _add_runtime_entity(
+		mode.current_state(), "mineral_patch", -1, Vector2i(20, 20)
+	)
+	if patch_id < 0:
+		push_error("could not place test mineral patch")
+		_free_mode(mode)
+		return false
+	var patch: Entity = mode.current_state().get_entity_by_id(patch_id)
+	patch.current_resource_amount = 321
+	var ok := true
+	if not mode.select_entity_id(patch_id):
+		push_error("mineral patches should be selectable for inspection")
+		ok = false
+	var controller: MatchSessionController = mode.get("_controller") as MatchSessionController
+	var text: String = controller.selection_resource_text() if controller != null else ""
+	if not text.contains("321"):
+		push_error("selection should show remaining minerals, got '%s'" % text)
+		ok = false
+	if mode.input_model().can_issue_move() or mode.input_model().can_issue_target():
+		push_error("a selected resource must not enable unit commands")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
 func _test_session_controller_runs_with_stub_delegate() -> bool:
 	var scenario: ScenarioDef = load(COMBAT_SCENARIO_PATH) as ScenarioDef
-	var registry: EntityRegistry = load("res://data/entity_registry.tres") as EntityRegistry
+	var registry: EntityRegistry = _load_registry()
 	var tunables: Tunables = load("res://data/tunables.tres") as Tunables
 	if scenario == null or registry == null or tunables == null:
 		push_error("stub delegate test requires canonical data fixtures")
@@ -144,6 +176,10 @@ func _all_tests() -> Array:
 		[
 			"session_controller_runs_with_stub_delegate",
 			_test_session_controller_runs_with_stub_delegate
+		],
+		[
+			"selecting_a_resource_shows_remaining_amount",
+			_test_selecting_a_resource_shows_remaining_amount
 		],
 		["dev_play_mode_uses_authored_cockpit_shell", _test_uses_authored_cockpit_shell],
 		["dev_play_mode_queues_and_resolves_turn", _test_queues_and_resolves_turn],
@@ -802,11 +838,11 @@ func _test_command_card_hides_when_not_actionable() -> bool:
 		ok = false
 	mode.set_active_player_id(0)
 	var mineral_id: int = _find_entity_id_any_hp(mode.current_state(), "mineral_patch", -1)
-	if mineral_id < 0 or mode.select_entity_id(mineral_id):
-		push_error("neutral mineral should not become an actionable selection")
+	if mineral_id < 0 or not mode.select_entity_id(mineral_id):
+		push_error("mineral patches should be selectable for inspection")
 		ok = false
 	if _command_surface_visible(card):
-		push_error("command surface should stay hidden after selecting a non-owned target")
+		push_error("command surface should stay hidden for a resource selection")
 		ok = false
 	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
 	if worker_id < 0 or not mode.select_entity_id(worker_id):

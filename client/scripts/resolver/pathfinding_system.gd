@@ -14,6 +14,14 @@ const OPTION_COMPLETE_BLOCKED_AT_CURRENT := "complete_blocked_at_current"
 const OPTION_MAX_EXPANSIONS := "max_expansions"
 const OPTION_PROFILE := "_profile"
 
+# Integer octile step costs: diagonals cover ~1.41x the distance of an
+# orthogonal step, so they cost 1.5x (3 vs 2). Movement budgets are
+# tracked in these cost units (speed_tiles_per_turn * STEP_COST_ORTHOGONAL
+# per turn); path distances from A* and flow fields use them too, so
+# conflict resolution compares like with like.
+const STEP_COST_ORTHOGONAL := 2
+const STEP_COST_DIAGONAL := 3
+
 # A* expansion budget: generous for normal paths, but prevents the
 # unreachable-goal worst case from flooding the entire map per call.
 const _EXPANSION_CAP_PER_DISTANCE := 4
@@ -163,7 +171,7 @@ static func find_path(
 				state.tile_grid, current, delta, footprint, movement, occupancy_blockers
 			):
 				continue
-			var tentative_cost: int = current_cost + 1
+			var tentative_cost: int = current_cost + step_cost(current, next)
 			if g_score.has(next_key) and tentative_cost >= int(g_score[next_key]):
 				continue
 			came_from[next_key] = current_key
@@ -271,7 +279,7 @@ static func find_next_step(
 		_count_profile(profile, "pathfinding.monotonic_success")
 		return {
 			"next_origin": direct_path[0],
-			"path_distance": direct_path.size(),
+			"path_distance": path_cost(start, direct_path),
 			"path": direct_path,
 		}
 
@@ -287,7 +295,7 @@ static func find_next_step(
 	_count_profile(profile, "pathfinding.full_path_used")
 	return {
 		"next_origin": path[0],
-		"path_distance": path.size(),
+		"path_distance": path_cost(start, path),
 		"path": path,
 	}
 
@@ -497,7 +505,9 @@ static func build_flow_field(
 	var check_terrain: bool = not (
 		movement.impassable_terrain_tags.is_empty() and movement.pathable_terrain_tags.is_empty()
 	)
-	var queue: Array[Vector2i] = []
+	# Octile costs (2 orthogonal / 3 diagonal) need a small-cost Dijkstra;
+	# Dial's bucket queue keeps it deterministic and O(nodes).
+	var buckets: Array = []
 	for seed in _flow_field_seeds(target_origin, goal_rect, goal_range, exact_origin):
 		if not grid.is_in_bounds(seed):
 			continue
@@ -511,32 +521,49 @@ static func build_flow_field(
 		# goal itself, which must propagate so units can approach a blocked
 		# destination and complete adjacent to it.
 		if exact_origin or not _tile_blocked(blocked_tiles, passable, seed):
-			queue.append(seed)
-	var head := 0
-	while head < queue.size():
-		var current: Vector2i = queue[head]
-		head += 1
-		var next_distance: int = int(dist[current]) + 1
-		for delta in _NEIGHBORS:
-			var next: Vector2i = current + delta
-			if dist.has(next):
-				continue
-			if not grid.is_in_bounds(next):
-				continue
-			if (
-				check_terrain
-				and not _terrain_allows_rect(grid, Rect2i(next, Vector2i.ONE), movement)
-			):
-				continue
-			if _tile_blocked(blocked_tiles, passable, next):
-				continue
-			if _diagonal_step_blocked(
-				grid, current, delta, Vector2i.ONE, movement, occupancy_blockers
-			):
-				continue
-			dist[next] = next_distance
-			queue.append(next)
+			_bucket_push(buckets, 0, seed)
+	var cost := 0
+	while cost < buckets.size():
+		var bucket: Variant = buckets[cost]
+		if bucket == null:
+			cost += 1
+			continue
+		var head := 0
+		while head < bucket.size():
+			var current: Vector2i = bucket[head]
+			head += 1
+			if int(dist.get(current, -1)) != cost:
+				continue  # stale entry; a cheaper route claimed this tile
+			for delta in _NEIGHBORS:
+				var next: Vector2i = current + delta
+				if not grid.is_in_bounds(next):
+					continue
+				if (
+					check_terrain
+					and not _terrain_allows_rect(grid, Rect2i(next, Vector2i.ONE), movement)
+				):
+					continue
+				if _tile_blocked(blocked_tiles, passable, next):
+					continue
+				if _diagonal_step_blocked(
+					grid, current, delta, Vector2i.ONE, movement, occupancy_blockers
+				):
+					continue
+				var next_distance: int = cost + step_cost(current, next)
+				if dist.has(next) and int(dist[next]) <= next_distance:
+					continue
+				dist[next] = next_distance
+				_bucket_push(buckets, next_distance, next)
+		cost += 1
 	return dist
+
+
+static func _bucket_push(buckets: Array, cost: int, tile: Vector2i) -> void:
+	while buckets.size() <= cost:
+		buckets.append(null)
+	if buckets[cost] == null:
+		buckets[cost] = [] as Array[Vector2i]
+	buckets[cost].append(tile)
 
 
 static func _flow_field_seeds(
@@ -831,7 +858,13 @@ static func _heuristic(
 	goal_range: int,
 	exact_origin: bool
 ) -> int:
-	return _chebyshev_to_goal(origin, footprint, target_origin, goal_rect, goal_range, exact_origin)
+	# Cost-units heuristic: every step costs at least STEP_COST_ORTHOGONAL
+	# and reduces chebyshev distance by at most 1, so this is admissible
+	# and consistent under octile step costs.
+	return (
+		STEP_COST_ORTHOGONAL
+		* _chebyshev_to_goal(origin, footprint, target_origin, goal_rect, goal_range, exact_origin)
+	)
 
 
 static func _goal_distance(
@@ -988,3 +1021,20 @@ static func _count_profile(profile: Variant, label: String, amount: int = 1) -> 
 
 static func _key(origin: Vector2i, grid_width: int) -> int:
 	return origin.y * grid_width + origin.x
+
+
+static func step_cost(from: Vector2i, to: Vector2i) -> int:
+	if from.x != to.x and from.y != to.y:
+		return STEP_COST_DIAGONAL
+	return STEP_COST_ORTHOGONAL
+
+
+# Total cost of a path (array of origins after `start`).
+static func path_cost(start: Vector2i, path: Array) -> int:
+	var total := 0
+	var current := start
+	for item in path:
+		var next: Vector2i = item
+		total += step_cost(current, next)
+		current = next
+	return total

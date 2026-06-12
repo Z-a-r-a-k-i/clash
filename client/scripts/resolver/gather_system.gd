@@ -128,7 +128,7 @@ static func _step_to_source(
 		ev.to_origin = new_origin
 		actor.origin = new_origin
 		events.append(ev)
-		actor.moves_used_this_turn += 1
+		actor.moves_used_this_turn += PathfindingSystem.step_cost(ev.from_origin, new_origin)
 		# Re-check adjacency after the step so we transition the same tick
 		# we land in range.
 		if _is_adjacent_to(state, actor, source):
@@ -684,7 +684,10 @@ static func _can_step(actor: Entity, registry: EntityRegistry) -> bool:
 	var def: EntityDef = registry.get_by_id(actor.current_def_id)
 	if def == null or def.movement == null:
 		return false
-	return actor.moves_used_this_turn < def.movement.speed_tiles_per_turn
+	return (
+		actor.moves_used_this_turn + PathfindingSystem.STEP_COST_ORTHOGONAL
+		<= def.movement.speed_tiles_per_turn * PathfindingSystem.STEP_COST_ORTHOGONAL
+	)
 
 
 static func _worker_gather_rate(actor: Entity, registry: EntityRegistry) -> int:

@@ -1756,11 +1756,14 @@ func _selection_status_message() -> String:
 
 
 func _selected_entities() -> Array[Entity]:
+	# Command actors: only entities the active player owns. Inspection-only
+	# selections (neutral resource sources) stay selected but never expose
+	# or receive commands.
 	var out: Array[Entity] = []
 	_prune_selection()
 	for entity_id in _selected_entity_ids:
 		var entity: Entity = _state.get_entity_by_id(entity_id) if _state != null else null
-		if entity != null:
+		if entity != null and entity.owner_player_id == _active_player_id:
 			out.append(entity)
 	return out
 
@@ -1969,7 +1972,27 @@ func _formation_score_less(a: Array[int], b: Array[int]) -> bool:
 
 func _is_selectable(entity_id: int) -> bool:
 	var entity: Entity = _live_entity(entity_id)
-	return entity != null and entity.owner_player_id == _active_player_id
+	if entity != null and entity.owner_player_id == _active_player_id:
+		return true
+	# Resource sources (mineral patches, geysers) are selectable for
+	# inspection — they expose no commands, only their remaining amount.
+	return resource_source_entity(entity_id) != null
+
+
+# Returns the entity when it is a resource source (def carries a
+# ResourceSourceDef), else null. Resource sources have 0 hp, so this
+# bypasses the _live_entity check.
+func resource_source_entity(entity_id: int) -> Entity:
+	if _state == null or _registry == null:
+		return null
+	var entity: Entity = _state.get_entity_by_id(entity_id)
+	if entity == null:
+		return null
+	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
+	var def: EntityDef = _registry.get_by_id(def_id)
+	if def == null or def.resource_source == null:
+		return null
+	return entity
 
 
 func _live_entity(entity_id: int) -> Entity:

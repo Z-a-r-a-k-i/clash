@@ -419,6 +419,25 @@ func reset_selection_drag() -> void:
 	_is_panning_camera = false
 
 
+# "Minerals remaining: N" / "Gas remaining: unlimited" for a selected
+# resource source, "" otherwise. Shared by both play modes' HUDs.
+func selection_resource_text() -> String:
+	if _input.selected_entity_ids().size() != 1:
+		return ""
+	var entity: Entity = _input.resource_source_entity(_input.selected_entity_id())
+	if entity == null:
+		return ""
+	var registry: EntityRegistry = _host.session_registry()
+	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
+	var def: EntityDef = registry.get_by_id(def_id) if registry != null else null
+	if def == null or def.resource_source == null:
+		return ""
+	var resource_name: String = def.resource_source.resource_type.capitalize()
+	if entity.current_resource_amount < 0:
+		return "%s remaining: unlimited" % resource_name
+	return "%s remaining: %d" % [resource_name, entity.current_resource_amount]
+
+
 func selected_entity() -> Entity:
 	var state: MatchState = _host.session_state()
 	if state == null:

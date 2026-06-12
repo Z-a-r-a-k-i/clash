@@ -176,8 +176,11 @@ func _test_selects_owned_live_entity() -> bool:
 	if input.selected_entity_id() != -1:
 		push_error("invalid selection should clear selected entity")
 		return false
-	if input.select_entity(3):
-		push_error("neutral resource #3 should not be selectable")
+	if not input.select_entity(3):
+		push_error("neutral resource #3 should be selectable for inspection")
+		return false
+	if input.can_issue_move() or input.can_issue_target() or input.can_issue_gather():
+		push_error("a selected resource should expose no unit commands")
 		return false
 	if input.select_entity(4):
 		push_error("dead owned entity #4 should not be selectable")

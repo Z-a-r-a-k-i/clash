@@ -1270,6 +1270,9 @@ func _selection_details_text() -> String:
 				_planned_order_count_for_selection(selected_ids),
 			]
 		)
+	var resource_text: String = _controller.selection_resource_text()
+	if resource_text != "":
+		return resource_text
 	var actor: Entity = _controller.selected_entity()
 	if actor == null:
 		return ""

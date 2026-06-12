@@ -919,7 +919,9 @@ func _test_multi_tile_move_collision() -> bool:
 
 
 func _test_move_routes_around_static_blocker() -> bool:
-	var registry: EntityRegistry = _movable_registry(4)
+	# Speed 5 = 10 cost units: the detour around the blocker costs
+	# diagonal(3) + diagonal(3) + orthogonal(2) + orthogonal(2).
+	var registry: EntityRegistry = _movable_registry(5)
 	var state: MatchState = _state_with_grid(8, 4)
 	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
 	var blocker: Entity = _make_entity(state, "marine", 0, Vector2i(2, 1), 50, "ground")
@@ -1232,7 +1234,7 @@ func _test_find_next_step_matches_a_star_around_concave_blocker() -> bool:
 		return false
 	return (
 		step.get("next_origin", actor.origin) == path[0]
-		and step.get("path_distance", 0) == path.size()
+		and step.get("path_distance", 0) == _PATHFINDING.path_cost(actor.origin, path)
 	)
 
 
@@ -1252,7 +1254,7 @@ func _test_find_next_step_matches_a_star_for_blocked_target() -> bool:
 		return false
 	return (
 		step.get("next_origin", actor.origin) == path[0]
-		and step.get("path_distance", 0) == path.size()
+		and step.get("path_distance", 0) == _PATHFINDING.path_cost(actor.origin, path)
 	)
 
 
@@ -1273,7 +1275,7 @@ func _test_cached_next_step_validates_only_next_step() -> bool:
 		"goal_rect": Rect2i(),
 		"path": [Vector2i(2, 1), Vector2i(3, 1), Vector2i(4, 1)],
 	}
-	var intent: Dictionary = {"exact_origin": true, "goal_range": 0}
+	var intent: Dictionary = {"exact_origin": true, "goal_range": 0, "movement_budget": 3}
 
 	# Blocked remainder (3,1): the cached step to (2,1) survives.
 	var path_cache: Dictionary = {actor.id: cached_entry.duplicate(true)}
@@ -1366,7 +1368,8 @@ func _test_diagonal_step_cannot_cut_between_corner_blocked_tiles() -> bool:
 
 
 func _test_movement_respects_impassable_terrain_tags() -> bool:
-	var registry: EntityRegistry = _movable_registry(2)
+	# Speed 3 = 6 cost units: the detour is two diagonal steps (3 each).
+	var registry: EntityRegistry = _movable_registry(3)
 	var def: EntityDef = registry.get_by_id("marine")
 	def.movement.impassable_terrain_tags = ["water"]
 	var state: MatchState = _state_with_grid(6, 3)
@@ -5093,7 +5096,9 @@ func _test_build_far_worker_delays_site_creation() -> bool:
 		return false
 	if w.pending_build_target_entity_id != -1:
 		return false
-	return w.origin == Vector2i(4, 4)
+	# Speed 4 = 8 cost units: three diagonal steps (3 each, last may
+	# overdraw by 1) reach (3,3).
+	return w.origin == Vector2i(3, 3)
 
 
 func _test_build_worker_walks_to_site() -> bool:
@@ -5211,9 +5216,11 @@ func _test_construction_worker_travel_uses_full_speed_budget() -> bool:
 		if ev.type == ResolverEvent.Type.ENTITY_MOVED and ev.actor_id == worker.id:
 			move_count += 1
 	var w := result.new_state.get_entity_by_id(worker.id)
+	# Speed 4 = 8 cost units: three diagonal steps (3 each, last may
+	# overdraw by 1) reach (3,3).
 	return (
-		move_count == 4
-		and w.origin == Vector2i(4, 4)
+		move_count == 3
+		and w.origin == Vector2i(3, 3)
 		and w.locked_to_building_id == -1
 		and w.pending_build_def_id == "barracks"
 	)

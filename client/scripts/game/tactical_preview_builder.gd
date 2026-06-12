@@ -71,8 +71,20 @@ func turn_stop_tile_for_path(
 	var movement_budget: int = MOVEMENT_SYSTEM_SCRIPT.movement_budget_for_entity(
 		actor, registry, fired_this_turn
 	)
-	var remaining_steps: int = movement_budget - actor.moves_used_this_turn
-	if remaining_steps <= 0:
+	# Budgets are tile counts; consumption is octile cost units.
+	var remaining: int = (
+		movement_budget * PATHFINDING_SCRIPT.STEP_COST_ORTHOGONAL - actor.moves_used_this_turn
+	)
+	if remaining < PATHFINDING_SCRIPT.STEP_COST_ORTHOGONAL:
 		return NO_STOP_TILE
-	var stop_index: int = mini(path.size() - 1, remaining_steps - 1)
-	return path[stop_index]
+	var current: Vector2i = actor.origin
+	var stop_tile: Vector2i = NO_STOP_TILE
+	for item in path:
+		var next: Vector2i = item
+		var cost: int = PATHFINDING_SCRIPT.step_cost(current, next)
+		if cost > remaining:
+			break
+		remaining -= cost
+		current = next
+		stop_tile = next
+	return stop_tile
