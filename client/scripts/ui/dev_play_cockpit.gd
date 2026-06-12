@@ -53,7 +53,8 @@ var _production_controls: HBoxContainer = null
 var _move_button: Button = null
 var _target_button: Button = null
 var _gather_button: Button = null
-var _cancel_button: Button = null
+var _unit_cancel_button: Button = null
+var _build_cancel_button: Button = null
 var _resolve_button: Button = null
 var _repeat_train_toggle: CheckBox = null
 var _show_all_orders_toggle: CheckBox = null
@@ -119,6 +120,16 @@ func set_show_all_orders_enabled(enabled: bool) -> void:
 	_show_all_orders_toggle.set_pressed_no_signal(enabled)
 
 
+func set_turn_action_state(
+	text: String, disabled: bool = false, pressed: bool = false, toggle_mode: bool = false
+) -> void:
+	_resolve_nodes()
+	_resolve_button.toggle_mode = toggle_mode
+	_resolve_button.set_pressed_no_signal(pressed)
+	_resolve_button.text = text
+	_resolve_button.disabled = disabled
+
+
 func command_surface_visible() -> bool:
 	_resolve_nodes()
 	return _command_panel.visible or _build_panel.visible
@@ -133,9 +144,11 @@ func set_command_state(
 	train_options: Array[Dictionary],
 	research_options: Array[Dictionary],
 	ability_options: Array[Dictionary],
-	can_cancel: bool,
+	can_unit_cancel: bool,
 	can_repeat_train: bool = false,
-	repeat_train_enabled: bool = false
+	repeat_train_enabled: bool = false,
+	can_build_cancel: bool = false,
+	use_split_cancel: bool = false
 ) -> void:
 	_resolve_nodes()
 	_repeat_train_enabled = repeat_train_enabled
@@ -143,6 +156,17 @@ func set_command_state(
 	_train_options = _copy_options(train_options)
 	_research_options = _copy_options(research_options)
 	_ability_options = _copy_options(ability_options)
+	var show_build_cancel: bool = (
+		can_build_cancel
+		or (
+			can_unit_cancel
+			and not use_split_cancel
+			and not can_move
+			and not can_target
+			and not can_gather
+		)
+	)
+	var show_unit_cancel: bool = can_unit_cancel and not show_build_cancel
 	_selection_label.text = selection_text
 	_move_button.visible = can_move
 	_move_button.disabled = false
@@ -150,19 +174,21 @@ func set_command_state(
 	_target_button.disabled = false
 	_gather_button.visible = can_gather
 	_gather_button.disabled = false
-	_cancel_button.visible = can_cancel
-	_cancel_button.disabled = false
+	_unit_cancel_button.visible = show_unit_cancel
+	_unit_cancel_button.disabled = false
+	_build_cancel_button.visible = show_build_cancel
+	_build_cancel_button.disabled = false
 	_repeat_train_toggle.visible = can_repeat_train
 	_repeat_train_toggle.set_pressed_no_signal(repeat_train_enabled)
-	_production_controls.visible = can_cancel or can_repeat_train
+	_production_controls.visible = show_build_cancel or can_repeat_train
 	_rebuild_option_buttons(_build_list, _build_options, build_requested)
 	_rebuild_option_buttons(_train_list, _train_options, train_requested)
 	_rebuild_option_buttons(_research_list, _research_options, research_requested)
 	_rebuild_option_buttons(_ability_list, _ability_options, ability_requested)
-	_command_grid.visible = can_move or can_target or can_gather
+	_command_grid.visible = can_move or can_target or can_gather or show_unit_cancel
 	_command_panel.visible = _command_grid.visible
 	_build_panel.visible = (
-		can_cancel
+		show_build_cancel
 		or can_repeat_train
 		or not _build_options.is_empty()
 		or not _train_options.is_empty()
@@ -210,21 +236,20 @@ func _resolve_nodes() -> void:
 	_move_button = get_node("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Move") as Button
 	_target_button = get_node("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Attack") as Button
 	_gather_button = get_node("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Gather") as Button
+	_unit_cancel_button = (
+		get_node("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Cancel") as Button
+	)
 	_production_controls = (
 		get_node("BottomDeck/Row/BuildPanel/Stack/ProductionControls") as HBoxContainer
 	)
-	_cancel_button = (
+	_build_cancel_button = (
 		get_node("BottomDeck/Row/BuildPanel/Stack/ProductionControls/Cancel") as Button
 	)
 	_repeat_train_toggle = (
 		get_node("BottomDeck/Row/BuildPanel/Stack/ProductionControls/RepeatTrain") as CheckBox
 	)
-	_build_list = (
-		get_node("BottomDeck/Row/BuildPanel/Stack/OptionColumns/Build") as VBoxContainer
-	)
-	_train_list = (
-		get_node("BottomDeck/Row/BuildPanel/Stack/OptionColumns/Train") as VBoxContainer
-	)
+	_build_list = (get_node("BottomDeck/Row/BuildPanel/Stack/OptionColumns/Build") as VBoxContainer)
+	_train_list = (get_node("BottomDeck/Row/BuildPanel/Stack/OptionColumns/Train") as VBoxContainer)
 	_research_list = (
 		get_node("BottomDeck/Row/BuildPanel/Stack/OptionColumns/Research") as VBoxContainer
 	)
@@ -246,7 +271,8 @@ func _wire_signals() -> void:
 	_move_button.pressed.connect(func() -> void: move_requested.emit())
 	_target_button.pressed.connect(func() -> void: target_requested.emit())
 	_gather_button.pressed.connect(func() -> void: gather_requested.emit())
-	_cancel_button.pressed.connect(func() -> void: cancel_requested.emit(-1))
+	_unit_cancel_button.pressed.connect(func() -> void: cancel_requested.emit(-1))
+	_build_cancel_button.pressed.connect(func() -> void: cancel_requested.emit(-1))
 	_resolve_button.pressed.connect(func() -> void: resolve_requested.emit())
 	_repeat_train_toggle.toggled.connect(
 		func(enabled: bool) -> void: repeat_train_toggled.emit(enabled)
@@ -317,9 +343,7 @@ func _rebuild_option_buttons(
 		_add_option_button(button_grid, option, signal_to_emit)
 
 
-func _add_option_button(
-	container: Container, option: Dictionary, signal_to_emit: Signal
-) -> void:
+func _add_option_button(container: Container, option: Dictionary, signal_to_emit: Signal) -> void:
 	var def_id: String = option.get("id", "")
 	if def_id == "":
 		return

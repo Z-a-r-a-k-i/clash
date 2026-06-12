@@ -2218,9 +2218,11 @@ func _refresh_command_card() -> void:
 		COMMAND_OPTION_BUILDER.entity_options(_input, _input.train_option_ids()),
 		COMMAND_OPTION_BUILDER.research_options(_input, _input.research_option_ids()),
 		COMMAND_OPTION_BUILDER.ability_options(_input, _input.ability_option_ids()),
-		_input.can_issue_cancel(),
+		_input.can_issue_unit_cancel(),
 		_input.can_issue_repeat_train_toggle(),
-		_input.selected_repeat_train_enabled()
+		_input.selected_repeat_train_enabled(),
+		_input.can_issue_build_cancel(),
+		true
 	)
 
 

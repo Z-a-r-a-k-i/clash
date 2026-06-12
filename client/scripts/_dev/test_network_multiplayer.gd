@@ -65,7 +65,12 @@ func _all_tests() -> Array[Array]:
 			"network_escape_resets_active_selection_drag",
 			_test_network_escape_resets_active_selection_drag
 		],
+		[
+			"network_game_viewport_position_accepts_screen_and_local_events",
+			_test_network_game_viewport_position_accepts_screen_and_local_events
+		],
 		["network_group_right_click_fans_out", _test_network_group_orders],
+		["network_right_click_enemy_queues_target", _test_network_right_click_enemy_queues_target],
 		[
 			"network_submit_in_flight_blocks_local_edits",
 			_test_network_submit_in_flight_blocks_local_edits
@@ -352,11 +357,21 @@ func _test_network_ui_surface() -> bool:
 	add_child(mode)
 	mode.call("ensure_initialized")
 	var ok: bool = true
-	if mode.get_node_or_null("MatchPlaySurface") == null:
+	if mode.find_child("MatchPlaySurface", true, false) == null:
 		push_error("network play mode should create a shared MatchPlaySurface")
 		ok = false
 	if mode.get_node_or_null("DevHUD") != null:
 		push_error("network play mode should not show dev HUD controls")
+		ok = false
+	var cockpit: DevPlayCockpit = mode.find_child("DevPlayCockpit", true, false) as DevPlayCockpit
+	if cockpit == null:
+		push_error("network play mode should use the shared cockpit HUD")
+		ok = false
+	if mode.find_child("MatchHUD", true, false) != null:
+		push_error("network play mode should not build a separate match HUD")
+		ok = false
+	if mode.find_child("CommandCard", true, false) != null:
+		push_error("network play mode should not build a separate command card")
 		ok = false
 	if mode.find_child("ReplayPanel", true, false) != null:
 		push_error("network play mode should not expose replay controls")
@@ -371,16 +386,12 @@ func _test_network_ui_surface() -> bool:
 	if lobby_panel == null or not lobby_panel.visible:
 		push_error("network play mode should start in a visible lobby panel")
 		ok = false
-	var match_hud: Control = mode.find_child("MatchHUD", true, false) as Control
-	if match_hud == null or match_hud.visible:
-		push_error("network play mode should keep match HUD hidden before a match starts")
+	if cockpit == null or cockpit.visible:
+		push_error("network shared cockpit should stay hidden before a match starts")
 		ok = false
-	var submit_button: Button = mode.find_child("SubmitTurn", true, false) as Button
+	var submit_button: Button = mode.find_child("Resolve", true, false) as Button
 	if submit_button == null or not submit_button.visible or submit_button.text != "Submit Turn":
-		push_error("network play mode should expose a visible Submit Turn button")
-		ok = false
-	elif not submit_button.toggle_mode:
-		push_error("network Submit Turn should be a toggle button")
+		push_error("network shared cockpit should expose Submit Turn through the turn button")
 		ok = false
 	var show_orders_button: BaseButton = mode.find_child("ShowAllOrders", true, false) as BaseButton
 	if show_orders_button == null or not show_orders_button.toggle_mode:
@@ -403,8 +414,7 @@ func _test_network_ui_surface() -> bool:
 		push_error("network match HUD should expose a named Resources label")
 		ok = false
 	elif (
-		resources_label.text.find("Minerals: 150") == -1
-		or resources_label.text.find("Gas: 25") == -1
+		resources_label.text.find("Minerals 150") == -1 or resources_label.text.find("Gas 25") == -1
 	):
 		push_error(
 			"network resources label should show minerals and gas, got: %s" % resources_label.text
@@ -524,16 +534,16 @@ func _test_network_ui_flow() -> bool:
 		mode.queue_free()
 		return false
 	var lobby_panel: Control = mode.find_child("LobbyPanel", true, false) as Control
-	var match_hud: Control = mode.find_child("MatchHUD", true, false) as Control
-	if lobby_panel == null or match_hud == null:
-		push_error("network play mode should have separate lobby and match HUD panels")
+	var cockpit: DevPlayCockpit = mode.find_child("DevPlayCockpit", true, false) as DevPlayCockpit
+	if lobby_panel == null or cockpit == null:
+		push_error("network play mode should have lobby plus shared cockpit panels")
 		ok = false
 	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
 	if lobby_panel != null and lobby_panel.visible:
 		push_error("network lobby should hide after authoritative match state binds")
 		ok = false
-	if match_hud == null or not match_hud.visible:
-		push_error("network match HUD should show after authoritative match state binds")
+	if cockpit == null or not cockpit.visible:
+		push_error("network shared cockpit should show after authoritative match state binds")
 		ok = false
 	var escape_menu: Control = mode.find_child("EscapeMenu", true, false) as Control
 	if escape_menu == null or escape_menu.visible:
@@ -549,12 +559,12 @@ func _test_network_ui_flow() -> bool:
 		ok = false
 	else:
 		mode.call("set_interface_hidden", true)
-		if match_hud != null and match_hud.visible:
-			push_error("network match HUD should hide when the interface is hidden")
+		if cockpit != null and cockpit.visible:
+			push_error("network shared cockpit should hide when the interface is hidden")
 			ok = false
 		mode.call("set_interface_hidden", false)
-		if match_hud == null or not match_hud.visible:
-			push_error("network match HUD should show again when the interface is restored")
+		if cockpit == null or not cockpit.visible:
+			push_error("network shared cockpit should show again when the interface is restored")
 			ok = false
 	remove_child(mode)
 	mode.queue_free()
@@ -587,7 +597,9 @@ func _test_network_order_preview_toggle() -> bool:
 	mode.call("select_entity_id", actor_id)
 	mode.call("issue_move_selected", target_tile)
 	mode.call("select_entity_id", second_id)
-	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var surface: MatchPlaySurface = (
+		mode.find_child("MatchPlaySurface", true, false) as MatchPlaySurface
+	)
 	var renderer: MatchRenderer = surface.renderer() if surface != null else null
 	if renderer == null:
 		push_error("preview toggle test requires a renderer")
@@ -632,15 +644,17 @@ func _test_network_idle_worker_indicators_follow_player_slot() -> bool:
 	_set_worker_idle_for_test(loaded.state, active_workers[0])
 	_set_worker_idle_for_test(loaded.state, opponent_workers[0])
 	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
-	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var surface: MatchPlaySurface = (
+		mode.find_child("MatchPlaySurface", true, false) as MatchPlaySurface
+	)
 	var renderer: MatchRenderer = surface.renderer() if surface != null else null
-	var label: Label = mode.get_node_or_null("NetworkHUD/MatchHUD/Root/IdleWorkers") as Label
+	var label: Label = mode.find_child("Status", true, false) as Label
 	var ok: bool = true
 	if label == null:
-		push_error("network HUD should expose IdleWorkers label")
+		push_error("network shared cockpit should expose Status label")
 		ok = false
-	elif not label.visible or label.text != "Idle workers: 1":
-		push_error("network HUD should show one idle worker for the local player")
+	elif not label.visible or label.text.find("Idle workers: 1") == -1:
+		push_error("network shared cockpit should show one idle worker for the local player")
 		ok = false
 	if renderer == null or not renderer.has_method("idle_worker_indicator_count"):
 		push_error("network renderer should expose idle_worker_indicator_count")
@@ -649,14 +663,14 @@ func _test_network_idle_worker_indicators_follow_player_slot() -> bool:
 		push_error("network renderer should badge one idle worker for the local player")
 		ok = false
 	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 1)
-	surface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	surface = mode.find_child("MatchPlaySurface", true, false) as MatchPlaySurface
 	renderer = surface.renderer() if surface != null else null
-	label = mode.get_node_or_null("NetworkHUD/MatchHUD/Root/IdleWorkers") as Label
+	label = mode.find_child("Status", true, false) as Label
 	if label == null:
-		push_error("network HUD should expose IdleWorkers label for slot 1")
+		push_error("network shared cockpit should expose Status label for slot 1")
 		ok = false
-	elif not label.visible or label.text != "Idle workers: 1":
-		push_error("slot 1 should also show exactly one local idle worker")
+	elif not label.visible or label.text.find("Idle workers: 1") == -1:
+		push_error("slot 1 should also show exactly one local idle worker in shared cockpit")
 		ok = false
 	if renderer == null or not renderer.has_method("idle_worker_indicator_count"):
 		push_error("network renderer should expose idle_worker_indicator_count for slot 1")
@@ -683,7 +697,9 @@ func _test_network_drag_box_selects_without_panning() -> bool:
 		mode.queue_free()
 		return false
 	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
-	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var surface: MatchPlaySurface = (
+		mode.find_child("MatchPlaySurface", true, false) as MatchPlaySurface
+	)
 	var renderer: MatchRenderer = surface.renderer() if surface != null else null
 	var camera: Camera2D = (
 		renderer.get_node_or_null("Camera2D") as Camera2D if renderer != null else null
@@ -739,7 +755,9 @@ func _test_network_escape_resets_active_selection_drag() -> bool:
 	mode.call("_unhandled_input", _mouse_button(MOUSE_BUTTON_LEFT, true, box.position))
 	mode.call("_unhandled_input", _mouse_motion(box.size, MOUSE_BUTTON_MASK_LEFT, box.end))
 	mode.call("_unhandled_input", _key_press(KEY_ESCAPE))
-	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var surface: MatchPlaySurface = (
+		mode.find_child("MatchPlaySurface", true, false) as MatchPlaySurface
+	)
 	var renderer: MatchRenderer = surface.renderer() if surface != null else null
 	if renderer != null and bool(renderer.call("is_selection_box_visible")):
 		push_error("network Escape should immediately clear the active selection box")
@@ -752,6 +770,31 @@ func _test_network_escape_resets_active_selection_drag() -> bool:
 	var ok: bool = selected == [ids[0]]
 	if not ok:
 		push_error("network Escape should cancel active selection drag, got %s" % str(selected))
+	remove_child(mode)
+	mode.queue_free()
+	return ok
+
+
+func _test_network_game_viewport_position_accepts_screen_and_local_events() -> bool:
+	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
+		return false
+	var mode: Node = script.new()
+	add_child(mode)
+	mode.call("ensure_initialized")
+	var viewport_rect: Rect2 = mode.call("_game_viewport_screen_rect")
+	var local_position: Vector2 = Vector2(96.0, maxf(viewport_rect.position.y * 0.5, 1.0))
+	var screen_position: Vector2 = local_position + viewport_rect.position
+	var from_screen: Vector2 = mode.call("_screen_to_game_viewport_position", screen_position)
+	var from_local: Vector2 = mode.call("_screen_to_game_viewport_position", local_position)
+	var ok: bool = true
+	if from_screen.distance_to(local_position) > 0.5:
+		push_error("network viewport should convert root-screen mouse positions to game-local")
+		ok = false
+	if from_local.distance_to(local_position) > 0.5:
+		push_error("network viewport should leave SubViewport-local mouse positions unchanged")
+		ok = false
 	remove_child(mode)
 	mode.queue_free()
 	return ok
@@ -773,8 +816,8 @@ func _test_network_group_orders() -> bool:
 	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
 	var input: DevTurnInput = mode.call("input_model") as DevTurnInput
 	var ids: Array[int] = _entity_ids_by_def_owner(loaded.state, "marine", 0)
-	if ids.size() < 2:
-		push_error("combat scenario should have at least two P0 marines")
+	if ids.size() < 3:
+		push_error("combat scenario should have three close P1 marines")
 		remove_child(mode)
 		mode.queue_free()
 		return false
@@ -782,7 +825,9 @@ func _test_network_group_orders() -> bool:
 		remove_child(mode)
 		mode.queue_free()
 		return false
-	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var surface: MatchPlaySurface = (
+		mode.find_child("MatchPlaySurface", true, false) as MatchPlaySurface
+	)
 	var renderer: MatchRenderer = surface.renderer() if surface != null else null
 	if renderer != null:
 		renderer.call("set_selected_entity_ids", ids)
@@ -796,10 +841,72 @@ func _test_network_group_orders() -> bool:
 		push_error("network group right-click should queue one flat order per unit")
 		ok = false
 	else:
+		var target_tiles: Array[Vector2i] = []
 		for i in orders.size():
-			if not _has_move_order([orders[i]], ids[i], target_tile):
+			var order: EntityOrder = orders[i]
+			if order == null or order.entity_id != ids[i] or order.type != EntityOrder.Type.MOVE:
 				push_error("expected MOVE for selected unit #%d" % ids[i])
 				ok = false
+			else:
+				target_tiles.append(order.target_tile)
+		if not target_tiles.has(target_tile):
+			push_error("network group right-click formation should include clicked tile")
+			ok = false
+		if _unique_tile_count(target_tiles) != ids.size():
+			push_error(
+				(
+					"network group right-click should assign distinct formation targets, got %s"
+					% str(target_tiles)
+				)
+			)
+			ok = false
+	remove_child(mode)
+	mode.queue_free()
+	return ok
+
+
+func _test_network_right_click_enemy_queues_target() -> bool:
+	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
+		return false
+	var mode: Node = script.new()
+	add_child(mode)
+	mode.call("ensure_initialized")
+	var loaded: LoadedScenario = _load_combat()
+	if loaded == null:
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	var enemy_id: int = _first_enemy_entity_id(loaded.state, 0)
+	var enemy: Entity = loaded.state.get_entity_by_id(enemy_id)
+	if enemy != null and loaded.state.tile_grid != null:
+		var visible_enemy_origin := Vector2i(8, 10)
+		if loaded.state.tile_grid.move(enemy.id, visible_enemy_origin):
+			enemy.origin = visible_enemy_origin
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
+	var actor_id: int = _first_target_capable_entity_id(loaded.state, loaded.registry, 0)
+	var input: DevTurnInput = mode.call("input_model") as DevTurnInput
+	if actor_id < 0 or enemy == null or input == null:
+		push_error("network right-click target test requires combat actor, enemy, and input")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("select_entity_id", actor_id)
+	mode.call(
+		"_unhandled_input", _mouse_button(MOUSE_BUTTON_RIGHT, true, _tile_center_px(enemy.origin))
+	)
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	var ok: bool = true
+	if (
+		orders.size() != 1
+		or orders[0].type != EntityOrder.Type.TARGET
+		or orders[0].target_entity_id != enemy.id
+		or orders[0].target_priority_chain != ([enemy.id] as Array[int])
+		or orders[0].target_tile != enemy.origin
+	):
+		push_error("network right-click on enemy should queue a direct TARGET order")
+		ok = false
 	remove_child(mode)
 	mode.queue_free()
 	return ok
@@ -878,7 +985,9 @@ func _test_network_authoritative_rebind_syncs_selection_highlights() -> bool:
 		mode.queue_free()
 		return false
 	mode.call("select_entity_id", actor_id)
-	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var surface: MatchPlaySurface = (
+		mode.find_child("MatchPlaySurface", true, false) as MatchPlaySurface
+	)
 	var renderer: MatchRenderer = surface.renderer() if surface != null else null
 	if renderer == null:
 		push_error("selection highlight sync test requires a renderer")
@@ -1058,7 +1167,7 @@ func _test_network_turn_started_resets_submit_and_allows_next_move() -> bool:
 			}
 		)
 	)
-	var submit_button: Button = mode.find_child("SubmitTurn", true, false) as Button
+	var submit_button: Button = mode.find_child("Resolve", true, false) as Button
 	var ok: bool = true
 	if (
 		submit_button == null
@@ -1150,18 +1259,17 @@ func _test_network_submit_error_clears_pending_state() -> bool:
 			}
 		)
 	)
-	var submit_button: Button = mode.find_child("SubmitTurn", true, false) as Button
-	var submit_label: Label = mode.find_child("SubmitState", true, false) as Label
-	var status_label: Label = mode.find_child("MatchStatus", true, false) as Label
+	var submit_button: Button = mode.find_child("Resolve", true, false) as Button
+	var status_label: Label = mode.find_child("Status", true, false) as Label
 	var ok: bool = true
 	if submit_button == null or submit_button.button_pressed or submit_button.text != "Submit Turn":
 		push_error("server submit error should clear the pending submit button")
 		ok = false
-	if submit_label == null or submit_label.text != "Submit: idle":
-		push_error("server submit error should clear the pending submit label")
+	if status_label == null or status_label.text.find("Submit: idle") == -1:
+		push_error("server submit error should clear the pending submit status")
 		ok = false
 	if status_label == null or status_label.text.find("wrong_player_order") == -1:
-		push_error("server submit error should remain visible in match status")
+		push_error("server submit error should remain visible in shared cockpit status")
 		ok = false
 	remove_child(mode)
 	mode.queue_free()
@@ -1203,18 +1311,17 @@ func _test_network_rejected_submit_clears_waiting_status() -> bool:
 			}
 		)
 	)
-	var submit_button: Button = mode.find_child("SubmitTurn", true, false) as Button
-	var submit_label: Label = mode.find_child("SubmitState", true, false) as Label
-	var status_label: Label = mode.find_child("MatchStatus", true, false) as Label
+	var submit_button: Button = mode.find_child("Resolve", true, false) as Button
+	var status_label: Label = mode.find_child("Status", true, false) as Label
 	var ok := true
 	if submit_button == null or submit_button.button_pressed or submit_button.text != "Submit Turn":
 		push_error("rejected submit should clear the pending submit button")
 		ok = false
-	if submit_label == null or submit_label.text != "Submit: idle":
-		push_error("rejected submit should clear the pending submit label")
+	if status_label == null or status_label.text.find("Submit: idle") == -1:
+		push_error("rejected submit should clear the pending submit status")
 		ok = false
 	if status_label == null or status_label.text.find("invalid_submit") == -1:
-		push_error("rejected submit should show the rejection status")
+		push_error("rejected submit should show the rejection in shared cockpit status")
 		ok = false
 	elif status_label.text.find("Submit sent") != -1:
 		push_error("rejected submit should clear the stale waiting status")
@@ -1246,7 +1353,9 @@ func _test_network_disconnect_resets_local_match_state() -> bool:
 		mode.queue_free()
 		return false
 	mode.call("select_entity_id", actor_id)
-	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var surface: MatchPlaySurface = (
+		mode.find_child("MatchPlaySurface", true, false) as MatchPlaySurface
+	)
 	var renderer: MatchRenderer = surface.renderer() if surface != null else null
 	if renderer != null:
 		renderer.call("set_selection_box_world_rect", Rect2(Vector2(8.0, 8.0), Vector2(32.0, 32.0)))
@@ -1268,7 +1377,7 @@ func _test_network_disconnect_resets_local_match_state() -> bool:
 	var input: DevTurnInput = mode.call("input_model") as DevTurnInput
 	var stale_submit: SubmitTurn = input.submit_for_player(0).clone() if input != null else null
 	mode.call("_reset_local_match_state")
-	var submit_button: Button = mode.find_child("SubmitTurn", true, false) as Button
+	var submit_button: Button = mode.find_child("Resolve", true, false) as Button
 	var ok: bool = true
 	if int(mode.call("player_slot")) != -1:
 		push_error("disconnect reset should clear player slot")
@@ -1354,10 +1463,10 @@ func _test_network_building_production() -> bool:
 	var expected_train_ids: Array[String] = expected_input.train_option_ids()
 	var expected_research_ids: Array[String] = expected_input.research_option_ids()
 	mode.call("select_entity_id", producer_id)
-	var card: CommandCard = mode.find_child("CommandCard", true, false) as CommandCard
+	var card: DevPlayCockpit = mode.find_child("DevPlayCockpit", true, false) as DevPlayCockpit
 	var ok: bool = true
 	if card == null:
-		push_error("network command card should exist")
+		push_error("network shared cockpit command surface should exist")
 		ok = false
 	elif (
 		card.train_option_ids() != expected_train_ids
@@ -1384,6 +1493,23 @@ func _test_network_building_production() -> bool:
 		var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 		if orders.is_empty() or orders[0].type != EntityOrder.Type.TRAIN:
 			push_error("network train button should queue a TRAIN order")
+			ok = false
+		var build_cancel_button: Button = (
+			card.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/ProductionControls/Cancel")
+			as Button
+		)
+		var unit_cancel_button: Button = (
+			card.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Cancel") as Button
+		)
+		if build_cancel_button == null or not build_cancel_button.visible:
+			push_error(
+				"network selected building with queued production should show Cancel in Build"
+			)
+			ok = false
+		if unit_cancel_button != null and unit_cancel_button.visible:
+			push_error(
+				"network selected building with queued production should not show Cancel in Commands"
+			)
 			ok = false
 	remove_child(mode)
 	mode.queue_free()
@@ -1566,10 +1692,10 @@ func _test_network_pending_command_buttons() -> bool:
 		remove_child(mode)
 		mode.queue_free()
 		return false
-	var card: CommandCard = mode.find_child("CommandCard", true, false) as CommandCard
+	var card: DevPlayCockpit = mode.find_child("DevPlayCockpit", true, false) as DevPlayCockpit
 	var input: DevTurnInput = mode.call("input_model") as DevTurnInput
 	if card == null or input == null:
-		push_error("network pending command test requires command card and input model")
+		push_error("network pending command test requires shared cockpit and input model")
 		remove_child(mode)
 		mode.queue_free()
 		return false
@@ -1630,6 +1756,19 @@ func _test_network_pending_command_buttons() -> bool:
 		):
 			push_error("network pending Move should queue a MOVE order")
 			ok = false
+		var unit_cancel_button: Button = (
+			card.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Cancel") as Button
+		)
+		var build_cancel_button: Button = (
+			card.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/ProductionControls/Cancel")
+			as Button
+		)
+		if unit_cancel_button == null or not unit_cancel_button.visible:
+			push_error("network selected unit with queued order should show Cancel in Commands")
+			ok = false
+		if build_cancel_button != null and build_cancel_button.visible:
+			push_error("network selected unit with queued order should not show Cancel in Build")
+			ok = false
 	remove_child(mode)
 	mode.queue_free()
 	if not _network_pending_target_button_queues_attack_target():
@@ -1663,10 +1802,12 @@ func _network_pending_target_button_queues_attack_target() -> bool:
 		mode.queue_free()
 		return false
 	var actor_id: int = _first_target_capable_entity_id(loaded.state, loaded.registry, 0)
-	var card: CommandCard = mode.find_child("CommandCard", true, false) as CommandCard
+	var card: DevPlayCockpit = mode.find_child("DevPlayCockpit", true, false) as DevPlayCockpit
 	var input: DevTurnInput = mode.call("input_model") as DevTurnInput
 	if actor_id < 0 or enemy == null or card == null or input == null:
-		push_error("network pending target test requires combat actor, enemy, card, and input")
+		push_error(
+			"network pending target test requires combat actor, enemy, shared cockpit, and input"
+		)
 		remove_child(mode)
 		mode.queue_free()
 		return false
@@ -2372,6 +2513,13 @@ func _selected_ids_for_test(input: DevTurnInput) -> Array[int]:
 	for item in raw:
 		out.append(int(item))
 	return out
+
+
+func _unique_tile_count(tiles: Array[Vector2i]) -> int:
+	var seen: Dictionary = {}
+	for tile in tiles:
+		seen[tile] = true
+	return seen.size()
 
 
 func _world_box_for_entities(state: MatchState, entity_ids: Array[int]) -> Rect2:

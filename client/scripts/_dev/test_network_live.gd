@@ -252,9 +252,9 @@ func _submit_both_and_wait(match_data: Dictionary, previous_turn: int, label: St
 	if not _submit_button_is_pending(p0):
 		push_error("P0 submit button did not enter pending state before server ack")
 		return false
-	var submit_label: Label = p0.find_child("SubmitState", true, false) as Label
-	if submit_label == null or not submit_label.text.begins_with("Submit: sending"):
-		push_error("P0 submit label should show the pre-ack sending state")
+	var status_label: Label = p0.find_child("Status", true, false) as Label
+	if status_label == null or status_label.text.find("Submit: sending") == -1:
+		push_error("P0 shared cockpit status should show the pre-ack sending state")
 		return false
 	if not await _wait_until(
 		func() -> bool:
@@ -330,20 +330,26 @@ func _client_is_open(mode: Node) -> bool:
 func _mode_ready(mode: Node, slot: int) -> bool:
 	if mode == null or int(mode.call("player_slot")) != slot:
 		return false
-	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var surface: MatchPlaySurface = (
+		mode.find_child("MatchPlaySurface", true, false) as MatchPlaySurface
+	)
 	return surface != null and surface.current_state() != null and surface.registry() != null
 
 
 func _current_state(mode: Node) -> MatchState:
 	var surface: MatchPlaySurface = (
-		mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface if mode != null else null
+		mode.find_child("MatchPlaySurface", true, false) as MatchPlaySurface
+		if mode != null
+		else null
 	)
 	return surface.current_state() if surface != null else null
 
 
 func _current_registry(mode: Node) -> EntityRegistry:
 	var surface: MatchPlaySurface = (
-		mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface if mode != null else null
+		mode.find_child("MatchPlaySurface", true, false) as MatchPlaySurface
+		if mode != null
+		else null
 	)
 	return surface.registry() if surface != null else null
 
@@ -356,9 +362,9 @@ func _match_code(mode: Node) -> String:
 
 
 func _status_text(mode: Node) -> String:
-	var match_status: Label = mode.find_child("MatchStatus", true, false) as Label
-	if match_status != null and match_status.text != "":
-		return match_status.text
+	var cockpit_status: Label = mode.find_child("Status", true, false) as Label
+	if cockpit_status != null and cockpit_status.text != "":
+		return cockpit_status.text
 	var lobby_status: Label = mode.find_child("LobbyStatus", true, false) as Label
 	return lobby_status.text if lobby_status != null else ""
 
@@ -368,7 +374,7 @@ func _client_states_match(p0: Node, p1: Node) -> bool:
 
 
 func _submit_button_is_pending(mode: Node) -> bool:
-	var submit_button: Button = mode.find_child("SubmitTurn", true, false) as Button
+	var submit_button: Button = mode.find_child("Resolve", true, false) as Button
 	return (
 		submit_button != null
 		and submit_button.button_pressed

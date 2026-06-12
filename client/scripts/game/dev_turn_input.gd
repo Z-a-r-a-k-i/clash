@@ -7,6 +7,7 @@ extends RefCounted
 # immediately, while turn actions still queue for resolver submission.
 
 const _ABILITY_SYSTEM := preload("res://scripts/resolver/ability_system.gd")
+const _PATHFINDING := preload("res://scripts/resolver/pathfinding_system.gd")
 const _FIRING_TILE_NEIGHBORS: Array[Vector2i] = [
 	Vector2i(1, 0),
 	Vector2i(1, 1),
@@ -158,11 +159,12 @@ func issue_move(target_tile: Vector2i) -> bool:
 		_status_message = "%s cannot move." % _selection_subject_label(selected)
 		return false
 	var queue_requested: bool = _consume_queue_modifier()
+	var target_tiles_by_entity: Dictionary = _formation_target_tiles(eligible, target_tile)
 	for actor in eligible:
 		var order: EntityOrder = EntityOrder.new()
 		order.type = EntityOrder.Type.MOVE
 		order.entity_id = actor.id
-		order.target_tile = target_tile
+		order.target_tile = target_tiles_by_entity.get(actor.id, target_tile)
 		actor.focus_target_entity_id = -1
 		_append_order_with_queue_request(order, queue_requested)
 	_status_message = _group_order_status(
@@ -187,11 +189,12 @@ func issue_attack_move(target_tile: Vector2i) -> bool:
 		_status_message = "%s cannot attack." % _selection_subject_label(selected)
 		return false
 	var queue_requested: bool = _consume_queue_modifier()
+	var target_tiles_by_entity: Dictionary = _formation_target_tiles(eligible, target_tile)
 	for actor in eligible:
 		var order: EntityOrder = EntityOrder.new()
 		order.type = EntityOrder.Type.ATTACK_MOVE
 		order.entity_id = actor.id
-		order.target_tile = target_tile
+		order.target_tile = target_tiles_by_entity.get(actor.id, target_tile)
 		actor.focus_target_entity_id = -1
 		_append_order_with_queue_request(order, queue_requested)
 	_status_message = _group_order_status(
@@ -710,6 +713,20 @@ func can_issue_gather() -> bool:
 func can_issue_cancel() -> bool:
 	for actor in _selected_entities():
 		if _can_cancel_entity(actor):
+			return true
+	return false
+
+
+func can_issue_unit_cancel() -> bool:
+	for actor in _selected_entities():
+		if _can_cancel_unit_entity(actor):
+			return true
+	return false
+
+
+func can_issue_build_cancel() -> bool:
+	for actor in _selected_entities():
+		if _can_cancel_production_entity(actor):
 			return true
 	return false
 
@@ -1434,6 +1451,30 @@ func _has_queued_order_for_entity(entity_id: int) -> bool:
 	return false
 
 
+func _has_queued_unit_order_for_entity(entity_id: int) -> bool:
+	var submit: SubmitTurn = _submission_for(_active_player_id)
+	for order in submit.orders:
+		if (
+			_is_action_queue_order(order)
+			and order.entity_id == entity_id
+			and not _is_production_queue_order(order.type)
+		):
+			return true
+	return false
+
+
+func _has_queued_production_order_for_entity(entity_id: int) -> bool:
+	var submit: SubmitTurn = _submission_for(_active_player_id)
+	for order in submit.orders:
+		if (
+			order != null
+			and order.entity_id == entity_id
+			and _is_production_queue_order(order.type)
+		):
+			return true
+	return false
+
+
 func _has_queued_order_for_entity_and_player(entity_id: int, player_id: int) -> bool:
 	var submit: SubmitTurn = _submission_for(player_id)
 	for order in submit.orders:
@@ -1618,6 +1659,10 @@ func _is_action_queue_order(order: EntityOrder) -> bool:
 	return order != null and not _is_standing_submit_order(order.type)
 
 
+func _is_production_queue_order(type: EntityOrder.Type) -> bool:
+	return type == EntityOrder.Type.TRAIN or type == EntityOrder.Type.RESEARCH
+
+
 func _is_standing_submit_order(type: EntityOrder.Type) -> bool:
 	return (
 		type == EntityOrder.Type.TARGET
@@ -1687,6 +1732,157 @@ func _selected_entity() -> Entity:
 	if entity_id < 0 or not _is_selectable(entity_id):
 		return null
 	return _state.get_entity_by_id(entity_id)
+
+
+func _formation_target_tiles(actors: Array[Entity], target_tile: Vector2i) -> Dictionary:
+	var out: Dictionary = {}
+	if actors.is_empty():
+		return out
+	if actors.size() == 1 or _state == null or _state.tile_grid == null or _registry == null:
+		for actor in actors:
+			if actor != null:
+				out[actor.id] = target_tile
+		return out
+
+	var passable_entity_ids: Dictionary = {}
+	for actor in actors:
+		if actor != null:
+			passable_entity_ids[actor.id] = true
+	var candidates: Array[Vector2i] = _formation_candidate_tiles(target_tile)
+	var center: Vector2 = _formation_center(actors)
+	var reserved_by_layer: Dictionary = {}
+	for actor in actors:
+		if actor == null:
+			continue
+		var desired_tile: Vector2i = _formation_desired_tile(actor, target_tile, center)
+		var actor_target: Vector2i = _best_formation_target_for_actor(
+			actor, desired_tile, target_tile, candidates, passable_entity_ids, reserved_by_layer
+		)
+		out[actor.id] = actor_target
+		_reserve_formation_target(actor, actor_target, reserved_by_layer)
+	return out
+
+
+func _formation_center(actors: Array[Entity]) -> Vector2:
+	var sum: Vector2 = Vector2.ZERO
+	var count := 0
+	for actor in actors:
+		if actor == null:
+			continue
+		sum += Vector2(actor.origin)
+		count += 1
+	if count <= 0:
+		return Vector2.ZERO
+	return sum * (1.0 / float(count))
+
+
+func _formation_desired_tile(actor: Entity, target_tile: Vector2i, center: Vector2) -> Vector2i:
+	if actor == null:
+		return target_tile
+	return (
+		target_tile
+		+ Vector2i(
+			roundi(float(actor.origin.x) - center.x), roundi(float(actor.origin.y) - center.y)
+		)
+	)
+
+
+func _formation_candidate_tiles(target_tile: Vector2i) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	if _state == null or _state.tile_grid == null:
+		out.append(target_tile)
+		return out
+	var max_radius: int = maxi(_state.tile_grid.width, _state.tile_grid.height)
+	for radius in range(max_radius + 1):
+		for y in range(target_tile.y - radius, target_tile.y + radius + 1):
+			for x in range(target_tile.x - radius, target_tile.x + radius + 1):
+				if maxi(abs(x - target_tile.x), abs(y - target_tile.y)) != radius:
+					continue
+				var tile := Vector2i(x, y)
+				if _state.tile_grid.is_in_bounds(tile):
+					out.append(tile)
+	return out
+
+
+func _best_formation_target_for_actor(
+	actor: Entity,
+	desired_tile: Vector2i,
+	target_tile: Vector2i,
+	candidates: Array[Vector2i],
+	passable_entity_ids: Dictionary,
+	reserved_by_layer: Dictionary
+) -> Vector2i:
+	var best_tile: Vector2i = target_tile
+	var best_score: Array[int] = []
+	var has_best := false
+	for candidate in candidates:
+		if not _formation_target_available(
+			actor, candidate, passable_entity_ids, reserved_by_layer
+		):
+			continue
+		var score: Array[int] = _formation_target_score(candidate, desired_tile, target_tile)
+		if not has_best or _formation_score_less(score, best_score):
+			best_tile = candidate
+			best_score = score
+			has_best = true
+	return best_tile
+
+
+func _formation_target_available(
+	actor: Entity,
+	target_tile: Vector2i,
+	passable_entity_ids: Dictionary,
+	reserved_by_layer: Dictionary
+) -> bool:
+	if actor == null or _state == null or _state.tile_grid == null or _registry == null:
+		return false
+	if not _PATHFINDING.can_occupy_origin(
+		_state, actor, target_tile, _registry, passable_entity_ids
+	):
+		return false
+	var footprint: Vector2i = _PATHFINDING.entity_footprint(_state, actor, _registry)
+	var candidate_rect: Rect2i = Rect2i(target_tile, footprint)
+	var layer: String = _PATHFINDING.layer_for_entity(actor, _registry)
+	var reserved_rects: Array = reserved_by_layer.get(layer, [])
+	for item in reserved_rects:
+		var reserved_rect: Rect2i = item
+		if reserved_rect.intersects(candidate_rect):
+			return false
+	return true
+
+
+func _reserve_formation_target(
+	actor: Entity, target_tile: Vector2i, reserved_by_layer: Dictionary
+) -> void:
+	if actor == null or _state == null or _registry == null:
+		return
+	var footprint: Vector2i = _PATHFINDING.entity_footprint(_state, actor, _registry)
+	var layer: String = _PATHFINDING.layer_for_entity(actor, _registry)
+	var reserved_rects: Array = reserved_by_layer.get(layer, [])
+	reserved_rects.append(Rect2i(target_tile, footprint))
+	reserved_by_layer[layer] = reserved_rects
+
+
+func _formation_target_score(
+	candidate: Vector2i, desired_tile: Vector2i, target_tile: Vector2i
+) -> Array[int]:
+	return [
+		maxi(abs(candidate.x - desired_tile.x), abs(candidate.y - desired_tile.y)),
+		abs(candidate.x - desired_tile.x) + abs(candidate.y - desired_tile.y),
+		maxi(abs(candidate.x - target_tile.x), abs(candidate.y - target_tile.y)),
+		abs(candidate.x - target_tile.x) + abs(candidate.y - target_tile.y),
+		candidate.y,
+		candidate.x,
+	]
+
+
+func _formation_score_less(a: Array[int], b: Array[int]) -> bool:
+	if b.is_empty():
+		return true
+	for i in range(mini(a.size(), b.size())):
+		if a[i] != b[i]:
+			return a[i] < b[i]
+	return a.size() < b.size()
 
 
 func _is_selectable(entity_id: int) -> bool:
@@ -1839,6 +2035,10 @@ func _can_entity_gather(entity: Entity) -> bool:
 
 
 func _can_cancel_entity(actor: Entity) -> bool:
+	return _can_cancel_unit_entity(actor) or _can_cancel_production_entity(actor)
+
+
+func _can_cancel_unit_entity(actor: Entity) -> bool:
 	if actor == null:
 		return false
 	if (
@@ -1846,12 +2046,18 @@ func _can_cancel_entity(actor: Entity) -> bool:
 		or actor.focus_target_entity_id >= 0
 		or actor.locked_to_building_id >= 0
 		or ConstructionSystem.has_pending_build(actor)
-		or _has_queued_order_for_entity(actor.id)
+		or _has_queued_unit_order_for_entity(actor.id)
 		or future_order_count_for_entity(actor.id) > 0
 	):
 		return true
-	if actor.production_state == null:
+	return false
+
+
+func _can_cancel_production_entity(actor: Entity) -> bool:
+	if actor == null or actor.production_state == null:
 		return false
+	if _has_queued_production_order_for_entity(actor.id):
+		return true
 	return (
 		not actor.production_state.active.is_empty() or not actor.production_state.queue.is_empty()
 	)

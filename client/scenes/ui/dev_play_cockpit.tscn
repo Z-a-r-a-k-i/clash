@@ -140,6 +140,11 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "Gather"
 
+[node name="Cancel" type="Button" parent="BottomDeck/Row/CommandPanel/Stack/CommandGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Cancel"
+
 [node name="BuildPanel" type="PanelContainer" parent="BottomDeck/Row"]
 custom_minimum_size = Vector2(520, 0)
 layout_mode = 2

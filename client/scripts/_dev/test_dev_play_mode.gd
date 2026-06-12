@@ -460,14 +460,17 @@ func _test_uses_authored_cockpit_shell() -> bool:
 	):
 		push_error("repeat train should not live in the primary command grid")
 		ok = false
-	if cockpit.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Cancel") != null:
-		push_error("cancel training should not live in the primary command grid")
+	var unit_cancel_button: Button = (
+		cockpit.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Cancel") as Button
+	)
+	if unit_cancel_button == null:
+		push_error("unit cancel should live in the primary command grid")
 		ok = false
-	var cancel_button: Button = (
+	var build_cancel_button: Button = (
 		cockpit.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/ProductionControls/Cancel")
 		as Button
 	)
-	if cancel_button == null:
+	if build_cancel_button == null:
 		push_error("cancel training should live in the build command box")
 		ok = false
 	var repeat_train_toggle: CheckBox = (
@@ -506,7 +509,7 @@ func _test_uses_authored_cockpit_shell() -> bool:
 		):
 			push_error("repeat train should keep an explicit dark background while hovering")
 			ok = false
-	if cancel_button != null:
+	if build_cancel_button != null:
 		var empty_options: Array[Dictionary] = []
 		cockpit.call(
 			"set_command_state",
@@ -525,8 +528,11 @@ func _test_uses_authored_cockpit_shell() -> bool:
 		if not build_panel.visible or command_panel.visible:
 			push_error("cancel training alone should show the build box without the command box")
 			ok = false
-		if not cancel_button.visible:
+		if not build_cancel_button.visible:
 			push_error("cancel training should be visible inside the build box")
+			ok = false
+		if unit_cancel_button != null and unit_cancel_button.visible:
+			push_error("unit cancel should stay hidden for production cancellation")
 			ok = false
 	var resolve_button: Button = _find_exact_button(cockpit, "Resolve")
 	if resolve_button == null or not resolve_button.has_theme_stylebox_override("normal"):
@@ -1996,10 +2002,10 @@ func _test_tied_same_target_move_completes_for_future_queue() -> bool:
 	var left_after: Entity = mode.current_state().get_entity_by_id(left_id)
 	var right_after: Entity = mode.current_state().get_entity_by_id(right_id)
 	var ok := true
-	if left_after.origin != Vector2i(5, 10) or right_after.origin != Vector2i(5, 12):
+	if left_after.origin != Vector2i(6, 10) or right_after.origin != Vector2i(6, 12):
 		push_error(
 			(
-				"tied movers should stop before the contested target, got %s and %s"
+				"tied movers should stop at reachable spaces around the contested target, got %s and %s"
 				% [str(left_after.origin), str(right_after.origin)]
 			)
 		)
@@ -2052,8 +2058,18 @@ func _test_routes_command_card_orders() -> bool:
 		push_error("expected MOVE after pending Move click")
 		_free_mode(mode)
 		return false
-	if not _expect_button_visibility(card, "Cancel", true):
-		push_error("selected worker with a queued order should expose Cancel")
+	var unit_cancel_button: Button = (
+		card.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Cancel") as Button
+	)
+	var build_cancel_button: Button = (
+		card.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/ProductionControls/Cancel") as Button
+	)
+	if unit_cancel_button == null or not unit_cancel_button.visible:
+		push_error("selected unit with a queued order should expose Cancel in Commands")
+		_free_mode(mode)
+		return false
+	if build_cancel_button != null and build_cancel_button.visible:
+		push_error("selected unit with a queued order should not expose Cancel in Build")
 		_free_mode(mode)
 		return false
 	card.emit_signal("cancel_requested", -1)
@@ -2170,6 +2186,20 @@ func _test_routes_command_card_orders() -> bool:
 		return false
 	if orders[1].type != EntityOrder.Type.RESEARCH or orders[1].def_id != "stim_research":
 		push_error("research signal should queue RESEARCH stim_research")
+		_free_mode(mode)
+		return false
+	build_cancel_button = (
+		card.get_node_or_null("BottomDeck/Row/BuildPanel/Stack/ProductionControls/Cancel") as Button
+	)
+	unit_cancel_button = (
+		card.get_node_or_null("BottomDeck/Row/CommandPanel/Stack/CommandGrid/Cancel") as Button
+	)
+	if build_cancel_button == null or not build_cancel_button.visible:
+		push_error("selected building with queued production should expose Cancel in Build")
+		_free_mode(mode)
+		return false
+	if unit_cancel_button != null and unit_cancel_button.visible:
+		push_error("selected building with queued production should not expose Cancel in Commands")
 		_free_mode(mode)
 		return false
 	mode.input_model().clear_submissions()
@@ -2565,9 +2595,25 @@ func _test_group_right_click_orders() -> bool:
 		)
 		ok = false
 	else:
+		var target_tiles: Array[Vector2i] = []
 		for i in orders.size():
-			if not _expect_order(orders[i], EntityOrder.Type.MOVE, ids[i], target_tile):
+			var order: EntityOrder = orders[i]
+			if order == null or order.type != EntityOrder.Type.MOVE or order.entity_id != ids[i]:
+				push_error("expected MOVE for selected unit #%d" % ids[i])
 				ok = false
+			else:
+				target_tiles.append(order.target_tile)
+		if not target_tiles.has(target_tile):
+			push_error("group right-click formation should include clicked tile")
+			ok = false
+		if _unique_tile_count(target_tiles) != ids.size():
+			push_error(
+				(
+					"group right-click should assign distinct formation targets, got %s"
+					% str(target_tiles)
+				)
+			)
+			ok = false
 	_free_mode(mode)
 	return ok
 
@@ -2938,6 +2984,13 @@ func _selected_ids_for_test(input: DevTurnInput) -> Array[int]:
 	for item in raw:
 		out.append(int(item))
 	return out
+
+
+func _unique_tile_count(tiles: Array[Vector2i]) -> int:
+	var seen: Dictionary = {}
+	for tile in tiles:
+		seen[tile] = true
+	return seen.size()
 
 
 func _boxed_ids_for_test(mode: Node, box: Rect2) -> Array[int]:
