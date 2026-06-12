@@ -117,12 +117,28 @@ static func bake_to_resource_from_scene(
 	var placements: Array[ScenarioPlacement] = result["placements"]
 	_sort_placements(placements)
 
+	# Terrain is optional: maps without a `Terrain` child bake exactly as
+	# before (plan/m1/03).
+	var terrain_patches: Array[ScenarioTerrainPatch] = []
+	var terrain_node := scene_root.get_node_or_null("Terrain")
+	if terrain_node != null:
+		var terrain_result := bake_terrain_with_mirror(terrain_node, map_width, map_height)
+		if not terrain_result["ok"]:
+			push_error("[MapBaker] %s" % terrain_result["error"])
+			return null
+		terrain_patches = terrain_result["patches"]
+		var overlap_error := _placement_terrain_overlap_error(placements, terrain_patches, registry)
+		if overlap_error != "":
+			push_error("[MapBaker] %s" % overlap_error)
+			return null
+
 	var sd := ScenarioDef.new()
 	sd.map_width = map_width
 	sd.map_height = map_height
 	sd.starting_resources_per_player = starting_resources
 	sd.auto_start_workers_on_minerals = auto_start_workers_on_minerals
 	sd.placements = placements
+	sd.terrain_patches = terrain_patches
 	return sd
 
 
@@ -190,6 +206,101 @@ static func bake_placements_with_mirror(
 					)
 				)
 	return {"ok": true, "placements": out, "error": ""}
+
+
+# Walk TerrainPatch children, validate, and emit ScenarioTerrainPatches
+# (sources + mirrors), mirroring rects across the vertical axis like
+# placements. Returns {ok, patches: Array[ScenarioTerrainPatch], error}.
+static func bake_terrain_with_mirror(
+	terrain_node: Node, map_width: int, map_height: int
+) -> Dictionary:
+	var out: Array[ScenarioTerrainPatch] = []
+	for child in terrain_node.get_children():
+		if not _is_terrain_node(child):
+			continue
+		var node_path: String = str(child.get_path()) if child.is_inside_tree() else child.name
+		var rect_pos: Vector2i = child.rect_position
+		var rect_size: Vector2i = child.rect_size
+		var tags: Array[String] = child.terrain_tags
+		var on_axis: bool = child.on_axis
+		if tags.is_empty():
+			return _fail_terrain("Terrain patch with empty tags at %s" % node_path)
+		if rect_size.x <= 0 or rect_size.y <= 0:
+			return _fail_terrain("Terrain patch with empty rect at %s" % node_path)
+		if not _in_bounds(rect_pos, rect_size, map_width, map_height):
+			return _fail_terrain(
+				(
+					"Terrain patch out of bounds at %s (rect=%s)"
+					% [node_path, str(Rect2i(rect_pos, rect_size))]
+				)
+			)
+		var zone := _classify_zone(rect_pos, rect_size, on_axis, -1, map_width)
+		match zone:
+			ZONE_LEFT:
+				out.append(_make_terrain_patch(rect_pos, rect_size, tags))
+				var mirror_x := mirror_x_for(rect_pos.x, rect_size.x, map_width)
+				out.append(_make_terrain_patch(Vector2i(mirror_x, rect_pos.y), rect_size, tags))
+			ZONE_AXIS:
+				out.append(_make_terrain_patch(rect_pos, rect_size, tags))
+			_:
+				return _fail_terrain(
+					(
+						(
+							"Right-half or misaligned terrain patch on %s (rect=%s, "
+							+ "on_axis=%s). Author the LEFT half only; or set "
+							+ "on_axis=true for even-width rects centered on the axis."
+						)
+						% [node_path, str(Rect2i(rect_pos, rect_size)), str(on_axis)]
+					)
+				)
+	out.sort_custom(
+		func(a: ScenarioTerrainPatch, b: ScenarioTerrainPatch) -> bool:
+			if a.rect.position.x != b.rect.position.x:
+				return a.rect.position.x < b.rect.position.x
+			return a.rect.position.y < b.rect.position.y
+	)
+	return {"ok": true, "patches": out, "error": ""}
+
+
+# A placement sitting on tagged terrain is a map-authoring bug (units
+# can't path there; buildings would be unreachable) — fail the bake.
+static func _placement_terrain_overlap_error(
+	placements: Array[ScenarioPlacement],
+	terrain_patches: Array[ScenarioTerrainPatch],
+	registry: EntityRegistry
+) -> String:
+	for placement in placements:
+		var def: EntityDef = registry.get_by_id(placement.def_id)
+		var footprint := Vector2i.ONE
+		if def != null:
+			footprint = Vector2i(max(def.footprint.x, 1), max(def.footprint.y, 1))
+		var placement_rect := Rect2i(placement.origin, footprint)
+		for patch in terrain_patches:
+			if patch != null and patch.rect.intersects(placement_rect):
+				return (
+					"Placement %s at %s overlaps terrain patch %s"
+					% [placement.def_id, str(placement_rect), str(patch.rect)]
+				)
+	return ""
+
+
+static func _is_terrain_node(n: Node) -> bool:
+	if n == null:
+		return false
+	return "rect_position" in n and "rect_size" in n and "terrain_tags" in n and "on_axis" in n
+
+
+static func _make_terrain_patch(
+	rect_pos: Vector2i, rect_size: Vector2i, tags: Array[String]
+) -> ScenarioTerrainPatch:
+	var patch := ScenarioTerrainPatch.new()
+	patch.rect = Rect2i(rect_pos, rect_size)
+	patch.tags = tags.duplicate()
+	return patch
+
+
+static func _fail_terrain(msg: String) -> Dictionary:
+	return {"ok": false, "patches": [] as Array[ScenarioTerrainPatch], "error": msg}
 
 
 # ---------- Pure helpers ----------

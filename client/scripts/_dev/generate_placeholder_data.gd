@@ -399,6 +399,9 @@ func _movement(speed: int, layer: String) -> MovementDef:
 	var m := MovementDef.new()
 	m.speed_tiles_per_turn = speed
 	m.default_layer = layer
+	if layer == "ground":
+		# Cliffs block ground movement (plan/m1/03); flying crosses freely.
+		m.impassable_terrain_tags = ["cliff"]
 	return m
 
 

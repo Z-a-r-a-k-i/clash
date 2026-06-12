@@ -22,6 +22,8 @@ const _CAMERA_MARGIN_TILES := 3
 # this with a real TileMapLayer paint pass once a tileset exists.
 const _TERRAIN_FALLBACK_COLOR := Color(0.32, 0.36, 0.30)
 const _TERRAIN_FALLBACK_NODE_NAME := "TerrainFallback"
+const _TERRAIN_TILES_NODE_NAME := "TerrainTiles"
+const _TERRAIN_TILE_COLOR := Color(0.22, 0.18, 0.14)
 
 # Attack overlay tunables. Lines fade out over a fixed wall-clock duration
 # regardless of turn pacing — animations are decoupled from logic per
@@ -173,6 +175,7 @@ func bind_state(state: MatchState, registry: EntityRegistry) -> void:
 		return
 
 	_paint_terrain_fallback(state)
+	_paint_terrain_tiles(state)
 
 	# entities_sorted_by_id filters null slots that MatchState.clone()
 	# preserves to keep positional indices stable. Iterating raw
@@ -1679,6 +1682,40 @@ func _paint_terrain_fallback(state: MatchState) -> void:
 	add_child(bg)
 	# Render behind every other child (Camera2D ignored — non-visual).
 	move_child(bg, 0)
+
+
+# Placeholder paint for terrain-tagged tiles (cliffs etc., plan/m1/03):
+# one darker polygon per tagged tile, above the background fallback and
+# below entities. The 2D graphics pass (plan/m1/04) replaces this with
+# real tile art.
+func _paint_terrain_tiles(state: MatchState) -> void:
+	var existing := get_node_or_null(_TERRAIN_TILES_NODE_NAME)
+	if existing != null:
+		existing.queue_free()
+	if state == null or state.tile_grid == null:
+		return
+	var tiles: Array[Vector2i] = state.tile_grid.terrain_tiles()
+	if tiles.is_empty():
+		return
+	var root := Node2D.new()
+	root.name = _TERRAIN_TILES_NODE_NAME
+	for tile in tiles:
+		var rect := Polygon2D.new()
+		rect.color = _TERRAIN_TILE_COLOR
+		var x0: float = tile.x * _tile_size
+		var y0: float = tile.y * _tile_size
+		rect.polygon = PackedVector2Array(
+			[
+				Vector2(x0, y0),
+				Vector2(x0 + _tile_size, y0),
+				Vector2(x0 + _tile_size, y0 + _tile_size),
+				Vector2(x0, y0 + _tile_size),
+			]
+		)
+		root.add_child(rect)
+	add_child(root)
+	# Above the background fallback (index 0), below everything else.
+	move_child(root, 1 if get_node_or_null(_TERRAIN_FALLBACK_NODE_NAME) != null else 0)
 
 
 func _read_tile_size() -> int:

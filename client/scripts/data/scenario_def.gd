@@ -23,5 +23,7 @@ extends Resource
 @export var starting_resources_per_player: Dictionary = {}
 @export var auto_start_workers_on_minerals: bool = false
 @export var placements: Array[ScenarioPlacement] = []
+# Terrain-tagged tile rects applied to the TileGrid at load (plan/m1/03).
+@export var terrain_patches: Array[ScenarioTerrainPatch] = []
 @export var registry_override: EntityRegistry  # optional; null => standard registry
 @export var stat_overrides: Array[ScenarioStatOverride] = []

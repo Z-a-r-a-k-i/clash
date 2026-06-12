@@ -34,6 +34,7 @@ max_hp = 45
 [sub_resource type="Resource" id="Resource_gupk4"]
 script = ExtResource("8_vfsmm")
 speed_tiles_per_turn = 10
+impassable_terrain_tags = Array[String](["cliff"])
 
 [sub_resource type="Resource" id="Resource_sxt4m"]
 script = ExtResource("9_vc1w1")

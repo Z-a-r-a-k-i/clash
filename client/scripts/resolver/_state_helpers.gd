@@ -8,6 +8,11 @@ extends RefCounted
 # and queue dispatch can be implemented and unit-tested before any system
 # logic exists.
 
+# Terrain tags that reject building placement (plan/m1/03). Lives here as
+# a const because BUILD validation runs at order distribution, which has
+# no Tunables access; promote to Tunables if the terrain vocabulary grows.
+const UNBUILDABLE_TERRAIN_TAGS: Array[String] = ["cliff"]
+
 # ---------- Order distribution ----------
 
 
@@ -357,7 +362,7 @@ static func _handle_build_order(
 	elif not state.tile_grid.is_rect_in_bounds(rect):
 		_emit_order_rejected(order.entity_id, "off_grid", events)
 		return
-	elif not state.tile_grid.is_rect_clear(rect):
+	elif not _can_place_build_rect(state, rect):
 		_emit_order_rejected(order.entity_id, "tile_occupied", events)
 		return
 	var player := state.get_player(worker.owner_player_id)
@@ -465,10 +470,22 @@ static func _effective_def_id(entity: Entity) -> String:
 	return entity.def_id
 
 
+static func _build_rect_terrain_blocked(state: MatchState, rect: Rect2i) -> bool:
+	for x in range(rect.position.x, rect.position.x + rect.size.x):
+		for y in range(rect.position.y, rect.position.y + rect.size.y):
+			var tags: Array[String] = state.tile_grid.tile_terrain_tags(Vector2i(x, y))
+			for tag in UNBUILDABLE_TERRAIN_TAGS:
+				if tags.has(tag):
+					return true
+	return false
+
+
 static func _can_place_build_rect(
 	state: MatchState, rect: Rect2i, allow_overlap_id: int = -1
 ) -> bool:
 	if state == null or state.tile_grid == null:
+		return false
+	if _build_rect_terrain_blocked(state, rect):
 		return false
 	if allow_overlap_id < 0:
 		return state.tile_grid.is_rect_clear(rect)

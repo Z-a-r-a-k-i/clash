@@ -52,6 +52,23 @@ static func load(
 		grid_h = 50
 	state.tile_grid = TileGrid.new(grid_w, grid_h)
 
+	# Terrain patches before placements so authoring bugs (an entity on a
+	# cliff) surface as placement failures, not silent overlaps
+	# (plan/m1/03; bake-time validation also rejects them).
+	for patch in scenario.terrain_patches:
+		if patch == null or patch.tags.is_empty():
+			continue
+		for x in range(patch.rect.position.x, patch.rect.position.x + patch.rect.size.x):
+			for y in range(patch.rect.position.y, patch.rect.position.y + patch.rect.size.y):
+				var tile := Vector2i(x, y)
+				if not state.tile_grid.is_in_bounds(tile):
+					continue
+				var merged: Array[String] = state.tile_grid.tile_terrain_tags(tile)
+				for tag in patch.tags:
+					if not merged.has(tag):
+						merged.append(tag)
+				state.tile_grid.set_tile_terrain_tags(tile, merged)
+
 	# Two-player init. Plan-04+ already encodes the 0/1 convention.
 	state.players = [_make_player(0), _make_player(1)]
 	_apply_starting_resources(state, scenario)

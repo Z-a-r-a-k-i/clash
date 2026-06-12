@@ -1,7 +1,7 @@
 class_name DevPlayMode
 extends Node
 
-const DEFAULT_SCENARIO_PATH := "res://data/scenarios/mvp_map.tres"
+const DEFAULT_SCENARIO_PATH := "res://data/scenarios/arena_1v1.tres"
 const MATCH_SCENE_PATH := "res://scenes/match.tscn"
 const REGISTRY_PATH := "res://data/entity_registry.tres"
 const TUNABLES_PATH := "res://data/tunables.tres"
@@ -15,12 +15,8 @@ const _DEV_SNAPSHOT_PREFIX := "dev_snapshot"
 const _DEV_REPLAY_AUTO_DIR := "user://tmp/replays"
 const _DEV_REPLAY_AUTO_PREFIX := "dev_replay"
 const DEV_PLAY_COCKPIT_SCENE := preload("res://scenes/ui/dev_play_cockpit.tscn")
-const ACTION_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/action_preview_builder.gd")
 const TACTICAL_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/tactical_preview_builder.gd")
 const COMMAND_OPTION_BUILDER := preload("res://scripts/game/command_option_builder.gd")
-const SELECTION_DRAG_CONTROLLER_SCRIPT: Script = preload(
-	"res://scripts/game/selection_drag_controller.gd"
-)
 const PATHFINDING_SCRIPT := preload("res://scripts/resolver/pathfinding_system.gd")
 const PENDING_NONE := ""
 const PENDING_MOVE := "move"
@@ -58,8 +54,7 @@ var _renderer: MatchRenderer = null
 var _loaded: LoadedScenario = null
 var _tunables: Tunables = null
 var _input: DevTurnInput = DEV_TURN_INPUT_SCRIPT.new() as DevTurnInput
-var _game_viewport_container: SubViewportContainer = null
-var _game_viewport: SubViewport = null
+var _controller: MatchSessionController = MatchSessionController.new()
 var _hud_layer: CanvasLayer = null
 var _cockpit: DevPlayCockpit = null
 var _replay_panel: PanelContainer = null
@@ -74,10 +69,6 @@ var _replay_play_timer: Timer = null
 var _snapshot_file_dialog: FileDialog = null
 var _replay_file_dialog: FileDialog = null
 var _command_card: Control = null
-var _pending_command: String = PENDING_NONE
-var _pending_build_def_id: String = ""
-var _is_panning_camera: bool = false
-var _selection_drag: Variant = SELECTION_DRAG_CONTROLLER_SCRIPT.new()
 var _show_all_friendly_action_previews: bool = false
 var _debug_info_visible: bool = false
 var _range_projection_active: bool = false
@@ -90,21 +81,23 @@ var _replay_cursor_turn: int = 0
 var _replay_playing: bool = false
 var _updating_replay_timeline: bool = false
 var _auto_replay_path: String = ""
-var _action_preview_builder: ActionPreviewBuilder = (
-	ACTION_PREVIEW_BUILDER_SCRIPT.new() as ActionPreviewBuilder
-)
 var _tactical_preview_builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = (
 	TACTICAL_PREVIEW_BUILDER_SCRIPT.new() as TACTICAL_PREVIEW_BUILDER_SCRIPT
 )
 
 
+func _init() -> void:
+	_controller.setup(self, _input, CAMERA_DRAG_THRESHOLD)
+
+
 func _ready() -> void:
-	_selection_drag.threshold_pixels = CAMERA_DRAG_THRESHOLD
+	_controller.setup(self, _input, CAMERA_DRAG_THRESHOLD)
 	_build_hud()
-	_ensure_game_viewport()
+	_controller.ensure_game_viewport()
 	var viewport: Viewport = get_viewport()
-	if viewport != null and not viewport.size_changed.is_connected(_sync_game_viewport_rect):
-		viewport.size_changed.connect(_sync_game_viewport_rect)
+	var sync: Callable = Callable(_controller, "sync_game_viewport_rect")
+	if viewport != null and not viewport.size_changed.is_connected(sync):
+		viewport.size_changed.connect(sync)
 	if _loaded == null:
 		load_scenario_path(scenario_path)
 
@@ -121,7 +114,7 @@ func load_scenario_path(path: String) -> bool:
 	if _loaded == null:
 		push_error("DevPlayMode: ScenarioLoader returned null.")
 		return false
-	_clear_pending_command()
+	_controller.clear_pending_command()
 	_input.set_queue_modifier_active(false)
 	_ensure_renderer()
 	if _renderer == null:
@@ -134,7 +127,7 @@ func load_scenario_path(path: String) -> bool:
 	_range_projection_active = false
 	_has_last_hover_tile = false
 	_start_replay_journal()
-	_reset_context_cursor()
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 	_update_hud()
 	return true
 
@@ -187,22 +180,15 @@ func set_auto_save_replays_enabled(enabled: bool) -> void:
 		_auto_replay_path = ""
 
 
-func pending_command_kind() -> String:
-	return _pending_command
-
-
-func pending_cursor_shape() -> int:
-	return _pending_cursor_shape()
-
-
 func _reject_replay_edit() -> bool:
-	_clear_pending_command()
+	_controller.clear_pending_command()
 	_update_hud("Replay is read-only. Use Play From Here to branch from this turn.")
 	return false
 
 
 func set_show_all_friendly_action_previews(enabled: bool) -> void:
 	_show_all_friendly_action_previews = enabled
+	_controller.set_show_all_orders(enabled)
 	_refresh_action_previews()
 
 
@@ -211,319 +197,13 @@ func set_active_player_id(player_id: int) -> void:
 		_reject_replay_edit()
 		return
 	_input.set_active_player_id(player_id)
-	_clear_pending_command()
+	_controller.clear_pending_command()
 	if _renderer != null:
 		_renderer.set_perspective_player_id(player_id)
 		_renderer.focus_player_start(player_id)
-		_sync_selection_highlights()
-	_reset_context_cursor()
+		_controller.sync_selection_highlights()
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 	_update_hud()
-
-
-func select_entity_id(entity_id: int) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	var ok: bool = _input.select_entity(entity_id)
-	if _renderer != null:
-		_clear_build_placement_preview()
-		if ok:
-			_sync_selection_highlights()
-		else:
-			_renderer.clear_input_highlights()
-	if not ok:
-		_reset_context_cursor()
-	_update_hud()
-	return ok
-
-
-func issue_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	_input.set_queue_modifier_active(queue_requested)
-	var ok: bool = _input.issue_move(tile)
-	_input.set_queue_modifier_active(false)
-	_update_hud()
-	return ok
-
-
-func issue_attack_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	_input.set_queue_modifier_active(queue_requested)
-	var ok: bool = _input.issue_attack_move(tile)
-	_input.set_queue_modifier_active(false)
-	_update_hud()
-	return ok
-
-
-func issue_attack_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	_input.set_queue_modifier_active(queue_requested)
-	var ok: bool = _input.issue_target(target_entity_id)
-	_input.set_queue_modifier_active(false)
-	_update_hud()
-	return ok
-
-
-func issue_gather_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	_input.set_queue_modifier_active(queue_requested)
-	var ok: bool = _input.issue_gather(target_entity_id)
-	_input.set_queue_modifier_active(false)
-	_update_hud()
-	return ok
-
-
-func issue_rally_move_selected(tile: Vector2i) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	var ok: bool = _input.issue_rally_move(tile)
-	_update_hud()
-	return ok
-
-
-func issue_rally_gather_selected(target_entity_id: int) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	var ok: bool = _input.issue_rally_gather(target_entity_id)
-	_update_hud()
-	return ok
-
-
-func issue_build_selected(def_id: String, tile: Vector2i, queue_requested: bool = false) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	_input.set_queue_modifier_active(queue_requested)
-	var ok: bool = _input.issue_build(def_id, tile)
-	_input.set_queue_modifier_active(false)
-	_update_hud()
-	return ok
-
-
-func issue_train_selected(def_id: String) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	var ok: bool = _input.issue_train(def_id)
-	_update_hud()
-	return ok
-
-
-func issue_research_selected(def_id: String) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	var ok: bool = _input.issue_research(def_id)
-	_update_hud()
-	return ok
-
-
-func issue_ability_selected(ability_id: String) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	var ok: bool = _input.issue_ability(ability_id)
-	_update_hud()
-	return ok
-
-
-func issue_repeat_train_selected(enabled: bool) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	var ok: bool = _input.issue_repeat_train_toggle(enabled)
-	_update_hud()
-	return ok
-
-
-func issue_cancel_selected(cancel_index: int = -1) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	var ok: bool = _input.issue_cancel(cancel_index)
-	_update_hud()
-	return ok
-
-
-func issue_context_at_tile(tile: Vector2i, queue_requested: bool = false) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	var context: Dictionary = context_action_at_tile(tile)
-	var action: String = context.get("action", CONTEXT_NONE)
-	if action == CONTEXT_MOVE:
-		return issue_move_selected(tile, queue_requested)
-	if action == CONTEXT_ATTACK:
-		return issue_attack_selected(context.get("target_entity_id", -1), queue_requested)
-	if action == CONTEXT_GATHER:
-		return issue_gather_selected(context.get("target_entity_id", -1), queue_requested)
-	if action == CONTEXT_RALLY_MOVE:
-		return issue_rally_move_selected(tile)
-	if action == CONTEXT_RALLY_GATHER:
-		return issue_rally_gather_selected(context.get("target_entity_id", -1))
-	var message: String = context.get("message", "")
-	if message != "":
-		_update_hud(message)
-	return false
-
-
-func context_action_at_tile(tile: Vector2i) -> Dictionary:
-	if _replay_mode_active:
-		return _context_result(CONTEXT_NONE, Input.CURSOR_ARROW, "")
-	if _pending_command != PENDING_NONE:
-		return _context_result(CONTEXT_NONE, Input.CURSOR_ARROW, "")
-	if _loaded == null or _loaded.state == null or _loaded.state.tile_grid == null:
-		return _context_result(CONTEXT_NONE, Input.CURSOR_ARROW, "")
-	if not _loaded.state.tile_grid.is_in_bounds(tile):
-		return _context_result(CONTEXT_NONE, Input.CURSOR_ARROW, "")
-	if _selected_entity() == null:
-		return _context_result(CONTEXT_NONE, Input.CURSOR_ARROW, "")
-	var target_id: int = _entity_id_at_tile(tile)
-	if target_id >= 0:
-		var target: Entity = _loaded.state.get_entity_by_id(target_id)
-		if target == null:
-			return _context_result(CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Invalid target.")
-		if _is_enemy_target(target):
-			if _input.can_issue_target():
-				return _context_result(
-					CONTEXT_ATTACK, Input.CURSOR_CROSS, "", {"target_entity_id": target_id}
-				)
-			return _context_result(
-				CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Selected entity cannot attack."
-			)
-		if _is_resource_context_target(target):
-			if _selected_can_gather_from(target_id):
-				return _context_result(
-					CONTEXT_GATHER, Input.CURSOR_POINTING_HAND, "", {"target_entity_id": target_id}
-				)
-			if not _input.has_multiple_selection() and _selected_can_rally_gather_to(target_id):
-				return _context_result(
-					CONTEXT_RALLY_GATHER,
-					Input.CURSOR_POINTING_HAND,
-					"",
-					{"target_entity_id": target_id}
-				)
-			return _context_result(
-				CONTEXT_INVALID,
-				Input.CURSOR_FORBIDDEN,
-				"That resource target is not valid for the selected entity."
-			)
-		return _context_result(CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Target tile is occupied.")
-	if not _input.has_multiple_selection() and _input.can_issue_rally_move():
-		return _context_result(CONTEXT_RALLY_MOVE, Input.CURSOR_MOVE, "")
-	if _input.can_issue_move():
-		return _context_result(CONTEXT_MOVE, Input.CURSOR_MOVE, "")
-	return _context_result(CONTEXT_INVALID, Input.CURSOR_FORBIDDEN, "Selected entity cannot move.")
-
-
-func context_cursor_shape_at_tile(tile: Vector2i) -> int:
-	var context: Dictionary = context_action_at_tile(tile)
-	return context.get("cursor_shape", Input.CURSOR_ARROW)
-
-
-func begin_move() -> void:
-	if _replay_mode_active:
-		_reject_replay_edit()
-		return
-	if not _input.can_issue_move():
-		_update_hud("Select a movable unit before Move.")
-		return
-	_clear_build_placement_preview()
-	_pending_command = PENDING_MOVE
-	_pending_build_def_id = ""
-	_set_pending_cursor()
-	_update_hud("Click a target tile for Move.")
-
-
-func begin_target() -> void:
-	if _replay_mode_active:
-		_reject_replay_edit()
-		return
-	if not _input.can_issue_target():
-		_update_hud("Select a combat unit before Attack.")
-		return
-	_clear_build_placement_preview()
-	_pending_command = PENDING_TARGET
-	_pending_build_def_id = ""
-	_set_pending_cursor()
-	_update_hud("Click an enemy or destination tile for Attack.")
-
-
-func begin_build(def_id: String) -> void:
-	if _replay_mode_active:
-		_reject_replay_edit()
-		return
-	_clear_build_placement_preview()
-	if not _input.build_option_ids().has(def_id):
-		_update_hud("Selected entity cannot BUILD %s." % def_id)
-		return
-	_pending_command = PENDING_BUILD
-	_pending_build_def_id = def_id
-	_reset_context_cursor()
-	_update_hud("Click a placement tile for BUILD %s." % def_id)
-
-
-func confirm_pending_at_tile(tile: Vector2i, queue_requested: bool = false) -> bool:
-	if _replay_mode_active:
-		return _reject_replay_edit()
-	if _pending_command == PENDING_MOVE:
-		var move_ok: bool = issue_move_selected(tile, queue_requested)
-		if move_ok:
-			_clear_pending_command()
-			_update_hud()
-		return move_ok
-	if _pending_command == PENDING_TARGET:
-		var target_id: int = (
-			_renderer.entity_id_at_tile(tile)
-			if _renderer != null
-			else _loaded.state.tile_grid.entity_at(tile)
-		)
-		var target: Entity = _loaded.state.get_entity_by_id(target_id)
-		if (
-			target != null
-			and target.owner_player_id >= 0
-			and target.owner_player_id != _input.active_player_id()
-		):
-			var target_ok: bool = issue_attack_selected(target_id, queue_requested)
-			if target_ok:
-				_clear_pending_command()
-				_update_hud()
-			return target_ok
-		var attack_move_ok: bool = issue_attack_move_selected(tile, queue_requested)
-		if attack_move_ok:
-			_clear_pending_command()
-			_update_hud()
-		return attack_move_ok
-	if _pending_command == PENDING_BUILD:
-		var build_ok: bool = issue_build_selected(_pending_build_def_id, tile, queue_requested)
-		if build_ok:
-			_clear_pending_command()
-			_update_hud()
-		return build_ok
-	if _pending_command == PENDING_GATHER:
-		if _loaded == null or _loaded.state == null:
-			return false
-		var target_id: int = (
-			_renderer.entity_id_at_tile(tile)
-			if _renderer != null
-			else _loaded.state.tile_grid.entity_at(tile)
-		)
-		if not _selected_can_gather_from(target_id):
-			_update_hud("Click a mineral patch or refinery to GATHER.")
-			return false
-		var gather_ok: bool = issue_gather_selected(target_id, queue_requested)
-		if gather_ok:
-			_clear_pending_command()
-			_update_hud()
-		return gather_ok
-	return false
-
-
-func cancel_pending_command() -> void:
-	if _replay_mode_active:
-		_reject_replay_edit()
-		return
-	if _pending_command == PENDING_NONE:
-		return
-	_clear_pending_command()
-	_reset_context_cursor()
-	_update_hud("Pending command cancelled.")
 
 
 func _emit_dev_resolve_profile(lines: Array[String]) -> void:
@@ -675,7 +355,7 @@ func replay_next() -> bool:
 		_update_hud("Replay step did not advance past turn %d." % turn_before)
 		return false
 	_loaded.state = result.new_state
-	_clear_pending_command()
+	_controller.clear_pending_command()
 	if _renderer != null:
 		_renderer.render_step(result.new_state, result.events)
 		_renderer.clear_input_highlights()
@@ -688,7 +368,7 @@ func replay_next() -> bool:
 	_replay_mode_active = true
 	_replay_cursor_turn = _loaded.state.turn_index
 	_record_checkpoint(_loaded.state.turn_index)
-	_reset_context_cursor()
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 	_update_hud("Replay stepped to turn %d." % _loaded.state.turn_index)
 	return true
 
@@ -779,7 +459,7 @@ func resolve_turn() -> bool:
 	_truncate_replay_after_turn(turn_before)
 	_append_replay_frame(turn_before, journal_submit_a, journal_submit_b)
 	_loaded.state = result.new_state
-	_clear_pending_command()
+	_controller.clear_pending_command()
 	if _renderer != null:
 		_renderer.render_step(result.new_state, result.events)
 		if profile_enabled:
@@ -824,7 +504,7 @@ func resolve_turn() -> bool:
 			)
 		)
 		profile_step = Time.get_ticks_usec()
-	_reset_context_cursor()
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 	var resolve_status: String = "Resolved turn %d." % _loaded.state.turn_index
 	if not auto_save_ok:
 		resolve_status += " Auto replay save failed."
@@ -852,196 +532,17 @@ func resolve_turn() -> bool:
 	return true
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	var cancel_pressed: bool = event.is_action_pressed("ui_cancel")
-	if event is InputEventKey:
-		var key_event: InputEventKey = event as InputEventKey
-		cancel_pressed = (
-			cancel_pressed
-			or (key_event.pressed and not key_event.echo and key_event.keycode == KEY_ESCAPE)
-		)
-	if cancel_pressed:
-		_reset_selection_drag()
-		_toggle_escape_menu()
-		var viewport: Viewport = get_viewport()
-		if viewport != null:
-			viewport.set_input_as_handled()
-		return
-	if _renderer == null or _loaded == null:
-		return
-	if _escape_menu_panel != null and _escape_menu_panel.visible:
-		_reset_selection_drag()
-		return
-	if event is InputEventKey:
-		var key_event: InputEventKey = event as InputEventKey
-		if key_event.keycode == KEY_ALT and not key_event.echo:
-			_set_range_projection_active(key_event.pressed)
-			var viewport: Viewport = get_viewport()
-			if viewport != null:
-				viewport.set_input_as_handled()
-			return
-		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_A:
-			begin_target()
-			var viewport: Viewport = get_viewport()
-			if viewport != null:
-				viewport.set_input_as_handled()
-			return
-	if event is InputEventMouse and not _event_inside_game_viewport(event as InputEventMouse):
-		if event is InputEventMouseMotion:
-			_has_last_hover_tile = false
-			_refresh_range_previews()
-			_reset_context_cursor()
-		return
-	if event is InputEventMouseMotion:
-		var motion: InputEventMouseMotion = event as InputEventMouseMotion
-		if _is_panning_camera:
-			_renderer.pan_camera_by_screen_delta(motion.relative)
-			return
-		if _selection_drag.active() and motion.button_mask & MOUSE_BUTTON_MASK_LEFT != 0:
-			var drag_world: Vector2 = _event_world_position(motion)
-			if _selection_drag.update(motion.position, drag_world):
-				_renderer.set_selection_box_world_rect(_selection_drag.selection_world_rect())
-				return
-		var hover_tile: Vector2i = _renderer.world_to_tile(_event_world_position(motion))
-		_set_hover_tile(hover_tile)
-	elif event is InputEventMouseButton:
-		var button: InputEventMouseButton = event as InputEventMouseButton
-		if button.button_index == MOUSE_BUTTON_WHEEL_UP and button.pressed:
-			_renderer.zoom_camera(CAMERA_ZOOM_STEP)
-			return
-		if button.button_index == MOUSE_BUTTON_WHEEL_DOWN and button.pressed:
-			_renderer.zoom_camera(1.0 / CAMERA_ZOOM_STEP)
-			return
-		if button.button_index == MOUSE_BUTTON_MIDDLE:
-			_is_panning_camera = button.pressed
-			return
-		if _replay_mode_active:
-			return
-		if button.button_index == MOUSE_BUTTON_LEFT and not button.pressed:
-			if _selection_drag.active():
-				var release: Dictionary = _selection_drag.release(
-					button.position, _event_world_position(button)
-				)
-				_renderer.clear_selection_box()
-				if release.get("dragging", false):
-					_apply_box_selection(
-						release.get("world_rect", Rect2()), release.get("additive", false)
-					)
-				else:
-					var release_tile: Vector2i = _renderer.world_to_tile(
-						_event_world_position(button)
-					)
-					_apply_click_selection(release_tile, release.get("additive", false))
-				return
-			_reset_selection_drag()
-		if not button.pressed:
-			return
-		var tile: Vector2i = _renderer.world_to_tile(_event_world_position(button))
-		_record_hover_tile(tile)
-		if _range_projection_active:
-			_refresh_range_previews()
-		if button.button_index == MOUSE_BUTTON_LEFT:
-			if _pending_command != PENDING_NONE:
-				confirm_pending_at_tile(tile, button.shift_pressed)
-				return
-			_selection_drag.begin(
-				button.position, _event_world_position(button), button.shift_pressed
-			)
-		elif button.button_index == MOUSE_BUTTON_RIGHT:
-			if _pending_command != PENDING_NONE:
-				cancel_pending_command()
-				return
-			issue_context_at_tile(tile, button.shift_pressed)
-
-
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_MOUSE_EXIT:
 		_has_last_hover_tile = false
 		_refresh_range_previews()
-		_reset_context_cursor()
-
-
-func _ensure_game_viewport() -> void:
-	if _game_viewport_container != null and _game_viewport != null:
-		_sync_game_viewport_rect()
-		return
-	_game_viewport_container = SubViewportContainer.new()
-	_game_viewport_container.name = "GameViewportContainer"
-	_game_viewport_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_game_viewport_container.stretch = false
-	_game_viewport_container.anchor_left = 0.0
-	_game_viewport_container.anchor_right = 0.0
-	_game_viewport_container.anchor_top = 0.0
-	_game_viewport_container.anchor_bottom = 0.0
-	_game_viewport_container.offset_left = GAME_VIEWPORT_MARGIN_LEFT
-	_game_viewport_container.offset_top = _top_hud_height()
-	_game_viewport_container.offset_right = -GAME_VIEWPORT_MARGIN_RIGHT
-	_game_viewport_container.offset_bottom = -_bottom_hud_height()
-	add_child(_game_viewport_container)
-
-	_game_viewport = SubViewport.new()
-	_game_viewport.name = "GameViewport"
-	_game_viewport.disable_3d = true
-	_game_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	_game_viewport_container.add_child(_game_viewport)
-	_sync_game_viewport_rect()
-
-
-func _sync_game_viewport_rect() -> void:
-	if _game_viewport_container == null:
-		return
-	var top_hud_height: float = _top_hud_height()
-	var bottom_hud_height: float = _bottom_hud_height()
-	_game_viewport_container.offset_left = GAME_VIEWPORT_MARGIN_LEFT
-	_game_viewport_container.offset_top = top_hud_height
-	_game_viewport_container.offset_right = -GAME_VIEWPORT_MARGIN_RIGHT
-	_game_viewport_container.offset_bottom = -bottom_hud_height
-	if _game_viewport == null:
-		return
-	var viewport_size: Vector2 = _root_viewport_size()
-	var game_width: float = maxf(
-		viewport_size.x - GAME_VIEWPORT_MARGIN_LEFT - GAME_VIEWPORT_MARGIN_RIGHT, 1.0
-	)
-	var game_height: float = maxf(viewport_size.y - top_hud_height - bottom_hud_height, 1.0)
-	_game_viewport_container.position = Vector2(GAME_VIEWPORT_MARGIN_LEFT, top_hud_height)
-	_game_viewport_container.size = Vector2(game_width, game_height)
-	_game_viewport.size = Vector2i(roundi(game_width), roundi(game_height))
-
-
-func _root_viewport_size() -> Vector2:
-	var viewport: Viewport = get_viewport()
-	if viewport != null:
-		var size: Vector2 = viewport.get_visible_rect().size
-		if size.x > 0.0 and size.y > 0.0:
-			return size
-	return Vector2(
-		float(ProjectSettings.get_setting("display/window/size/viewport_width", 1920.0)),
-		float(ProjectSettings.get_setting("display/window/size/viewport_height", 1080.0))
-	)
-
-
-func _top_hud_height() -> float:
-	var top_bar: Control = null
-	if _cockpit != null:
-		top_bar = _cockpit.get_node_or_null("TopBar") as Control
-	if top_bar == null:
-		return FALLBACK_TOP_HUD_HEIGHT
-	return maxf(top_bar.offset_bottom - top_bar.offset_top, 1.0)
-
-
-func _bottom_hud_height() -> float:
-	var bottom_deck: Control = null
-	if _cockpit != null:
-		bottom_deck = _cockpit.get_node_or_null("BottomDeck") as Control
-	if bottom_deck == null:
-		return FALLBACK_BOTTOM_HUD_HEIGHT
-	return maxf(bottom_deck.offset_bottom - bottom_deck.offset_top, 1.0)
+		Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 
 
 func _ensure_renderer() -> void:
 	if _renderer != null:
 		return
-	_ensure_game_viewport()
+	_controller.ensure_game_viewport()
 	var packed: PackedScene = load(MATCH_SCENE_PATH) as PackedScene
 	if packed == null:
 		push_error("DevPlayMode: failed to load %s" % MATCH_SCENE_PATH)
@@ -1050,7 +551,7 @@ func _ensure_renderer() -> void:
 	if _renderer == null:
 		push_error("DevPlayMode: match scene root is not a MatchRenderer.")
 		return
-	_game_viewport.add_child(_renderer)
+	_controller.game_viewport().add_child(_renderer)
 	_set_renderer_debug_info_visible()
 
 
@@ -1115,11 +616,11 @@ func _bind_session(session: SavedSession, replay_mode: bool, status_message: Str
 	_input.restore_snapshot(session.input_snapshot, _loaded.state, _loaded.registry)
 	if _renderer != null:
 		_renderer.set_perspective_player_id(_input.active_player_id())
-		_sync_selection_highlights()
-	_clear_pending_command()
+		_controller.sync_selection_highlights()
+	_controller.clear_pending_command()
 	_replay_mode_active = replay_mode
 	_replay_cursor_turn = _loaded.state.turn_index
-	_reset_context_cursor()
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 	_update_hud(status_message)
 	return true
 
@@ -1254,113 +755,6 @@ func _latest_checkpoint_turn() -> int:
 	for checkpoint_turn in _checkpoints.keys():
 		latest = maxi(latest, int(checkpoint_turn))
 	return latest
-
-
-func _event_world_position(event: InputEventMouse) -> Vector2:
-	if _renderer == null:
-		return event.position
-	if _renderer.get_viewport() == null:
-		return event.position
-	if DisplayServer.get_name() == "headless":
-		return event.position
-	var game_position: Vector2 = _screen_to_game_viewport_position(event.position)
-	if _renderer.has_method("screen_to_world"):
-		return _renderer.call("screen_to_world", game_position)
-	return _renderer.get_global_mouse_position()
-
-
-func _event_inside_game_viewport(event: InputEventMouse) -> bool:
-	if DisplayServer.get_name() == "headless":
-		return true
-	return _game_viewport_screen_rect().has_point(event.position)
-
-
-func _screen_to_game_viewport_position(screen_position: Vector2) -> Vector2:
-	return screen_position - _game_viewport_screen_rect().position
-
-
-func _game_viewport_screen_rect() -> Rect2:
-	var viewport_size: Vector2 = _root_viewport_size()
-	var top_hud_height: float = _top_hud_height()
-	var bottom_hud_height: float = _bottom_hud_height()
-	var position := Vector2(GAME_VIEWPORT_MARGIN_LEFT, top_hud_height)
-	var size := Vector2(
-		maxf(viewport_size.x - GAME_VIEWPORT_MARGIN_LEFT - GAME_VIEWPORT_MARGIN_RIGHT, 1.0),
-		maxf(viewport_size.y - top_hud_height - bottom_hud_height, 1.0)
-	)
-	return Rect2(position, size)
-
-
-func _reset_selection_drag() -> void:
-	if _selection_drag != null:
-		_selection_drag.reset()
-	if _renderer != null:
-		_renderer.clear_selection_box()
-	_is_panning_camera = false
-
-
-func _apply_click_selection(tile: Vector2i, additive: bool) -> void:
-	var entity_id: int = _renderer.entity_id_at_tile(tile) if _renderer != null else -1
-	if additive:
-		if entity_id >= 0 and _input.toggle_entity_selection(entity_id):
-			_sync_selection_highlights()
-			_clear_build_placement_preview()
-		_update_hud()
-		return
-	if entity_id >= 0:
-		select_entity_id(entity_id)
-		return
-	_input.clear_selection()
-	if _renderer != null:
-		_renderer.clear_input_highlights()
-	_reset_context_cursor()
-	_update_hud("Selection cleared.")
-
-
-func _apply_box_selection(world_rect: Rect2, additive: bool) -> void:
-	if _renderer == null:
-		return
-	var ids: Array[int] = _renderer.owned_movable_entity_ids_in_world_rect(
-		world_rect, _input.active_player_id()
-	)
-	ids = _movable_selection_ids(ids)
-	var ok: bool = (
-		_input.add_entities_to_selection(ids) if additive else _input.select_entities(ids)
-	)
-	if ok or not additive:
-		_sync_selection_highlights()
-	_clear_build_placement_preview()
-	_update_hud()
-
-
-func _sync_selection_highlights() -> void:
-	if _renderer == null:
-		return
-	_renderer.set_selected_entity_ids(_input.selected_entity_ids())
-
-
-func _movable_selection_ids(entity_ids: Array[int]) -> Array[int]:
-	var out: Array[int] = []
-	for entity_id in entity_ids:
-		if out.has(entity_id):
-			continue
-		if _input.can_select_movable_entity(entity_id):
-			out.append(entity_id)
-	return out
-
-
-func _set_hover_tile(tile: Vector2i) -> void:
-	if _renderer == null:
-		return
-	_record_hover_tile(tile)
-	_renderer.set_hover_tile(tile)
-	if _pending_command == PENDING_BUILD:
-		_refresh_build_placement_preview(tile)
-		_reset_context_cursor()
-	else:
-		_clear_build_placement_preview()
-		_update_context_cursor_for_tile(tile)
-	_refresh_range_previews()
 
 
 func _record_hover_tile(tile: Vector2i) -> void:
@@ -1778,7 +1172,7 @@ func _clear_queues_from_hud() -> void:
 		_reject_replay_edit()
 		return
 	_input.clear_submissions()
-	_clear_pending_command()
+	_controller.clear_pending_command()
 	_update_hud()
 
 
@@ -1793,8 +1187,8 @@ func _surrender_from_hud() -> void:
 func _update_hud(override_status: String = "") -> void:
 	_sync_mode_ui()
 	var status_text: String = _hud_status_text(override_status)
-	var idle_worker_ids: Array[int] = _active_idle_worker_ids()
-	_refresh_idle_worker_indicators(idle_worker_ids)
+	var idle_worker_ids: Array[int] = _controller.active_idle_worker_ids()
+	_controller.refresh_idle_worker_indicators(idle_worker_ids)
 	if _cockpit != null:
 		var player: PlayerState = (
 			_loaded.state.get_player(_input.active_player_id())
@@ -1838,86 +1232,24 @@ func _update_hud(override_status: String = "") -> void:
 	_refresh_range_previews()
 
 
-func _active_idle_worker_ids() -> Array[int]:
-	var out: Array[int] = []
-	if _loaded == null or _loaded.state == null or _loaded.registry == null:
-		return out
-	var candidates: Array[Entity] = []
-	var candidate_ids: Array[int] = []
-	for entity: Entity in _loaded.state.entities_sorted_by_id():
-		if _is_active_idle_worker_candidate(entity):
-			candidates.append(entity)
-			candidate_ids.append(entity.id)
-	_input.prune_move_assists_for_entities(candidate_ids)
-	for entity: Entity in candidates:
-		if not _input.has_move_assist_for_entity(entity.id):
-			out.append(entity.id)
-	return out
-
-
-func _is_active_idle_worker_candidate(entity: Entity) -> bool:
-	if (
-		entity == null
-		or entity.current_hp <= 0
-		or entity.owner_player_id != _input.active_player_id()
-	):
-		return false
-	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
-	var def: EntityDef = _loaded.registry.get_by_id(def_id)
-	if def == null or def.gather == null or entity.gather_state == null:
-		return false
-	if entity.gather_state.phase != GatherState.Phase.IDLE:
-		return false
-	if _has_current_submitted_order_for_entity(entity.id):
-		return false
-	if _input.future_order_count_for_entity(entity.id) > 0:
-		return false
-	if (
-		ConstructionSystem.has_pending_build(entity)
-		or entity.locked_to_building_id >= 0
-		or entity.is_constructing
-	):
-		return false
-	if entity.ability_cast != null:
-		return false
-	return true
-
-
-func _has_current_submitted_order_for_entity(entity_id: int) -> bool:
-	var submit: SubmitTurn = _input.submit_for_player(_input.active_player_id())
-	for order: EntityOrder in submit.orders:
-		if order != null and order.entity_id == entity_id:
-			return true
-	return false
-
-
-func _refresh_idle_worker_indicators(idle_worker_ids: Array[int]) -> void:
-	if _renderer == null or not _renderer.has_method("set_idle_worker_indicators"):
-		return
-	var indicators: Array[Variant] = []
-	for entity_id: int in idle_worker_ids:
-		indicators.append({"entity_id": entity_id})
-	_renderer.call("set_idle_worker_indicators", indicators)
-
-
 func _hud_status_text(override_status: String = "") -> String:
 	var status_message: String = _input.status_message()
 	if override_status != "":
 		return override_status
 	if (
-		_pending_command != PENDING_NONE
+		_controller.pending_command_kind() != PENDING_NONE
 		and status_message != ""
 		and not status_message.begins_with("Queued")
 		and not status_message.begins_with("Selected")
 	):
 		return status_message
-	if _pending_command == PENDING_MOVE:
+	if _controller.pending_command_kind() == PENDING_MOVE:
 		return "Pending Move: click target tile."
-	if _pending_command == PENDING_TARGET:
+	if _controller.pending_command_kind() == PENDING_TARGET:
 		return "Pending Attack: click an enemy or destination tile."
-	if _pending_command == PENDING_BUILD:
-		return "Pending BUILD %s: click placement tile." % _pending_build_def_id
-	if _pending_command == PENDING_GATHER:
+	if _controller.pending_command_kind() == PENDING_BUILD:
+		return "Pending BUILD %s: click placement tile." % _controller.pending_build_def_id()
+	if _controller.pending_command_kind() == PENDING_GATHER:
 		return "Pending GATHER: click a mineral patch or refinery."
 	if status_message.begins_with("Selected"):
 		return ""
@@ -1938,7 +1270,7 @@ func _selection_details_text() -> String:
 				_planned_order_count_for_selection(selected_ids),
 			]
 		)
-	var actor: Entity = _selected_entity()
+	var actor: Entity = _controller.selected_entity()
 	if actor == null:
 		return ""
 	var parts: Array[String] = []
@@ -1974,7 +1306,7 @@ func _selection_intent_text() -> String:
 	if selected_ids.size() > 1:
 		var planned: int = _planned_order_count_for_selection(selected_ids)
 		return "Intent: %d planned orders" % planned if planned > 0 else "Intent: mixed idle"
-	var actor: Entity = _selected_entity()
+	var actor: Entity = _controller.selected_entity()
 	if actor == null:
 		return "Intent: none"
 	var order: EntityOrder = _latest_planned_order_for_entity(actor.id)
@@ -2050,142 +1382,8 @@ func _order_label(order: EntityOrder) -> String:
 			return "unknown"
 
 
-func _context_result(
-	action: String, cursor_shape: int, message: String, extra: Dictionary = {}
-) -> Dictionary:
-	var out: Dictionary = {"action": action, "cursor_shape": cursor_shape, "message": message}
-	for key in extra:
-		out[key] = extra[key]
-	return out
-
-
-func _update_context_cursor_for_tile(tile: Vector2i) -> void:
-	if _pending_command != PENDING_NONE:
-		_set_pending_cursor()
-		return
-	var shape: int = context_cursor_shape_at_tile(tile)
-	Input.set_default_cursor_shape(shape)
-
-
-func _set_pending_cursor() -> void:
-	Input.set_default_cursor_shape(_pending_cursor_shape())
-
-
-func _pending_cursor_shape() -> int:
-	if _pending_command == PENDING_TARGET:
-		return Input.CURSOR_CROSS
-	return Input.CURSOR_ARROW
-
-
-func _reset_context_cursor() -> void:
-	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
-
-
-func _selected_entity() -> Entity:
-	if _loaded == null or _loaded.state == null:
-		return null
-	var entity_id: int = _input.selected_entity_id()
-	if entity_id < 0:
-		return null
-	return _loaded.state.get_entity_by_id(entity_id)
-
-
-func _entity_id_at_tile(tile: Vector2i) -> int:
-	if _loaded == null or _loaded.state == null or _loaded.state.tile_grid == null:
-		return -1
-	if not _loaded.state.tile_grid.is_in_bounds(tile):
-		return -1
-	if _renderer != null:
-		return _renderer.entity_id_at_tile(tile)
-	return _loaded.state.tile_grid.entity_at(tile)
-
-
-func _is_enemy_target(entity: Entity) -> bool:
-	return (
-		entity != null
-		and entity.current_hp > 0
-		and entity.owner_player_id >= 0
-		and entity.owner_player_id != _input.active_player_id()
-	)
-
-
-func _selected_can_gather_from(target_entity_id: int) -> bool:
-	if not _input.can_issue_gather():
-		return false
-	return _selected_can_gather_target_valid(target_entity_id)
-
-
-func _selected_can_rally_gather_to(target_entity_id: int) -> bool:
-	return _input.can_issue_rally_gather_to(target_entity_id)
-
-
-func _selected_can_gather_target_valid(target_entity_id: int) -> bool:
-	var target: Entity = _loaded.state.get_entity_by_id(target_entity_id)
-	if not _is_resource_context_target(target):
-		return false
-	for entity_id in _input.selected_entity_ids():
-		var actor: Entity = _loaded.state.get_entity_by_id(entity_id)
-		if actor == null:
-			continue
-		if (
-			GatherSystem.resolve_source_for_worker(
-				_loaded.state, _loaded.registry, target_entity_id, actor.owner_player_id
-			)
-			!= null
-		):
-			return true
-	return false
-
-
-func _is_resource_context_target(entity: Entity) -> bool:
-	if entity == null or _loaded == null or _loaded.registry == null:
-		return false
-	var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
-	var def: EntityDef = _loaded.registry.get_by_id(def_id)
-	if def == null:
-		return false
-	return def.resource_source != null or def.tags.has("refinery") or def.tags.has("extractor")
-
-
 func _is_gather_target(entity: Entity) -> bool:
-	return _is_resource_context_target(entity)
-
-
-func _clear_pending_command() -> void:
-	_pending_command = PENDING_NONE
-	_pending_build_def_id = ""
-	_clear_build_placement_preview()
-	_reset_context_cursor()
-
-
-func begin_gather() -> void:
-	if _replay_mode_active:
-		_reject_replay_edit()
-		return
-	if not _input.can_issue_gather():
-		_update_hud("Select a worker before GATHER.")
-		return
-	_clear_build_placement_preview()
-	_pending_command = PENDING_GATHER
-	_pending_build_def_id = ""
-	_reset_context_cursor()
-	_update_hud("Click a mineral patch or refinery to GATHER.")
-
-
-func _refresh_build_placement_preview(tile: Vector2i) -> void:
-	if _renderer == null or not _renderer.has_method("set_build_placement_preview"):
-		return
-	if _pending_command != PENDING_BUILD or _pending_build_def_id == "":
-		_clear_build_placement_preview()
-		return
-	var preview: Dictionary = _input.build_placement_preview(_pending_build_def_id, tile)
-	_renderer.call("set_build_placement_preview", preview)
-
-
-func _clear_build_placement_preview() -> void:
-	if _renderer == null or not _renderer.has_method("clear_build_placement_preview"):
-		return
-	_renderer.call("clear_build_placement_preview")
+	return _controller._is_resource_context_target(entity)
 
 
 func _refresh_command_card() -> void:
@@ -2224,37 +1422,6 @@ func _refresh_command_card() -> void:
 		_input.can_issue_build_cancel(),
 		true
 	)
-
-
-func _refresh_action_previews() -> void:
-	if _renderer == null:
-		return
-	var state: MatchState = _loaded.state if _loaded != null else null
-	var registry: EntityRegistry = _loaded.registry if _loaded != null else null
-	if _renderer.has_method("set_action_previews"):
-		var previews: Array[Dictionary] = _action_preview_builder.build(
-			state,
-			registry,
-			_input,
-			_input.active_player_id(),
-			_input.selected_entity_id(),
-			_show_all_friendly_action_previews,
-			_renderer,
-			_input.selected_entity_ids()
-		)
-		_renderer.call("set_action_previews", previews)
-	if _renderer.has_method("set_target_intent_previews"):
-		var target_intents: Array[Dictionary] = _action_preview_builder.build_target_intents(
-			state,
-			registry,
-			_input,
-			_input.active_player_id(),
-			_input.selected_entity_id(),
-			_show_all_friendly_action_previews,
-			_renderer,
-			_input.selected_entity_ids()
-		)
-		_renderer.call("set_target_intent_previews", target_intents)
 
 
 func _set_range_projection_active(enabled: bool) -> void:
@@ -2302,3 +1469,201 @@ func _build_options(ids: Array[String]) -> Array[Dictionary]:
 			)
 		)
 	return out
+
+
+# ---------- MatchSessionController delegation ----------
+# Public/test-visible API stays on the mode; the shared core lives in
+# MatchSessionController (plan/m1/00). The session_* methods below are the
+# duck-typed delegate contract the controller calls back into.
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	_controller.handle_unhandled_input(event)
+
+
+func select_entity_id(entity_id: int) -> bool:
+	return _controller.select_entity_id(entity_id)
+
+
+func issue_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
+	return _controller.issue_move_selected(tile, queue_requested)
+
+
+func issue_attack_move_selected(tile: Vector2i, queue_requested: bool = false) -> bool:
+	return _controller.issue_attack_move_selected(tile, queue_requested)
+
+
+func issue_attack_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
+	return _controller.issue_attack_selected(target_entity_id, queue_requested)
+
+
+func issue_gather_selected(target_entity_id: int, queue_requested: bool = false) -> bool:
+	return _controller.issue_gather_selected(target_entity_id, queue_requested)
+
+
+func issue_rally_move_selected(tile: Vector2i) -> bool:
+	return _controller.issue_rally_move_selected(tile)
+
+
+func issue_rally_gather_selected(target_entity_id: int) -> bool:
+	return _controller.issue_rally_gather_selected(target_entity_id)
+
+
+func issue_build_selected(def_id: String, tile: Vector2i, queue_requested: bool = false) -> bool:
+	return _controller.issue_build_selected(def_id, tile, queue_requested)
+
+
+func issue_cancel_selected(cancel_index: int = -1) -> bool:
+	return _controller.issue_cancel_selected(cancel_index)
+
+
+func issue_train_selected(def_id: String) -> bool:
+	return _controller.issue_train_selected(def_id)
+
+
+func issue_research_selected(def_id: String) -> bool:
+	return _controller.issue_research_selected(def_id)
+
+
+func issue_ability_selected(ability_id: String) -> bool:
+	return _controller.issue_ability_selected(ability_id)
+
+
+func issue_repeat_train_selected(enabled: bool) -> bool:
+	return _controller.issue_repeat_train_selected(enabled)
+
+
+func issue_context_at_tile(tile: Vector2i, queue_requested: bool = false) -> bool:
+	return _controller.issue_context_at_tile(tile, queue_requested)
+
+
+func context_action_at_tile(tile: Vector2i) -> Dictionary:
+	return _controller.context_action_at_tile(tile)
+
+
+func context_cursor_shape_at_tile(tile: Vector2i) -> int:
+	return _controller.context_cursor_shape_at_tile(tile)
+
+
+func begin_move() -> void:
+	_controller.begin_move()
+
+
+func begin_target() -> void:
+	_controller.begin_target()
+
+
+func begin_build(def_id: String) -> void:
+	_controller.begin_build(def_id)
+
+
+func begin_gather() -> void:
+	_controller.begin_gather()
+
+
+func confirm_pending_at_tile(tile: Vector2i, queue_requested: bool = false) -> bool:
+	return _controller.confirm_pending_at_tile(tile, queue_requested)
+
+
+func cancel_pending_command() -> void:
+	_controller.cancel_pending_command()
+
+
+func pending_command_kind() -> String:
+	return _controller.pending_command_kind()
+
+
+func pending_cursor_shape() -> int:
+	return _controller.pending_cursor_shape()
+
+
+func _set_hover_tile(tile: Vector2i) -> void:
+	_controller.set_hover_tile(tile)
+
+
+func _game_viewport_screen_rect() -> Rect2:
+	return _controller.game_viewport_screen_rect()
+
+
+func _screen_to_game_viewport_position(screen_position: Vector2) -> Vector2:
+	return _controller.screen_to_game_viewport_position(screen_position)
+
+
+func _refresh_action_previews() -> void:
+	_controller.refresh_action_previews()
+
+
+# ---------- session_* delegate contract ----------
+
+
+func session_state() -> MatchState:
+	return _loaded.state if _loaded != null else null
+
+
+func session_registry() -> EntityRegistry:
+	return _loaded.registry if _loaded != null else null
+
+
+func session_renderer() -> MatchRenderer:
+	return _renderer
+
+
+func session_local_player_id() -> int:
+	return _input.active_player_id()
+
+
+func session_cockpit() -> Control:
+	return _cockpit
+
+
+func session_input_enabled() -> bool:
+	return _renderer != null and _loaded != null
+
+
+func session_is_blocking_overlay_visible() -> bool:
+	return _escape_menu_panel != null and _escape_menu_panel.visible
+
+
+func session_reject_edit() -> bool:
+	if not _replay_mode_active:
+		return false
+	_reject_replay_edit()
+	return true
+
+
+func session_reject_context_query() -> bool:
+	return _replay_mode_active
+
+
+func session_show_status(message: String) -> void:
+	_update_hud(message)
+
+
+func session_update_hud() -> void:
+	_update_hud()
+
+
+func session_on_escape() -> void:
+	_toggle_escape_menu()
+
+
+func session_handle_mode_key_input(key_event: InputEventKey) -> bool:
+	if key_event.keycode == KEY_ALT and not key_event.echo:
+		_set_range_projection_active(key_event.pressed)
+		return true
+	return false
+
+
+func session_on_hover_tile(tile: Vector2i) -> void:
+	_record_hover_tile(tile)
+	_refresh_range_previews()
+
+
+func session_on_pointer_exited_viewport() -> void:
+	_has_last_hover_tile = false
+	_refresh_range_previews()
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+
+
+func session_on_order_issued(_kind: String, _context: Dictionary, _ok: bool) -> void:
+	pass

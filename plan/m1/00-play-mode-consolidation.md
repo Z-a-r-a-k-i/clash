@@ -1,5 +1,5 @@
 ---
-status: sketch
+status: done
 ---
 
 # Play-mode consolidation (solo/multi DRY)
@@ -51,9 +51,24 @@ being baked into the mode.
 
 ## Done when
 
-- [ ] Shared controller exists; both modes are adapters under ~400 lines each.
-- [ ] No copy-pasted logic blocks remain between the two modes (spot-audit).
-- [ ] All existing play-mode and network tests pass unchanged (or with
+- [x] Shared controller exists; both modes are adapters under ~400 lines each.
+- [x] No copy-pasted logic blocks remain between the two modes (spot-audit).
+- [x] All existing play-mode and network tests pass unchanged (or with
       documented intentional fixes).
-- [ ] A third submission source (AI stub returning empty submits) can be
+- [x] A third submission source (AI stub returning empty submits) can be
       plugged in without touching the controller.
+
+## Artifacts
+
+- `client/scripts/game/match_session_controller.gd` — the shared core (the
+  65 previously-duplicated functions) behind a duck-typed `session_*`
+  delegate contract; both modes are now delegators plus their unique halves.
+- Intentional unifications of pre-split drift: box selection filters
+  through `can_select_movable_entity` + dedupes (was dev-only); selection
+  changes refresh action previews (was network-only); `select_entity_id`
+  resets the context cursor on failure (dev) AND refreshes previews (net);
+  viewport math uses the local-rect-aware versions (was network-only);
+  clicking during dev replay now shows the read-only message instead of
+  silently ignoring input.
+- Third-submission-source seam proven by the stub-delegate test in
+  `test_dev_play_mode.gd` (`session_controller_runs_with_stub_delegate`).

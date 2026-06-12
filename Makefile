@@ -54,6 +54,7 @@ ifeq ($(OS),Windows_NT)
 	@if (-not (Get-Command '$(GODOT)' -ErrorAction SilentlyContinue)) { Write-Error "Godot executable not found. Run: make test GODOT='C:\path\to\Godot_v4.6.1-stable_mono_win64_console.exe'"; exit 1 }
 	@$(GODOT_HEADLESS) --import
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_tile_grid_headless.gd
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_arena_map_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_resolver_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_resolver_stress_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_vision_system_headless.gd
@@ -69,6 +70,7 @@ else
 	@if ! command -v '$(GODOT)' >/dev/null 2>&1; then echo "Godot executable not found. Run: make test GODOT=/path/to/godot"; exit 1; fi
 	@'$(GODOT)' --headless --path client --import
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_tile_grid_headless.gd
+	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_arena_map_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_resolver_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_resolver_stress_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_vision_system_headless.gd

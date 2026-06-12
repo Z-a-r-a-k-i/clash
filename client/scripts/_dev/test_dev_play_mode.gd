@@ -34,9 +34,117 @@ func _run_all() -> int:
 	return failed
 
 
+# Minimal session delegate: proves a third submission source (e.g. the M1
+# AI mode) can drive MatchSessionController without dev/network machinery.
+class StubSessionHost:
+	extends Node
+
+	var state: MatchState = null
+	var registry: EntityRegistry = null
+	var statuses: Array[String] = []
+	var hud_updates: int = 0
+
+	func session_state() -> MatchState:
+		return state
+
+	func session_registry() -> EntityRegistry:
+		return registry
+
+	func session_renderer() -> MatchRenderer:
+		return null
+
+	func session_local_player_id() -> int:
+		return 0
+
+	func session_cockpit() -> Control:
+		return null
+
+	func session_input_enabled() -> bool:
+		return state != null
+
+	func session_is_blocking_overlay_visible() -> bool:
+		return false
+
+	func session_reject_edit() -> bool:
+		return false
+
+	func session_reject_context_query() -> bool:
+		return false
+
+	func session_show_status(message: String) -> void:
+		statuses.append(message)
+
+	func session_update_hud() -> void:
+		hud_updates += 1
+
+	func session_on_escape() -> void:
+		pass
+
+	func session_handle_mode_key_input(_event: InputEventKey) -> bool:
+		return false
+
+	func session_on_hover_tile(_tile: Vector2i) -> void:
+		pass
+
+	func session_on_pointer_exited_viewport() -> void:
+		pass
+
+	func session_on_order_issued(_kind: String, _context: Dictionary, _ok: bool) -> void:
+		pass
+
+
+func _test_session_controller_runs_with_stub_delegate() -> bool:
+	var scenario: ScenarioDef = load(COMBAT_SCENARIO_PATH) as ScenarioDef
+	var registry: EntityRegistry = load("res://data/entity_registry.tres") as EntityRegistry
+	var tunables: Tunables = load("res://data/tunables.tres") as Tunables
+	if scenario == null or registry == null or tunables == null:
+		push_error("stub delegate test requires canonical data fixtures")
+		return false
+	var loaded: LoadedScenario = ScenarioLoader.load(scenario, registry, tunables)
+	if loaded == null:
+		return false
+	var host: StubSessionHost = StubSessionHost.new()
+	add_child(host)
+	host.state = loaded.state
+	host.registry = loaded.registry
+	var input: DevTurnInput = DevTurnInput.new()
+	input.set_active_player_id(0)
+	input.bind_context(loaded.state, loaded.registry)
+	var controller: MatchSessionController = MatchSessionController.new()
+	controller.setup(host, input, 4.0)
+	var ok: bool = true
+	var unit_id: int = -1
+	for entity: Entity in loaded.state.entities_sorted_by_id():
+		var def: EntityDef = loaded.registry.get_by_id(entity.current_def_id)
+		if entity.owner_player_id == 0 and def != null and def.movement != null:
+			unit_id = entity.id
+			break
+	if unit_id < 0 or not controller.select_entity_id(unit_id):
+		push_error("stub delegate should select a movable unit")
+		ok = false
+	elif not controller.issue_move_selected(Vector2i(3, 3)):
+		push_error("stub delegate should issue a MOVE through the controller")
+		ok = false
+	else:
+		var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+		if orders.size() != 1 or orders[0].type != EntityOrder.Type.MOVE:
+			push_error("stub delegate should produce one MOVE order")
+			ok = false
+		if host.hud_updates < 2:
+			push_error("controller should call the delegate HUD hook")
+			ok = false
+	remove_child(host)
+	host.queue_free()
+	return ok
+
+
 func _all_tests() -> Array:
 	return [
 		["dev_play_mode_loads_scenario_and_binds_renderer", _test_loads_scenario],
+		[
+			"session_controller_runs_with_stub_delegate",
+			_test_session_controller_runs_with_stub_delegate
+		],
 		["dev_play_mode_uses_authored_cockpit_shell", _test_uses_authored_cockpit_shell],
 		["dev_play_mode_queues_and_resolves_turn", _test_queues_and_resolves_turn],
 		["dev_play_mode_routes_context_actions", _test_routes_context_actions],

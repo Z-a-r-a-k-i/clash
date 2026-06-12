@@ -8,7 +8,7 @@ const WEBSOCKET_MAX_QUEUED_PACKETS: int = 128
 
 @export var bind_address: String = "127.0.0.1"
 @export var port: int = 9087
-@export_file("*.tres") var scenario_path: String = "res://data/scenarios/mvp_map.tres"
+@export_file("*.tres") var scenario_path: String = "res://data/scenarios/arena_1v1.tres"
 @export_dir var replay_dir: String = "user://tmp/network_replays"
 
 var _tcp_server: TCPServer = TCPServer.new()

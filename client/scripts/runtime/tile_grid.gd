@@ -341,6 +341,17 @@ func set_tile_terrain_tags(tile: Vector2i, tags: Array[String]) -> void:
 		_terrain_tags[tile] = tags
 
 
+func terrain_tiles() -> Array[Vector2i]:
+	# All tiles carrying at least one terrain tag, in deterministic order.
+	# Used by the renderer's terrain paint; per-tile tags come from
+	# tile_terrain_tags().
+	var out: Array[Vector2i] = []
+	for tile in _terrain_tags.keys():
+		out.append(tile)
+	out.sort()
+	return out
+
+
 # ---------- Distance and adjacency ----------
 
 

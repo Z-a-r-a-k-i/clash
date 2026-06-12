@@ -2,7 +2,7 @@ class_name NetworkMatchHub
 extends RefCounted
 
 const MESSAGE := preload("res://scripts/network/network_message.gd")
-const DEFAULT_SCENARIO_PATH := "res://data/scenarios/mvp_map.tres"
+const DEFAULT_SCENARIO_PATH := "res://data/scenarios/arena_1v1.tres"
 const DEFAULT_REGISTRY_PATH := "res://data/entity_registry.tres"
 const DEFAULT_TUNABLES_PATH := "res://data/tunables.tres"
 const DEFAULT_REPLAY_DIR := "user://tmp/network_replays"

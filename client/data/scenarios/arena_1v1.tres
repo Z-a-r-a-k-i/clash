@@ -1,0 +1,460 @@
+[gd_resource type="Resource" script_class="ScenarioDef" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/scenario_placement.gd" id="1_u4r6n"]
+[ext_resource type="Script" path="res://scripts/data/scenario_def.gd" id="2_yf1h2"]
+[ext_resource type="Script" path="res://scripts/data/scenario_stat_override.gd" id="3_0tcba"]
+[ext_resource type="Script" path="res://scripts/data/scenario_terrain_patch.gd" id="4_y1b5t"]
+
+[sub_resource type="Resource" id="Resource_f76s7"]
+script = ExtResource("1_u4r6n")
+def_id = "gas_geyser"
+owner_player_id = -1
+origin = Vector2i(2, 2)
+
+[sub_resource type="Resource" id="Resource_0fbd6"]
+script = ExtResource("1_u4r6n")
+def_id = "gas_geyser"
+owner_player_id = -1
+origin = Vector2i(2, 21)
+
+[sub_resource type="Resource" id="Resource_pepc2"]
+script = ExtResource("1_u4r6n")
+def_id = "gas_geyser"
+owner_player_id = -1
+origin = Vector2i(2, 39)
+
+[sub_resource type="Resource" id="Resource_gfa3n"]
+script = ExtResource("1_u4r6n")
+def_id = "gas_geyser"
+owner_player_id = -1
+origin = Vector2i(68, 2)
+
+[sub_resource type="Resource" id="Resource_16bwb"]
+script = ExtResource("1_u4r6n")
+def_id = "gas_geyser"
+owner_player_id = -1
+origin = Vector2i(68, 21)
+
+[sub_resource type="Resource" id="Resource_c28om"]
+script = ExtResource("1_u4r6n")
+def_id = "gas_geyser"
+owner_player_id = -1
+origin = Vector2i(68, 39)
+
+[sub_resource type="Resource" id="Resource_6fkn6"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(4, 6)
+
+[sub_resource type="Resource" id="Resource_7oafe"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(4, 7)
+
+[sub_resource type="Resource" id="Resource_ww56k"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(4, 8)
+
+[sub_resource type="Resource" id="Resource_44gr4"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(4, 9)
+
+[sub_resource type="Resource" id="Resource_vb55u"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(5, 4)
+
+[sub_resource type="Resource" id="Resource_fh7pv"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(5, 19)
+
+[sub_resource type="Resource" id="Resource_2x8i2"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(5, 20)
+
+[sub_resource type="Resource" id="Resource_1qmku"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(5, 21)
+
+[sub_resource type="Resource" id="Resource_47ty2"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(5, 22)
+
+[sub_resource type="Resource" id="Resource_wap4q"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(5, 36)
+
+[sub_resource type="Resource" id="Resource_fp6ix"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(6, 4)
+
+[sub_resource type="Resource" id="Resource_iu0o3"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(6, 25)
+
+[sub_resource type="Resource" id="Resource_33d2y"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(6, 36)
+
+[sub_resource type="Resource" id="Resource_l0xci"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(7, 4)
+
+[sub_resource type="Resource" id="Resource_6lhdk"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(7, 25)
+
+[sub_resource type="Resource" id="Resource_djecj"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(7, 36)
+
+[sub_resource type="Resource" id="Resource_0r1eh"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(8, 4)
+
+[sub_resource type="Resource" id="Resource_s76n2"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(8, 25)
+
+[sub_resource type="Resource" id="Resource_d6wlr"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(8, 36)
+
+[sub_resource type="Resource" id="Resource_fixut"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(9, 25)
+
+[sub_resource type="Resource" id="Resource_v2tcf"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(9, 36)
+
+[sub_resource type="Resource" id="Resource_x166n"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(10, 36)
+
+[sub_resource type="Resource" id="Resource_kt82j"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(61, 36)
+
+[sub_resource type="Resource" id="Resource_ygawm"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(62, 25)
+
+[sub_resource type="Resource" id="Resource_2q6pp"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(62, 36)
+
+[sub_resource type="Resource" id="Resource_odj85"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(63, 4)
+
+[sub_resource type="Resource" id="Resource_4yl6n"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(63, 25)
+
+[sub_resource type="Resource" id="Resource_t0n30"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(63, 36)
+
+[sub_resource type="Resource" id="Resource_koifm"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(64, 4)
+
+[sub_resource type="Resource" id="Resource_le8q7"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(64, 25)
+
+[sub_resource type="Resource" id="Resource_t2f70"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(64, 36)
+
+[sub_resource type="Resource" id="Resource_gg1x1"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(65, 4)
+
+[sub_resource type="Resource" id="Resource_ylafx"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(65, 25)
+
+[sub_resource type="Resource" id="Resource_iucmb"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(65, 36)
+
+[sub_resource type="Resource" id="Resource_fui6j"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(66, 4)
+
+[sub_resource type="Resource" id="Resource_bvmxw"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(66, 19)
+
+[sub_resource type="Resource" id="Resource_2apki"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(66, 20)
+
+[sub_resource type="Resource" id="Resource_jct0p"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(66, 21)
+
+[sub_resource type="Resource" id="Resource_ep3hs"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(66, 22)
+
+[sub_resource type="Resource" id="Resource_ituvj"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(66, 36)
+
+[sub_resource type="Resource" id="Resource_lcxxb"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(67, 6)
+
+[sub_resource type="Resource" id="Resource_7vhp1"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(67, 7)
+
+[sub_resource type="Resource" id="Resource_8oo57"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(67, 8)
+
+[sub_resource type="Resource" id="Resource_ihxcg"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch"
+owner_player_id = -1
+origin = Vector2i(67, 9)
+
+[sub_resource type="Resource" id="Resource_42by5"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch_gold"
+owner_player_id = -1
+origin = Vector2i(34, 27)
+
+[sub_resource type="Resource" id="Resource_g67qv"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch_gold"
+owner_player_id = -1
+origin = Vector2i(34, 29)
+
+[sub_resource type="Resource" id="Resource_hftix"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch_gold"
+owner_player_id = -1
+origin = Vector2i(37, 27)
+
+[sub_resource type="Resource" id="Resource_vcuxo"]
+script = ExtResource("1_u4r6n")
+def_id = "mineral_patch_gold"
+owner_player_id = -1
+origin = Vector2i(37, 29)
+
+[sub_resource type="Resource" id="Resource_i50pb"]
+script = ExtResource("1_u4r6n")
+def_id = "base"
+origin = Vector2i(6, 6)
+
+[sub_resource type="Resource" id="Resource_650s8"]
+script = ExtResource("1_u4r6n")
+def_id = "base"
+origin = Vector2i(6, 38)
+
+[sub_resource type="Resource" id="Resource_4oj6y"]
+script = ExtResource("1_u4r6n")
+def_id = "base"
+origin = Vector2i(8, 20)
+
+[sub_resource type="Resource" id="Resource_ullvp"]
+script = ExtResource("1_u4r6n")
+def_id = "worker"
+origin = Vector2i(6, 10)
+
+[sub_resource type="Resource" id="Resource_jt0gg"]
+script = ExtResource("1_u4r6n")
+def_id = "worker"
+origin = Vector2i(7, 10)
+
+[sub_resource type="Resource" id="Resource_6o18m"]
+script = ExtResource("1_u4r6n")
+def_id = "worker"
+origin = Vector2i(8, 10)
+
+[sub_resource type="Resource" id="Resource_ukg42"]
+script = ExtResource("1_u4r6n")
+def_id = "worker"
+origin = Vector2i(9, 10)
+
+[sub_resource type="Resource" id="Resource_otqvx"]
+script = ExtResource("1_u4r6n")
+def_id = "base"
+owner_player_id = 1
+origin = Vector2i(60, 20)
+
+[sub_resource type="Resource" id="Resource_skyo1"]
+script = ExtResource("1_u4r6n")
+def_id = "base"
+owner_player_id = 1
+origin = Vector2i(62, 6)
+
+[sub_resource type="Resource" id="Resource_04dno"]
+script = ExtResource("1_u4r6n")
+def_id = "base"
+owner_player_id = 1
+origin = Vector2i(62, 38)
+
+[sub_resource type="Resource" id="Resource_iolgw"]
+script = ExtResource("1_u4r6n")
+def_id = "worker"
+owner_player_id = 1
+origin = Vector2i(62, 10)
+
+[sub_resource type="Resource" id="Resource_pv13q"]
+script = ExtResource("1_u4r6n")
+def_id = "worker"
+owner_player_id = 1
+origin = Vector2i(63, 10)
+
+[sub_resource type="Resource" id="Resource_ax1ml"]
+script = ExtResource("1_u4r6n")
+def_id = "worker"
+owner_player_id = 1
+origin = Vector2i(64, 10)
+
+[sub_resource type="Resource" id="Resource_vc7ll"]
+script = ExtResource("1_u4r6n")
+def_id = "worker"
+owner_player_id = 1
+origin = Vector2i(65, 10)
+
+[sub_resource type="Resource" id="Resource_qyxpw"]
+script = ExtResource("4_y1b5t")
+rect = Rect2i(0, 14, 10, 2)
+tags = Array[String](["cliff"])
+
+[sub_resource type="Resource" id="Resource_etb7l"]
+script = ExtResource("4_y1b5t")
+rect = Rect2i(14, 0, 2, 16)
+tags = Array[String](["cliff"])
+
+[sub_resource type="Resource" id="Resource_ylyil"]
+script = ExtResource("4_y1b5t")
+rect = Rect2i(16, 16, 2, 8)
+tags = Array[String](["cliff"])
+
+[sub_resource type="Resource" id="Resource_6m6ge"]
+script = ExtResource("4_y1b5t")
+rect = Rect2i(32, 10, 8, 4)
+tags = Array[String](["cliff"])
+
+[sub_resource type="Resource" id="Resource_pd50q"]
+script = ExtResource("4_y1b5t")
+rect = Rect2i(54, 16, 2, 8)
+tags = Array[String](["cliff"])
+
+[sub_resource type="Resource" id="Resource_coytp"]
+script = ExtResource("4_y1b5t")
+rect = Rect2i(56, 0, 2, 16)
+tags = Array[String](["cliff"])
+
+[sub_resource type="Resource" id="Resource_l2gun"]
+script = ExtResource("4_y1b5t")
+rect = Rect2i(62, 14, 10, 2)
+tags = Array[String](["cliff"])
+
+[resource]
+script = ExtResource("2_yf1h2")
+map_width = 72
+map_height = 56
+starting_resources_per_player = {
+0: {
+"gas": 0,
+"minerals": 150
+},
+1: {
+"gas": 0,
+"minerals": 150
+}
+}
+auto_start_workers_on_minerals = true
+placements = Array[ExtResource("1_u4r6n")]([SubResource("Resource_f76s7"), SubResource("Resource_0fbd6"), SubResource("Resource_pepc2"), SubResource("Resource_gfa3n"), SubResource("Resource_16bwb"), SubResource("Resource_c28om"), SubResource("Resource_6fkn6"), SubResource("Resource_7oafe"), SubResource("Resource_ww56k"), SubResource("Resource_44gr4"), SubResource("Resource_vb55u"), SubResource("Resource_fh7pv"), SubResource("Resource_2x8i2"), SubResource("Resource_1qmku"), SubResource("Resource_47ty2"), SubResource("Resource_wap4q"), SubResource("Resource_fp6ix"), SubResource("Resource_iu0o3"), SubResource("Resource_33d2y"), SubResource("Resource_l0xci"), SubResource("Resource_6lhdk"), SubResource("Resource_djecj"), SubResource("Resource_0r1eh"), SubResource("Resource_s76n2"), SubResource("Resource_d6wlr"), SubResource("Resource_fixut"), SubResource("Resource_v2tcf"), SubResource("Resource_x166n"), SubResource("Resource_kt82j"), SubResource("Resource_ygawm"), SubResource("Resource_2q6pp"), SubResource("Resource_odj85"), SubResource("Resource_4yl6n"), SubResource("Resource_t0n30"), SubResource("Resource_koifm"), SubResource("Resource_le8q7"), SubResource("Resource_t2f70"), SubResource("Resource_gg1x1"), SubResource("Resource_ylafx"), SubResource("Resource_iucmb"), SubResource("Resource_fui6j"), SubResource("Resource_bvmxw"), SubResource("Resource_2apki"), SubResource("Resource_jct0p"), SubResource("Resource_ep3hs"), SubResource("Resource_ituvj"), SubResource("Resource_lcxxb"), SubResource("Resource_7vhp1"), SubResource("Resource_8oo57"), SubResource("Resource_ihxcg"), SubResource("Resource_42by5"), SubResource("Resource_g67qv"), SubResource("Resource_hftix"), SubResource("Resource_vcuxo"), SubResource("Resource_i50pb"), SubResource("Resource_650s8"), SubResource("Resource_4oj6y"), SubResource("Resource_ullvp"), SubResource("Resource_jt0gg"), SubResource("Resource_6o18m"), SubResource("Resource_ukg42"), SubResource("Resource_otqvx"), SubResource("Resource_skyo1"), SubResource("Resource_04dno"), SubResource("Resource_iolgw"), SubResource("Resource_pv13q"), SubResource("Resource_ax1ml"), SubResource("Resource_vc7ll")])
+terrain_patches = Array[ExtResource("4_y1b5t")]([SubResource("Resource_qyxpw"), SubResource("Resource_etb7l"), SubResource("Resource_ylyil"), SubResource("Resource_6m6ge"), SubResource("Resource_pd50q"), SubResource("Resource_coytp"), SubResource("Resource_l2gun")])

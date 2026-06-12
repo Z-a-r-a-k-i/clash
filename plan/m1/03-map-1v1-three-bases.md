@@ -1,5 +1,5 @@
 ---
-status: sketch
+status: done
 ---
 
 # 1v1 map — three bases per player (SC2-inspired)
@@ -40,9 +40,31 @@ natural choke, increasingly exposed third).
 
 ## Done when
 
-- [ ] Map loads in dev play and network play; full match playable on it.
-- [ ] Symmetry test: per-player resource counts, base geometry, and spawn
+- [x] Map loads in dev play and network play; full match playable on it.
+- [x] Symmetry test: per-player resource counts, base geometry, and spawn
       distances are mirror-identical.
 - [ ] Choke widths verified: a sieged tank + small force can hold the natural
-      choke against a frontal marine attack of equal value (playtest note).
-- [ ] Simulator (node 02) defaults to this map.
+      choke against a frontal marine attack of equal value (playtest note —
+      pending a human playtest).
+- [ ] Simulator (node 02) defaults to this map (the simulator does not
+      exist yet; dev play and the network server default to it already).
+
+## Artifacts
+
+- Terrain plumbing end-to-end: `ScenarioTerrainPatch` (+ `terrain_patches`
+  on `ScenarioDef`), `TerrainPatch` authoring node, `MapBaker` terrain
+  mirroring/validation (including placement-on-terrain bake failures),
+  `ScenarioLoader` grid application, `TileGrid.terrain_tiles()`, renderer
+  placeholder paint, ground units carry `impassable_terrain_tags=["cliff"]`,
+  and BUILD placement rejects `UNBUILDABLE_TERRAIN_TAGS` tiles.
+- `generate_arena_map.gd` → `arena_1v1.tscn` (authoring canon) and
+  `run_arena_bake.gd` → `arena_1v1.tres` (72x56; main/natural/third per
+  player; walled main with a 4-wide choke; on-axis center cliff block; two
+  golden patches per side near the axis).
+- Symmetry decision: kept the baker's horizontal mirror (equally fair to
+  both players) instead of adding a 180-degree rotation mode.
+- Tests: `test_arena_map.gd` (symmetry, terrain round-trip, ground-vs-air
+  choke pathing, build rejection on cliffs, bake rejection, full-resolve
+  smoke), wired into `make test`.
+- Dev play and the network hub/server default to `arena_1v1.tres`;
+  `mvp_map` remains for existing regressions.
