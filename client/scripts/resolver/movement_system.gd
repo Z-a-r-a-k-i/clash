@@ -697,6 +697,21 @@ static func _construction_move_intent(
 		if not pending_layout.get("valid", false):
 			return {}
 		var pending_rect: Rect2i = pending_layout["rect"]
+		if state.tile_grid.entity_rect(actor.id).intersects(pending_rect):
+			# Standing inside the own footprint: walk out to the nearest
+			# free ring tile before construction can start.
+			var out_tile: Vector2i = ConstructionSystem.step_out_tile(state, actor, pending_rect)
+			if out_tile == Vector2i(-1, -1):
+				return {}
+			return {
+				"movement_budget": movement_speed_for_entity(actor, registry),
+				"kind": "pending_construction",
+				"entity_id": actor.id,
+				"actor": actor,
+				"target_origin": out_tile,
+				"goal_range": 0,
+				"exact_origin": true,
+			}
 		if ConstructionSystem._is_adjacent_to_rect(state, actor, pending_rect):
 			ConstructionSystem.try_start_pending_build(state, actor, registry, events)
 			return {}

@@ -312,6 +312,11 @@ func _all_tests() -> Array:
 			_test_build_without_health_starts_with_positive_hp
 		],
 		["build_far_worker_delays_site_creation", _test_build_far_worker_delays_site_creation],
+		[
+			"build_worker_inside_footprint_walks_out_and_builds",
+			_test_build_worker_inside_footprint_walks_out_and_builds
+		],
+		["trained_unit_spawns_toward_rally", _test_trained_unit_spawns_toward_rally],
 		["build_worker_walks_to_site", _test_build_worker_walks_to_site],
 		[
 			"build_progress_only_while_worker_adjacent",
@@ -5021,6 +5026,71 @@ func _test_build_adjacent_worker_starts_constructing_entity() -> bool:
 		_has_event_of_type(result.events, ResolverEvent.Type.BUILD_STARTED)
 		and _has_event_of_type(result.events, ResolverEvent.Type.BUILD_PROGRESSED)
 	)
+
+
+func _test_build_worker_inside_footprint_walks_out_and_builds() -> bool:
+	# Playtest 2026-06-12: ordering a building on the worker's own tile
+	# was rejected ("worker blocks its own building"). The order must be
+	# accepted, the worker walks out to the ring, and construction starts.
+	var registry := _build_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	state.players[0].minerals = 500
+	var worker := _make_entity(state, "worker", 0, Vector2i(6, 6), 50, "ground")
+	worker.def_id = "worker"
+	worker.current_def_id = "worker"
+	state.tile_grid.place(worker.id, Rect2i(6, 6, 1, 1))
+
+	var build_order := EntityOrder.new()
+	build_order.type = EntityOrder.Type.BUILD
+	build_order.entity_id = worker.id
+	build_order.def_id = "barracks"
+	build_order.target_tile = Vector2i(5, 5)
+	var result := Resolver.resolve(state, _submit([build_order]), _submit(), registry, null)
+
+	if _has_event_of_type(result.events, ResolverEvent.Type.ORDER_REJECTED):
+		push_error("BUILD on the worker's own tile should not be rejected")
+		return false
+	var found_building: Entity = null
+	for e in result.new_state.entities:
+		if e != null and e.def_id == "barracks":
+			found_building = e
+	if found_building == null:
+		push_error("worker should walk out of the footprint and start the build")
+		return false
+	if not found_building.is_constructing:
+		return false
+	var w := result.new_state.get_entity_by_id(worker.id)
+	var rect := Rect2i(5, 5, 3, 3)
+	if rect.intersects(Rect2i(w.origin, Vector2i.ONE)):
+		push_error("worker should have stepped out of the build footprint")
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.BUILD_STARTED)
+
+
+func _test_trained_unit_spawns_toward_rally() -> bool:
+	# Playtest 2026-06-12: units always popped out on the producer's top
+	# edge. With a rally point set, the spawn tile must lean toward it.
+	var registry := _production_registry()
+	var state := _state_with_grid(20, 20)
+	state.players = [_player(0), _player(1)]
+	var barracks := _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
+	barracks.production_state = ProductionState.new()
+	barracks.production_state.rally_mode = ProductionState.RALLY_MODE_MOVE
+	barracks.production_state.rally_target_tile = Vector2i(6, 14)
+	state.tile_grid.place(barracks.id, Rect2i(5, 5, 3, 3))
+	var marine_def: EntityDef = registry.get_by_id("marine")
+	var spawn := ProductionSystem.find_spawn_tile(state, registry, barracks, marine_def)
+	if spawn.y != 8:
+		push_error("spawn should land on the rally-facing bottom edge, got %s" % str(spawn))
+		return false
+	# Without a rally the perimeter order still yields a deterministic
+	# adjacent tile.
+	barracks.production_state.rally_mode = ProductionState.RALLY_MODE_NONE
+	var fallback := ProductionSystem.find_spawn_tile(state, registry, barracks, marine_def)
+	if fallback == Vector2i(-1, -1):
+		return false
+	return true
 
 
 func _test_build_without_health_starts_with_positive_hp() -> bool:

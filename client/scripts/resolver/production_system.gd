@@ -311,6 +311,24 @@ static func _find_spawn_tile(
 	candidates.append(Vector2i(right, top))
 	candidates.append(Vector2i(right, bottom))
 	candidates.append(Vector2i(left, bottom))
+	# Prefer the free tile nearest the rally target (or the def's rally
+	# offset when no rally is set) so units come out on the side they are
+	# headed to instead of always popping out top-left (playtest
+	# 2026-06-12: "units spawning in weird places"). Ties keep the
+	# clockwise perimeter order for determinism.
+	var preference := _spawn_preference_tile(state, registry, producer, rect)
+	var order_indexes: Dictionary = {}
+	for i in range(candidates.size()):
+		if not order_indexes.has(candidates[i]):
+			order_indexes[candidates[i]] = i
+	candidates.sort_custom(
+		func(a: Vector2i, b: Vector2i) -> bool:
+			var da := maxi(absi(a.x - preference.x), absi(a.y - preference.y))
+			var db := maxi(absi(b.x - preference.x), absi(b.y - preference.y))
+			if da != db:
+				return da < db
+			return int(order_indexes[a]) < int(order_indexes[b])
+	)
 	for tile in candidates:
 		var unit_rect := Rect2i(tile, unit_fp)
 		if (
@@ -319,6 +337,33 @@ static func _find_spawn_tile(
 		):
 			return tile
 	return Vector2i(-1, -1)
+
+
+# Where freshly trained units should lean: the producer's rally target
+# when one is set, else the def's rally_offset from the footprint center.
+static func _spawn_preference_tile(
+	state: MatchState, registry: EntityRegistry, producer: Entity, rect: Rect2i
+) -> Vector2i:
+	var production_state: ProductionState = producer.production_state
+	if production_state != null:
+		if production_state.rally_mode == ProductionState.RALLY_MODE_MOVE:
+			return production_state.rally_target_tile
+		if (
+			production_state.rally_mode == ProductionState.RALLY_MODE_GATHER
+			and production_state.rally_target_entity_id >= 0
+			and state.tile_grid != null
+		):
+			var target_rect: Rect2i = state.tile_grid.entity_rect(
+				production_state.rally_target_entity_id
+			)
+			if target_rect.size != Vector2i.ZERO:
+				return target_rect.position + target_rect.size / 2
+	var offset := Vector2i(0, rect.size.y)
+	if registry != null:
+		var def := registry.get_by_id(producer.current_def_id)
+		if def != null and def.production != null:
+			offset = def.production.rally_offset
+	return rect.position + rect.size / 2 + offset
 
 
 static func _spawn_unit(

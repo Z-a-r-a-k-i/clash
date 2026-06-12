@@ -2249,7 +2249,11 @@ func _build_placement_message(def: EntityDef, rect: Rect2i) -> String:
 			return overlap_message
 		return ""
 	if not _state.tile_grid.is_rect_clear(rect):
-		return "BUILD target is occupied."
+		# The selected builder itself doesn't block its own placement —
+		# it walks out before the building spawns.
+		var builder: Entity = _selected_entity()
+		var allow_id: int = builder.id if builder != null else -1
+		return _target_overlap_message(rect, allow_id)
 	return ""
 
 

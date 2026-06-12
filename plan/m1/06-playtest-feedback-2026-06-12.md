@@ -13,14 +13,19 @@ Each wave is its own PR; re-playtest after the balance wave.
 
 ## Wave 0 — bugs (first, regardless of order)
 
-- [ ] Crash when clicking a factory right after building it (repro +
-      fix; suspect command-card option building against a
-      mid-construction producer).
-- [ ] Units sometimes spawn far from their producer ("marines spawning
-      far away on top") — audit the spawn-tile search order.
-- [ ] A worker blocks its own pending build placement (the build
-      footprint should treat the assigned worker as passable instead of
-      forcing the player to move it first).
+- [x] ~~Factory-click crash~~ — withdrawn: playtest 2 confirmed the
+      factory is fine; the game-1 crash was a one-off hard crash on the
+      remote client with no log captured. Next occurrence: grab
+      `%APPDATA%/Godot/app_userdata/Clash/logs/godot.log` from that
+      machine immediately.
+- [x] Units spawned on the producer's top edge regardless of rally
+      ("marines spawning in weird places"): the spawn-tile perimeter
+      walk now prefers the free tile nearest the rally target (def
+      rally_offset as fallback), ties keeping clockwise order.
+- [x] A worker no longer blocks its own pending build placement: order
+      validation and the placement preview ignore the ordering worker,
+      and the construction flow walks it out to the nearest free ring
+      tile before the building spawns.
 
 ## Wave 1 — balance + pacing (one PR, .tres/map edits; canon values
 hand-edited, never regenerated)
@@ -61,7 +66,8 @@ Decided: apply all at once, then re-playtest.
       valid" rejection only when no base is nearby; far-away gathering
       stays invalid).
 - [ ] Tank splash damage.
-- [ ] Spawn trained units on the producer side facing the rally point.
+- [x] Spawn trained units on the producer side facing the rally point
+      (landed early with the wave-0 spawn fix).
 
 ## Roadmap (not yet defined — own PR after discussion)
 
