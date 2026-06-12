@@ -11,6 +11,8 @@ duration_turns = -1
 blocks_move = true
 damage_override = 40
 attack_range_override = 6
+splash_radius = 1
+splash_falloff_pct = 50
 sprite_key = "siege_tank"
 
 [sub_resource type="Resource" id="Resource_vmqvk"]

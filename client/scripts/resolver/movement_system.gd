@@ -112,31 +112,49 @@ static func resolve_movement_substep(
 	var proposals: Array[Dictionary] = []
 	var completed_at_origin := false
 	var occupancy_blockers_by_layer: Dictionary = {}
+	var planning_passable_by_owner: Dictionary = {}
 	for intent in intents:
 		var actor: Entity = intent.get("actor") as Entity
 		if actor == null:
 			continue
 		var target_origin: Vector2i = intent.get("target_origin", actor.origin)
 		var actor_layer: String = _PATHFINDING.layer_for_entity(actor, registry)
-		if not occupancy_blockers_by_layer.has(actor_layer):
+		var footprint: Vector2i = _PATHFINDING.entity_footprint(state, actor, registry)
+		# Friendly pass-through (plan m1/06 wave 3): planning treats the
+		# actor's own 1x1 units as passable (movers of any owner already
+		# are); enemies, buildings, and multi-tile movers keep hard
+		# blockers (their sidesteps are too coarse to recover from a
+		# blocked plan). The conflict loop still prevents two units
+		# ENDING on the same tile.
+		var planning_passable: Dictionary = passable_entity_ids
+		var blockers_key: String = actor_layer
+		if context is ResolveContext and footprint == Vector2i.ONE:
+			blockers_key = "%s|%d" % [actor_layer, actor.owner_player_id]
+			if not planning_passable_by_owner.has(actor.owner_player_id):
+				var merged: Dictionary = passable_entity_ids.duplicate()
+				for ally_id in context.allied_unit_ids(actor.owner_player_id):
+					merged[ally_id] = true
+				planning_passable_by_owner[actor.owner_player_id] = merged
+			planning_passable = planning_passable_by_owner[actor.owner_player_id]
+		if not occupancy_blockers_by_layer.has(blockers_key):
 			if context is ResolveContext:
-				occupancy_blockers_by_layer[actor_layer] = {
+				occupancy_blockers_by_layer[blockers_key] = {
 					"tiles": context.blocker_tiles(actor_layer),
-					"passable": passable_entity_ids,
+					"passable": planning_passable,
 				}
 			else:
-				occupancy_blockers_by_layer[actor_layer] = _PATHFINDING._occupancy_blockers(
+				occupancy_blockers_by_layer[blockers_key] = _PATHFINDING._occupancy_blockers(
 					state, null, registry, actor_layer, passable_entity_ids, {}
 				)
-		var footprint: Vector2i = _PATHFINDING.entity_footprint(state, actor, registry)
 		var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, registry)
 		if movement == null:
 			continue
 		var options: Dictionary = {
-			_PATHFINDING.OPTION_PASSABLE_ENTITY_IDS: passable_entity_ids,
+			_PATHFINDING.OPTION_MOVER_IDS: passable_entity_ids,
+			_PATHFINDING.OPTION_PASSABLE_ENTITY_IDS: planning_passable,
 			_PATHFINDING.OPTION_EXACT_ORIGIN: intent.get("exact_origin", true),
 			_PATHFINDING.OPTION_GOAL_RANGE: intent.get("goal_range", 0),
-			_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS: occupancy_blockers_by_layer[actor_layer],
+			_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS: occupancy_blockers_by_layer[blockers_key],
 			_PATHFINDING.OPTION_COMPLETE_BLOCKED_AT_CURRENT:
 			intent.get("complete_blocked_at_current", false),
 			_PATHFINDING.OPTION_PROFILE: profile,
@@ -306,13 +324,16 @@ static func _intent_flow_key(
 	var exact_origin: bool = bool(intent.get("exact_origin", true))
 	var goal_rect: Rect2i = intent.get("goal_rect", Rect2i(target_origin, Vector2i.ONE))
 	var goal_range: int = int(intent.get("goal_range", 0))
-	return _PATHFINDING.flow_field_key(
-		_PATHFINDING.layer_for_entity(actor, registry),
-		movement,
-		target_origin,
-		goal_rect,
-		goal_range,
-		exact_origin
+	return (
+		(_PATHFINDING.flow_field_key(
+			_PATHFINDING.layer_for_entity(actor, registry),
+			movement,
+			target_origin,
+			goal_rect,
+			goal_range,
+			exact_origin
+		))
+		+ ":o%d" % actor.owner_player_id
 	)
 
 
@@ -351,10 +372,14 @@ static func _flow_next_step(
 		return {}
 	# Exact destination occupied by a non-mover and we're adjacent: the move
 	# completes where the unit stands (same semantics as find_next_step).
+	# Movers-only passability here: a stationary ALLY on the target tile
+	# must complete the move, even though routing treats allies as
+	# passable (friendly pass-through).
+	var completion_passable: Dictionary = options.get(_PATHFINDING.OPTION_MOVER_IDS, passable)
 	if (
 		exact_origin
 		and maxi(abs(start.x - target_origin.x), abs(start.y - target_origin.y)) <= 1
-		and _PATHFINDING._tile_blocked(blocked_tiles, passable, target_origin)
+		and _PATHFINDING._tile_blocked(blocked_tiles, completion_passable, target_origin)
 	):
 		_count_profile(profile, "pathfinding.exact_blocked_adjacent_no_progress")
 		if not complete_blocked_at_current:
@@ -367,8 +392,11 @@ static func _flow_next_step(
 				"completed_at_origin": true,
 			}
 		}
-	var key: String = _PATHFINDING.flow_field_key(
-		actor_layer, movement, target_origin, goal_rect, goal_range, exact_origin
+	var key: String = (
+		_PATHFINDING.flow_field_key(
+			actor_layer, movement, target_origin, goal_rect, goal_range, exact_origin
+		)
+		+ ":o%d" % actor.owner_player_id
 	)
 	var build_blockers: Dictionary = {
 		"tiles": blocked_tiles,

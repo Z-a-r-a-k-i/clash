@@ -66,13 +66,19 @@ Decided: apply all at once, then re-playtest.
 
 ## Wave 3 — mechanics (resolver changes, each with tests)
 
-- [ ] Friendly pass-through while moving: allies are transparent during
-      movement; two units still cannot end a turn on the same tile;
-      enemies always block.
-- [ ] Rally/gather to resources near ANY owned base ("resource is not
-      valid" rejection only when no base is nearby; far-away gathering
-      stays invalid).
-- [ ] Tank splash damage.
+- [x] Friendly pass-through while moving (1x1 units): movement PLANNING
+      treats own units as passable so paths press through friendly
+      clumps instead of detouring; exact-move targets on a stationary
+      ally still complete adjacent; two units can never end a turn on
+      the same tile; enemies and buildings always block. NOTE: true
+      "walk through a parked ally" needs displacement/shove mechanics —
+      tiles stay exclusive — recorded under Roadmap.
+- [x] Rally/gather valid near ANY owned completed base (within 10
+      tiles, rect-to-rect); far-away resources rejected for both plain
+      GATHER and rally-gather until a base is built nearby.
+- [x] Tank splash damage: data-driven on StatusEffect (sieged: radius
+      1, 50% falloff, FRIENDLY FIRE on per user decision); resources
+      immune; codec round-trips the new fields.
 - [x] Spawn trained units on the producer side facing the rally point
       (landed early with the wave-0 spawn fix).
 
@@ -80,6 +86,8 @@ Decided: apply all at once, then re-playtest.
 
 - Shoot-vs-move tradeoff (firing halves movement?) and/or a Hold Fire
   toggle. User undecided; do not implement until specced.
+- Unit displacement/shove so stationary allies can truly be walked
+  through (tile exclusivity makes pass-through planning-only today).
 - Defense-vs-offense balance and entrance geometry: re-evaluate after
   Wave 1 changes the game's tempo.
 

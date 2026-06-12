@@ -57,6 +57,9 @@ var _resource_sources_built: bool = false
 # during a resolve).
 var _terrain_blocked_by_signature: Dictionary = {}
 
+# owner id -> {entity_id: true} of that player's movement-capable units.
+var _allied_unit_ids_by_owner: Dictionary = {}
+
 
 func _init(p_state: MatchState, p_registry: EntityRegistry) -> void:
 	state = p_state
@@ -250,6 +253,25 @@ func terrain_blocked_tiles(movement: MovementDef) -> Dictionary:
 				blocked[tile] = true
 	_terrain_blocked_by_signature[signature] = blocked
 	return blocked
+
+
+# Alive allied UNITS (movement-capable) per owner — passable for that
+# owner's movement planning (friendly pass-through, plan m1/06 wave 3).
+# Buildings stay hard blockers; the per-substep commit safety still
+# prevents two units ending on the same tile.
+func allied_unit_ids(owner_id: int) -> Dictionary:
+	if _allied_unit_ids_by_owner.has(owner_id):
+		return _allied_unit_ids_by_owner[owner_id]
+	var ids: Dictionary = {}
+	for entity in sorted_entities():
+		if entity.owner_player_id != owner_id or entity.current_hp <= 0:
+			continue
+		var def: EntityDef = registry.get_by_id(entity.current_def_id)
+		if def == null or def.movement == null:
+			continue
+		ids[entity.id] = true
+	_allied_unit_ids_by_owner[owner_id] = ids
+	return ids
 
 
 func resource_sources() -> Array[Entity]:

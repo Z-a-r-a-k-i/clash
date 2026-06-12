@@ -110,6 +110,23 @@ static func scale_by_pct(value: int, pct: int) -> int:
 	return maxi(0, (value * pct + 50) / 100)
 
 
+# Splash configuration from statuses: the last status that grants a
+# positive splash_radius wins (matching the override convention).
+# Returns {} when the actor's attacks don't splash.
+static func splash_for(actor: Entity) -> Dictionary:
+	if actor == null:
+		return {}
+	var radius := 0
+	var falloff := 50
+	for status in actor.statuses:
+		if status != null and status.splash_radius > 0:
+			radius = status.splash_radius
+			falloff = status.splash_falloff_pct
+	if radius <= 0:
+		return {}
+	return {"radius": radius, "falloff_pct": falloff}
+
+
 static func damage_mult_pct(actor: Entity) -> int:
 	var pct := 100
 	for status in actor.statuses:

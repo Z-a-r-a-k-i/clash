@@ -258,6 +258,8 @@ func _normalize_status_effect(status: StatusEffect) -> Dictionary:
 		"override_attacks_before_movement": status.override_attacks_before_movement,
 		"override_attacks_after_movement": status.override_attacks_after_movement,
 		"damage_override": status.damage_override,
+		"splash_radius": status.splash_radius,
+		"splash_falloff_pct": status.splash_falloff_pct,
 		"attack_range_override": status.attack_range_override,
 		"end_of_turn_hp_delta": status.end_of_turn_hp_delta,
 		"sprite_key": status.sprite_key,
@@ -424,6 +426,8 @@ func _status_effect_from_dict(source: Dictionary) -> StatusEffect:
 		"override_attacks_after_movement", StatusEffect.OVERRIDE_INHERIT
 	)
 	status.damage_override = source.get("damage_override", -1)
+	status.splash_radius = int(source.get("splash_radius", 0))
+	status.splash_falloff_pct = int(source.get("splash_falloff_pct", 50))
 	status.attack_range_override = source.get("attack_range_override", -1)
 	status.end_of_turn_hp_delta = source.get("end_of_turn_hp_delta", 0)
 	status.sprite_key = source.get("sprite_key", "")
