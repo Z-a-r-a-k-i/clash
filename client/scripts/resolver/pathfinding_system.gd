@@ -505,23 +505,62 @@ static func build_flow_field(
 	var check_terrain: bool = not (
 		movement.impassable_terrain_tags.is_empty() and movement.pathable_terrain_tags.is_empty()
 	)
+	var fast_terrain: bool = occupancy_blockers.get("terrain_blocked") is Dictionary
+	var terrain_blocked: Dictionary = (
+		occupancy_blockers.get("terrain_blocked") if fast_terrain else {}
+	)
+	var width: int = grid.width
+	var height: int = grid.height
+	# Flat-array Dijkstra: per-tile Dictionary[Vector2i] hashing dominated
+	# build time at map scale (playtest 2026-06-12). Static blockers and
+	# terrain are pre-rendered into one byte mask, distances into a packed
+	# int array, and only reachable tiles convert back to the Dictionary
+	# the consumers expect.
+	var blocked_mask := PackedByteArray()
+	blocked_mask.resize(width * height)
+	if fast_terrain:
+		for tile: Vector2i in terrain_blocked:
+			if tile.x >= 0 and tile.x < width and tile.y >= 0 and tile.y < height:
+				blocked_mask[tile.y * width + tile.x] = 1
+	elif check_terrain:
+		for y in range(height):
+			for x in range(width):
+				if not _terrain_allows_rect(grid, Rect2i(x, y, 1, 1), movement):
+					blocked_mask[y * width + x] = 1
+	for tile: Vector2i in blocked_tiles:
+		if tile.x < 0 or tile.x >= width or tile.y < 0 or tile.y >= height:
+			continue
+		if blocked_mask[tile.y * width + tile.x] == 1:
+			continue
+		if _tile_blocked(blocked_tiles, passable, tile):
+			blocked_mask[tile.y * width + tile.x] = 1
+	var dist_arr := PackedInt32Array()
+	dist_arr.resize(width * height)
+	dist_arr.fill(-1)
 	# Octile costs (2 orthogonal / 3 diagonal) need a small-cost Dijkstra;
 	# Dial's bucket queue keeps it deterministic and O(nodes).
 	var buckets: Array = []
 	for seed in _flow_field_seeds(target_origin, goal_rect, goal_range, exact_origin):
 		if not grid.is_in_bounds(seed):
 			continue
-		if check_terrain and not _terrain_allows_rect(grid, Rect2i(seed, Vector2i.ONE), movement):
+		var seed_index: int = seed.y * width + seed.x
+		if fast_terrain or check_terrain:
+			# Terrain-blocked seeds never participate; statically occupied
+			# seeds keep distance 0 below.
+			if fast_terrain:
+				if terrain_blocked.has(seed):
+					continue
+			elif not _terrain_allows_rect(grid, Rect2i(seed, Vector2i.ONE), movement):
+				continue
+		if dist_arr[seed_index] != -1:
 			continue
-		if dist.has(seed):
-			continue
-		dist[seed] = 0
+		dist_arr[seed_index] = 0
 		# A statically blocked seed keeps distance 0 but does not propagate
 		# (no pathing through a parked unit ring) — except the exact-origin
 		# goal itself, which must propagate so units can approach a blocked
 		# destination and complete adjacent to it.
-		if exact_origin or not _tile_blocked(blocked_tiles, passable, seed):
-			_bucket_push(buckets, 0, seed)
+		if exact_origin or blocked_mask[seed_index] == 0:
+			_bucket_push(buckets, 0, seed_index)
 	var cost := 0
 	while cost < buckets.size():
 		var bucket: Variant = buckets[cost]
@@ -530,40 +569,55 @@ static func build_flow_field(
 			continue
 		var head := 0
 		while head < bucket.size():
-			var current: Vector2i = bucket[head]
+			var current_index: int = bucket[head]
 			head += 1
-			if int(dist.get(current, -1)) != cost:
+			if dist_arr[current_index] != cost:
 				continue  # stale entry; a cheaper route claimed this tile
+			var cx: int = current_index % width
+			var cy: int = current_index / width
 			for delta in _NEIGHBORS:
-				var next: Vector2i = current + delta
-				if not grid.is_in_bounds(next):
+				var nx: int = cx + delta.x
+				var ny: int = cy + delta.y
+				if nx < 0 or nx >= width or ny < 0 or ny >= height:
 					continue
-				if (
-					check_terrain
-					and not _terrain_allows_rect(grid, Rect2i(next, Vector2i.ONE), movement)
-				):
+				var next_index: int = ny * width + nx
+				if blocked_mask[next_index] == 1:
 					continue
-				if _tile_blocked(blocked_tiles, passable, next):
-					continue
-				if _diagonal_step_blocked(
-					grid, current, delta, Vector2i.ONE, movement, occupancy_blockers
-				):
-					continue
-				var next_distance: int = cost + step_cost(current, next)
-				if dist.has(next) and int(dist[next]) <= next_distance:
-					continue
-				dist[next] = next_distance
-				_bucket_push(buckets, next_distance, next)
+				if delta.x != 0 and delta.y != 0:
+					# Corner-seam rule: the diagonal is blocked when BOTH
+					# orthogonally adjacent cells are blocked.
+					var side_a: int = cy * width + nx
+					if blocked_mask[side_a] == 1:
+						var side_b: int = ny * width + cx
+						if blocked_mask[side_b] == 1:
+							continue
+					var next_cost_d: int = cost + STEP_COST_DIAGONAL
+					var seen_d: int = dist_arr[next_index]
+					if seen_d != -1 and seen_d <= next_cost_d:
+						continue
+					dist_arr[next_index] = next_cost_d
+					_bucket_push(buckets, next_cost_d, next_index)
+				else:
+					var next_cost_o: int = cost + STEP_COST_ORTHOGONAL
+					var seen_o: int = dist_arr[next_index]
+					if seen_o != -1 and seen_o <= next_cost_o:
+						continue
+					dist_arr[next_index] = next_cost_o
+					_bucket_push(buckets, next_cost_o, next_index)
 		cost += 1
+	for index in range(width * height):
+		var value: int = dist_arr[index]
+		if value != -1:
+			dist[Vector2i(index % width, index / width)] = value
 	return dist
 
 
-static func _bucket_push(buckets: Array, cost: int, tile: Vector2i) -> void:
+static func _bucket_push(buckets: Array, cost: int, tile_index: int) -> void:
 	while buckets.size() <= cost:
 		buckets.append(null)
 	if buckets[cost] == null:
-		buckets[cost] = [] as Array[Vector2i]
-	buckets[cost].append(tile)
+		buckets[cost] = PackedInt32Array()
+	buckets[cost].append(tile_index)
 
 
 static func _flow_field_seeds(
