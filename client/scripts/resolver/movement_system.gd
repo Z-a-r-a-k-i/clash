@@ -55,7 +55,8 @@ static func resolve_movement_substep(
 	halted_entity_ids: Dictionary,
 	sorted_entities: Array[Entity],
 	path_cache: Variant = null,
-	profile: Variant = null
+	profile: Variant = null,
+	context: Variant = null
 ) -> bool:
 	if state == null or state.tile_grid == null or registry == null:
 		return false
@@ -68,7 +69,8 @@ static func resolve_movement_substep(
 		fired_before_movement_entity_ids,
 		halted_entity_ids,
 		sorted_entities,
-		events
+		events,
+		context
 	)
 	if intents.is_empty():
 		return false
@@ -85,6 +87,21 @@ static func resolve_movement_substep(
 			_count_profile(profile, "movement.intent.exact")
 		else:
 			_count_profile(profile, "movement.intent.inexact")
+	if context is ResolveContext:
+		# Stopped movers become hard blockers for everyone else; a changed
+		# mover set therefore invalidates cached flow fields.
+		context.note_movers(passable_entity_ids)
+
+	# A flow field costs one map-wide BFS, so it only beats per-unit A*
+	# when several movers share the same goal (clumped move orders, a
+	# mineral line, a construction site). Count goal keys first.
+	var flow_goal_counts: Dictionary = {}
+	if context is ResolveContext:
+		for intent in intents:
+			var key: String = _intent_flow_key(state, intent, registry)
+			if key != "":
+				intent["_flow_key"] = key
+				flow_goal_counts[key] = int(flow_goal_counts.get(key, 0)) + 1
 
 	var proposals: Array[Dictionary] = []
 	var completed_at_origin := false
@@ -96,9 +113,15 @@ static func resolve_movement_substep(
 		var target_origin: Vector2i = intent.get("target_origin", actor.origin)
 		var actor_layer: String = _PATHFINDING.layer_for_entity(actor, registry)
 		if not occupancy_blockers_by_layer.has(actor_layer):
-			occupancy_blockers_by_layer[actor_layer] = _PATHFINDING._occupancy_blockers(
-				state, null, registry, actor_layer, passable_entity_ids, {}
-			)
+			if context is ResolveContext:
+				occupancy_blockers_by_layer[actor_layer] = {
+					"tiles": context.blocker_tiles(actor_layer),
+					"passable": passable_entity_ids,
+				}
+			else:
+				occupancy_blockers_by_layer[actor_layer] = _PATHFINDING._occupancy_blockers(
+					state, null, registry, actor_layer, passable_entity_ids, {}
+				)
 		var footprint: Vector2i = _PATHFINDING.entity_footprint(state, actor, registry)
 		var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, registry)
 		if movement == null:
@@ -114,22 +137,47 @@ static func resolve_movement_substep(
 		}
 		if intent.has("goal_rect"):
 			options[_PATHFINDING.OPTION_GOAL_RECT] = intent["goal_rect"]
-		var step: Dictionary = _cached_next_step(
-			state.tile_grid,
-			actor,
-			target_origin,
-			footprint,
-			movement,
-			options,
-			intent,
-			active_path_cache
+		var field: Dictionary = {}
+		var step: Dictionary = {}
+		var use_flow_field: bool = (
+			context is ResolveContext
+			and footprint == Vector2i.ONE
+			and int(flow_goal_counts.get(intent.get("_flow_key", ""), 0)) >= 2
 		)
-		if step.is_empty():
-			_count_profile(profile, "movement.path_cache_miss")
-			step = _PATHFINDING.find_next_step(state, actor, target_origin, registry, options)
-			_store_path_cache(actor, target_origin, intent, step, active_path_cache)
+		if use_flow_field:
+			var flow: Dictionary = _flow_next_step(
+				context,
+				state,
+				actor,
+				actor_layer,
+				target_origin,
+				footprint,
+				movement,
+				options,
+				intent,
+				active_path_cache,
+				profile,
+				registry
+			)
+			step = flow.get("step", {})
+			field = flow.get("field", {})
 		else:
-			_count_profile(profile, "movement.path_cache_hit")
+			step = _cached_next_step(
+				state.tile_grid,
+				actor,
+				target_origin,
+				footprint,
+				movement,
+				options,
+				intent,
+				active_path_cache
+			)
+			if step.is_empty():
+				_count_profile(profile, "movement.path_cache_miss")
+				step = _PATHFINDING.find_next_step(state, actor, target_origin, registry, options)
+				_store_path_cache(actor, target_origin, intent, step, active_path_cache)
+			else:
+				_count_profile(profile, "movement.path_cache_hit")
 		if step.is_empty():
 			continue
 		if step.get("completed_at_origin", false):
@@ -139,9 +187,6 @@ static func resolve_movement_substep(
 		var next_origin: Vector2i = step.get("next_origin", actor.origin)
 		if next_origin == actor.origin:
 			continue
-		var candidate_origins: Array[Vector2i] = _movement_candidate_origins(
-			state, actor, target_origin, footprint, movement, options, intent, next_origin
-		)
 		(
 			proposals
 			. append(
@@ -153,8 +198,16 @@ static func resolve_movement_substep(
 					"target_rect": Rect2i(next_origin, footprint),
 					"layer": actor_layer,
 					"path_distance": int(step.get("path_distance", 1)),
-					"candidate_origins": candidate_origins,
+					# Sidestep candidates are computed lazily on the first
+					# conflict loss (most proposals never need them).
+					"candidate_origins": [] as Array[Vector2i],
 					"candidate_index": 0,
+					"candidates_computed": false,
+					"state": state,
+					"target_origin": target_origin,
+					"movement": movement,
+					"options": options,
+					"field": field,
 					"footprint": footprint,
 					"intent": intent,
 				}
@@ -164,19 +217,204 @@ static func resolve_movement_substep(
 		return completed_at_origin
 	_count_profile(profile, "movement.proposals", proposals.size())
 
-	var winners: Array[Dictionary] = _winning_proposals(state, proposals, registry, events)
+	var winners: Array[Dictionary] = _winning_proposals(state, proposals, registry, events, context)
+	if winners.is_empty():
+		return false
+	winners = _drop_same_layer_overlapping_winners(winners)
 	if winners.is_empty():
 		return false
 	_count_profile(profile, "movement.winners", winners.size())
 	var moves: Dictionary = {}
 	for proposal in winners:
 		moves[proposal.get("entity_id", -1)] = proposal.get("to_origin", Vector2i.ZERO)
+	# allow_overlaps=true is required because different layers legitimately
+	# share tiles (flying over ground); same-layer disjointness is enforced
+	# by the conflict loop plus the guard above.
 	if not state.tile_grid.move_batch(moves, true):
 		return false
 	winners.sort_custom(_proposal_id_less)
 	for proposal in winners:
-		_commit_proposal(state, proposal, registry, events)
+		_commit_proposal(state, proposal, registry, events, context)
 	return true
+
+
+# Last-line corruption guard: the conflict loop guarantees same-layer
+# winners have disjoint target rects, and move_batch(allow_overlaps=true)
+# performs no clearance checks of its own. If an upstream bug ever produces
+# overlapping same-layer winners, drop the higher-id ones with a warning
+# instead of silently corrupting grid occupancy.
+static func _drop_same_layer_overlapping_winners(winners: Array[Dictionary]) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var claimed_by_layer: Dictionary = {}
+	for proposal in winners:
+		var layer: String = proposal.get("layer", "ground")
+		if not claimed_by_layer.has(layer):
+			claimed_by_layer[layer] = {}
+		var claimed: Dictionary = claimed_by_layer[layer]
+		var target_rect: Rect2i = proposal.get("target_rect", Rect2i())
+		var overlaps := false
+		for x in range(target_rect.position.x, target_rect.position.x + target_rect.size.x):
+			for y in range(target_rect.position.y, target_rect.position.y + target_rect.size.y):
+				if claimed.has(Vector2i(x, y)):
+					overlaps = true
+					break
+			if overlaps:
+				break
+		if overlaps:
+			push_warning(
+				(
+					"MovementSystem: dropped overlapping winner for entity %d at %s"
+					% [int(proposal.get("entity_id", -1)), str(target_rect)]
+				)
+			)
+			continue
+		for x in range(target_rect.position.x, target_rect.position.x + target_rect.size.x):
+			for y in range(target_rect.position.y, target_rect.position.y + target_rect.size.y):
+				claimed[Vector2i(x, y)] = true
+		out.append(proposal)
+	return out
+
+
+# Flow-field cache key for an intent, or "" when the actor can't use one
+# (multi-tile footprint, no movement def).
+static func _intent_flow_key(
+	state: MatchState, intent: Dictionary, registry: EntityRegistry
+) -> String:
+	var actor: Entity = intent.get("actor") as Entity
+	if actor == null:
+		return ""
+	if _PATHFINDING.entity_footprint(state, actor, registry) != Vector2i.ONE:
+		return ""
+	var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, registry)
+	if movement == null:
+		return ""
+	var target_origin: Vector2i = intent.get("target_origin", actor.origin)
+	var exact_origin: bool = bool(intent.get("exact_origin", true))
+	var goal_rect: Rect2i = intent.get("goal_rect", Rect2i(target_origin, Vector2i.ONE))
+	var goal_range: int = int(intent.get("goal_range", 0))
+	return _PATHFINDING.flow_field_key(
+		_PATHFINDING.layer_for_entity(actor, registry),
+		movement,
+		target_origin,
+		goal_rect,
+		goal_range,
+		exact_origin
+	)
+
+
+# Flow-field step lookup for 1x1 movers. Returns {"step": .., "field": ..};
+# an empty step means no move this substep. Falls back to a budgeted A*
+# (negative-cached per tick) when the actor is disconnected from the goal
+# region.
+static func _flow_next_step(
+	context: ResolveContext,
+	state: MatchState,
+	actor: Entity,
+	actor_layer: String,
+	target_origin: Vector2i,
+	footprint: Vector2i,
+	movement: MovementDef,
+	options: Dictionary,
+	intent: Dictionary,
+	path_cache: Dictionary,
+	profile: Variant,
+	registry: EntityRegistry
+) -> Dictionary:
+	var grid: TileGrid = state.tile_grid
+	var goal_rect: Rect2i = options.get(
+		_PATHFINDING.OPTION_GOAL_RECT, Rect2i(target_origin, footprint)
+	)
+	var goal_range: int = options.get(_PATHFINDING.OPTION_GOAL_RANGE, 0)
+	var exact_origin: bool = options.get(_PATHFINDING.OPTION_EXACT_ORIGIN, true)
+	var complete_blocked_at_current: bool = options.get(
+		_PATHFINDING.OPTION_COMPLETE_BLOCKED_AT_CURRENT, false
+	)
+	var blockers: Dictionary = options.get(_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS, {})
+	var blocked_tiles: Dictionary = blockers.get("tiles", {})
+	var passable: Dictionary = blockers.get("passable", {})
+	var start: Vector2i = actor.origin
+	if _PATHFINDING._is_goal(start, footprint, target_origin, goal_rect, goal_range, exact_origin):
+		return {}
+	# Exact destination occupied by a non-mover and we're adjacent: the move
+	# completes where the unit stands (same semantics as find_next_step).
+	if (
+		exact_origin
+		and maxi(abs(start.x - target_origin.x), abs(start.y - target_origin.y)) <= 1
+		and _PATHFINDING._tile_blocked(blocked_tiles, passable, target_origin)
+	):
+		_count_profile(profile, "pathfinding.exact_blocked_adjacent_no_progress")
+		if not complete_blocked_at_current:
+			return {}
+		return {
+			"step":
+			{
+				"next_origin": start,
+				"path_distance": 0,
+				"completed_at_origin": true,
+			}
+		}
+	var key: String = _PATHFINDING.flow_field_key(
+		actor_layer, movement, target_origin, goal_rect, goal_range, exact_origin
+	)
+	var field: Dictionary = context.flow_field(
+		key,
+		func() -> Dictionary:
+			return _PATHFINDING.build_flow_field(
+				grid, movement, blockers, target_origin, goal_rect, goal_range, exact_origin
+			)
+	)
+	if not field.has(start):
+		# Disconnected from the goal region. Run one budgeted A* toward the
+		# best reachable tile, at most once per tick per (actor, goal).
+		var no_progress_key: String = "%s#%d" % [key, actor.id]
+		if context.is_no_progress_goal(no_progress_key):
+			return {"field": field}
+		var step: Dictionary = _cached_next_step(
+			grid, actor, target_origin, footprint, movement, options, intent, path_cache
+		)
+		if step.is_empty():
+			_count_profile(profile, "movement.path_cache_miss")
+			step = _PATHFINDING.find_next_step(state, actor, target_origin, registry, options)
+			_store_path_cache(actor, target_origin, intent, step, path_cache)
+		else:
+			_count_profile(profile, "movement.path_cache_hit")
+		if step.is_empty() or step.get("next_origin", start) == start:
+			context.mark_no_progress_goal(no_progress_key)
+		return {"step": step, "field": field}
+	var current_distance: int = field[start]
+	var best: Vector2i = start
+	var best_score: Array = []
+	for delta in _PATHFINDING._NEIGHBORS:
+		var next: Vector2i = start + delta
+		if not field.has(next):
+			continue
+		var next_distance: int = field[next]
+		if next_distance >= current_distance:
+			continue
+		var score: Array = [
+			next_distance,
+			_PATHFINDING._manhattan_distance(
+				next, footprint, target_origin, goal_rect, goal_range, exact_origin
+			),
+			next.y,
+			next.x,
+		]
+		if best_score.is_empty() or _score_less(score, best_score):
+			best = next
+			best_score = score
+	if best == start:
+		return {"field": field}
+	return {
+		"step": {"next_origin": best, "path_distance": current_distance},
+		"field": field,
+	}
+
+
+static func _score_less(a: Array, b: Array) -> bool:
+	for index in range(mini(a.size(), b.size())):
+		if int(a[index]) != int(b[index]):
+			return int(a[index]) < int(b[index])
+	return false
 
 
 # ---------- Internals ----------
@@ -213,13 +451,14 @@ static func _cached_next_step(
 		return {}
 	var next_origin: Vector2i = path[0]
 	var occupancy_blockers: Dictionary = options.get(_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS, {})
-	for path_origin in path:
-		var path_origin_vec: Vector2i = path_origin
-		if not _PATHFINDING._can_occupy_origin_with_blockers(
-			grid, path_origin_vec, footprint, movement, occupancy_blockers
-		):
-			path_cache.erase(actor.id)
-			return {}
+	# Validate only the immediate next step. Later tiles can be blocked by
+	# units that will have moved by the time we get there; re-validating the
+	# whole tail every substep just forced constant full re-paths.
+	if not _PATHFINDING._can_occupy_origin_with_blockers(
+		grid, next_origin, footprint, movement, occupancy_blockers
+	):
+		path_cache.erase(actor.id)
+		return {}
 	cached["path"] = path
 	path_cache[actor.id] = cached
 	return {
@@ -272,7 +511,8 @@ static func _movement_intents(
 	fired_before_movement_entity_ids: Dictionary,
 	halted_entity_ids: Dictionary,
 	sorted_entities: Array[Entity],
-	events: Array[ResolverEvent]
+	events: Array[ResolverEvent],
+	context: Variant = null
 ) -> Array[Dictionary]:
 	var intents: Array[Dictionary] = []
 	var source_assignments: Dictionary[int, Array] = {}
@@ -299,7 +539,7 @@ static func _movement_intents(
 			source_assignments = GatherSystem._source_assignments_by_source(state, registry)
 			has_source_assignments = true
 		var gather_intent: Dictionary = _gather_move_intent(
-			state, actor, registry, source_assignments
+			state, actor, registry, source_assignments, context
 		)
 		if not gather_intent.is_empty():
 			intents.append(gather_intent)
@@ -366,7 +606,8 @@ static func _gather_move_intent(
 	state: MatchState,
 	actor: Entity,
 	registry: EntityRegistry,
-	source_assignments: Dictionary[int, Array]
+	source_assignments: Dictionary[int, Array],
+	context: Variant = null
 ) -> Dictionary:
 	if actor.gather_state == null:
 		return {}
@@ -381,7 +622,7 @@ static func _gather_move_intent(
 		GatherSystem.clear_assignment(actor)
 		return {}
 	var assigned_source: Entity = GatherSystem.best_source_for_worker(
-		state, registry, actor, source, source_assignments
+		state, registry, actor, source, source_assignments, context
 	)
 	if assigned_source == null:
 		GatherSystem.clear_assignment(actor)
@@ -468,7 +709,8 @@ static func _winning_proposals(
 	state: MatchState,
 	proposals: Array[Dictionary],
 	registry: EntityRegistry,
-	events: Array[ResolverEvent]
+	events: Array[ResolverEvent],
+	context: Variant = null
 ) -> Array[Dictionary]:
 	var remaining: Dictionary = {}
 	for proposal in proposals:
@@ -485,14 +727,19 @@ static func _winning_proposals(
 		for entity_id in remaining.keys():
 			if not blocked.has(entity_id):
 				moving_ids[entity_id] = true
-		var non_mover_blockers_by_layer: Dictionary = _non_mover_blockers_by_layer(
-			state, registry, moving_ids
-		)
+		var non_mover_blockers_by_layer: Dictionary = {}
+		if not (context is ResolveContext):
+			non_mover_blockers_by_layer = _non_mover_blockers_by_layer(state, registry, moving_ids)
 		for entity_id in remaining.keys():
 			if blocked.has(entity_id):
 				continue
 			var proposal: Dictionary = remaining[entity_id]
-			if _target_blocked_by_non_mover(proposal, non_mover_blockers_by_layer):
+			var target_blocked: bool
+			if context is ResolveContext:
+				target_blocked = _target_blocked_by_non_mover_tiles(context, proposal, moving_ids)
+			else:
+				target_blocked = _target_blocked_by_non_mover(proposal, non_mover_blockers_by_layer)
+			if target_blocked:
 				blocked[entity_id] = true
 		if not blocked.is_empty():
 			var blocked_ids: Array[int] = []
@@ -530,7 +777,8 @@ static func _movement_candidate_origins(
 	movement: MovementDef,
 	options: Dictionary,
 	_intent: Dictionary,
-	primary_origin: Vector2i
+	primary_origin: Vector2i,
+	field: Dictionary = {}
 ) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	if actor == null or state == null or state.tile_grid == null or movement == null:
@@ -544,8 +792,8 @@ static func _movement_candidate_origins(
 	)
 	var goal_range: int = int(options.get(_PATHFINDING.OPTION_GOAL_RANGE, 0))
 	var exact_origin: bool = bool(options.get(_PATHFINDING.OPTION_EXACT_ORIGIN, true))
-	var current_goal_distance: int = _PATHFINDING._goal_distance(
-		actor.origin, footprint, target_origin, goal_rect, goal_range, exact_origin
+	var current_goal_distance: int = _candidate_goal_distance(
+		actor.origin, footprint, target_origin, goal_rect, goal_range, exact_origin, field
 	)
 	var current_manhattan: int = _PATHFINDING._manhattan_distance(
 		actor.origin, footprint, target_origin, goal_rect, goal_range, exact_origin
@@ -560,8 +808,8 @@ static func _movement_candidate_origins(
 				state.tile_grid, candidate, footprint, movement, occupancy_blockers
 			):
 				continue
-			var goal_distance: int = _PATHFINDING._goal_distance(
-				candidate, footprint, target_origin, goal_rect, goal_range, exact_origin
+			var goal_distance: int = _candidate_goal_distance(
+				candidate, footprint, target_origin, goal_rect, goal_range, exact_origin, field
 			)
 			var manhattan: int = _PATHFINDING._manhattan_distance(
 				candidate, footprint, target_origin, goal_rect, goal_range, exact_origin
@@ -594,9 +842,44 @@ static func _movement_candidate_origins(
 	return out
 
 
+# Goal distance for sidestep candidates: true path distance from the flow
+# field when one is available, otherwise the legacy chebyshev estimate.
+# Field distances stop losers from "sidestepping" into tiles that look
+# closer as the crow flies but are actually further along the real path.
+static func _candidate_goal_distance(
+	origin: Vector2i,
+	footprint: Vector2i,
+	target_origin: Vector2i,
+	goal_rect: Rect2i,
+	goal_range: int,
+	exact_origin: bool,
+	field: Dictionary
+) -> int:
+	if not field.is_empty():
+		# Missing from the field = disconnected from the goal region; never
+		# treat it as closer than a connected tile.
+		return field.get(origin, 1 << 30)
+	return _PATHFINDING._goal_distance(
+		origin, footprint, target_origin, goal_rect, goal_range, exact_origin
+	)
+
+
 static func _advance_proposal_to_next_candidate(proposal: Dictionary) -> bool:
 	if proposal.is_empty():
 		return false
+	if not bool(proposal.get("candidates_computed", true)):
+		proposal["candidates_computed"] = true
+		proposal["candidate_origins"] = _movement_candidate_origins(
+			proposal.get("state") as MatchState,
+			proposal.get("actor") as Entity,
+			proposal.get("target_origin", Vector2i.ZERO),
+			proposal.get("footprint", Vector2i.ONE),
+			proposal.get("movement") as MovementDef,
+			proposal.get("options", {}),
+			proposal.get("intent", {}),
+			proposal.get("to_origin", Vector2i.ZERO),
+			proposal.get("field", {})
+		)
 	var candidate_origins: Array = proposal.get("candidate_origins", [])
 	var next_index: int = int(proposal.get("candidate_index", 0)) + 1
 	if next_index < 0 or next_index >= candidate_origins.size():
@@ -885,6 +1168,23 @@ static func _non_mover_blockers_by_layer(
 	return out
 
 
+# ResolveContext flavour of _target_blocked_by_non_mover: one shared
+# blocker-tile map per layer, filtered through the currently-moving ids.
+static func _target_blocked_by_non_mover_tiles(
+	context: ResolveContext, proposal: Dictionary, moving_ids: Dictionary
+) -> bool:
+	var target_rect: Rect2i = proposal.get("target_rect", Rect2i())
+	var actor_layer: String = proposal.get("layer", "ground")
+	var tiles: Dictionary = context.blocker_tiles(actor_layer)
+	if tiles.is_empty():
+		return false
+	for x in range(target_rect.position.x, target_rect.position.x + target_rect.size.x):
+		for y in range(target_rect.position.y, target_rect.position.y + target_rect.size.y):
+			if _PATHFINDING._tile_blocked(tiles, moving_ids, Vector2i(x, y)):
+				return true
+	return false
+
+
 static func _target_blocked_by_non_mover(
 	proposal: Dictionary, non_mover_blockers_by_layer: Dictionary
 ) -> bool:
@@ -898,7 +1198,11 @@ static func _target_blocked_by_non_mover(
 
 
 static func _commit_proposal(
-	state: MatchState, proposal: Dictionary, registry: EntityRegistry, events: Array[ResolverEvent]
+	state: MatchState,
+	proposal: Dictionary,
+	registry: EntityRegistry,
+	events: Array[ResolverEvent],
+	context: Variant = null
 ) -> void:
 	var actor: Entity = proposal.get("actor") as Entity
 	if actor == null:
@@ -907,6 +1211,14 @@ static func _commit_proposal(
 	var to_origin: Vector2i = proposal.get("to_origin", actor.origin)
 	actor.origin = to_origin
 	actor.moves_used_this_turn += 1
+	if context is ResolveContext:
+		var footprint: Vector2i = proposal.get("footprint", Vector2i.ONE)
+		context.on_entity_moved(
+			actor,
+			proposal.get("layer", "ground"),
+			Rect2i(from_origin, footprint),
+			Rect2i(to_origin, footprint)
+		)
 	var ev := ResolverEvent.new()
 	ev.type = ResolverEvent.Type.ENTITY_MOVED
 	ev.actor_id = actor.id

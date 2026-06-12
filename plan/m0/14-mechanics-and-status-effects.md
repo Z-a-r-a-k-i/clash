@@ -1,5 +1,5 @@
 ---
-status: sketch
+status: done
 depends_on:
   - ./13-combat-command-simplification.md
 ---
@@ -149,16 +149,27 @@ PR 2:
 
 ## Done when
 
-- [ ] PR 1 adds the mechanics profile/query layer and preserves existing
+- [x] PR 1 adds the mechanics profile/query layer and preserves existing
   gameplay behavior by default.
-- [ ] PR 1 removes `CombatDef.attacks_per_turn`.
-- [ ] PR 1 tests cover attack windows, initiative, and existing
+- [x] PR 1 removes `CombatDef.attacks_per_turn`.
+- [x] PR 1 tests cover attack windows, initiative, and existing
   combat/movement behavior.
-- [ ] PR 2 removes stim and its research/data/test dependencies.
-- [ ] PR 2 adds the general status runtime, status application path, duration
+- [x] PR 2 removes stim and its research/data/test dependencies.
+- [x] PR 2 adds the general status runtime, status application path, duration
   handling, and serialization.
-- [ ] PR 2 represents siege mode as status-driven mechanics on the tank rather
+- [x] PR 2 represents siege mode as status-driven mechanics on the tank rather
   than as a separate playable unit definition.
-- [ ] PR 2 reserves renderer-facing presentation hints without making
+- [x] PR 2 reserves renderer-facing presentation hints without making
   simulation depend on visuals.
-- [ ] Resolver, save/load, network, and dev-play tests pass after each PR.
+- [x] Resolver, save/load, network, and dev-play tests pass after each PR.
+
+## Artifacts
+
+- Implemented as a single change (not the two-PR split): `StatusEffect`
+  runtime (`client/scripts/runtime/status_effect.gd`), resolver-owned
+  `StatusSystem` (`client/scripts/resolver/status_system.gd`),
+  `MechanicsSystem` as the status-aware query layer, stim removed, siege
+  as the indefinite `sieged` status on the single tank def, statuses
+  serialized through clone/save/replay and `NetworkV0Codec`, presentation
+  hints (`sprite_key`, `overlay_keys`) reserved but unread by simulation.
+  Multipliers are integer percents — no float math in the resolver.

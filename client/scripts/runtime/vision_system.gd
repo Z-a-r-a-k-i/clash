@@ -6,47 +6,130 @@ extends RefCounted
 class Visibility:
 	extends RefCounted
 
-	var _visible_tiles: Dictionary = {}
-	var _detected_tiles: Dictionary = {}
+	# Visibility is stored as merged per-row x-intervals instead of a
+	# tile dictionary. A unit's sight area (chebyshev radius around its
+	# rect) is exactly a rectangle, so marking costs O(rows), not
+	# O(area) — the per-tile dictionary was the resolver's single
+	# biggest cost at scale. Intervals are Vector2i(x_start, x_end),
+	# inclusive, merged lazily on first query.
+
+	# row y -> Array of Vector2i(x1, x2), possibly unmerged until queried.
+	var _visible_rows: Dictionary = {}
+	var _detected_rows: Dictionary = {}
+	var _visible_merged: bool = true
+	var _detected_merged: bool = true
 
 	func mark_visible(tile: Vector2i) -> void:
-		_visible_tiles[tile] = true
+		mark_visible_span(tile.y, tile.x, tile.x)
 
 	func mark_detected(tile: Vector2i) -> void:
-		_detected_tiles[tile] = true
+		mark_detected_span(tile.y, tile.x, tile.x)
+
+	func mark_visible_span(row: int, x_start: int, x_end: int) -> void:
+		if x_end < x_start:
+			return
+		if not _visible_rows.has(row):
+			_visible_rows[row] = [] as Array[Vector2i]
+		_visible_rows[row].append(Vector2i(x_start, x_end))
+		_visible_merged = false
+
+	func mark_detected_span(row: int, x_start: int, x_end: int) -> void:
+		if x_end < x_start:
+			return
+		if not _detected_rows.has(row):
+			_detected_rows[row] = [] as Array[Vector2i]
+		_detected_rows[row].append(Vector2i(x_start, x_end))
+		_detected_merged = false
 
 	func is_tile_visible(tile: Vector2i) -> bool:
-		return _visible_tiles.has(tile)
+		_ensure_visible_merged()
+		return _row_has_x(_visible_rows, tile.y, tile.x)
 
 	func is_tile_detected(tile: Vector2i) -> bool:
-		return _detected_tiles.has(tile)
+		_ensure_detected_merged()
+		return _row_has_x(_detected_rows, tile.y, tile.x)
 
 	func is_rect_visible(rect: Rect2i) -> bool:
 		if rect.size.x <= 0 or rect.size.y <= 0:
 			return false
-		for x in range(rect.position.x, rect.position.x + rect.size.x):
-			for y in range(rect.position.y, rect.position.y + rect.size.y):
-				if is_tile_visible(Vector2i(x, y)):
-					return true
-		return false
+		_ensure_visible_merged()
+		return _rect_overlaps_rows(_visible_rows, rect)
 
 	func is_rect_detected(rect: Rect2i) -> bool:
 		if rect.size.x <= 0 or rect.size.y <= 0:
 			return false
-		for x in range(rect.position.x, rect.position.x + rect.size.x):
-			for y in range(rect.position.y, rect.position.y + rect.size.y):
-				if is_tile_detected(Vector2i(x, y)):
-					return true
-		return false
+		_ensure_detected_merged()
+		return _rect_overlaps_rows(_detected_rows, rect)
 
 	func visible_tiles() -> Array[Vector2i]:
+		_ensure_visible_merged()
 		var out: Array[Vector2i] = []
-		for tile in _visible_tiles.keys():
-			out.append(tile)
+		for row in _visible_rows:
+			for span in _visible_rows[row]:
+				for x in range(span.x, span.y + 1):
+					out.append(Vector2i(x, row))
 		return out
 
 	func visible_tile_count() -> int:
-		return _visible_tiles.size()
+		_ensure_visible_merged()
+		var count := 0
+		for row in _visible_rows:
+			for span in _visible_rows[row]:
+				count += span.y - span.x + 1
+		return count
+
+	func _ensure_visible_merged() -> void:
+		if _visible_merged:
+			return
+		_merge_rows(_visible_rows)
+		_visible_merged = true
+
+	func _ensure_detected_merged() -> void:
+		if _detected_merged:
+			return
+		_merge_rows(_detected_rows)
+		_detected_merged = true
+
+	static func _merge_rows(rows: Dictionary) -> void:
+		for row in rows:
+			var spans: Array[Vector2i] = rows[row]
+			if spans.size() <= 1:
+				continue
+			spans.sort()
+			var merged: Array[Vector2i] = [spans[0]]
+			for index in range(1, spans.size()):
+				var span: Vector2i = spans[index]
+				var last: Vector2i = merged[merged.size() - 1]
+				if span.x <= last.y + 1:
+					merged[merged.size() - 1] = Vector2i(last.x, maxi(last.y, span.y))
+				else:
+					merged.append(span)
+			rows[row] = merged
+
+	static func _row_has_x(rows: Dictionary, row: int, x: int) -> bool:
+		var spans: Variant = rows.get(row)
+		if spans == null:
+			return false
+		for span in spans:
+			if x < span.x:
+				return false
+			if x <= span.y:
+				return true
+		return false
+
+	static func _rect_overlaps_rows(rows: Dictionary, rect: Rect2i) -> bool:
+		var x1: int = rect.position.x
+		var x2: int = rect.position.x + rect.size.x - 1
+		for y in range(rect.position.y, rect.position.y + rect.size.y):
+			var spans: Variant = rows.get(y)
+			if spans == null:
+				continue
+			for span in spans:
+				if span.x > x2:
+					break
+				if span.y >= x1:
+					return true
+		return false
 
 
 static func compute_player_visibility(
@@ -97,22 +180,18 @@ static func _mark_radius(
 ) -> void:
 	if visibility == null or grid == null or rect.size.x <= 0 or rect.size.y <= 0:
 		return
+	# Chebyshev distance <= radius around a rect is exactly the rect grown
+	# by `radius`, so the sight area is one clamped rectangle of row spans.
 	var safe_radius: int = max(radius, 0)
-	var min_x: int = rect.position.x - safe_radius
-	var min_y: int = rect.position.y - safe_radius
-	var max_x: int = rect.position.x + rect.size.x + safe_radius
-	var max_y: int = rect.position.y + rect.size.y + safe_radius
-	for x in range(min_x, max_x):
-		for y in range(min_y, max_y):
-			var tile := Vector2i(x, y)
-			if not grid.is_in_bounds(tile):
-				continue
-			if _tile_distance_to_rect(tile, rect) > safe_radius:
-				continue
-			if detector:
-				visibility.mark_detected(tile)
-			else:
-				visibility.mark_visible(tile)
+	var min_x: int = maxi(rect.position.x - safe_radius, 0)
+	var min_y: int = maxi(rect.position.y - safe_radius, 0)
+	var max_x: int = mini(rect.position.x + rect.size.x - 1 + safe_radius, grid.width - 1)
+	var max_y: int = mini(rect.position.y + rect.size.y - 1 + safe_radius, grid.height - 1)
+	for y in range(min_y, max_y + 1):
+		if detector:
+			visibility.mark_detected_span(y, min_x, max_x)
+		else:
+			visibility.mark_visible_span(y, min_x, max_x)
 
 
 static func _tile_distance_to_rect(tile: Vector2i, rect: Rect2i) -> int:

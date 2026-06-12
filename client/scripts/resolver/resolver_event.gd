@@ -39,6 +39,9 @@ enum Type {
 	ORDER_REJECTED,
 	ABILITY_USED,
 	MOVE_COMPLETED,
+	# Plan node 14 — status runtime. def_id carries the status_id.
+	STATUS_APPLIED,
+	STATUS_CLEARED,
 }
 
 var type: Type = Type.INVALID
@@ -59,7 +62,8 @@ var to_origin: Vector2i = Vector2i.ZERO
 var damage: int = 0
 var hp_after: int = 0
 
-# ENTITY_TRANSFORMED — current_def_id swap (e.g. tank -> siege_tank).
+# ENTITY_TRANSFORMED — current_def_id swap. No current producer (siege
+# became status-driven, plan node 14); kept for renderer compatibility.
 var new_def_id: String = ""
 
 # BUILD_COMPLETED — the def id that finished construction / training.

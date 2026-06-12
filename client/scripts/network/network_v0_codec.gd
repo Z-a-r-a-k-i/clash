@@ -10,7 +10,7 @@ const _TYPE_MATCH_STATE: String = "MatchState"
 const _TYPE_PLAYER_STATE: String = "PlayerState"
 const _TYPE_ENTITY: String = "Entity"
 const _TYPE_TILE_GRID: String = "TileGrid"
-const _TYPE_ACTIVE_BUFF: String = "ActiveBuff"
+const _TYPE_STATUS_EFFECT: String = "StatusEffect"
 const _TYPE_ABILITY_CAST_STATE: String = "AbilityCastState"
 const _TYPE_PRODUCTION_STATE: String = "ProductionState"
 const _TYPE_GATHER_STATE: String = "GatherState"
@@ -70,8 +70,8 @@ func _normalize(value: Variant) -> Variant:
 		return _normalize_entity(value as Entity)
 	if value is TileGrid:
 		return _normalize_tile_grid(value as TileGrid)
-	if value is ActiveBuff:
-		return _normalize_active_buff(value as ActiveBuff)
+	if value is StatusEffect:
+		return _normalize_status_effect(value as StatusEffect)
 	if value is AbilityCastState:
 		return _normalize_ability_cast_state(value as AbilityCastState)
 	if value is ProductionState:
@@ -113,8 +113,8 @@ func _denormalize(value: Variant) -> Variant:
 				return _entity_from_dict(source)
 			_TYPE_TILE_GRID:
 				return _tile_grid_from_dict(source)
-			_TYPE_ACTIVE_BUFF:
-				return _active_buff_from_dict(source)
+			_TYPE_STATUS_EFFECT:
+				return _status_effect_from_dict(source)
 			_TYPE_ABILITY_CAST_STATE:
 				return _ability_cast_state_from_dict(source)
 			_TYPE_PRODUCTION_STATE:
@@ -216,7 +216,7 @@ func _normalize_entity(entity: Entity) -> Dictionary:
 		"persistent_order": _normalize(entity.persistent_order),
 		"focus_target_entity_id": entity.focus_target_entity_id,
 		"ability_cooldowns": _normalize(entity.ability_cooldowns),
-		"active_buffs": _normalize(entity.active_buffs),
+		"statuses": _normalize(entity.statuses),
 		"ability_cast": _normalize(entity.ability_cast),
 		"is_hidden": entity.is_hidden,
 		"moves_used_this_turn": entity.moves_used_this_turn,
@@ -244,13 +244,24 @@ func _normalize_tile_grid(grid: TileGrid) -> Dictionary:
 	}
 
 
-func _normalize_active_buff(buff: ActiveBuff) -> Dictionary:
+func _normalize_status_effect(status: StatusEffect) -> Dictionary:
 	return {
-		_TYPE_KEY: _TYPE_ACTIVE_BUFF,
-		"source_ability_id": buff.source_ability_id,
-		"turns_remaining": buff.turns_remaining,
-		"damage_mult": buff.damage_mult,
-		"speed_mult": buff.speed_mult,
+		_TYPE_KEY: _TYPE_STATUS_EFFECT,
+		"status_id": status.status_id,
+		"source_ability_id": status.source_ability_id,
+		"duration_turns": status.duration_turns,
+		"blocks_move": status.blocks_move,
+		"blocks_attack": status.blocks_attack,
+		"speed_mult_pct": status.speed_mult_pct,
+		"damage_mult_pct": status.damage_mult_pct,
+		"grants_initiative": status.grants_initiative,
+		"override_attacks_before_movement": status.override_attacks_before_movement,
+		"override_attacks_after_movement": status.override_attacks_after_movement,
+		"damage_override": status.damage_override,
+		"attack_range_override": status.attack_range_override,
+		"end_of_turn_hp_delta": status.end_of_turn_hp_delta,
+		"sprite_key": status.sprite_key,
+		"overlay_keys": status.overlay_keys.duplicate(),
 	}
 
 
@@ -368,7 +379,7 @@ func _entity_from_dict(source: Dictionary) -> Entity:
 	entity.focus_target_entity_id = source.get("focus_target_entity_id", -1)
 	var ability_cooldowns: Variant = _denormalize(source.get("ability_cooldowns", {}))
 	entity.ability_cooldowns = ability_cooldowns if ability_cooldowns is Dictionary else {}
-	entity.active_buffs = _active_buff_array(source.get("active_buffs", []))
+	entity.statuses = _status_effect_array(source.get("statuses", []))
 	entity.ability_cast = (_denormalize(source.get("ability_cast", null)) as AbilityCastState)
 	entity.is_hidden = source.get("is_hidden", false)
 	entity.moves_used_this_turn = source.get("moves_used_this_turn", 0)
@@ -396,13 +407,28 @@ func _tile_grid_from_dict(source: Dictionary) -> TileGrid:
 	return grid
 
 
-func _active_buff_from_dict(source: Dictionary) -> ActiveBuff:
-	var buff: ActiveBuff = ActiveBuff.new()
-	buff.source_ability_id = source.get("source_ability_id", "")
-	buff.turns_remaining = source.get("turns_remaining", 0)
-	buff.damage_mult = source.get("damage_mult", 1.0)
-	buff.speed_mult = source.get("speed_mult", 1.0)
-	return buff
+func _status_effect_from_dict(source: Dictionary) -> StatusEffect:
+	var status: StatusEffect = StatusEffect.new()
+	status.status_id = source.get("status_id", "")
+	status.source_ability_id = source.get("source_ability_id", "")
+	status.duration_turns = source.get("duration_turns", StatusEffect.INDEFINITE)
+	status.blocks_move = source.get("blocks_move", false)
+	status.blocks_attack = source.get("blocks_attack", false)
+	status.speed_mult_pct = source.get("speed_mult_pct", 100)
+	status.damage_mult_pct = source.get("damage_mult_pct", 100)
+	status.grants_initiative = source.get("grants_initiative", false)
+	status.override_attacks_before_movement = source.get(
+		"override_attacks_before_movement", StatusEffect.OVERRIDE_INHERIT
+	)
+	status.override_attacks_after_movement = source.get(
+		"override_attacks_after_movement", StatusEffect.OVERRIDE_INHERIT
+	)
+	status.damage_override = source.get("damage_override", -1)
+	status.attack_range_override = source.get("attack_range_override", -1)
+	status.end_of_turn_hp_delta = source.get("end_of_turn_hp_delta", 0)
+	status.sprite_key = source.get("sprite_key", "")
+	status.overlay_keys = _string_array(source.get("overlay_keys", []))
+	return status
 
 
 func _ability_cast_state_from_dict(source: Dictionary) -> AbilityCastState:
@@ -468,12 +494,12 @@ func _entity_array(value: Variant) -> Array[Entity]:
 	return out
 
 
-func _active_buff_array(value: Variant) -> Array[ActiveBuff]:
-	var out: Array[ActiveBuff] = []
+func _status_effect_array(value: Variant) -> Array[StatusEffect]:
+	var out: Array[StatusEffect] = []
 	if not value is Array:
 		return out
 	for item: Variant in value:
-		out.append(_denormalize(item) as ActiveBuff)
+		out.append(_denormalize(item) as StatusEffect)
 	return out
 
 

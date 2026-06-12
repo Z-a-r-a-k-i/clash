@@ -3,7 +3,7 @@ extends RefCounted
 
 # End-of-turn pass — fires after the last action tick. Per plan/m0/02:
 # - Decrement ability cooldowns; remove entries at 0.
-# - Decrement active buff durations; remove expired buffs.
+# - Status turn hooks: end-of-turn hp deltas, then duration expiry (node 14).
 # - Decrement production progress; emit BUILD_COMPLETED for items at 0
 #   (M0: stub event only — actual unit-spawn / cost-deduction is plan
 #   nodes 04 and 05).
@@ -26,9 +26,12 @@ static func run(
 		if entity.current_hp <= 0:
 			continue
 		_tick_ability_cooldowns(entity)
-		_tick_active_buffs(entity)
 		entity.moves_used_this_turn = 0
 		_recompute_is_hidden(entity, registry, tunables)
+
+	# Status turn hooks: end-of-turn damage/regeneration (can destroy),
+	# then finite-duration expiry. Plan node 14.
+	StatusSystem.run_end_of_turn(state, registry, events)
 
 	# Delayed self-target abilities complete after normal per-turn
 	# bookkeeping so their transformed form is ready for the next turn.
@@ -68,18 +71,6 @@ static func _tick_ability_cooldowns(entity: Entity) -> void:
 		entity.ability_cooldowns[key] = updates[key]
 	for key in keys_to_remove:
 		entity.ability_cooldowns.erase(key)
-
-
-static func _tick_active_buffs(entity: Entity) -> void:
-	# Decrement each buff's turns_remaining; drop expired buffs.
-	var kept: Array[ActiveBuff] = []
-	for buff in entity.active_buffs:
-		if buff == null:
-			continue
-		buff.turns_remaining -= 1
-		if buff.turns_remaining > 0:
-			kept.append(buff)
-	entity.active_buffs = kept
 
 
 static func _recompute_is_hidden(

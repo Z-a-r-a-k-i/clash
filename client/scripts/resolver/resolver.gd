@@ -137,6 +137,10 @@ static func resolve(
 	if profile != null:
 		profile.add("distribute_orders", profile_step)
 
+	# Shared per-resolve caches (visibility, blockers, flow fields, sorted
+	# entities). Derived state only — see resolve_context.gd.
+	var context := ResolveContext.new(working, registry)
+
 	# 3a. Idle producers that just received a TRAIN/RESEARCH this turn
 	#     should start producing immediately (so build-time is N turns
 	#     from order submission, not N+1). Plan node 05.
@@ -159,7 +163,7 @@ static func resolve(
 	if n_ticks == 0:
 		if profile != null:
 			profile_step = profile.mark()
-		var has_standing_work: bool = _has_standing_work(working, registry, profile)
+		var has_standing_work: bool = _has_standing_work(working, registry, context, profile)
 		if profile != null:
 			profile.add("standing_work.total", profile_step)
 		if has_standing_work:
@@ -169,15 +173,10 @@ static func resolve(
 	var fired_attack_windows: Dictionary = {}
 	var fired_before_movement_entity_ids: Dictionary = {}
 	for tick in n_ticks:
-		# Sort once per tick and reuse across phases. Determinism still
-		# requires fresh sorts each tick because attacks in the previous
-		# tick can have killed entities, and dead entities are still in
-		# the array (current_hp == 0) — the sort is stable and id-based,
-		# so the order itself doesn't change, but recomputing is cheap and
-		# defensive against future mutations of `entities`.
+		context.begin_tick()
 		if profile != null:
 			profile_step = profile.mark()
-		var sorted_entities := working.entities_sorted_by_id()
+		var sorted_entities := context.sorted_entities()
 		if profile != null:
 			profile.add("tick.sort_entities", profile_step)
 
@@ -191,6 +190,8 @@ static func resolve(
 				continue
 			if order.type == EntityOrder.Type.USE_ABILITY:
 				_ABILITY_SYSTEM.resolve_use_ability(working, entity, order, registry, events)
+				# Def swaps (e.g. siege) can change vision; recompute lazily.
+				context.invalidate_visibility_for(entity.owner_player_id)
 		if profile != null:
 			profile.add("tick.abilities", profile_step)
 
@@ -208,6 +209,7 @@ static func resolve(
 			sorted_entities,
 			_MECHANICS_SYSTEM.ATTACK_WINDOW_PRE_MOVEMENT,
 			_ATTACK_FILTER_INITIATIVE,
+			context,
 			profile
 		)
 
@@ -225,6 +227,7 @@ static func resolve(
 			sorted_entities,
 			_MECHANICS_SYSTEM.ATTACK_WINDOW_PRE_MOVEMENT,
 			_ATTACK_FILTER_NON_INITIATIVE,
+			context,
 			profile
 		)
 
@@ -244,7 +247,7 @@ static func resolve(
 				profile.count("movement.substep_attempts")
 				profile_step = profile.mark()
 			var halted_entity_ids: Dictionary = _attack_move_halted_entity_ids(
-				working, registry, sorted_entities, per_entity, tick
+				working, registry, sorted_entities, per_entity, tick, context
 			)
 			if profile != null:
 				profile.add("movement.halted_entity_ids", profile_step)
@@ -260,7 +263,8 @@ static func resolve(
 				halted_entity_ids,
 				sorted_entities,
 				movement_path_cache,
-				profile
+				profile,
+				context
 			)
 			if profile != null:
 				profile.add("movement.resolve_substep", profile_step)
@@ -281,6 +285,7 @@ static func resolve(
 			sorted_entities,
 			_MECHANICS_SYSTEM.ATTACK_WINDOW_POST_MOVEMENT,
 			_ATTACK_FILTER_ALL,
+			context,
 			profile
 		)
 
@@ -314,9 +319,9 @@ static func resolve(
 # Used by resolve() to force n_ticks ≥ 1 on turns with no submitted
 # orders.
 static func _has_standing_work(
-	state: MatchState, registry: EntityRegistry, profile: Variant = null
+	state: MatchState, registry: EntityRegistry, context: Variant = null, profile: Variant = null
 ) -> bool:
-	var visibility_by_player: Dictionary = {}
+	var visibility_by_player: Variant = context if context != null else {}
 	for e in state.entities:
 		if e == null or e.current_hp <= 0:
 			continue
@@ -358,7 +363,7 @@ static func _standing_attack_order(
 	entity: Entity,
 	registry: EntityRegistry,
 	require_ready_target: bool,
-	visibility_by_player: Dictionary
+	visibility_by_player: Variant
 ) -> EntityOrder:
 	if entity == null or entity.current_hp <= 0:
 		return null
@@ -417,10 +422,11 @@ static func _apply_attack_opportunities(
 	sorted_entities: Array[Entity],
 	attack_window: String,
 	attack_filter: String,
+	context: Variant = null,
 	profile: Variant = null
 ) -> void:
 	var attack_intents: Array[Dictionary] = []
-	var visibility_by_player: Dictionary = {}
+	var visibility_by_player: Variant = context if context != null else {}
 	var fired_entity_ids: Dictionary = _fired_entity_ids_for_window(
 		fired_attack_windows, attack_window
 	)
@@ -457,7 +463,7 @@ static func _apply_attack_opportunities(
 		return
 	var apply_start: int = profile.mark() if profile != null else 0
 	var tick_fired_ids: Dictionary = CombatSystem.apply_attack_intents(
-		state, attack_intents, registry, events
+		state, attack_intents, registry, events, context
 	)
 	if profile != null:
 		profile.add("tick.attack_apply", apply_start)
@@ -495,7 +501,7 @@ static func _attack_order_for_opportunity(
 	tick: int,
 	entity: Entity,
 	registry: EntityRegistry,
-	visibility_by_player: Dictionary
+	visibility_by_player: Variant
 ) -> EntityOrder:
 	var queued_order: EntityOrder = _STATE_HELPERS.action_at(per_entity, entity.id, tick)
 	if queued_order != null:
@@ -515,7 +521,7 @@ static func _attack_order_for_queued_attack_move(
 	entity: Entity,
 	queued_order: EntityOrder,
 	registry: EntityRegistry,
-	visibility_by_player: Dictionary
+	visibility_by_player: Variant
 ) -> EntityOrder:
 	var attack_order: EntityOrder = _standing_attack_order(
 		state, entity, registry, false, visibility_by_player
@@ -545,12 +551,13 @@ static func _attack_move_halted_entity_ids(
 	registry: EntityRegistry,
 	sorted_entities: Array[Entity],
 	per_entity: Dictionary,
-	tick: int
+	tick: int,
+	context: Variant = null
 ) -> Dictionary:
 	var out: Dictionary = {}
 	if state == null or registry == null:
 		return out
-	var visibility_by_player: Dictionary = {}
+	var visibility_by_player: Variant = context if context != null else {}
 	for entity in sorted_entities:
 		if entity == null or entity.current_hp <= 0:
 			continue
@@ -575,18 +582,21 @@ static func _is_visible_to_player(
 	registry: EntityRegistry,
 	entity: Entity,
 	player_id: int,
-	visibility_by_player: Dictionary
+	visibility_by_player: Variant
 ) -> bool:
 	if entity == null or player_id < 0:
 		return false
 	if state == null or state.tile_grid == null:
 		return true
 	var visibility: VisionSystem.Visibility = null
-	if visibility_by_player.has(player_id):
+	if visibility_by_player is ResolveContext:
+		visibility = visibility_by_player.visibility_for(player_id)
+	elif visibility_by_player is Dictionary and visibility_by_player.has(player_id):
 		visibility = visibility_by_player[player_id] as VisionSystem.Visibility
 	else:
 		visibility = VisionSystem.compute_player_visibility(state, registry, player_id)
-		visibility_by_player[player_id] = visibility
+		if visibility_by_player is Dictionary:
+			visibility_by_player[player_id] = visibility
 	return VisionSystem.is_entity_visible_to_player(entity, state, registry, player_id, visibility)
 
 

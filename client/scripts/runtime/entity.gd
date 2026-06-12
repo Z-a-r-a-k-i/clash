@@ -17,7 +17,7 @@ extends Resource
 
 @export var id: int = -1  # unique runtime id (not def_id). -1 = unallocated; MatchState.allocate_entity_id() starts at 1.
 @export var def_id: String = ""  # canonical EntityDef id
-@export var current_def_id: String = ""  # == def_id unless TransformEffect swapped
+@export var current_def_id: String = ""  # == def_id unless a def swap changed it
 @export var owner_player_id: int = 0
 @export var origin: Vector2i = Vector2i.ZERO
 @export var current_layer: String = ""  # may differ from def.movement.default_layer
@@ -30,7 +30,7 @@ extends Resource
 @export var focus_target_entity_id: int = -1  # preferred attack target; -1 = auto-acquire
 
 @export var ability_cooldowns: Dictionary = {}  # { ability_id: turns_remaining }
-@export var active_buffs: Array[ActiveBuff] = []
+@export var statuses: Array[StatusEffect] = []  # plan node 14; mutate via StatusSystem only
 @export var ability_cast: AbilityCastState
 @export var is_hidden: bool = false  # recomputed each turn
 
@@ -97,10 +97,10 @@ func clone() -> Entity:
 	c.focus_target_entity_id = focus_target_entity_id
 
 	c.ability_cooldowns = ability_cooldowns.duplicate()
-	c.active_buffs = []
-	for b in active_buffs:
-		if b != null:
-			c.active_buffs.append(b.clone())
+	c.statuses = []
+	for s in statuses:
+		if s != null:
+			c.statuses.append(s.clone())
 	c.ability_cast = ability_cast.clone() if ability_cast != null else null
 	c.is_hidden = is_hidden
 	c.moves_used_this_turn = moves_used_this_turn

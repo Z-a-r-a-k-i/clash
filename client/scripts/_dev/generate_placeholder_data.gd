@@ -41,26 +41,8 @@ func _init() -> void:
 func _gen_abilities() -> int:
 	var saved := 0
 
-	# Stim: HP cost, self-buff, instant.
-	var stim := AbilityDef.new()
-	stim.id = "stim"
-	stim.display_name = "Stim"
-	stim.target_type = "self"
-	stim.target_range = 0
-	stim.cooldown_turns = 5
-	stim.cast_time_turns = 0
-	var stim_cost := AbilityCost.new()
-	stim_cost.type = "hp"
-	stim_cost.amount = 10
-	stim.costs = [stim_cost]
-	var stim_effect := StatBuffEffect.new()
-	stim_effect.duration_turns = 3
-	stim_effect.damage_mult = 1.5
-	stim_effect.speed_mult = 1.5
-	stim.effect = stim_effect
-	saved += int(_save(stim, "%s/abilities/stim.tres" % DATA_ROOT))
-
-	# Siege mode: 1-tick cast, no resource cost, transforms tank → siege_tank.
+	# Siege mode: 1-tick cast, applies the indefinite "sieged" status
+	# (plan node 14 — siege is status-driven, not a def swap).
 	var siege := AbilityDef.new()
 	siege.id = "siege_mode"
 	siege.display_name = "Siege Mode"
@@ -68,12 +50,19 @@ func _gen_abilities() -> int:
 	siege.target_range = 0
 	siege.cooldown_turns = 0
 	siege.cast_time_turns = 1
-	var siege_effect := TransformEffect.new()
-	siege_effect.to_def_id = "siege_tank"
+	var sieged := StatusEffect.new()
+	sieged.status_id = "sieged"
+	sieged.duration_turns = StatusEffect.INDEFINITE
+	sieged.blocks_move = true
+	sieged.damage_override = 40
+	sieged.attack_range_override = 6
+	sieged.sprite_key = "siege_tank"
+	var siege_effect := StatusApplyEffect.new()
+	siege_effect.status = sieged
 	siege.effect = siege_effect
 	saved += int(_save(siege, "%s/abilities/siege_mode.tres" % DATA_ROOT))
 
-	# Unsiege mode: same shape, transforms back.
+	# Unsiege mode: clears the "sieged" status.
 	var unsiege := AbilityDef.new()
 	unsiege.id = "unsiege_mode"
 	unsiege.display_name = "Unsiege Mode"
@@ -81,8 +70,8 @@ func _gen_abilities() -> int:
 	unsiege.target_range = 0
 	unsiege.cooldown_turns = 0
 	unsiege.cast_time_turns = 1
-	var unsiege_effect := TransformEffect.new()
-	unsiege_effect.to_def_id = "tank"
+	var unsiege_effect := StatusClearEffect.new()
+	unsiege_effect.status_id = "sieged"
 	unsiege.effect = unsiege_effect
 	saved += int(_save(unsiege, "%s/abilities/unsiege_mode.tres" % DATA_ROOT))
 
@@ -94,19 +83,19 @@ func _gen_abilities() -> int:
 
 func _gen_units() -> int:
 	var saved := 0
-	# Marine — light infantry, ground, can hit ground + flying. Stim ability.
+	# Marine — light infantry, ground, can hit ground + flying.
+	# Anti-air specialist: +50% vs "flying" (counter triangle: marine > heli).
 	var marine := EntityDef.new()
 	marine.id = "marine"
 	marine.display_name = "Marine"
 	marine.footprint = Vector2i(1, 1)
 	marine.tags = ["light", "biological", "ground"]
 	marine.health = _health(45)
-	marine.combat = _combat(18, 3, ["ground", "flying"], [])
+	marine.combat = _combat(18, 3, ["ground", "flying"], [_modifier("flying", 150)])
 	marine.movement = _movement(4, "ground")
 	marine.vision = _vision(4)
 	marine.population = _pop_cost(1)
 	marine.construction = _construction(2, 100, 0, "barracks")
-	marine.abilities = _abilities([_ability_ref("stim")])
 	saved += int(_save(marine, "%s/entities/units/marine.tres" % DATA_ROOT))
 
 	# Tank — heavy ground, hit ground only, big damage at long range. Siege ability.
@@ -121,32 +110,18 @@ func _gen_units() -> int:
 	tank.vision = _vision(5)
 	tank.population = _pop_cost(3)
 	tank.construction = _construction(4, 150, 125, "factory")
-	tank.abilities = _abilities([_ability_ref("siege_mode")])
+	tank.abilities = _abilities([_ability_ref("siege_mode"), _ability_ref("unsiege_mode")])
 	saved += int(_save(tank, "%s/entities/units/tank.tres" % DATA_ROOT))
 
-	# Siege Tank — alt-form of tank. Bigger range, more damage, can't move.
-	var siege_tank := EntityDef.new()
-	siege_tank.id = "siege_tank"
-	siege_tank.display_name = "Siege Tank"
-	siege_tank.footprint = Vector2i(2, 2)
-	siege_tank.tags = ["heavy", "mechanical", "ground"]
-	siege_tank.health = _health(175)
-	siege_tank.combat = _combat(40, 6, ["ground"], [])
-	# No MovementDef — sieged tank can't move.
-	siege_tank.vision = _vision(5)
-	siege_tank.population = _pop_cost(3)
-	siege_tank.construction = _construction(5, 150, 125, "factory")
-	siege_tank.abilities = _abilities([_ability_ref("unsiege_mode")])
-	saved += int(_save(siege_tank, "%s/entities/units/siege_tank.tres" % DATA_ROOT))
-
 	# Helicopter — flying, mid stats, hit ground + flying.
+	# Tank hunter: +50% vs "heavy" (counter triangle: heli > tank).
 	var heli := EntityDef.new()
 	heli.id = "helicopter"
 	heli.display_name = "Helicopter"
 	heli.footprint = Vector2i(1, 1)
 	heli.tags = ["light", "mechanical", "flying"]
 	heli.health = _health(140)
-	heli.combat = _combat(25, 3, ["ground", "flying"], [])
+	heli.combat = _combat(25, 3, ["ground", "flying"], [_modifier("heavy", 150)])
 	heli.movement = _movement(5, "flying")
 	heli.vision = _vision(4)
 	heli.population = _pop_cost(3)
@@ -232,7 +207,7 @@ func _gen_buildings() -> int:
 	factory.vision = _vision(4)
 	factory.construction = _construction(4, 150, 100, "worker")
 	var factory_prod := ProductionDef.new()
-	factory_prod.produces = ["siege_tank"]
+	factory_prod.produces = ["tank"]
 	factory_prod.queue_capacity = 1
 	factory_prod.rally_offset = Vector2i(0, 3)
 	factory_prod.researches = ["siege_mode_research"]
@@ -343,7 +318,6 @@ func _gen_registry() -> int:
 	var entity_paths := [
 		"%s/entities/units/marine.tres" % DATA_ROOT,
 		"%s/entities/units/tank.tres" % DATA_ROOT,
-		"%s/entities/units/siege_tank.tres" % DATA_ROOT,
 		"%s/entities/units/helicopter.tres" % DATA_ROOT,
 		"%s/entities/units/worker.tres" % DATA_ROOT,
 		"%s/entities/buildings/base.tres" % DATA_ROOT,
@@ -356,7 +330,6 @@ func _gen_registry() -> int:
 		"%s/entities/neutrals/gas_geyser.tres" % DATA_ROOT,
 	]
 	var research_paths := [
-		"%s/researches/stim_research.tres" % DATA_ROOT,
 		"%s/researches/siege_mode_research.tres" % DATA_ROOT,
 	]
 	var entities: Array[EntityDef] = []
@@ -413,6 +386,13 @@ func _combat(
 	c.target_layers = target_layers
 	c.attack_modifiers = modifiers
 	return c
+
+
+func _modifier(target_tag: String, damage_mult_pct: int) -> AttackModifier:
+	var m := AttackModifier.new()
+	m.target_tag = target_tag
+	m.damage_mult_pct = damage_mult_pct
+	return m
 
 
 func _movement(speed: int, layer: String) -> MovementDef:
@@ -475,7 +455,7 @@ func _abilities(refs: Array[AbilityDef]) -> AbilitiesDef:
 
 func _ability_ref(id: String) -> AbilityDef:
 	# Generator order matters: abilities are saved before entities, so the
-	# .tres files for stim / siege_mode / unsiege_mode exist by the time we
+	# .tres files for siege_mode / unsiege_mode exist by the time we
 	# build units. If load() ever returns null it's a bug in the generator's
 	# ordering — fail loud and substitute a default-constructed placeholder
 	# so the rest of the run continues and we don't propagate null into

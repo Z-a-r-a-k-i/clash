@@ -60,7 +60,7 @@ const HEADER: Array[String] = [
 	"effect_duration_turns",
 	"effect_damage_mult",
 	"effect_speed_mult",
-	"effect_to_def_id",
+	"effect_status_id",
 ]
 
 
@@ -214,17 +214,19 @@ static func _ability_row(ability: AbilityDef, ability_path: String) -> Dictionar
 static func _fill_effect_columns(row: Dictionary, effect: Effect) -> void:
 	if effect == null:
 		return
-	if effect is StatBuffEffect:
-		var stat_buff: StatBuffEffect = effect
-		row["ability_effect_type"] = "stat_buff"
-		row["effect_duration_turns"] = str(stat_buff.duration_turns)
-		row["effect_damage_mult"] = str(stat_buff.damage_mult)
-		row["effect_speed_mult"] = str(stat_buff.speed_mult)
+	if effect is StatusApplyEffect:
+		var apply_effect: StatusApplyEffect = effect
+		row["ability_effect_type"] = "status_apply"
+		if apply_effect.status != null:
+			row["effect_status_id"] = apply_effect.status.status_id
+			row["effect_duration_turns"] = str(apply_effect.status.duration_turns)
+			row["effect_damage_mult"] = str(apply_effect.status.damage_mult_pct)
+			row["effect_speed_mult"] = str(apply_effect.status.speed_mult_pct)
 		return
-	if effect is TransformEffect:
-		var transform: TransformEffect = effect
-		row["ability_effect_type"] = "transform"
-		row["effect_to_def_id"] = transform.to_def_id
+	if effect is StatusClearEffect:
+		var clear_effect: StatusClearEffect = effect
+		row["ability_effect_type"] = "status_clear"
+		row["effect_status_id"] = clear_effect.status_id
 		return
 	row["ability_effect_type"] = effect.get_class()
 
@@ -274,7 +276,7 @@ static func _format_attack_modifiers(modifiers: Array[AttackModifier]) -> String
 	for modifier in modifiers:
 		if modifier == null:
 			continue
-		parts.append("%s:%s" % [modifier.target_tag, str(modifier.damage_mult)])
+		parts.append("%s:%s" % [modifier.target_tag, str(modifier.damage_mult_pct)])
 	return ";".join(parts)
 
 

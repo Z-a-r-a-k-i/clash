@@ -60,7 +60,7 @@ const HEADER: Array[String] = [
 	"effect_duration_turns",
 	"effect_damage_mult",
 	"effect_speed_mult",
-	"effect_to_def_id",
+	"effect_status_id",
 ]
 
 var _csv_loaded := false
@@ -119,7 +119,7 @@ func _test_known_rows_exist() -> bool:
 	if not _ensure_csv_loaded():
 		return false
 	var ok := true
-	for id in ["marine", "base", "stim_research", "stim"]:
+	for id in ["marine", "base", "siege_mode_research", "siege_mode"]:
 		if _row_by_id(id).is_empty():
 			push_error("missing expected balance row for id '%s'" % id)
 			ok = false
@@ -139,10 +139,8 @@ func _test_nested_values_are_exported() -> bool:
 	ok = _expect_cell(marine, "combat_attacks_after_movement", "false") and ok
 	ok = _expect_cell(marine, "combat_has_initiative", "false") and ok
 	ok = _expect_cell(marine, "combat_target_layers", "ground;flying") and ok
-	ok = _expect_cell(marine, "ability_ids", "stim") and ok
-
-	var siege_tank := _row_by_id("siege_tank")
-	ok = _expect_cell(siege_tank, "combat_attack_modifiers", "") and ok
+	ok = _expect_cell(marine, "ability_ids", "") and ok
+	ok = _expect_cell(marine, "combat_attack_modifiers", "flying:150") and ok
 
 	var base := _row_by_id("base")
 	ok = _expect_cell(base, "production_produces", "worker") and ok
@@ -150,7 +148,7 @@ func _test_nested_values_are_exported() -> bool:
 
 	var barracks := _row_by_id("barracks")
 	ok = _expect_cell(barracks, "production_produces", "marine") and ok
-	ok = _expect_cell(barracks, "production_researches", "stim_research") and ok
+	ok = _expect_cell(barracks, "production_researches", "") and ok
 
 	var mineral_patch := _row_by_id("mineral_patch")
 	ok = _expect_cell(mineral_patch, "resource_type", "minerals") and ok
@@ -162,22 +160,20 @@ func _test_nested_values_are_exported() -> bool:
 	ok = _expect_cell(gas_geyser, "resource_type", "gas") and ok
 	ok = _expect_cell(gas_geyser, "resource_requires_extractor", "true") and ok
 
-	var research := _row_by_id("stim_research")
+	var research := _row_by_id("siege_mode_research")
 	ok = _expect_cell(research, "kind", "research") and ok
-	ok = _expect_cell(research, "research_mineral_cost", "100") and ok
-	ok = _expect_cell(research, "research_gas_cost", "0") and ok
-	ok = _expect_cell(research, "research_time_turns", "12") and ok
 
-	var stim := _row_by_id("stim")
-	ok = _expect_cell(stim, "kind", "ability") and ok
-	ok = _expect_cell(stim, "ability_target_type", "self") and ok
-	ok = _expect_cell(stim, "ability_cooldown_turns", "5") and ok
-	ok = _expect_cell(stim, "ability_requires_research_id", "stim_research") and ok
-	ok = _expect_cell(stim, "ability_costs", "hp:10") and ok
-	ok = _expect_cell(stim, "ability_effect_type", "stat_buff") and ok
-	ok = _expect_cell(stim, "effect_duration_turns", "3") and ok
-	ok = _expect_cell(stim, "effect_damage_mult", "1.5") and ok
-	ok = _expect_cell(stim, "effect_speed_mult", "1.5") and ok
+	var siege_mode := _row_by_id("siege_mode")
+	ok = _expect_cell(siege_mode, "kind", "ability") and ok
+	ok = _expect_cell(siege_mode, "ability_target_type", "self") and ok
+	ok = _expect_cell(siege_mode, "ability_cast_time_turns", "1") and ok
+	ok = _expect_cell(siege_mode, "ability_effect_type", "status_apply") and ok
+	ok = _expect_cell(siege_mode, "effect_status_id", "sieged") and ok
+	ok = _expect_cell(siege_mode, "effect_duration_turns", "-1") and ok
+
+	var unsiege_mode := _row_by_id("unsiege_mode")
+	ok = _expect_cell(unsiege_mode, "ability_effect_type", "status_clear") and ok
+	ok = _expect_cell(unsiege_mode, "effect_status_id", "sieged") and ok
 	return ok
 
 
@@ -203,17 +199,12 @@ func _test_balance_adjustments_are_exported() -> bool:
 	ok = _expect_cell(tank, "movement_speed", "8") and ok
 	ok = _expect_cell(tank, "construction_gas_cost", "125") and ok
 
-	var siege_tank := _row_by_id("siege_tank")
-	ok = _expect_cell(siege_tank, "combat_damage", "40") and ok
-	ok = _expect_cell(siege_tank, "combat_attack_range", "6") and ok
-	ok = _expect_cell(siege_tank, "combat_attack_modifiers", "") and ok
-
 	var helicopter := _row_by_id("helicopter")
 	ok = _expect_cell(helicopter, "combat_damage", "25") and ok
 	ok = _expect_cell(helicopter, "combat_attack_range", "3") and ok
 	ok = _expect_cell(helicopter, "movement_speed", "14") and ok
 	ok = _expect_cell(helicopter, "vision_sight_radius", "4") and ok
-	ok = _expect_cell(helicopter, "combat_attack_modifiers", "") and ok
+	ok = _expect_cell(helicopter, "combat_attack_modifiers", "heavy:150") and ok
 
 	var siege_mode := _row_by_id("siege_mode")
 	ok = _expect_cell(siege_mode, "ability_requires_research_id", "") and ok

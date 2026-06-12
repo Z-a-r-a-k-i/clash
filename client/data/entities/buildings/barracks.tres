@@ -19,7 +19,7 @@ max_hp = 200
 [sub_resource type="Resource" id="Resource_es67m"]
 script = ExtResource("3_es67m")
 produces = Array[String](["marine"])
-researches = Array[String](["stim_research"])
+researches = Array[String]([])
 rally_offset = Vector2i(0, 3)
 
 [sub_resource type="Resource" id="Resource_q4jk7"]

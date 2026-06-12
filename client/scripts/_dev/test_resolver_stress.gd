@@ -18,11 +18,20 @@ const _BUDGET_ENV_VAR := "RESOLVER_STRESS_BUDGET_USEC"
 func _enter_tree() -> void:
 	if not Engine.is_editor_hint():
 		return
-	var ok := _test_large_ordered_resolve_stays_under_budget()
-	if ok:
-		print("[test_resolver_stress] 1 passed, 0 failed")
+	var passed := 0
+	var failed := 0
+	for entry in _all_tests():
+		var test_name: String = entry[0]
+		var test_callable: Callable = entry[1]
+		if test_callable.call():
+			passed += 1
+		else:
+			failed += 1
+			push_error("[test_resolver_stress] FAILED: %s" % test_name)
+	if failed == 0:
+		print("[test_resolver_stress] %d passed, 0 failed" % passed)
 	else:
-		push_error("[test_resolver_stress] 0 passed, 1 failed")
+		push_error("[test_resolver_stress] %d passed, %d failed" % [passed, failed])
 
 
 func _all_tests() -> Array:
@@ -31,7 +40,138 @@ func _all_tests() -> Array:
 			"large_ordered_resolve_stays_under_budget",
 			_test_large_ordered_resolve_stays_under_budget
 		],
+		["same_goal_clump_stays_under_budget", _test_same_goal_clump_stays_under_budget],
+		["crossing_clumps_stay_under_budget", _test_crossing_clumps_stay_under_budget],
 	]
+
+
+# Pathological case from playtests: many units ordered to the SAME exact
+# tile. Once the first unit takes the goal, every other unit's exact target
+# is permanently blocked — historically each of them re-ran a full-map A*
+# flood per substep, freezing the resolve. Runs several consecutive turns
+# (clients re-submit unfinished moves each turn) and budgets each resolve.
+func _test_same_goal_clump_stays_under_budget() -> bool:
+	var registry := _stress_registry()
+	var state := MatchState.new()
+	state.players = [_player(0), _player(1)]
+	state.tile_grid = TileGrid.new(_GRID_WIDTH, _GRID_HEIGHT)
+	var goal := Vector2i(50, 24)
+	var unit_ids: Array[int] = []
+	for row in range(4):
+		for col in range(4):
+			var unit := _place_entity(
+				state, _UNIT_DEF_ID, 0, Vector2i(8 + col, 8 + row), 1000, "ground", Vector2i.ONE
+			)
+			if unit == null:
+				return false
+			unit_ids.append(unit.id)
+	return _run_resubmitted_move_turns(state, registry, {0: _same_goal_targets(unit_ids, goal)}, 8)
+
+
+# Two opposing clumps move-ordered straight through each other. Historically
+# the head-on per-tile fights invalidated every cached path each substep and
+# triggered constant re-path churn.
+func _test_crossing_clumps_stay_under_budget() -> bool:
+	var registry := _stress_registry()
+	var state := MatchState.new()
+	state.players = [_player(0), _player(1)]
+	state.tile_grid = TileGrid.new(_GRID_WIDTH, _GRID_HEIGHT)
+	var targets_a: Dictionary = {}
+	var targets_b: Dictionary = {}
+	for row in range(4):
+		for col in range(3):
+			var origin_a := Vector2i(8 + col, 16 + row)
+			var origin_b := Vector2i(53 + col, 16 + row)
+			var unit_a := _place_entity(
+				state, _UNIT_DEF_ID, 0, origin_a, 1000, "ground", Vector2i.ONE
+			)
+			var unit_b := _place_entity(
+				state, _UNIT_DEF_ID, 1, origin_b, 1000, "ground", Vector2i.ONE
+			)
+			if unit_a == null or unit_b == null:
+				return false
+			targets_a[unit_a.id] = origin_a + Vector2i(45, 0)
+			targets_b[unit_b.id] = origin_b - Vector2i(45, 0)
+	return _run_resubmitted_move_turns(state, registry, {0: targets_a, 1: targets_b}, 8)
+
+
+func _same_goal_targets(unit_ids: Array[int], goal: Vector2i) -> Dictionary:
+	var targets: Dictionary = {}
+	for unit_id in unit_ids:
+		targets[unit_id] = goal
+	return targets
+
+
+# Re-submits a MOVE order per (player, unit -> target) every turn for
+# `turns` turns, mirroring how the client re-issues unfinished moves.
+# Budgets EACH resolve and sanity-checks that no two live ground units
+# overlap after any turn.
+func _run_resubmitted_move_turns(
+	state: MatchState, registry: EntityRegistry, targets_by_player: Dictionary, turns: int
+) -> bool:
+	var max_resolve_usec := _resolve_budget_usec()
+	var current := state
+	var worst_usec := 0
+	for turn in range(turns):
+		var submit_by_player: Dictionary = {0: _submit([]), 1: _submit([])}
+		for player_id in targets_by_player:
+			var orders: Array[EntityOrder] = []
+			var targets: Dictionary = targets_by_player[player_id]
+			for unit_id in targets:
+				var unit: Entity = current.get_entity_by_id(unit_id)
+				if unit == null or unit.current_hp <= 0 or unit.origin == targets[unit_id]:
+					continue
+				var move := EntityOrder.new()
+				move.type = EntityOrder.Type.MOVE
+				move.entity_id = unit_id
+				move.target_tile = targets[unit_id]
+				orders.append(move)
+			submit_by_player[player_id] = _submit(orders)
+		var start_usec := Time.get_ticks_usec()
+		var result: ResolveResult = Resolver.resolve(
+			current, submit_by_player[0], submit_by_player[1], registry, null
+		)
+		var elapsed_usec := Time.get_ticks_usec() - start_usec
+		worst_usec = maxi(worst_usec, elapsed_usec)
+		if result == null or result.new_state == null:
+			push_error("[test_resolver_stress] turn %d resolve returned null" % turn)
+			return false
+		current = result.new_state
+		if not _live_ground_units_disjoint(current):
+			push_error("[test_resolver_stress] units overlap after turn %d" % turn)
+			return false
+		if elapsed_usec > max_resolve_usec:
+			push_error(
+				(
+					"[test_resolver_stress] turn %d resolve took %.3fms; budget is %.3fms"
+					% [turn, float(elapsed_usec) / 1000.0, float(max_resolve_usec) / 1000.0]
+				)
+			)
+			return false
+	print(
+		(
+			"[test_resolver_stress] resubmitted-move turns=%d worst=%.3fms budget=%.3fms"
+			% [turns, float(worst_usec) / 1000.0, float(max_resolve_usec) / 1000.0]
+		)
+	)
+	return true
+
+
+func _live_ground_units_disjoint(state: MatchState) -> bool:
+	var seen: Dictionary = {}
+	for entity in state.entities:
+		if entity == null or entity.current_hp <= 0 or entity.current_layer != "ground":
+			continue
+		var rect: Rect2i = state.tile_grid.entity_rect(entity.id)
+		if rect.size.x <= 0 or rect.size.y <= 0:
+			continue
+		for x in range(rect.position.x, rect.position.x + rect.size.x):
+			for y in range(rect.position.y, rect.position.y + rect.size.y):
+				var tile := Vector2i(x, y)
+				if seen.has(tile):
+					return false
+				seen[tile] = true
+	return true
 
 
 func _test_large_ordered_resolve_stays_under_budget() -> bool:
@@ -327,10 +467,11 @@ func _stress_ability() -> AbilityDef:
 	ability.id = _ABILITY_ID
 	ability.display_name = "Stress Drill"
 	ability.target_type = "self"
-	var effect := StatBuffEffect.new()
-	effect.duration_turns = 2
-	effect.damage_mult = 1.0
-	effect.speed_mult = 1.0
+	var status := StatusEffect.new()
+	status.status_id = _ABILITY_ID
+	status.duration_turns = 2
+	var effect := StatusApplyEffect.new()
+	effect.status = status
 	ability.effect = effect
 	return ability
 

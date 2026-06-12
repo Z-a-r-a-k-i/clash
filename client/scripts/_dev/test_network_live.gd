@@ -460,7 +460,7 @@ func _state_signature(state: MatchState) -> Dictionary:
 					"order_queue": _orders_signature(entity.order_queue),
 					"persistent_order": _order_signature(entity.persistent_order),
 					"ability_cooldowns": entity.ability_cooldowns.duplicate(true),
-					"active_buffs": _active_buffs_signature(entity.active_buffs),
+					"statuses": _statuses_signature(entity.statuses),
 					"ability_cast": _ability_cast_signature(entity.ability_cast),
 					"is_hidden": entity.is_hidden,
 					"moves_used": entity.moves_used_this_turn,
@@ -530,20 +530,25 @@ func _order_signature(order: EntityOrder) -> Dictionary:
 	}
 
 
-func _active_buffs_signature(active_buffs: Array[ActiveBuff]) -> Array[Dictionary]:
+func _statuses_signature(statuses: Array[StatusEffect]) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
-	for buff: ActiveBuff in active_buffs:
-		if buff == null:
+	for status: StatusEffect in statuses:
+		if status == null:
 			out.append({})
 		else:
 			(
 				out
 				. append(
 					{
-						"source": buff.source_ability_id,
-						"turns": buff.turns_remaining,
-						"damage": buff.damage_mult,
-						"speed": buff.speed_mult,
+						"id": status.status_id,
+						"source": status.source_ability_id,
+						"turns": status.duration_turns,
+						"damage": status.damage_mult_pct,
+						"speed": status.speed_mult_pct,
+						"blocks_move": status.blocks_move,
+						"blocks_attack": status.blocks_attack,
+						"eot_hp": status.end_of_turn_hp_delta,
+						"sprite": status.sprite_key,
 					}
 				)
 			)

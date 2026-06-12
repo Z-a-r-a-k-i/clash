@@ -36,6 +36,7 @@ func _all_tests() -> Array:
 		["dev_input_snapshot_round_trips_selected_ids", _test_snapshot_selected_ids],
 		["dev_input_queues_move_for_active_player", _test_queues_move_for_active_player],
 		["dev_input_group_move_fans_out_to_movable_selection", _test_group_move_fan_out],
+		["dev_input_group_move_spread_units_converge", _test_group_move_spread_units_converge],
 		["dev_input_queues_attack_against_enemy", _test_queues_attack_against_enemy],
 		[
 			"dev_input_target_generates_firing_move_when_needed",
@@ -293,6 +294,52 @@ func _test_queues_move_for_active_player() -> bool:
 		return false
 	var order: EntityOrder = submit_0.orders[0]
 	return _expect_order(order, EntityOrder.Type.MOVE, 1, Vector2i(8, 8), -1, [])
+
+
+# Regression: a spread-out selection must CONVERGE on the clicked tile,
+# not preserve its full map-scale offsets (which sent every unit to a
+# "formation" tile far from the click).
+func _test_group_move_spread_units_converge() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_input_setup()
+	var state: MatchState = setup.state
+	# Four marines at the map corners — maximum spread on the 12x12 grid.
+	_add_entity(state, 31, "marine", 0, Vector2i(0, 0), Vector2i(1, 1), 45)
+	_add_entity(state, 32, "marine", 0, Vector2i(11, 0), Vector2i(1, 1), 45)
+	_add_entity(state, 33, "marine", 0, Vector2i(0, 11), Vector2i(1, 1), 45)
+	_add_entity(state, 34, "marine", 0, Vector2i(11, 11), Vector2i(1, 1), 45)
+	input.bind_context(state, setup.registry)
+	input.set_active_player_id(0)
+	if not _select_entities_for_test(input, [31, 32, 33, 34]):
+		return false
+	var click := Vector2i(6, 6)
+	if not input.issue_move(click):
+		push_error("group Move should queue for spread selected units")
+		return false
+	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
+	if orders.size() != 4:
+		push_error("expected four MOVE orders, got %d" % orders.size())
+		return false
+	var seen: Dictionary = {}
+	for order in orders:
+		var distance: int = maxi(
+			abs(order.target_tile.x - click.x), abs(order.target_tile.y - click.y)
+		)
+		if distance > 2:
+			push_error(
+				(
+					"spread units should converge near the click; #%d targets %s (distance %d)"
+					% [order.entity_id, str(order.target_tile), distance]
+				)
+			)
+			return false
+		if seen.has(order.target_tile):
+			push_error("converged targets should stay distinct")
+			return false
+		seen[order.target_tile] = true
+	return true
 
 
 func _test_group_move_fan_out() -> bool:
@@ -1284,15 +1331,15 @@ func _test_queues_build_train_research() -> bool:
 	if not input.issue_train("marine"):
 		push_error("expected barracks to queue TRAIN marine")
 		return false
-	if not input.issue_research("stim_research"):
-		push_error("expected barracks to queue RESEARCH stim_research")
+	if not input.issue_research("surge_research"):
+		push_error("expected barracks to queue RESEARCH surge_research")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if orders[1].type != EntityOrder.Type.TRAIN or orders[1].def_id != "marine":
 		push_error("second order should be TRAIN marine")
 		return false
-	if orders[2].type != EntityOrder.Type.RESEARCH or orders[2].def_id != "stim_research":
-		push_error("third order should be RESEARCH stim_research")
+	if orders[2].type != EntityOrder.Type.RESEARCH or orders[2].def_id != "surge_research":
+		push_error("third order should be RESEARCH surge_research")
 		return false
 	return true
 
@@ -1525,10 +1572,10 @@ func _test_derives_command_options() -> bool:
 	if train_ids != ["marine"]:
 		push_error("expected barracks train ids [marine], got %s" % str(train_ids))
 		return false
-	if research_ids != ["stim_research"]:
-		push_error("expected barracks research ids [stim_research], got %s" % str(research_ids))
+	if research_ids != ["surge_research"]:
+		push_error("expected barracks research ids [surge_research], got %s" % str(research_ids))
 		return false
-	setup.state.get_player(0).unlocked_researches.append("stim_research")
+	setup.state.get_player(0).unlocked_researches.append("surge_research")
 	if not input.research_option_ids().is_empty():
 		push_error("unlocked research should disappear from command options")
 		return false
@@ -1566,28 +1613,28 @@ func _test_queues_use_ability() -> bool:
 	if input == null:
 		return false
 	var setup: Dictionary = _make_input_setup()
-	setup.state.get_player(0).unlocked_researches.append("stim_research")
+	setup.state.get_player(0).unlocked_researches.append("surge_research")
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	input.select_entity(5)
-	if input.ability_option_ids() != ["stim"]:
+	if input.ability_option_ids() != ["surge"]:
 		push_error(
 			(
-				"expected selected marine ability options [stim], got %s"
+				"expected selected marine ability options [surge], got %s"
 				% str(input.ability_option_ids())
 			)
 		)
 		return false
-	if not input.issue_ability("stim"):
-		push_error("expected selected marine to queue USE_ABILITY stim")
+	if not input.issue_ability("surge"):
+		push_error("expected selected marine to queue USE_ABILITY surge")
 		return false
 	var order: EntityOrder = input.submit_for_player(0).orders[0]
-	if order.type != EntityOrder.Type.USE_ABILITY or order.def_id != "stim":
-		push_error("expected USE_ABILITY stim order")
+	if order.type != EntityOrder.Type.USE_ABILITY or order.def_id != "surge":
+		push_error("expected USE_ABILITY surge order")
 		return false
-	setup.state.get_entity_by_id(5).ability_cooldowns = {"stim": 2}
+	setup.state.get_entity_by_id(5).ability_cooldowns = {"surge": 2}
 	if not input.ability_option_ids().is_empty():
-		push_error("cooldown should hide stim ability option")
+		push_error("cooldown should hide surge ability option")
 		return false
 	return true
 
@@ -1597,27 +1644,27 @@ func _test_group_ability() -> bool:
 	if input == null:
 		return false
 	var setup: Dictionary = _make_input_setup()
-	setup.state.get_player(0).unlocked_researches.append("stim_research")
+	setup.state.get_player(0).unlocked_researches.append("surge_research")
 	input.bind_context(setup.state, setup.registry)
 	input.set_active_player_id(0)
 	if not _select_entities_for_test(input, [1, 5, 9]):
 		return false
-	if input.ability_option_ids() != ["stim"]:
+	if input.ability_option_ids() != ["surge"]:
 		push_error("group ability options should be the union of selected abilities")
 		return false
-	if not input.issue_ability("stim"):
+	if not input.issue_ability("surge"):
 		push_error("group ability should queue for eligible selected units")
 		return false
 	var orders: Array[EntityOrder] = input.submit_for_player(0).orders
 	if orders.size() != 1:
-		push_error("only the marine should receive stim, got %d orders" % orders.size())
+		push_error("only the marine should receive surge, got %d orders" % orders.size())
 		return false
 	if (
 		orders[0].type != EntityOrder.Type.USE_ABILITY
 		or orders[0].entity_id != 5
-		or orders[0].def_id != "stim"
+		or orders[0].def_id != "surge"
 	):
-		push_error("expected USE_ABILITY stim for marine #5")
+		push_error("expected USE_ABILITY surge for marine #5")
 		return false
 	if input.status_message().find("Skipped 2") == -1:
 		push_error("group ability status should include skipped count: %s" % input.status_message())
@@ -1909,7 +1956,7 @@ func _make_def(
 		var construction: ConstructionDef = ConstructionDef.new()
 		construction.built_by_tag = "barracks"
 		def.construction = construction
-		def.abilities = _abilities_def([_stim_ability()])
+		def.abilities = _abilities_def([_surge_ability()])
 	return def
 
 
@@ -1927,7 +1974,7 @@ func _make_barracks_def() -> EntityDef:
 	def.construction = construction
 	var production: ProductionDef = ProductionDef.new()
 	production.produces = ["marine"]
-	production.researches = ["stim_research"]
+	production.researches = ["surge_research"]
 	def.production = production
 	return def
 
@@ -1983,8 +2030,8 @@ func _make_noncombat_mover_def() -> EntityDef:
 
 func _make_research_def() -> ResearchDef:
 	var research: ResearchDef = ResearchDef.new()
-	research.id = "stim_research"
-	research.display_name = "Stim Pack"
+	research.id = "surge_research"
+	research.display_name = "Surge Pack"
 	research.mineral_cost = 100
 	return research
 
@@ -1995,21 +2042,24 @@ func _abilities_def(abilities: Array[AbilityDef]) -> AbilitiesDef:
 	return out
 
 
-func _stim_ability() -> AbilityDef:
+func _surge_ability() -> AbilityDef:
 	var ability: AbilityDef = AbilityDef.new()
-	ability.id = "stim"
-	ability.display_name = "Stim"
+	ability.id = "surge"
+	ability.display_name = "Surge"
 	ability.target_type = "self"
 	ability.cooldown_turns = 5
-	ability.requires_research_id = "stim_research"
+	ability.requires_research_id = "surge_research"
 	var cost: AbilityCost = AbilityCost.new()
 	cost.type = "hp"
 	cost.amount = 10
 	ability.costs = [cost]
-	var effect: StatBuffEffect = StatBuffEffect.new()
-	effect.duration_turns = 3
-	effect.damage_mult = 1.5
-	effect.speed_mult = 1.5
+	var status: StatusEffect = StatusEffect.new()
+	status.status_id = "surge"
+	status.duration_turns = 3
+	status.damage_mult_pct = 150
+	status.speed_mult_pct = 150
+	var effect: StatusApplyEffect = StatusApplyEffect.new()
+	effect.status = status
 	ability.effect = effect
 	return ability
 

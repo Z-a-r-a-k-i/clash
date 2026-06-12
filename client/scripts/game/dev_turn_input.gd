@@ -1790,17 +1790,49 @@ func _formation_target_tiles(actors: Array[Entity], target_tile: Vector2i) -> Di
 		target_tile, _formation_radius_for_actor_count(actors.size())
 	)
 	var center: Vector2 = _formation_center(actors)
+	var offset_scale: float = _formation_offset_scale(actors, center)
 	var reserved_by_layer: Dictionary = {}
 	for actor in actors:
 		if actor == null:
 			continue
-		var desired_tile: Vector2i = _formation_desired_tile(actor, target_tile, center)
+		var desired_tile: Vector2i = _formation_desired_tile(
+			actor, target_tile, center, offset_scale
+		)
 		var actor_target: Vector2i = _best_formation_target_for_actor(
 			actor, desired_tile, target_tile, candidates, passable_entity_ids, reserved_by_layer
 		)
 		out[actor.id] = actor_target
 		_reserve_formation_target(actor, actor_target, reserved_by_layer)
 	return out
+
+
+# Spread selections CONVERGE on the click: offsets from the group center
+# are compressed so the desired formation never exceeds the packed
+# footprint of the selection (16 units -> a ~4x4 block on the target).
+# Already-tight groups keep their relative shape (scale 1), which avoids
+# units crossing through each other on short formation moves.
+func _formation_offset_scale(actors: Array[Entity], center: Vector2) -> float:
+	var spread := 0.0
+	var count := 0
+	for actor in actors:
+		if actor == null:
+			continue
+		count += 1
+		spread = maxf(
+			spread,
+			maxf(absf(float(actor.origin.x) - center.x), absf(float(actor.origin.y) - center.y))
+		)
+	var half_extent := float(_formation_packed_half_extent(count))
+	if spread <= half_extent or spread <= 0.0:
+		return 1.0
+	return half_extent / spread
+
+
+# Half-width of the smallest square that packs `actor_count` single-tile
+# units (e.g. 16 units -> 4x4 square -> half extent 2).
+func _formation_packed_half_extent(actor_count: int) -> int:
+	var side: int = ceili(sqrt(float(maxi(actor_count, 1))))
+	return maxi(0, ceili(float(side - 1) * 0.5))
 
 
 func _formation_center(actors: Array[Entity]) -> Vector2:
@@ -1816,13 +1848,16 @@ func _formation_center(actors: Array[Entity]) -> Vector2:
 	return sum * (1.0 / float(count))
 
 
-func _formation_desired_tile(actor: Entity, target_tile: Vector2i, center: Vector2) -> Vector2i:
+func _formation_desired_tile(
+	actor: Entity, target_tile: Vector2i, center: Vector2, offset_scale: float = 1.0
+) -> Vector2i:
 	if actor == null:
 		return target_tile
 	return (
 		target_tile
 		+ Vector2i(
-			roundi(float(actor.origin.x) - center.x), roundi(float(actor.origin.y) - center.y)
+			roundi((float(actor.origin.x) - center.x) * offset_scale),
+			roundi((float(actor.origin.y) - center.y) * offset_scale)
 		)
 	)
 

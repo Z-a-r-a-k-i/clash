@@ -18,6 +18,21 @@ Long-horizon view of clash. Concrete near-term work lives in the plan tree (`pla
   current M0 command surface is Move, Attack, Gather, Build, Train, Research,
   Ability, Cancel, Repeat Train, Resolve.
 
+## Balance notes (M0 counter triangle)
+
+First pass at the M1 "full counter matrix", encoded as integer-percent
+`AttackModifier`s in entity data (the resolver uses integer math only):
+
+- **Marine > Helicopter** — marine deals +50% vs the `flying` tag
+  (anti-air rifles). Cost-efficient swarms keep helicopters honest.
+- **Tank > Marine** — raw stats (30 dmg vs 45 hp marines, 175 hp chassis);
+  sieged tanks (status `sieged`: 40 dmg, range 6, immobile) zone infantry.
+- **Helicopter > Tank** — helicopter deals +50% vs the `heavy` tag and
+  tanks cannot shoot `flying` at all.
+
+Workers (10 dmg, range 2) lose cost-for-cost to any combat unit; bases
+have 1000 hp so pure worker rushes trade badly against any defense.
+
 ## Speculative
 
 Ideas not yet ready to become plan nodes:

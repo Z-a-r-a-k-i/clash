@@ -11,7 +11,13 @@ const OPTION_GOAL_RANGE := "goal_range"
 const OPTION_EXACT_ORIGIN := "exact_origin"
 const OPTION_OCCUPANCY_BLOCKERS := "occupancy_blockers"
 const OPTION_COMPLETE_BLOCKED_AT_CURRENT := "complete_blocked_at_current"
+const OPTION_MAX_EXPANSIONS := "max_expansions"
 const OPTION_PROFILE := "_profile"
+
+# A* expansion budget: generous for normal paths, but prevents the
+# unreachable-goal worst case from flooding the entire map per call.
+const _EXPANSION_CAP_PER_DISTANCE := 4
+const _EXPANSION_CAP_BASE := 64
 
 const _NEIGHBORS: Array[Vector2i] = [
 	Vector2i(1, 0),
@@ -95,6 +101,9 @@ static func find_path(
 	)
 	var best_cost: int = 0
 	var expanded_nodes := 0
+	var max_expansions: int = options.get(
+		OPTION_MAX_EXPANSIONS, _EXPANSION_CAP_PER_DISTANCE * best_distance + _EXPANSION_CAP_BASE
+	)
 
 	while not open.is_empty():
 		var current_node: Dictionary = _heap_pop_open(open)
@@ -104,6 +113,9 @@ static func find_path(
 			continue
 		closed[current_key] = true
 		expanded_nodes += 1
+		if expanded_nodes > max_expansions:
+			_count_profile(profile, "pathfinding.expansion_cap_hit")
+			break
 
 		var current_cost: int = g_score.get(current_key, 0)
 		var current_distance: int = _goal_distance(
@@ -342,6 +354,7 @@ static func _can_occupy_origin_with_blockers(
 	if grid == null or movement == null:
 		return false
 	var blocked_tiles: Dictionary = occupancy_blockers.get("tiles", {})
+	var passable: Dictionary = occupancy_blockers.get("passable", {})
 	if (
 		footprint == Vector2i.ONE
 		and movement.impassable_terrain_tags.is_empty()
@@ -349,7 +362,7 @@ static func _can_occupy_origin_with_blockers(
 	):
 		if not grid.is_in_bounds(origin):
 			return false
-		return blocked_tiles.is_empty() or not blocked_tiles.has(origin)
+		return not _tile_blocked(blocked_tiles, passable, origin)
 	var rect := Rect2i(origin, footprint)
 	if not grid.is_rect_in_bounds(rect):
 		return false
@@ -358,9 +371,149 @@ static func _can_occupy_origin_with_blockers(
 	if not blocked_tiles.is_empty():
 		for x in range(rect.position.x, rect.position.x + rect.size.x):
 			for y in range(rect.position.y, rect.position.y + rect.size.y):
-				if blocked_tiles.has(Vector2i(x, y)):
+				if _tile_blocked(blocked_tiles, passable, Vector2i(x, y)):
 					return false
 	return true
+
+
+# Supports both blocker-tile formats:
+# - legacy: tile -> true (passable ids already excluded at build time)
+# - ResolveContext: tile -> {entity_id: true}, filtered through `passable`
+#   at query time so one shared map serves changing passable sets.
+static func _tile_blocked(blocked_tiles: Dictionary, passable: Dictionary, tile: Vector2i) -> bool:
+	var ids: Variant = blocked_tiles.get(tile)
+	if ids == null:
+		return false
+	if ids is Dictionary:
+		var ids_dict: Dictionary = ids
+		if passable.is_empty():
+			return not ids_dict.is_empty()
+		for entity_id in ids_dict:
+			if not passable.has(entity_id):
+				return true
+		return false
+	return true
+
+
+# ---------- Flow fields ----------
+#
+# A flow field is a multi-source BFS distance map computed once per goal
+# and shared by every 1x1 unit headed there, across all movement substeps
+# of a turn. It replaces per-unit per-substep A* (which flooded the whole
+# reachable map whenever the goal was occupied or unreachable).
+#
+# Static blockers stop propagation; tiles occupied by movers (the
+# `passable` set) are flowed through — they are expected to vacate, and
+# the per-substep conflict resolution remains the collision authority.
+
+
+static func flow_field_key(
+	layer: String,
+	movement: MovementDef,
+	target_origin: Vector2i,
+	goal_rect: Rect2i,
+	goal_range: int,
+	exact_origin: bool
+) -> String:
+	var terrain_sig := ""
+	if (
+		movement != null
+		and not (
+			movement.impassable_terrain_tags.is_empty()
+			and movement.pathable_terrain_tags.is_empty()
+		)
+	):
+		terrain_sig = (
+			"|".join(movement.impassable_terrain_tags)
+			+ "/"
+			+ "|".join(movement.pathable_terrain_tags)
+		)
+	if exact_origin:
+		return "%s:e:%d,%d:%s" % [layer, target_origin.x, target_origin.y, terrain_sig]
+	return (
+		"%s:r:%d,%d,%d,%d:%d:%s"
+		% [
+			layer,
+			goal_rect.position.x,
+			goal_rect.position.y,
+			goal_rect.size.x,
+			goal_rect.size.y,
+			goal_range,
+			terrain_sig,
+		]
+	)
+
+
+static func build_flow_field(
+	grid: TileGrid,
+	movement: MovementDef,
+	occupancy_blockers: Dictionary,
+	target_origin: Vector2i,
+	goal_rect: Rect2i,
+	goal_range: int,
+	exact_origin: bool
+) -> Dictionary:
+	var dist: Dictionary = {}
+	if grid == null or movement == null:
+		return dist
+	var blocked_tiles: Dictionary = occupancy_blockers.get("tiles", {})
+	var passable: Dictionary = occupancy_blockers.get("passable", {})
+	var check_terrain: bool = not (
+		movement.impassable_terrain_tags.is_empty() and movement.pathable_terrain_tags.is_empty()
+	)
+	var queue: Array[Vector2i] = []
+	for seed in _flow_field_seeds(target_origin, goal_rect, goal_range, exact_origin):
+		if not grid.is_in_bounds(seed):
+			continue
+		if check_terrain and not _terrain_allows_rect(grid, Rect2i(seed, Vector2i.ONE), movement):
+			continue
+		if dist.has(seed):
+			continue
+		dist[seed] = 0
+		# A statically blocked seed keeps distance 0 but does not propagate
+		# (no pathing through a parked unit ring) — except the exact-origin
+		# goal itself, which must propagate so units can approach a blocked
+		# destination and complete adjacent to it.
+		if exact_origin or not _tile_blocked(blocked_tiles, passable, seed):
+			queue.append(seed)
+	var head := 0
+	while head < queue.size():
+		var current: Vector2i = queue[head]
+		head += 1
+		var next_distance: int = int(dist[current]) + 1
+		for delta in _NEIGHBORS:
+			var next: Vector2i = current + delta
+			if dist.has(next):
+				continue
+			if not grid.is_in_bounds(next):
+				continue
+			if (
+				check_terrain
+				and not _terrain_allows_rect(grid, Rect2i(next, Vector2i.ONE), movement)
+			):
+				continue
+			if _tile_blocked(blocked_tiles, passable, next):
+				continue
+			dist[next] = next_distance
+			queue.append(next)
+	return dist
+
+
+static func _flow_field_seeds(
+	target_origin: Vector2i, goal_rect: Rect2i, goal_range: int, exact_origin: bool
+) -> Array[Vector2i]:
+	var seeds: Array[Vector2i] = []
+	if exact_origin:
+		seeds.append(target_origin)
+		return seeds
+	var min_x: int = goal_rect.position.x - goal_range
+	var min_y: int = goal_rect.position.y - goal_range
+	var max_x: int = goal_rect.position.x + goal_rect.size.x - 1 + goal_range
+	var max_y: int = goal_rect.position.y + goal_rect.size.y - 1 + goal_range
+	for y in range(min_y, max_y + 1):
+		for x in range(min_x, max_x + 1):
+			seeds.append(Vector2i(x, y))
+	return seeds
 
 
 static func _monotonic_path(

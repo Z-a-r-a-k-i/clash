@@ -71,6 +71,7 @@ func _all_tests() -> Array:
 		["move_routes_around_static_blocker", _test_move_routes_around_static_blocker],
 		["moving_unit_pass_through", _test_moving_unit_pass_through],
 		["simultaneous_swap", _test_simultaneous_swap],
+		["contested_goal_units_never_oscillate", _test_contested_goal_units_never_oscillate],
 		["transitive_conflict_keeps_survivor", _test_transitive_conflict_keeps_survivor],
 		[
 			"equal_distance_chain_keeps_non_overlapping_survivors",
@@ -97,8 +98,8 @@ func _all_tests() -> Array:
 			_test_find_next_step_matches_a_star_for_blocked_target
 		],
 		[
-			"cached_next_step_invalidates_blocked_remainder",
-			_test_cached_next_step_invalidates_blocked_remainder
+			"cached_next_step_validates_only_next_step",
+			_test_cached_next_step_validates_only_next_step
 		],
 		[
 			"movement_respects_impassable_terrain_tags",
@@ -204,7 +205,12 @@ func _all_tests() -> Array:
 		# Chunk 5 — end-of-turn system.
 		["cooldowns_decrement", _test_cooldowns_decrement],
 		["cooldown_removed_at_zero", _test_cooldown_removed_at_zero],
-		["buff_expires_at_zero", _test_buff_expires_at_zero],
+		["status_expires_at_zero", _test_status_expires_at_zero],
+		["status_indefinite_persists", _test_status_indefinite_persists],
+		["status_blocks_attack", _test_status_blocks_attack],
+		["status_blocks_move", _test_status_blocks_move],
+		["status_end_of_turn_damage_can_destroy", _test_status_end_of_turn_damage_can_destroy],
+		["status_end_of_turn_regen_caps_at_max_hp", _test_status_end_of_turn_regen_caps_at_max_hp],
 		["moves_used_resets_each_turn", _test_moves_used_resets_each_turn],
 		["production_progress_emits_completion", _test_production_progress_emits_completion],
 		["win_by_raze", _test_win_by_raze],
@@ -214,7 +220,7 @@ func _all_tests() -> Array:
 		["cancel_clears_persistent_order", _test_cancel_clears_persistent_order],
 		["cancel_clears_focus_target", _test_cancel_clears_focus_target],
 		["fresh_order_overrides_persistent_order", _test_fresh_order_overrides_persistent_order],
-		["multi_buff_stacks_multiplicatively", _test_multi_buff_stacks_multiplicatively],
+		["multi_status_stacks_multiplicatively", _test_multi_status_stacks_multiplicatively],
 		["no_tile_grid_distance_fallback", _test_no_tile_grid_distance_fallback],
 		["closest_enemy_skips_dead", _test_closest_enemy_skips_dead],
 		["closest_enemy_ties_break_by_id", _test_closest_enemy_ties_break_by_id],
@@ -373,21 +379,21 @@ func _all_tests() -> Array:
 		["mvp_map_is_mirror", _test_mvp_map_is_mirror],
 		["mvp_map_bake_parity", _test_mvp_map_bake_parity],
 		# Plan node 07b5 — self-target ability orders.
-		["ability_stim_rejects_without_research", _test_ability_stim_rejects_without_research],
+		["ability_surge_rejects_without_research", _test_ability_surge_rejects_without_research],
 		[
-			"ability_stim_applies_cost_buff_cooldown_and_event",
-			_test_ability_stim_applies_cost_buff_cooldown_and_event
+			"ability_surge_applies_cost_status_cooldown_and_event",
+			_test_ability_surge_applies_cost_status_cooldown_and_event
 		],
-		["ability_stim_rejects_on_cooldown", _test_ability_stim_rejects_on_cooldown],
-		["ability_stim_rejects_low_hp", _test_ability_stim_rejects_low_hp],
+		["ability_surge_rejects_on_cooldown", _test_ability_surge_rejects_on_cooldown],
+		["ability_surge_rejects_low_hp", _test_ability_surge_rejects_low_hp],
 		[
-			"ability_siege_delayed_transform_blocks_later_actions",
-			_test_ability_siege_delayed_transform_blocks_later_actions
+			"ability_siege_delayed_status_blocks_later_actions",
+			_test_ability_siege_delayed_status_blocks_later_actions
 		],
-		["ability_unsiege_delayed_transform", _test_ability_unsiege_delayed_transform],
+		["ability_unsiege_clears_status", _test_ability_unsiege_clears_status],
 		[
-			"siege_tank_data_is_immobile_and_siege_is_not_research_gated",
-			_test_siege_tank_data_is_immobile_and_siege_is_not_research_gated
+			"siege_data_is_status_driven_and_not_research_gated",
+			_test_siege_data_is_status_driven_and_not_research_gated
 		],
 	]
 
@@ -654,7 +660,7 @@ func _test_attack_modifier_applies() -> bool:
 	var marine_combat := _combat_def(6, 5, ["ground"])
 	var mod := AttackModifier.new()
 	mod.target_tag = "heavy"
-	mod.damage_mult = 1.5
+	mod.damage_mult_pct = 150
 	marine_combat.attack_modifiers = [mod]
 	var registry := EntityRegistry.new()
 	registry.entities = [
@@ -969,6 +975,41 @@ func _test_moving_unit_pass_through() -> bool:
 	return new_rear.origin == Vector2i(2, 1) and new_front.origin == Vector2i(3, 1)
 
 
+# Jitter regression: units contesting the same destination must make
+# strictly forward progress — within one turn an entity never steps back
+# onto a tile it already occupied (no side-to-side oscillation when it
+# loses a conflict).
+func _test_contested_goal_units_never_oscillate() -> bool:
+	var registry: EntityRegistry = _movable_registry(3)
+	var state: MatchState = _state_with_grid(6, 6)
+	var goal := Vector2i(2, 2)
+	var starts: Array[Vector2i] = [Vector2i(0, 2), Vector2i(4, 2), Vector2i(2, 0), Vector2i(2, 4)]
+	var orders: Array[EntityOrder] = []
+	for start in starts:
+		var unit: Entity = _make_entity(state, "marine", 0, start, 50, "ground")
+		state.tile_grid.place(unit.id, Rect2i(start, Vector2i.ONE))
+		orders.append(_move_order(unit.id, EntityOrder.Type.MOVE, goal))
+
+	var result: ResolveResult = Resolver.resolve(state, _submit(orders), _submit(), registry, null)
+	var visited_by_entity: Dictionary = {}
+	for event in result.events:
+		if event == null or event.type != ResolverEvent.Type.ENTITY_MOVED:
+			continue
+		if not visited_by_entity.has(event.actor_id):
+			visited_by_entity[event.actor_id] = {event.from_origin: true}
+		var visited: Dictionary = visited_by_entity[event.actor_id]
+		if visited.has(event.to_origin):
+			push_error(
+				(
+					"entity %d re-entered already-visited tile %s"
+					% [event.actor_id, str(event.to_origin)]
+				)
+			)
+			return false
+		visited[event.to_origin] = true
+	return true
+
+
 func _test_simultaneous_swap() -> bool:
 	var registry: EntityRegistry = _movable_registry(1)
 	var state: MatchState = _state_with_grid(5, 3)
@@ -1211,24 +1252,28 @@ func _test_find_next_step_matches_a_star_for_blocked_target() -> bool:
 	)
 
 
-func _test_cached_next_step_invalidates_blocked_remainder() -> bool:
+# Cached paths validate ONLY their next step. Later tiles can be blocked by
+# units that will have moved before we get there; a blocked remainder must
+# NOT force a re-path, but a blocked next step must.
+func _test_cached_next_step_validates_only_next_step() -> bool:
 	var registry: EntityRegistry = _movable_registry(3)
 	var state: MatchState = _state_with_grid(6, 3)
 	var actor: Entity = _make_entity(state, "marine", 0, Vector2i(1, 1), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(1, 1, 1, 1))
 	var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, registry)
-	var path_cache: Dictionary = {
-		actor.id:
-		{
-			"target_origin": Vector2i(4, 1),
-			"exact_origin": true,
-			"goal_range": 0,
-			"has_goal_rect": false,
-			"goal_rect": Rect2i(),
-			"path": [Vector2i(2, 1), Vector2i(3, 1), Vector2i(4, 1)],
-		},
+	var cached_entry: Dictionary = {
+		"target_origin": Vector2i(4, 1),
+		"exact_origin": true,
+		"goal_range": 0,
+		"has_goal_rect": false,
+		"goal_rect": Rect2i(),
+		"path": [Vector2i(2, 1), Vector2i(3, 1), Vector2i(4, 1)],
 	}
-	var options: Dictionary = {
+	var intent: Dictionary = {"exact_origin": true, "goal_range": 0}
+
+	# Blocked remainder (3,1): the cached step to (2,1) survives.
+	var path_cache: Dictionary = {actor.id: cached_entry.duplicate(true)}
+	var remainder_options: Dictionary = {
 		_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS: {"tiles": {Vector2i(3, 1): true}},
 	}
 	var step: Dictionary = MovementSystem._cached_next_step(
@@ -1237,12 +1282,34 @@ func _test_cached_next_step_invalidates_blocked_remainder() -> bool:
 		Vector2i(4, 1),
 		Vector2i.ONE,
 		movement,
-		options,
-		{"exact_origin": true, "goal_range": 0},
+		remainder_options,
+		intent,
+		path_cache
+	)
+	if step.get("next_origin", Vector2i.ZERO) != Vector2i(2, 1):
+		push_error("blocked remainder should not invalidate the cached next step")
+		return false
+	if not path_cache.has(actor.id):
+		push_error("cache entry should survive a blocked remainder")
+		return false
+
+	# Blocked next step (2,1): the cache is invalidated.
+	path_cache = {actor.id: cached_entry.duplicate(true)}
+	var next_step_options: Dictionary = {
+		_PATHFINDING.OPTION_OCCUPANCY_BLOCKERS: {"tiles": {Vector2i(2, 1): true}},
+	}
+	step = MovementSystem._cached_next_step(
+		state.tile_grid,
+		actor,
+		Vector2i(4, 1),
+		Vector2i.ONE,
+		movement,
+		next_step_options,
+		intent,
 		path_cache
 	)
 	if not step.is_empty():
-		push_error("cached route with blocked remainder should be invalidated")
+		push_error("blocked next step should invalidate the cached route")
 		return false
 	return not path_cache.has(actor.id)
 
@@ -2462,12 +2529,12 @@ func _test_idle_unit_auto_attacks_enemy_in_range() -> bool:
 
 
 func _test_cooldowns_decrement() -> bool:
-	# Entity with cooldown {stim: 3} → after one turn → {stim: 2}.
+	# Entity with cooldown {surge: 3} → after one turn → {surge: 2}.
 	var registry := _movable_registry(4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
-	actor.ability_cooldowns = {"stim": 3}
+	actor.ability_cooldowns = {"surge": 3}
 
 	# Need at least one tick for end-of-turn to fire. Queue any move.
 	var move := EntityOrder.new()
@@ -2478,16 +2545,16 @@ func _test_cooldowns_decrement() -> bool:
 
 	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	return new_actor.ability_cooldowns.get("stim", 0) == 2
+	return new_actor.ability_cooldowns.get("surge", 0) == 2
 
 
 func _test_cooldown_removed_at_zero() -> bool:
-	# Cooldown {stim: 1} → after one turn → key removed.
+	# Cooldown {surge: 1} → after one turn → key removed.
 	var registry := _movable_registry(4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
-	actor.ability_cooldowns = {"stim": 1}
+	actor.ability_cooldowns = {"surge": 1}
 
 	var move := EntityOrder.new()
 	move.type = EntityOrder.Type.MOVE
@@ -2497,21 +2564,21 @@ func _test_cooldown_removed_at_zero() -> bool:
 
 	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	return not new_actor.ability_cooldowns.has("stim")
+	return not new_actor.ability_cooldowns.has("surge")
 
 
-func _test_buff_expires_at_zero() -> bool:
-	# Buff with turns_remaining=1 → after one turn → removed.
+func _test_status_expires_at_zero() -> bool:
+	# Status with duration_turns=1 → after one turn → removed.
 	var registry := _movable_registry(4)
 	var state := _state_with_grid(20, 20)
 	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
 	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
 
-	var buff := ActiveBuff.new()
-	buff.source_ability_id = "stim"
-	buff.turns_remaining = 1
-	buff.damage_mult = 1.5
-	actor.active_buffs = [buff]
+	var status := StatusEffect.new()
+	status.status_id = "surge"
+	status.duration_turns = 1
+	status.damage_mult_pct = 150
+	actor.statuses = [status]
 
 	var move := EntityOrder.new()
 	move.type = EntityOrder.Type.MOVE
@@ -2521,7 +2588,121 @@ func _test_buff_expires_at_zero() -> bool:
 
 	var result := Resolver.resolve(state, _submit(queue_a), _submit([]), registry, null)
 	var new_actor := result.new_state.get_entity_by_id(actor.id)
-	return new_actor.active_buffs.is_empty()
+	return new_actor.statuses.is_empty()
+
+
+func _test_status_indefinite_persists() -> bool:
+	# INDEFINITE duration never ticks away; it stays until cleared.
+	var registry := _movable_registry(4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	var status := StatusEffect.new()
+	status.status_id = "sieged"
+	status.duration_turns = StatusEffect.INDEFINITE
+	actor.statuses = [status]
+
+	var current := state
+	for _turn in 3:
+		var result := Resolver.resolve(current, _submit([]), _submit([]), registry, null)
+		current = result.new_state
+	var new_actor := current.get_entity_by_id(actor.id)
+	return (
+		StatusSystem.has_status(new_actor, "sieged")
+		and new_actor.statuses[0].duration_turns == StatusEffect.INDEFINITE
+	)
+
+
+func _test_status_blocks_attack() -> bool:
+	# A no-shoot status prevents attack participation while active.
+	var registry := _two_unit_registry(4, 5, ["ground"], 50)
+	var state := _state_with_grid(20, 20)
+	var attacker := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	var target := _make_entity(state, "marine", 1, Vector2i(7, 5), 50, "ground")
+	state.tile_grid.place(attacker.id, Rect2i(5, 5, 1, 1))
+	state.tile_grid.place(target.id, Rect2i(7, 5, 1, 1))
+	var status := StatusEffect.new()
+	status.status_id = "suppressed"
+	status.duration_turns = 2
+	status.blocks_attack = true
+	attacker.statuses = [status]
+
+	var attack := EntityOrder.new()
+	attack.type = EntityOrder.Type.TARGET
+	attack.entity_id = attacker.id
+	attack.target_priority_chain = [target.id]
+	var result := Resolver.resolve(
+		state, _submit([attack] as Array[EntityOrder]), _submit([]), registry, null
+	)
+	for ev in result.events:
+		if ev.type == ResolverEvent.Type.ENTITY_DAMAGED and ev.actor_id == attacker.id:
+			push_error("blocks_attack status should suppress the attack")
+			return false
+	return true
+
+
+func _test_status_blocks_move() -> bool:
+	# A no-move status prevents movement while leaving the entity alive.
+	var registry := _movable_registry(4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	var status := StatusEffect.new()
+	status.status_id = "rooted"
+	status.duration_turns = 2
+	status.blocks_move = true
+	actor.statuses = [status]
+
+	var move := EntityOrder.new()
+	move.type = EntityOrder.Type.MOVE
+	move.entity_id = actor.id
+	move.target_tile = Vector2i(10, 5)
+	var result := Resolver.resolve(
+		state, _submit([move] as Array[EntityOrder]), _submit([]), registry, null
+	)
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	return new_actor.origin == Vector2i(5, 5)
+
+
+func _test_status_end_of_turn_damage_can_destroy() -> bool:
+	# End-of-turn damage applies deterministically and can destroy.
+	var registry := _movable_registry(4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 5, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	var status := StatusEffect.new()
+	status.status_id = "burning"
+	status.duration_turns = 3
+	status.end_of_turn_hp_delta = -10
+	actor.statuses = [status]
+
+	var result := Resolver.resolve(state, _submit([]), _submit([]), registry, null)
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	if new_actor.current_hp != 0:
+		push_error("end-of-turn damage should bring HP to 0")
+		return false
+	if result.new_state.tile_grid.entity_rect(actor.id).size != Vector2i.ZERO:
+		push_error("destroyed entity should be removed from the grid")
+		return false
+	return _has_event_of_type(result.events, ResolverEvent.Type.ENTITY_DESTROYED)
+
+
+func _test_status_end_of_turn_regen_caps_at_max_hp() -> bool:
+	# End-of-turn regeneration heals without exceeding max HP.
+	var registry := _movable_registry(4)
+	var state := _state_with_grid(20, 20)
+	var actor := _make_entity(state, "marine", 0, Vector2i(5, 5), 40, "ground")
+	state.tile_grid.place(actor.id, Rect2i(5, 5, 1, 1))
+	var status := StatusEffect.new()
+	status.status_id = "mending"
+	status.duration_turns = 3
+	status.end_of_turn_hp_delta = 20
+	actor.statuses = [status]
+
+	var result := Resolver.resolve(state, _submit([]), _submit([]), registry, null)
+	var new_actor := result.new_state.get_entity_by_id(actor.id)
+	var max_hp: int = registry.get_by_id("marine").health.max_hp
+	return new_actor.current_hp == max_hp
 
 
 func _test_moves_used_resets_each_turn() -> bool:
@@ -2678,13 +2859,14 @@ func _test_determinism_golden() -> bool:
 		state.tile_grid.place(p1_target.id, Rect2i(8, 5, 1, 1))
 		state.tile_grid.place(p1_persistent.id, Rect2i(15, 15, 1, 1))
 
-		# Pre-existing buff and cooldown so end-of-turn has work to do.
-		var buff := ActiveBuff.new()
-		buff.source_ability_id = "stim"
-		buff.turns_remaining = 2
-		buff.damage_mult = 1.5
-		p0_attacker.active_buffs = [buff]
-		p0_attacker.ability_cooldowns = {"stim": 3}
+		# Pre-existing status and cooldown so end-of-turn has work to do.
+		var status := StatusEffect.new()
+		status.status_id = "surge"
+		status.source_ability_id = "surge"
+		status.duration_turns = 2
+		status.damage_mult_pct = 150
+		p0_attacker.statuses = [status]
+		p0_attacker.ability_cooldowns = {"surge": 3}
 
 		# Persistent move from a prior turn for the p1 marine at (15,15).
 		var po := EntityOrder.new()
@@ -2857,16 +3039,21 @@ func _states_equal(a: MatchState, b: MatchState) -> bool:
 				return false
 			if ea.ability_cast.turns_remaining != eb.ability_cast.turns_remaining:
 				return false
-		if ea.active_buffs.size() != eb.active_buffs.size():
+		if ea.statuses.size() != eb.statuses.size():
 			return false
-		for j in ea.active_buffs.size():
-			var ba: ActiveBuff = ea.active_buffs[j]
-			var bb: ActiveBuff = eb.active_buffs[j]
+		for j in ea.statuses.size():
+			var sa: StatusEffect = ea.statuses[j]
+			var sb: StatusEffect = eb.statuses[j]
 			if (
-				ba.source_ability_id != bb.source_ability_id
-				or ba.turns_remaining != bb.turns_remaining
-				or ba.damage_mult != bb.damage_mult
-				or ba.speed_mult != bb.speed_mult
+				sa.status_id != sb.status_id
+				or sa.source_ability_id != sb.source_ability_id
+				or sa.duration_turns != sb.duration_turns
+				or sa.damage_mult_pct != sb.damage_mult_pct
+				or sa.speed_mult_pct != sb.speed_mult_pct
+				or sa.blocks_move != sb.blocks_move
+				or sa.blocks_attack != sb.blocks_attack
+				or sa.end_of_turn_hp_delta != sb.end_of_turn_hp_delta
+				or sa.sprite_key != sb.sprite_key
 			):
 				return false
 		if ea.order_queue.size() != eb.order_queue.size():
@@ -3072,8 +3259,8 @@ func _test_fresh_order_overrides_persistent_order() -> bool:
 	return new_actor.persistent_order == null
 
 
-func _test_multi_buff_stacks_multiplicatively() -> bool:
-	# Two buffs with damage_mult 1.5 and 2.0; base damage 4 → 4*1.5*2.0 = 12.
+func _test_multi_status_stacks_multiplicatively() -> bool:
+	# Two statuses at 150% and 200%; base damage 4 → 4*1.5*2.0 = 12.
 	var registry := _two_unit_registry(4, 5, ["ground"], 50)
 	var state := _state_with_grid(20, 20)
 	var attacker := _make_entity(state, "marine", 0, Vector2i(5, 5), 50, "ground")
@@ -3081,15 +3268,15 @@ func _test_multi_buff_stacks_multiplicatively() -> bool:
 	state.tile_grid.place(attacker.id, Rect2i(5, 5, 1, 1))
 	state.tile_grid.place(target.id, Rect2i(7, 5, 1, 1))
 
-	var b1 := ActiveBuff.new()
-	b1.source_ability_id = "stim"
-	b1.turns_remaining = 2
-	b1.damage_mult = 1.5
-	var b2 := ActiveBuff.new()
-	b2.source_ability_id = "rage"
-	b2.turns_remaining = 2
-	b2.damage_mult = 2.0
-	attacker.active_buffs = [b1, b2]
+	var s1 := StatusEffect.new()
+	s1.status_id = "surge"
+	s1.duration_turns = 2
+	s1.damage_mult_pct = 150
+	var s2 := StatusEffect.new()
+	s2.status_id = "rage"
+	s2.duration_turns = 2
+	s2.damage_mult_pct = 200
+	attacker.statuses = [s1, s2]
 
 	var attack := EntityOrder.new()
 	attack.type = EntityOrder.Type.TARGET
@@ -4423,9 +4610,9 @@ func _test_cancel_active_triggers_try_fill() -> bool:
 func _test_research_full_cycle() -> bool:
 	# RESEARCH order: queue → install → tick → completion → unlocked.
 	var registry := _production_registry()
-	registry.researches = [_make_research_def("stim_research", 100, 0, 3)]
+	registry.researches = [_make_research_def("surge_research", 100, 0, 3)]
 	# Producer must list the research id in production.researches.
-	registry.entities[0].production.researches = ["stim_research"]
+	registry.entities[0].production.researches = ["surge_research"]
 	var state := _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
 	state.players[0].minerals = 200
@@ -4438,21 +4625,21 @@ func _test_research_full_cycle() -> bool:
 	var order := EntityOrder.new()
 	order.type = EntityOrder.Type.RESEARCH
 	order.entity_id = barracks.id
-	order.def_id = "stim_research"
+	order.def_id = "surge_research"
 	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
 	# Run more turns until completion.
 	var saw_completed := false
 	for _i in 6:
 		result = Resolver.resolve(result.new_state, _submit(), _submit(), registry, null)
 		for ev in result.events:
-			if ev.type == ResolverEvent.Type.RESEARCH_COMPLETED and ev.def_id == "stim_research":
+			if ev.type == ResolverEvent.Type.RESEARCH_COMPLETED and ev.def_id == "surge_research":
 				saw_completed = true
 		if saw_completed:
 			break
 	if not saw_completed:
 		return false
 	var p := result.new_state.get_player(0)
-	if not p.unlocked_researches.has("stim_research"):
+	if not p.unlocked_researches.has("surge_research"):
 		return false
 	# Cost was 100 minerals; pop_cost=0.
 	return p.minerals == 100
@@ -4462,12 +4649,12 @@ func _test_research_already_unlocked_rejected() -> bool:
 	# Submitting a duplicate RESEARCH for an already-unlocked research →
 	# ORDER_REJECTED with reason "duplicate_research"; nothing queued.
 	var registry := _production_registry()
-	registry.researches = [_make_research_def("stim_research", 100, 0, 3)]
-	registry.entities[0].production.researches = ["stim_research"]
+	registry.researches = [_make_research_def("surge_research", 100, 0, 3)]
+	registry.entities[0].production.researches = ["surge_research"]
 	var state := _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
 	state.players[0].minerals = 500
-	state.players[0].unlocked_researches = ["stim_research"]
+	state.players[0].unlocked_researches = ["surge_research"]
 	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
 	barracks.production_state = ProductionState.new()
 	state.tile_grid.place(barracks.id, Rect2i(2, 2, 3, 3))
@@ -4475,7 +4662,7 @@ func _test_research_already_unlocked_rejected() -> bool:
 	var order := EntityOrder.new()
 	order.type = EntityOrder.Type.RESEARCH
 	order.entity_id = barracks.id
-	order.def_id = "stim_research"
+	order.def_id = "surge_research"
 	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
 	var b := result.new_state.get_entity_by_id(barracks.id)
 	if not b.production_state.queue.is_empty():
@@ -4493,15 +4680,15 @@ func _test_duplicate_research_rejected_when_active() -> bool:
 	# Research is player-wide: if an owned producer is already actively
 	# researching an id, another RESEARCH order for that id must reject.
 	var registry := _production_registry()
-	registry.researches = [_make_research_def("stim_research", 100, 0, 3)]
-	registry.entities[0].production.researches = ["stim_research"]
+	registry.researches = [_make_research_def("surge_research", 100, 0, 3)]
+	registry.entities[0].production.researches = ["surge_research"]
 	var state := _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
 	state.players[0].minerals = 500
 	var barracks := _make_entity(state, "barracks", 0, Vector2i(2, 2), 1000, "ground")
 	barracks.production_state = ProductionState.new()
 	barracks.production_state.active = {
-		ProductionState.KEY_DEF_ID: "stim_research",
+		ProductionState.KEY_DEF_ID: "surge_research",
 		ProductionState.KEY_KIND: ProductionState.KIND_RESEARCH,
 		ProductionState.KEY_TURNS_REMAINING: 2,
 		ProductionState.KEY_PAID_MINERALS: 100,
@@ -4513,7 +4700,7 @@ func _test_duplicate_research_rejected_when_active() -> bool:
 	var order := EntityOrder.new()
 	order.type = EntityOrder.Type.RESEARCH
 	order.entity_id = barracks.id
-	order.def_id = "stim_research"
+	order.def_id = "surge_research"
 	var result := Resolver.resolve(
 		state, _submit([order] as Array[EntityOrder]), _submit(), registry, null
 	)
@@ -4530,8 +4717,8 @@ func _test_duplicate_research_rejected_when_queued_elsewhere() -> bool:
 	# Queued-but-not-started research is also player-wide. A second owned
 	# producer should not be able to queue or start the same research id.
 	var registry := _production_registry()
-	registry.researches = [_make_research_def("stim_research", 100, 0, 3)]
-	registry.entities[0].production.researches = ["stim_research"]
+	registry.researches = [_make_research_def("surge_research", 100, 0, 3)]
+	registry.entities[0].production.researches = ["surge_research"]
 	var state := _state_with_grid(30, 30)
 	state.players = [_player(0), _player(1)]
 	state.players[0].minerals = 500
@@ -4539,7 +4726,7 @@ func _test_duplicate_research_rejected_when_queued_elsewhere() -> bool:
 	barracks_a.production_state = ProductionState.new()
 	barracks_a.production_state.queue = [
 		{
-			ProductionState.KEY_DEF_ID: "stim_research",
+			ProductionState.KEY_DEF_ID: "surge_research",
 			ProductionState.KEY_KIND: ProductionState.KIND_RESEARCH,
 		}
 	]
@@ -4551,7 +4738,7 @@ func _test_duplicate_research_rejected_when_queued_elsewhere() -> bool:
 	var order := EntityOrder.new()
 	order.type = EntityOrder.Type.RESEARCH
 	order.entity_id = barracks_b.id
-	order.def_id = "stim_research"
+	order.def_id = "surge_research"
 	var result := Resolver.resolve(
 		state, _submit([order] as Array[EntityOrder]), _submit(), registry, null
 	)
@@ -4567,8 +4754,8 @@ func _test_duplicate_research_rejected_when_queued_elsewhere() -> bool:
 func _test_research_stalls_on_funds() -> bool:
 	# RESEARCH stalls on insufficient minerals, mirrors TRAIN.
 	var registry := _production_registry()
-	registry.researches = [_make_research_def("stim_research", 100, 0, 3)]
-	registry.entities[0].production.researches = ["stim_research"]
+	registry.researches = [_make_research_def("surge_research", 100, 0, 3)]
+	registry.entities[0].production.researches = ["surge_research"]
 	var state := _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
 	state.players[0].minerals = 50  # not enough
@@ -4579,7 +4766,7 @@ func _test_research_stalls_on_funds() -> bool:
 	var order := EntityOrder.new()
 	order.type = EntityOrder.Type.RESEARCH
 	order.entity_id = barracks.id
-	order.def_id = "stim_research"
+	order.def_id = "surge_research"
 	var result := Resolver.resolve(state, _submit([order]), _submit(), registry, null)
 	var b := result.new_state.get_entity_by_id(barracks.id)
 	if not b.production_state.active.is_empty():
@@ -4627,8 +4814,8 @@ func _test_train_pop_overflow_stalls_at_install() -> bool:
 
 func _test_repeat_training_repeats_latest_unit_after_mixed_queue() -> bool:
 	var registry := _production_registry()
-	registry.researches = [_make_research_def("stim_research", 100, 0, 2)]
-	registry.entities[0].production.researches = ["stim_research"]
+	registry.researches = [_make_research_def("surge_research", 100, 0, 2)]
+	registry.entities[0].production.researches = ["surge_research"]
 	var state := _state_with_grid(30, 30)
 	state.players = [_player(0), _player(1)]
 	state.players[0].minerals = 500
@@ -4646,7 +4833,7 @@ func _test_repeat_training_repeats_latest_unit_after_mixed_queue() -> bool:
 	var research := EntityOrder.new()
 	research.type = EntityOrder.Type.RESEARCH
 	research.entity_id = barracks.id
-	research.def_id = "stim_research"
+	research.def_id = "surge_research"
 	var train_b := EntityOrder.new()
 	train_b.type = EntityOrder.Type.TRAIN
 	train_b.entity_id = barracks.id
@@ -4676,7 +4863,7 @@ func _test_repeat_training_repeats_latest_unit_after_mixed_queue() -> bool:
 				== ProductionState.KIND_UNIT
 			)
 			and b.production_state.active.get(ProductionState.KEY_DEF_ID, "") == "marine"
-			and result.new_state.get_player(0).unlocked_researches.has("stim_research")
+			and result.new_state.get_player(0).unlocked_researches.has("surge_research")
 		):
 			saw_repeat_start = true
 			break
@@ -5627,13 +5814,13 @@ func _test_registry_loads_from_data() -> bool:
 	var registry := _load_data_registry()
 	if registry == null:
 		return false
-	for unit in ["marine", "siege_tank", "helicopter"]:
+	for unit in ["marine", "tank", "helicopter"]:
 		if registry.get_by_id(unit) == null:
 			return false
 	for building in ["base", "barracks", "factory", "starport", "refinery"]:
 		if registry.get_by_id(building) == null:
 			return false
-	for research in ["stim_research", "siege_mode_research"]:
+	for research in ["siege_mode_research"]:
 		if registry.get_research_by_id(research) == null:
 			return false
 	return true
@@ -5938,8 +6125,8 @@ func _test_scenario_loader_applies_stat_overrides() -> bool:
 	# observable-field equality, not reference equality — the loader is
 	# free to share the original Resource instance OR clone it
 	# unchanged; both are correct as long as the values match.
-	var loaded_tank: EntityDef = loaded.registry.get_by_id("siege_tank")
-	var canonical_tank: EntityDef = canonical.get_by_id("siege_tank")
+	var loaded_tank: EntityDef = loaded.registry.get_by_id("tank")
+	var canonical_tank: EntityDef = canonical.get_by_id("tank")
 	if loaded_tank == null or canonical_tank == null:
 		return false
 	if loaded_tank.id != canonical_tank.id:
@@ -5960,7 +6147,7 @@ func _test_match_state_save_load_roundtrip() -> bool:
 	# Build a complex MatchState (two players with non-default
 	# resources, multiple entities with assorted runtime state:
 	# production active+queue, gather phase, ability_cooldowns,
-	# active_buffs, persistent_order, construction state) — save it,
+	# statuses, persistent_order, construction state) — save it,
 	# load it, assert _states_equal.
 	var state := _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
@@ -5968,7 +6155,7 @@ func _test_match_state_save_load_roundtrip() -> bool:
 	state.players[0].gas = 42
 	state.players[0].pop_used = 3
 	state.players[0].pop_cap = 25
-	state.players[0].unlocked_researches = ["stim_research"]
+	state.players[0].unlocked_researches = ["surge_research"]
 	state.players[1].minerals = 999
 	state.turn_index = 14
 	state.next_entity_id = 50
@@ -5992,17 +6179,19 @@ func _test_match_state_save_load_roundtrip() -> bool:
 		}
 	]
 
-	# Entity 2: a marine with a buff + cooldown + persistent move.
+	# Entity 2: a marine with a status + cooldown + persistent move.
 	var marine := _make_entity(state, "marine", 0, Vector2i(8, 8), 32, "ground")
 	state.tile_grid.place(marine.id, Rect2i(8, 8, 1, 1))
-	marine.ability_cooldowns = {"stim": 4}
+	marine.ability_cooldowns = {"surge": 4}
 	marine.moves_used_this_turn = 1
-	var buff := ActiveBuff.new()
-	buff.source_ability_id = "stim"
-	buff.turns_remaining = 2
-	buff.damage_mult = 1.5
-	buff.speed_mult = 1.5
-	marine.active_buffs = [buff]
+	var status := StatusEffect.new()
+	status.status_id = "surge"
+	status.source_ability_id = "surge"
+	status.duration_turns = 2
+	status.damage_mult_pct = 150
+	status.speed_mult_pct = 150
+	status.sprite_key = "surge_glow"
+	marine.statuses = [status]
 	var po := EntityOrder.new()
 	po.type = EntityOrder.Type.MOVE
 	po.entity_id = marine.id
@@ -6375,7 +6564,7 @@ func _ability_registry() -> EntityRegistry:
 		45,
 		4
 	)
-	marine.abilities = _abilities_def([_stim_ability()])
+	marine.abilities = _abilities_def([_surge_ability()])
 	var tank: EntityDef = _def_with_movement_combat(
 		"tank",
 		Vector2i(2, 2),
@@ -6384,17 +6573,9 @@ func _ability_registry() -> EntityRegistry:
 		175,
 		3
 	)
-	tank.abilities = _abilities_def([_transform_ability("siege_mode", "siege_tank", 1)])
-	var siege_tank: EntityDef = _def(
-		"siege_tank",
-		Vector2i(2, 2),
-		["heavy", "mechanical", "ground"],
-		_combat_def(40, 6, ["ground"]),
-		175
-	)
-	siege_tank.abilities = _abilities_def([_transform_ability("unsiege_mode", "tank", 1)])
+	tank.abilities = _abilities_def([_siege_ability(), _unsiege_ability()])
 	var base: EntityDef = _def("base", Vector2i(4, 4), ["building", "ground"], null, 1500)
-	registry.entities = [marine, tank, siege_tank, base]
+	registry.entities = [marine, tank, base]
 	return registry
 
 
@@ -6404,33 +6585,57 @@ func _abilities_def(abilities: Array[AbilityDef]) -> AbilitiesDef:
 	return out
 
 
-func _stim_ability() -> AbilityDef:
+func _surge_ability() -> AbilityDef:
+	# Generic status-applying test ability: HP cost, cooldown, research
+	# gate, finite-duration damage/speed status.
 	var ability := AbilityDef.new()
-	ability.id = "stim"
-	ability.display_name = "Stim"
+	ability.id = "surge"
+	ability.display_name = "Surge"
 	ability.target_type = "self"
 	ability.cooldown_turns = 5
-	ability.requires_research_id = "stim_research"
+	ability.requires_research_id = "surge_research"
 	var cost := AbilityCost.new()
 	cost.type = "hp"
 	cost.amount = 10
 	ability.costs = [cost]
-	var effect := StatBuffEffect.new()
-	effect.duration_turns = 3
-	effect.damage_mult = 1.5
-	effect.speed_mult = 1.5
+	var status := StatusEffect.new()
+	status.status_id = "surge"
+	status.duration_turns = 3
+	status.damage_mult_pct = 150
+	status.speed_mult_pct = 150
+	var effect := StatusApplyEffect.new()
+	effect.status = status
 	ability.effect = effect
 	return ability
 
 
-func _transform_ability(id: String, to_def_id: String, cast_time_turns: int) -> AbilityDef:
+func _siege_ability() -> AbilityDef:
 	var ability := AbilityDef.new()
-	ability.id = id
-	ability.display_name = id
+	ability.id = "siege_mode"
+	ability.display_name = "Siege Mode"
 	ability.target_type = "self"
-	ability.cast_time_turns = cast_time_turns
-	var effect := TransformEffect.new()
-	effect.to_def_id = to_def_id
+	ability.cast_time_turns = 1
+	var status := StatusEffect.new()
+	status.status_id = "sieged"
+	status.duration_turns = StatusEffect.INDEFINITE
+	status.blocks_move = true
+	status.damage_override = 40
+	status.attack_range_override = 6
+	status.sprite_key = "siege_tank"
+	var effect := StatusApplyEffect.new()
+	effect.status = status
+	ability.effect = effect
+	return ability
+
+
+func _unsiege_ability() -> AbilityDef:
+	var ability := AbilityDef.new()
+	ability.id = "unsiege_mode"
+	ability.display_name = "Unsiege Mode"
+	ability.target_type = "self"
+	ability.cast_time_turns = 1
+	var effect := StatusClearEffect.new()
+	effect.status_id = "sieged"
 	ability.effect = effect
 	return ability
 
@@ -7239,29 +7444,29 @@ func _test_mvp_map_bake_parity() -> bool:
 # ---------- Plan node 07b5 — self-target ability orders ----------
 
 
-func _test_ability_stim_rejects_without_research() -> bool:
+func _test_ability_surge_rejects_without_research() -> bool:
 	var registry: EntityRegistry = _ability_registry()
 	var state: MatchState = _ability_state_with_bases()
 	var marine: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 45, "ground")
 	state.tile_grid.place(marine.id, Rect2i(5, 5, 1, 1))
 
 	var result: ResolveResult = Resolver.resolve(
-		state, _submit([_ability_order(marine.id, "stim")]), _submit(), registry, null
+		state, _submit([_ability_order(marine.id, "surge")]), _submit(), registry, null
 	)
 	var new_marine: Entity = result.new_state.get_entity_by_id(marine.id)
 	if new_marine.current_hp != 45:
-		push_error("rejected stim should not spend HP")
+		push_error("rejected surge should not spend HP")
 		return false
-	if not new_marine.active_buffs.is_empty():
-		push_error("rejected stim should not apply a buff")
+	if not new_marine.statuses.is_empty():
+		push_error("rejected surge should not apply a status")
 		return false
 	return _has_rejection(result.events, marine.id, "research_required")
 
 
-func _test_ability_stim_applies_cost_buff_cooldown_and_event() -> bool:
+func _test_ability_surge_applies_cost_status_cooldown_and_event() -> bool:
 	var registry: EntityRegistry = _ability_registry()
 	var state: MatchState = _ability_state_with_bases()
-	state.get_player(0).unlocked_researches.append("stim_research")
+	state.get_player(0).unlocked_researches.append("surge_research")
 	var marine: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 45, "ground")
 	var enemy: Entity = _make_entity(state, "base", 1, Vector2i(7, 5), 45, "ground")
 	state.tile_grid.place(marine.id, Rect2i(5, 5, 1, 1))
@@ -7272,70 +7477,75 @@ func _test_ability_stim_applies_cost_buff_cooldown_and_event() -> bool:
 	attack.entity_id = marine.id
 	attack.target_priority_chain = [enemy.id]
 	var result: ResolveResult = Resolver.resolve(
-		state, _submit([_ability_order(marine.id, "stim"), attack]), _submit(), registry, null
+		state, _submit([_ability_order(marine.id, "surge"), attack]), _submit(), registry, null
 	)
 	var new_marine: Entity = result.new_state.get_entity_by_id(marine.id)
 	var new_enemy: Entity = result.new_state.get_entity_by_id(enemy.id)
-	if not _has_event_with_def(result.events, ResolverEvent.Type.ABILITY_USED, marine.id, "stim"):
-		push_error("stim should emit ABILITY_USED")
+	if not _has_event_with_def(result.events, ResolverEvent.Type.ABILITY_USED, marine.id, "surge"):
+		push_error("surge should emit ABILITY_USED")
+		return false
+	if not _has_event_with_def(
+		result.events, ResolverEvent.Type.STATUS_APPLIED, marine.id, "surge"
+	):
+		push_error("surge should emit STATUS_APPLIED")
 		return false
 	if new_marine.current_hp != 35:
-		push_error("stim should spend 10 HP, got %d" % new_marine.current_hp)
+		push_error("surge should spend 10 HP, got %d" % new_marine.current_hp)
 		return false
-	if new_marine.ability_cooldowns.get("stim", 0) != 5:
-		push_error("stim cooldown should be 5 after the use turn")
+	if new_marine.ability_cooldowns.get("surge", 0) != 5:
+		push_error("surge cooldown should be 5 after the use turn")
 		return false
-	if new_marine.active_buffs.size() != 1:
-		push_error("stim should apply one active buff")
+	if new_marine.statuses.size() != 1:
+		push_error("surge should apply one status")
 		return false
-	var buff: ActiveBuff = new_marine.active_buffs[0]
-	if buff.source_ability_id != "stim" or buff.turns_remaining != 2:
-		push_error("stim buff should remain for 2 turns after end-of-turn tick")
+	var status: StatusEffect = new_marine.statuses[0]
+	if status.source_ability_id != "surge" or status.duration_turns != 2:
+		push_error("surge status should remain for 2 turns after end-of-turn tick")
 		return false
 	if new_enemy.current_hp != 18:
 		push_error(
-			"same-turn attack should use stim damage; enemy HP got %d" % new_enemy.current_hp
+			"same-turn attack should use surge damage; enemy HP got %d" % new_enemy.current_hp
 		)
 		return false
 	return true
 
 
-func _test_ability_stim_rejects_on_cooldown() -> bool:
+func _test_ability_surge_rejects_on_cooldown() -> bool:
 	var registry: EntityRegistry = _ability_registry()
 	var state: MatchState = _ability_state_with_bases()
-	state.get_player(0).unlocked_researches.append("stim_research")
+	state.get_player(0).unlocked_researches.append("surge_research")
 	var marine: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 45, "ground")
-	marine.ability_cooldowns = {"stim": 2}
+	marine.ability_cooldowns = {"surge": 2}
 	state.tile_grid.place(marine.id, Rect2i(5, 5, 1, 1))
 
 	var result: ResolveResult = Resolver.resolve(
-		state, _submit([_ability_order(marine.id, "stim")]), _submit(), registry, null
+		state, _submit([_ability_order(marine.id, "surge")]), _submit(), registry, null
 	)
 	var new_marine: Entity = result.new_state.get_entity_by_id(marine.id)
 	if new_marine.current_hp != 45:
-		push_error("cooldown-rejected stim should not spend HP")
+		push_error("cooldown-rejected surge should not spend HP")
 		return false
 	return _has_rejection(result.events, marine.id, "cooldown")
 
 
-func _test_ability_stim_rejects_low_hp() -> bool:
+func _test_ability_surge_rejects_low_hp() -> bool:
 	var registry: EntityRegistry = _ability_registry()
 	var state: MatchState = _ability_state_with_bases()
-	state.get_player(0).unlocked_researches.append("stim_research")
+	state.get_player(0).unlocked_researches.append("surge_research")
 	var marine: Entity = _make_entity(state, "marine", 0, Vector2i(5, 5), 10, "ground")
 	state.tile_grid.place(marine.id, Rect2i(5, 5, 1, 1))
 
 	var result: ResolveResult = Resolver.resolve(
-		state, _submit([_ability_order(marine.id, "stim")]), _submit(), registry, null
+		state, _submit([_ability_order(marine.id, "surge")]), _submit(), registry, null
 	)
 	var new_marine: Entity = result.new_state.get_entity_by_id(marine.id)
 	if new_marine.current_hp != 10:
-		push_error("low-HP rejected stim should not spend HP")
+		push_error("low-HP rejected surge should not spend HP")
 		return false
 	return _has_rejection(result.events, marine.id, "insufficient_hp")
 
 
-func _test_ability_siege_delayed_transform_blocks_later_actions() -> bool:
+func _test_ability_siege_delayed_status_blocks_later_actions() -> bool:
 	var registry: EntityRegistry = _ability_registry()
 	var state: MatchState = _ability_state_with_bases()
 	var tank: Entity = _make_entity(state, "tank", 0, Vector2i(5, 5), 175, "ground")
@@ -7349,90 +7559,107 @@ func _test_ability_siege_delayed_transform_blocks_later_actions() -> bool:
 		state, _submit([_ability_order(tank.id, "siege_mode"), move]), _submit(), registry, null
 	)
 	var new_tank: Entity = result.new_state.get_entity_by_id(tank.id)
-	if new_tank.current_def_id != "siege_tank":
-		push_error("siege mode should transform tank to siege_tank")
+	if not StatusSystem.has_status(new_tank, "sieged"):
+		push_error("siege mode should apply the sieged status")
+		return false
+	if new_tank.current_def_id != "tank":
+		push_error("siege must not swap the def — one tank def, status-driven")
 		return false
 	if new_tank.origin != Vector2i(5, 5):
 		push_error("later MOVE should be blocked while siege cast is active")
 		return false
 	if new_tank.ability_cast != null:
-		push_error("one-turn siege cast should be cleared after transform")
+		push_error("one-turn siege cast should be cleared after the status applies")
 		return false
 	if _has_event_of_type(result.events, ResolverEvent.Type.ENTITY_MOVED):
 		push_error("siege casting should not also move")
 		return false
-	if not _has_event_with_def(
-		result.events, ResolverEvent.Type.ENTITY_TRANSFORMED, tank.id, "siege_tank"
-	):
-		push_error("siege mode should emit ENTITY_TRANSFORMED")
+	if not _has_event_with_def(result.events, ResolverEvent.Type.STATUS_APPLIED, tank.id, "sieged"):
+		push_error("siege mode should emit STATUS_APPLIED")
 		return false
 	return _has_event_with_def(
 		result.events, ResolverEvent.Type.ABILITY_USED, tank.id, "siege_mode"
 	)
 
 
-func _test_ability_unsiege_delayed_transform() -> bool:
+func _test_ability_unsiege_clears_status() -> bool:
 	var registry: EntityRegistry = _ability_registry()
 	var state: MatchState = _ability_state_with_bases()
-	var tank: Entity = _make_entity(state, "siege_tank", 0, Vector2i(5, 5), 175, "ground")
+	var tank: Entity = _make_entity(state, "tank", 0, Vector2i(5, 5), 175, "ground")
 	state.tile_grid.place(tank.id, Rect2i(5, 5, 2, 2))
+	var sieged := StatusEffect.new()
+	sieged.status_id = "sieged"
+	sieged.duration_turns = StatusEffect.INDEFINITE
+	sieged.blocks_move = true
+	sieged.damage_override = 40
+	sieged.attack_range_override = 6
+	tank.statuses = [sieged]
 
 	var result: ResolveResult = Resolver.resolve(
 		state, _submit([_ability_order(tank.id, "unsiege_mode")]), _submit(), registry, null
 	)
 	var new_tank: Entity = result.new_state.get_entity_by_id(tank.id)
-	if new_tank.current_def_id != "tank":
-		push_error("unsiege mode should transform siege_tank back to tank")
+	if StatusSystem.has_status(new_tank, "sieged"):
+		push_error("unsiege mode should clear the sieged status")
 		return false
-	return _has_event_with_def(
-		result.events, ResolverEvent.Type.ENTITY_TRANSFORMED, tank.id, "tank"
-	)
+	return _has_event_with_def(result.events, ResolverEvent.Type.STATUS_CLEARED, tank.id, "sieged")
 
 
-func _test_siege_tank_data_is_immobile_and_siege_is_not_research_gated() -> bool:
+func _test_siege_data_is_status_driven_and_not_research_gated() -> bool:
+	# Plan node 14: siege is a status on the single tank def, not a second
+	# def swap. The canonical data must carry siege_mode (apply "sieged":
+	# blocks movement, range 6, damage 40, indefinite) and unsiege_mode
+	# (clear "sieged"), neither research gated, and NO siege_tank def.
 	var registry: EntityRegistry = _load_data_registry()
 	if registry == null:
 		push_error("registry should load entity data")
 		return false
 	var tank: EntityDef = registry.get_by_id("tank")
-	var siege_tank: EntityDef = registry.get_by_id("siege_tank")
 	if tank == null:
 		push_error("tank data missing")
 		return false
+	if registry.get_by_id("siege_tank") != null:
+		push_error("siege_tank def should be gone — siege is status-driven")
+		return false
 	if tank.abilities == null or tank.abilities.abilities.is_empty():
-		push_error("tank should expose siege_mode ability data")
+		push_error("tank should expose siege ability data")
 		return false
 	var siege: AbilityDef = null
+	var unsiege: AbilityDef = null
 	for item in tank.abilities.abilities:
 		var ability: AbilityDef = item
-		if ability != null and ability.id == "siege_mode":
+		if ability == null:
+			continue
+		if ability.id == "siege_mode":
 			siege = ability
-			break
-	if siege == null:
-		push_error("tank should expose siege_mode ability data")
-		return false
-	if siege.requires_research_id != "":
-		push_error("siege_mode should not require research")
-		return false
-	if siege_tank == null:
-		push_error("siege_tank data missing")
-		return false
-	if siege_tank.movement != null:
-		push_error("siege_tank should be immobile")
-		return false
-	if siege_tank.abilities == null or siege_tank.abilities.abilities.is_empty():
-		push_error("siege_tank should expose unsiege_mode ability data")
-		return false
-	var unsiege: AbilityDef = null
-	for item in siege_tank.abilities.abilities:
-		var ability: AbilityDef = item
-		if ability != null and ability.id == "unsiege_mode":
+		elif ability.id == "unsiege_mode":
 			unsiege = ability
-			break
-	if unsiege == null:
-		push_error("siege_tank should expose unsiege_mode ability data")
+	if siege == null or unsiege == null:
+		push_error("tank should expose siege_mode and unsiege_mode ability data")
 		return false
-	if unsiege.requires_research_id != "":
-		push_error("unsiege_mode should not require research")
+	if siege.requires_research_id != "" or unsiege.requires_research_id != "":
+		push_error("siege toggles should not require research")
+		return false
+	if not (siege.effect is StatusApplyEffect):
+		push_error("siege_mode should apply a status")
+		return false
+	var sieged: StatusEffect = (siege.effect as StatusApplyEffect).status
+	if sieged == null or sieged.status_id != "sieged":
+		push_error("siege_mode should apply the sieged status")
+		return false
+	if not sieged.blocks_move:
+		push_error("sieged should block movement")
+		return false
+	if sieged.duration_turns != StatusEffect.INDEFINITE:
+		push_error("sieged should be indefinite until cleared")
+		return false
+	if sieged.damage_override != 40 or sieged.attack_range_override != 6:
+		push_error("sieged should override damage to 40 and range to 6")
+		return false
+	if not (unsiege.effect is StatusClearEffect):
+		push_error("unsiege_mode should clear a status")
+		return false
+	if (unsiege.effect as StatusClearEffect).status_id != "sieged":
+		push_error("unsiege_mode should clear the sieged status")
 		return false
 	return true

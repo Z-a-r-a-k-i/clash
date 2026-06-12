@@ -204,7 +204,7 @@ func _test_queues_and_resolves_turn() -> bool:
 		_free_mode(mode)
 		return false
 	if not mode.issue_attack_selected(4):
-		push_error("expected ATTACK against P1 siege tank #4 to queue")
+		push_error("expected ATTACK against P1 tank #4 to queue")
 		_free_mode(mode)
 		return false
 	if mode.pending_order_count(0) != 1:
@@ -824,13 +824,18 @@ func _test_command_card_shows_costs() -> bool:
 				"Marine button should show mineral, pop, and train time: %s" % marine_button.text
 			)
 			ok = false
-		var stim_button: Button = _find_button_with_substring(card, "Stim Pack")
-		if stim_button == null:
-			push_error("barracks command card should show Stim Pack")
-			ok = false
-		elif not _button_text_has_all(stim_button, _research_cost_parts("stim_research")):
+		var research_button: Button = _find_button_with_substring(card, "Siege")
+		if (
+			research_button != null
+			and not _button_text_has_all(
+				research_button, _research_cost_parts("siege_mode_research")
+			)
+		):
 			push_error(
-				"Stim Pack button should show mineral cost and research time: %s" % stim_button.text
+				(
+					"research button should show mineral cost and research time: %s"
+					% research_button.text
+				)
 			)
 			ok = false
 		var repeat_toggle: CheckBox = _find_check_box_with_substring(card, "Repeat Train")
@@ -1297,7 +1302,7 @@ func _test_idle_worker_indicator_excludes_busy_workers() -> bool:
 	locked_worker.locked_to_building_id = 42
 	var ability_worker: Entity = state.get_entity_by_id(ability_id)
 	ability_worker.ability_cast = AbilityCastState.new()
-	ability_worker.ability_cast.ability_id = "stim"
+	ability_worker.ability_cast.ability_id = "surge"
 	ability_worker.ability_cast.turns_remaining = 1
 	var renderer: MatchRenderer = mode.renderer()
 	if renderer == null or not renderer.has_method("idle_worker_indicator_count"):
@@ -1386,7 +1391,7 @@ func _test_selected_and_friendly_target_intents() -> bool:
 	mode.set_active_player_id(0)
 	var state: MatchState = mode.current_state()
 	var marines: Array[int] = _find_entity_ids(state, "marine", 0)
-	var target_id: int = _find_entity_id(state, "siege_tank", 1)
+	var target_id: int = _find_entity_id(state, "tank", 1)
 	var renderer: MatchRenderer = mode.renderer()
 	if marines.size() < 2 or target_id < 0 or renderer == null:
 		push_error("expected two P0 marines, P1 target, and renderer")
@@ -1759,7 +1764,7 @@ func _test_direct_attack_preview_tracks_live_target() -> bool:
 	mode.set_active_player_id(0)
 	var state: MatchState = mode.current_state()
 	var actor_id: int = _find_entity_id(state, "marine", 0)
-	var target_id: int = _find_entity_id(state, "siege_tank", 1)
+	var target_id: int = _find_entity_id(state, "tank", 1)
 	var actor: Entity = state.get_entity_by_id(actor_id) if state != null else null
 	var target: Entity = state.get_entity_by_id(target_id) if state != null else null
 	var renderer: MatchRenderer = mode.renderer()
@@ -2178,14 +2183,28 @@ func _test_routes_command_card_orders() -> bool:
 		_free_mode(mode)
 		return false
 	card.emit_signal("train_requested", "marine")
-	card.emit_signal("research_requested", "stim_research")
 	orders = mode.input_model().submit_for_player(0).orders
 	if orders[0].type != EntityOrder.Type.TRAIN or orders[0].def_id != "marine":
 		push_error("train signal should queue TRAIN marine")
 		_free_mode(mode)
 		return false
-	if orders[1].type != EntityOrder.Type.RESEARCH or orders[1].def_id != "stim_research":
-		push_error("research signal should queue RESEARCH stim_research")
+	var factory_id: int = _add_runtime_entity(mode.current_state(), "factory", 0, Vector2i(26, 2))
+	if factory_id < 0 or not mode.select_entity_id(factory_id):
+		push_error("expected to select injected factory")
+		_free_mode(mode)
+		return false
+	card.emit_signal("research_requested", "siege_mode_research")
+	orders = mode.input_model().submit_for_player(0).orders
+	var research_order: EntityOrder = orders[orders.size() - 1]
+	if (
+		research_order.type != EntityOrder.Type.RESEARCH
+		or research_order.def_id != "siege_mode_research"
+	):
+		push_error("research signal should queue RESEARCH siege_mode_research")
+		_free_mode(mode)
+		return false
+	if not mode.select_entity_id(barracks_id):
+		push_error("expected to reselect barracks")
 		_free_mode(mode)
 		return false
 	build_cancel_button = (
@@ -2203,20 +2222,19 @@ func _test_routes_command_card_orders() -> bool:
 		_free_mode(mode)
 		return false
 	mode.input_model().clear_submissions()
-	mode.current_state().get_player(0).unlocked_researches.append("stim_research")
-	var marine_id: int = _add_runtime_entity(mode.current_state(), "marine", 0, Vector2i(21, 2))
-	if marine_id < 0 or not mode.select_entity_id(marine_id):
-		push_error("expected to select injected marine")
+	var tank_id: int = _add_runtime_entity(mode.current_state(), "tank", 0, Vector2i(21, 2))
+	if tank_id < 0 or not mode.select_entity_id(tank_id):
+		push_error("expected to select injected tank")
 		_free_mode(mode)
 		return false
-	if not _command_card_ids(card, "ability_option_ids").has("stim"):
-		push_error("marine command card should expose stim ability")
+	if not _command_card_ids(card, "ability_option_ids").has("siege_mode"):
+		push_error("tank command card should expose siege_mode ability")
 		_free_mode(mode)
 		return false
-	card.emit_signal("ability_requested", "stim")
+	card.emit_signal("ability_requested", "siege_mode")
 	orders = mode.input_model().submit_for_player(0).orders
-	if orders[0].type != EntityOrder.Type.USE_ABILITY or orders[0].def_id != "stim":
-		push_error("ability signal should queue USE_ABILITY stim")
+	if orders[0].type != EntityOrder.Type.USE_ABILITY or orders[0].def_id != "siege_mode":
+		push_error("ability signal should queue USE_ABILITY siege_mode")
 		_free_mode(mode)
 		return false
 	_free_mode(mode)

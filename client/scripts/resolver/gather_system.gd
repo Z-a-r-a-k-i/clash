@@ -236,9 +236,12 @@ static func best_source_for_worker(
 	registry: EntityRegistry,
 	actor: Entity,
 	requested_source: Entity,
-	source_assignments: Dictionary[int, Array] = {}
+	source_assignments: Dictionary[int, Array] = {},
+	context: Variant = null
 ) -> Entity:
-	return _best_source_for_worker(state, registry, actor, requested_source, source_assignments, -1)
+	return _best_source_for_worker(
+		state, registry, actor, requested_source, source_assignments, -1, context
+	)
 
 
 static func best_rally_source_for_worker(
@@ -278,7 +281,8 @@ static func _best_source_for_worker(
 	actor: Entity,
 	requested_source: Entity,
 	source_assignments: Dictionary[int, Array],
-	max_path_tiles: int
+	max_path_tiles: int,
+	context: Variant = null
 ) -> Entity:
 	if state == null or registry == null or actor == null or requested_source == null:
 		return null
@@ -288,7 +292,7 @@ static func _best_source_for_worker(
 		else _source_assignments_by_source(state, registry)
 	)
 	if _source_is_available_to_worker(
-		state, registry, actor, requested_source, assignments, max_path_tiles
+		state, registry, actor, requested_source, assignments, max_path_tiles, context
 	):
 		return requested_source
 	var requested_type: String = _resource_type_for_source(registry, requested_source)
@@ -304,7 +308,7 @@ static func _best_source_for_worker(
 			continue
 		if _resource_type_for_source(registry, source) != requested_type:
 			continue
-		var distance: int = _path_distance_to_source(state, registry, actor, source)
+		var distance: int = _path_distance_to_source(state, registry, actor, source, context)
 		if distance < 0:
 			continue
 		if max_path_tiles >= 0 and distance > max_path_tiles:
@@ -443,14 +447,15 @@ static func _source_is_available_to_worker(
 	actor: Entity,
 	source: Entity,
 	source_assignments: Dictionary[int, Array],
-	max_path_tiles: int = -1
+	max_path_tiles: int = -1,
+	context: Variant = null
 ) -> bool:
 	var cap: int = source_gatherer_cap(registry, source)
 	if cap <= 0:
 		return false
 	if _assigned_gatherer_count_for_source(source_assignments, source.id, actor.id) >= cap:
 		return false
-	var distance: int = _path_distance_to_source(state, registry, actor, source)
+	var distance: int = _path_distance_to_source(state, registry, actor, source, context)
 	if distance < 0:
 		return false
 	return max_path_tiles < 0 or distance <= max_path_tiles
@@ -466,7 +471,11 @@ static func _resource_type_for_source(registry: EntityRegistry, source: Entity) 
 
 
 static func _path_distance_to_source(
-	state: MatchState, registry: EntityRegistry, actor: Entity, source: Entity
+	state: MatchState,
+	registry: EntityRegistry,
+	actor: Entity,
+	source: Entity,
+	context: Variant = null
 ) -> int:
 	if state == null or state.tile_grid == null or actor == null or source == null:
 		return -1
@@ -479,6 +488,39 @@ static func _path_distance_to_source(
 	var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, registry)
 	if movement == null:
 		return -1
+	if context is ResolveContext and actor_rect.size == Vector2i.ONE:
+		# One shared flow field per source answers the distance for every
+		# worker; replaces a per-worker per-source A* flood.
+		var layer: String = _PATHFINDING.layer_for_entity(actor, registry)
+		var key: String = _PATHFINDING.flow_field_key(
+			layer, movement, source_rect.position, source_rect, 1, false
+		)
+		var grid: TileGrid = state.tile_grid
+		var blockers: Dictionary = {
+			"tiles": context.blocker_tiles(layer),
+			"passable": context.mover_passable(),
+		}
+		var field: Dictionary = context.flow_field(
+			key,
+			func() -> Dictionary:
+				return _PATHFINDING.build_flow_field(
+					grid, movement, blockers, source_rect.position, source_rect, 1, false
+				)
+		)
+		var field_distance: int = field.get(actor.origin, -1)
+		if field_distance >= 0:
+			return field_distance
+		# The shared field can't bake per-worker passability, so the asking
+		# worker's own tile may be missing (it blocks itself). Derive from
+		# the best adjacent field value instead.
+		var best: int = -1
+		for delta in _PATHFINDING._NEIGHBORS:
+			var neighbor_distance: Variant = field.get(actor.origin + delta)
+			if neighbor_distance == null:
+				continue
+			if best < 0 or int(neighbor_distance) + 1 < best:
+				best = int(neighbor_distance) + 1
+		return best
 	var options: Dictionary = {
 		_PATHFINDING.OPTION_GOAL_RECT: source_rect,
 		_PATHFINDING.OPTION_GOAL_RANGE: 1,

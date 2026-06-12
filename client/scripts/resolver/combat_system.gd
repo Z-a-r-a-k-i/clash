@@ -1,6 +1,8 @@
 class_name CombatSystem
 extends RefCounted
 
+const _MECHANICS_SYSTEM := preload("res://scripts/resolver/mechanics_system.gd")
+
 # Combat system — resolves TARGET focus. Walks the target priority chain
 # per plan/m0/02-tick-based-resolver.md "Target chain resolution":
 # 1. For each id in priority list: if alive, visible, in-range, and targetable, fire at it.
@@ -58,7 +60,11 @@ static func build_attack_intent(
 
 
 static func apply_attack_intents(
-	state: MatchState, intents: Array, registry: EntityRegistry, events: Array[ResolverEvent]
+	state: MatchState,
+	intents: Array,
+	registry: EntityRegistry,
+	events: Array[ResolverEvent],
+	context: Variant = null
 ) -> Dictionary:
 	var fired_entity_ids: Dictionary = {}
 	var live_intents: Array[Dictionary] = []
@@ -110,7 +116,9 @@ static func apply_attack_intents(
 	for target_id in destroyed_ids:
 		var dead := state.get_entity_by_id(target_id)
 		if dead != null and dead.current_hp <= 0:
-			_destroy_entity(state, dead, killer_by_target.get(target_id, -1), registry, events)
+			_destroy_entity(
+				state, dead, killer_by_target.get(target_id, -1), registry, events, context
+			)
 	return fired_entity_ids
 
 
@@ -159,15 +167,22 @@ static func _select_target(
 		return null
 	var visibility: VisionSystem.Visibility = null
 	if attacker.owner_player_id >= 0:
-		var cache: Dictionary = visibility_by_player if visibility_by_player is Dictionary else {}
-		if cache.has(attacker.owner_player_id):
-			visibility = cache[attacker.owner_player_id] as VisionSystem.Visibility
+		if visibility_by_player is ResolveContext:
+			visibility = visibility_by_player.visibility_for(attacker.owner_player_id)
 		else:
-			visibility = VisionSystem.compute_player_visibility(
-				state, registry, attacker.owner_player_id
+			var cache: Dictionary = (
+				visibility_by_player if visibility_by_player is Dictionary else {}
 			)
-			if visibility_by_player is Dictionary:
-				cache[attacker.owner_player_id] = visibility
+			if cache.has(attacker.owner_player_id):
+				visibility = cache[attacker.owner_player_id] as VisionSystem.Visibility
+			else:
+				visibility = VisionSystem.compute_player_visibility(
+					state, registry, attacker.owner_player_id
+				)
+				if visibility_by_player is Dictionary:
+					cache[attacker.owner_player_id] = visibility
+
+	var attack_range: int = _MECHANICS_SYSTEM.effective_attack_range(attacker, combat)
 
 	# Priority chain.
 	if order != null:
@@ -178,7 +193,7 @@ static func _select_target(
 			if not _is_visible_to_attacker(state, attacker, candidate, registry, visibility):
 				continue
 			var d := _entity_distance_from_rect(state, attacker_rect, candidate, registry)
-			if d >= 0 and d <= combat.attack_range:
+			if d >= 0 and d <= attack_range:
 				return candidate
 
 	# Closest enemy in range, ties broken by id (entities_sorted_by_id
@@ -195,7 +210,7 @@ static func _select_target(
 		if not _is_visible_to_attacker(state, attacker, candidate, registry, visibility):
 			continue
 		var d := _entity_distance_from_rect(state, attacker_rect, candidate, registry)
-		if d < 0 or d > combat.attack_range:
+		if d < 0 or d > attack_range:
 			continue
 		if closest == null or d < closest_dist or (d == closest_dist and candidate.id < closest.id):
 			closest = candidate
@@ -250,7 +265,7 @@ static func _is_valid_target(
 	var d := _entity_distance(state, attacker, candidate, registry)
 	if d < 0:
 		return false  # No tile grid or footprints couldn't be derived.
-	return d <= combat.attack_range
+	return d <= _MECHANICS_SYSTEM.effective_attack_range(attacker, combat)
 
 
 # Chebyshev distance between two entities' footprints. Returns -1 if
@@ -297,7 +312,8 @@ static func _resolve_rect(state: MatchState, e: Entity, registry: EntityRegistry
 static func _compute_damage(
 	combat: CombatDef, target: Entity, attacker: Entity, registry: EntityRegistry
 ) -> int:
-	var dmg := float(combat.damage)
+	# Integer percent math throughout (ADR 0013 — no float in the resolver).
+	var dmg: int = _MECHANICS_SYSTEM.effective_damage(attacker, combat)
 	# Tag-matched attack modifiers. Tags live on EntityDef, not on the
 	# runtime Entity, so we resolve through the registry.
 	var target_tags: Array[String] = []
@@ -309,12 +325,12 @@ static func _compute_damage(
 		if mod == null:
 			continue
 		if target_tags.has(mod.target_tag):
-			dmg *= mod.damage_mult
-	# Attacker's active buffs (e.g. stim's damage_mult).
-	for buff in attacker.active_buffs:
-		if buff != null:
-			dmg *= buff.damage_mult
-	return int(round(dmg))
+			dmg = _MECHANICS_SYSTEM.scale_by_pct(dmg, mod.damage_mult_pct)
+	# Attacker's status damage multipliers.
+	var status_pct: int = _MECHANICS_SYSTEM.damage_mult_pct(attacker)
+	if status_pct != 100:
+		dmg = _MECHANICS_SYSTEM.scale_by_pct(dmg, status_pct)
+	return dmg
 
 
 # ---------- Death handling ----------
@@ -325,7 +341,8 @@ static func _destroy_entity(
 	dead: Entity,
 	killer_id: int,
 	registry: EntityRegistry,
-	events: Array[ResolverEvent]
+	events: Array[ResolverEvent],
+	context: Variant = null
 ) -> void:
 	# Remove from tile grid; the entity's record stays in MatchState with
 	# current_hp == 0 so referencing IDs continue to resolve (e.g. for
@@ -333,7 +350,15 @@ static func _destroy_entity(
 	# next turn's distribution can prune dead entities; we don't do it
 	# here to avoid invalidating iteration in the caller.
 	if state.tile_grid != null:
+		var dead_rect: Rect2i = state.tile_grid.entity_rect(dead.id)
 		state.tile_grid.remove(dead.id)
+		if context is ResolveContext:
+			context.on_entity_removed(
+				dead.id,
+				PathfindingSystem.layer_for_entity(dead, registry),
+				dead_rect,
+				dead.owner_player_id
+			)
 
 	# Pop accounting (plan node 05). A dying unit returns its pop_cost.
 	# A dying COMPLETED building returns its pop_provides (i.e. pop_cap

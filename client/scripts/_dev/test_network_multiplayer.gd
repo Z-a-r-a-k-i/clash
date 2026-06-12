@@ -124,6 +124,19 @@ func _test_codec_round_trip() -> bool:
 	var loaded: LoadedScenario = _load_combat()
 	if loaded == null:
 		return false
+	# Seed a status (plan node 14) so the codec's StatusEffect path is
+	# exercised by the round trip below.
+	var sieged := StatusEffect.new()
+	sieged.status_id = "sieged"
+	sieged.duration_turns = StatusEffect.INDEFINITE
+	sieged.blocks_move = true
+	sieged.damage_override = 40
+	sieged.attack_range_override = 6
+	sieged.sprite_key = "siege_tank"
+	for entity: Entity in loaded.state.entities_sorted_by_id():
+		if entity.current_def_id == "tank":
+			entity.statuses = [sieged]
+			break
 	var submit_a: SubmitTurn = _submit_attack(loaded.state, 0)
 	var submit_b: SubmitTurn = SubmitTurn.new()
 	var result: ResolveResult = Resolver.resolve(
@@ -996,7 +1009,9 @@ func _network_right_click_enemy_queues_attack_target_for_slot(player_slot: int) 
 			)
 		)
 		ok = false
-	var surface: MatchPlaySurface = mode.get_node_or_null("MatchPlaySurface") as MatchPlaySurface
+	var surface: MatchPlaySurface = (
+		mode.find_child("MatchPlaySurface", true, false) as MatchPlaySurface
+	)
 	var renderer: MatchRenderer = surface.renderer() if surface != null else null
 	if renderer == null or renderer.call("target_intent_preview_count") != 1:
 		push_error(
@@ -2320,7 +2335,7 @@ func _ensure_second_train_option(
 		return false
 	if def.production.produces.size() > 1:
 		return true
-	var candidates: Array[String] = ["marine", "worker", "siege_tank", "helicopter"]
+	var candidates: Array[String] = ["marine", "worker", "tank", "helicopter"]
 	for candidate_id: String in candidates:
 		if def.production.produces.has(candidate_id):
 			continue
@@ -2741,6 +2756,32 @@ func _events_include_match_winner(events: Array, winner_player_id: int) -> bool:
 	return false
 
 
+func _statuses_signature(statuses: Array[StatusEffect]) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for status: StatusEffect in statuses:
+		if status == null:
+			out.append({})
+			continue
+		(
+			out
+			. append(
+				{
+					"id": status.status_id,
+					"duration": status.duration_turns,
+					"blocks_move": status.blocks_move,
+					"blocks_attack": status.blocks_attack,
+					"speed_pct": status.speed_mult_pct,
+					"damage_pct": status.damage_mult_pct,
+					"damage_override": status.damage_override,
+					"range_override": status.attack_range_override,
+					"eot_hp": status.end_of_turn_hp_delta,
+					"sprite": status.sprite_key,
+				}
+			)
+		)
+	return out
+
+
 func _state_signature(state: MatchState) -> Dictionary:
 	if state == null:
 		return {}
@@ -2757,6 +2798,7 @@ func _state_signature(state: MatchState) -> Dictionary:
 					"origin": entity.origin,
 					"hp": entity.current_hp,
 					"focus": entity.focus_target_entity_id,
+					"statuses": _statuses_signature(entity.statuses),
 					"over": state.match_over,
 					"winner": state.winner_player_id,
 				}

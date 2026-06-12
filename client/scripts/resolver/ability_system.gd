@@ -102,8 +102,27 @@ static func available_self_abilities(
 			continue
 		if hp_cost > 0 and actor.current_hp <= hp_cost:
 			continue
+		if not _status_effect_applicable(actor, ability):
+			continue
 		out.append(ability)
 	return out
+
+
+# Status toggles only surface when they would change something: apply is
+# hidden while the status is active (siege on a sieged tank) and clear is
+# hidden while it isn't (unsiege on an unsieged tank).
+static func _status_effect_applicable(actor: Entity, ability: AbilityDef) -> bool:
+	if ability.effect is StatusApplyEffect:
+		var apply_effect: StatusApplyEffect = ability.effect
+		if apply_effect.status == null or apply_effect.status.status_id == "":
+			return false
+		return not StatusSystem.has_status(actor, apply_effect.status.status_id)
+	if ability.effect is StatusClearEffect:
+		var clear_effect: StatusClearEffect = ability.effect
+		if clear_effect.status_id == "":
+			return false
+		return StatusSystem.has_status(actor, clear_effect.status_id)
+	return true
 
 
 static func _ability_for_entity(
@@ -141,41 +160,25 @@ static func _hp_cost(ability: AbilityDef) -> int:
 
 
 static func _apply_effect(
-	actor: Entity, ability: AbilityDef, registry: EntityRegistry, events: Array[ResolverEvent]
+	actor: Entity, ability: AbilityDef, _registry: EntityRegistry, events: Array[ResolverEvent]
 ) -> void:
-	if ability.effect is StatBuffEffect:
-		_apply_stat_buff(actor, ability, ability.effect as StatBuffEffect)
+	if ability.effect is StatusApplyEffect:
+		var apply_effect: StatusApplyEffect = ability.effect
+		if apply_effect.status == null or apply_effect.status.status_id == "":
+			_emit_order_rejected(actor.id, "bad_status", events)
+			return
+		var status: StatusEffect = apply_effect.status.clone()
+		status.source_ability_id = ability.id
+		StatusSystem.apply_status(actor, status, events)
 		return
-	if ability.effect is TransformEffect:
-		_apply_transform(actor, ability.effect as TransformEffect, registry, events)
+	if ability.effect is StatusClearEffect:
+		var clear_effect: StatusClearEffect = ability.effect
+		if clear_effect.status_id == "":
+			_emit_order_rejected(actor.id, "bad_status", events)
+			return
+		StatusSystem.clear_status(actor, clear_effect.status_id, events)
 		return
 	_emit_order_rejected(actor.id, "bad_effect", events)
-
-
-static func _apply_stat_buff(actor: Entity, ability: AbilityDef, effect: StatBuffEffect) -> void:
-	if effect.duration_turns <= 0:
-		return
-	var buff: ActiveBuff = ActiveBuff.new()
-	buff.source_ability_id = ability.id
-	buff.turns_remaining = effect.duration_turns
-	buff.damage_mult = effect.damage_mult
-	buff.speed_mult = effect.speed_mult
-	actor.active_buffs.append(buff)
-
-
-static func _apply_transform(
-	actor: Entity, effect: TransformEffect, registry: EntityRegistry, events: Array[ResolverEvent]
-) -> void:
-	var target_def: EntityDef = registry.get_by_id(effect.to_def_id) if registry != null else null
-	if target_def == null:
-		_emit_order_rejected(actor.id, "bad_transform_target", events)
-		return
-	actor.current_def_id = target_def.id
-	var ev: ResolverEvent = ResolverEvent.new()
-	ev.type = ResolverEvent.Type.ENTITY_TRANSFORMED
-	ev.actor_id = actor.id
-	ev.new_def_id = target_def.id
-	events.append(ev)
 
 
 static func _emit_ability_used(
