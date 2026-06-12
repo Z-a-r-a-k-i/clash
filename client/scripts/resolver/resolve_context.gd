@@ -45,6 +45,18 @@ var _no_progress_goals: Dictionary = {}
 # Mover ids of the current movement substep (passable for planning).
 var _last_mover_ids: Dictionary = {}
 
+# Resource-source entities (def.resource_source != null), cached for the
+# whole resolve: sources never spawn mid-turn and consumers re-validate
+# depletion per candidate, so a stale-by-one list is harmless. Replaces
+# the all-entities scan inside gather source selection (playtest
+# 2026-06-12: O(entities^2) per gather order).
+var _resource_sources: Array[Entity] = []
+var _resource_sources_built: bool = false
+
+# terrain signature -> {tile: true} of terrain-blocked tiles (static
+# during a resolve).
+var _terrain_blocked_by_signature: Dictionary = {}
+
 
 func _init(p_state: MatchState, p_registry: EntityRegistry) -> void:
 	state = p_state
@@ -158,7 +170,10 @@ func on_entity_moved(entity: Entity, layer: String, old_rect: Rect2i, new_rect: 
 func on_entity_removed(entity_id: int, layer: String, rect: Rect2i, owner_player_id: int) -> void:
 	if _blocker_tiles_by_layer.has(layer):
 		_remove_blocker_rect(_blocker_tiles_by_layer[layer], entity_id, rect)
-	_blockers_version += 1
+	# Deliberately NO _blockers_version bump: a death frees tiles, so
+	# cached flow fields are merely conservative (they still route around
+	# the corpse tile for the rest of the turn). Invalidating here made
+	# every combat turn rebuild every field (playtest 2026-06-12 hang).
 	invalidate_visibility_for(owner_player_id)
 
 
@@ -189,8 +204,13 @@ static func _remove_blocker_rect(tiles: Dictionary, entity_id: int, rect: Rect2i
 
 
 # Called once per movement substep with the ids of every entity that has
-# a movement intent. A change in the mover set changes who counts as a
-# hard blocker, so cached flow fields must be rebuilt.
+# a movement intent. The passable set tracks the CURRENT movers, but a
+# mover-set change deliberately does NOT invalidate cached flow fields:
+# fields treat movers as passable heuristics and the per-substep commit
+# safety layer rejects illegal steps anyway, while rebuilding every
+# field on every substep made large gather/army turns take seconds
+# (playtest 2026-06-12). Real blocker-landscape changes (spawns,
+# deaths, building placement) still bump the version elsewhere.
 func note_movers(mover_ids: Dictionary) -> void:
 	if mover_ids.size() == _last_mover_ids.size():
 		var same := true
@@ -201,12 +221,51 @@ func note_movers(mover_ids: Dictionary) -> void:
 		if same:
 			return
 	_last_mover_ids = mover_ids.duplicate()
-	_blockers_version += 1
 
 
 # Ids treated as passable for planning (the current movement-intent set).
 func mover_passable() -> Dictionary:
 	return _last_mover_ids
+
+
+# Terrain is immutable during a resolve, so the per-movement-rules set
+# of terrain-blocked tiles is computed once and shared by every flow
+# field build (the per-neighbor terrain check dominated build time).
+func terrain_blocked_tiles(movement: MovementDef) -> Dictionary:
+	if movement == null or state == null or state.tile_grid == null:
+		return {}
+	var signature := (
+		"|".join(movement.impassable_terrain_tags) + "/" + "|".join(movement.pathable_terrain_tags)
+	)
+	if _terrain_blocked_by_signature.has(signature):
+		return _terrain_blocked_by_signature[signature]
+	var blocked: Dictionary = {}
+	if not (
+		movement.impassable_terrain_tags.is_empty() and movement.pathable_terrain_tags.is_empty()
+	):
+		for tile in state.tile_grid.terrain_tiles():
+			if not PathfindingSystem._terrain_allows_rect(
+				state.tile_grid, Rect2i(tile, Vector2i.ONE), movement
+			):
+				blocked[tile] = true
+	_terrain_blocked_by_signature[signature] = blocked
+	return blocked
+
+
+func resource_sources() -> Array[Entity]:
+	if _resource_sources_built:
+		return _resource_sources
+	_resource_sources_built = true
+	_resource_sources = []
+	if state == null or registry == null:
+		return _resource_sources
+	for entity in state.entities_sorted_by_id():
+		if entity == null:
+			continue
+		var def: EntityDef = registry.get_by_id(entity.current_def_id)
+		if def != null and def.resource_source != null:
+			_resource_sources.append(entity)
+	return _resource_sources
 
 
 # ---------- Flow fields ----------

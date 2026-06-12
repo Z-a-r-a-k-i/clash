@@ -35,7 +35,8 @@ static func distribute_orders(
 	queue_a: Array[EntityOrder],
 	queue_b: Array[EntityOrder],
 	registry: EntityRegistry,
-	events: Array[ResolverEvent]
+	events: Array[ResolverEvent],
+	context: Variant = null
 ) -> Dictionary:
 	var per_entity: Dictionary = {}  # int entity_id -> Array[EntityOrder]
 	# Resolve expected owner from state.players so non-default player_id
@@ -46,8 +47,35 @@ static func distribute_orders(
 	var owner_a := p_a.player_id if p_a != null else 0
 	var owner_b := p_b.player_id if p_b != null else 1
 	var visibility_by_player: Dictionary = {}
-	_distribute_one(state, queue_a, owner_a, per_entity, registry, events, visibility_by_player)
-	_distribute_one(state, queue_b, owner_b, per_entity, registry, events, visibility_by_player)
+	# One shared gather-assignment map for the whole distribution,
+	# updated incrementally as orders assign workers. Recomputing it per
+	# GATHER order re-scanned every entity per worker (playtest
+	# 2026-06-12 hang).
+	var gather_assignments: Dictionary[int, Array] = GatherSystem._source_assignments_by_source(
+		state, registry
+	)
+	_distribute_one(
+		state,
+		queue_a,
+		owner_a,
+		per_entity,
+		registry,
+		events,
+		visibility_by_player,
+		context,
+		gather_assignments
+	)
+	_distribute_one(
+		state,
+		queue_b,
+		owner_b,
+		per_entity,
+		registry,
+		events,
+		visibility_by_player,
+		context,
+		gather_assignments
+	)
 	return per_entity
 
 
@@ -86,7 +114,9 @@ static func _distribute_one(
 	per_entity: Dictionary,
 	registry: EntityRegistry,
 	events: Array[ResolverEvent],
-	visibility_by_player: Dictionary
+	visibility_by_player: Dictionary,
+	context: Variant = null,
+	gather_assignments: Dictionary[int, Array] = {}
 ) -> void:
 	for order in queue:
 		if order == null or order.type == EntityOrder.Type.INVALID:
@@ -149,15 +179,20 @@ static func _distribute_one(
 			)
 			if source == null:
 				GatherSystem.clear_assignment(entity)
+				GatherSystem.replace_assignment_in_map(gather_assignments, entity.id, -1)
 				_emit_order_rejected(order.entity_id, "bad_gather_target", events)
 				continue
 			var assigned_source: Entity = GatherSystem.best_source_for_worker(
-				state, registry, entity, source
+				state, registry, entity, source, gather_assignments, context
 			)
 			if assigned_source == null:
 				GatherSystem.clear_assignment(entity)
+				GatherSystem.replace_assignment_in_map(gather_assignments, entity.id, -1)
 				_emit_order_rejected(order.entity_id, "source_saturated", events)
 				continue
+			GatherSystem.replace_assignment_in_map(
+				gather_assignments, entity.id, assigned_source.id
+			)
 			entity.gather_state.assigned_source_entity_id = assigned_source.id
 			entity.gather_state.carrying_amount = 0
 			entity.gather_state.carrying_resource_type = ""

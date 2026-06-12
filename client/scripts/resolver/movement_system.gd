@@ -64,6 +64,7 @@ static func resolve_movement_substep(
 	if state == null or state.tile_grid == null or registry == null:
 		return false
 	var active_path_cache: Dictionary = path_cache if path_cache is Dictionary else {}
+	var profile_mark: int = profile.mark() if profile != null else 0
 	var intents: Array[Dictionary] = _movement_intents(
 		state,
 		per_entity,
@@ -75,6 +76,8 @@ static func resolve_movement_substep(
 		events,
 		context
 	)
+	if profile != null:
+		profile.add("movement.intents_build", profile_mark)
 	if intents.is_empty():
 		return false
 	_count_profile(profile, "movement.intents", intents.size())
@@ -147,6 +150,8 @@ static func resolve_movement_substep(
 			and footprint == Vector2i.ONE
 			and int(flow_goal_counts.get(intent.get("_flow_key", ""), 0)) >= 2
 		)
+		if profile != null:
+			profile_mark = profile.mark()
 		if use_flow_field:
 			var flow: Dictionary = _flow_next_step(
 				context,
@@ -181,6 +186,8 @@ static func resolve_movement_substep(
 				_store_path_cache(actor, target_origin, intent, step, active_path_cache)
 			else:
 				_count_profile(profile, "movement.path_cache_hit")
+		if profile != null:
+			profile.add("movement.step_select", profile_mark)
 		if step.is_empty():
 			continue
 		if step.get("completed_at_origin", false):
@@ -220,7 +227,11 @@ static func resolve_movement_substep(
 		return completed_at_origin
 	_count_profile(profile, "movement.proposals", proposals.size())
 
+	if profile != null:
+		profile_mark = profile.mark()
 	var winners: Array[Dictionary] = _winning_proposals(state, proposals, registry, events, context)
+	if profile != null:
+		profile.add("movement.winning_proposals", profile_mark)
 	if winners.is_empty():
 		return false
 	winners = _drop_same_layer_overlapping_winners(winners)
@@ -359,11 +370,16 @@ static func _flow_next_step(
 	var key: String = _PATHFINDING.flow_field_key(
 		actor_layer, movement, target_origin, goal_rect, goal_range, exact_origin
 	)
+	var build_blockers: Dictionary = {
+		"tiles": blocked_tiles,
+		"passable": passable,
+		"terrain_blocked": context.terrain_blocked_tiles(movement),
+	}
 	var field: Dictionary = context.flow_field(
 		key,
 		func() -> Dictionary:
 			return _PATHFINDING.build_flow_field(
-				grid, movement, blockers, target_origin, goal_rect, goal_range, exact_origin
+				grid, movement, build_blockers, target_origin, goal_rect, goal_range, exact_origin
 			)
 	)
 	if not field.has(start):

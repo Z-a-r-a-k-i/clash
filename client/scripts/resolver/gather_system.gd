@@ -300,7 +300,13 @@ static func _best_source_for_worker(
 		return null
 	var best: Entity = null
 	var best_distance: int = -1
-	for candidate in state.entities_sorted_by_id():
+	# The context caches the (small) resource-source list; without it we
+	# fall back to scanning every entity. Either way each candidate is
+	# re-validated through _resolve_source (depletion, extractors).
+	var candidates: Array[Entity] = (
+		context.resource_sources() if context is ResolveContext else state.entities_sorted_by_id()
+	)
+	for candidate in candidates:
 		if candidate == null or candidate.id == requested_source.id:
 			continue
 		var source: Entity = _resolve_source(state, registry, candidate.id, actor.owner_player_id)
@@ -499,6 +505,7 @@ static func _path_distance_to_source(
 		var blockers: Dictionary = {
 			"tiles": context.blocker_tiles(layer),
 			"passable": context.mover_passable(),
+			"terrain_blocked": context.terrain_blocked_tiles(movement),
 		}
 		var field: Dictionary = context.flow_field(
 			key,

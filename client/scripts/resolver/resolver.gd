@@ -129,17 +129,20 @@ static func resolve(
 	var orders_b: Array[EntityOrder] = (
 		safe_submit_b.orders if safe_submit_b != null else [] as Array[EntityOrder]
 	)
+	# Shared per-resolve caches (visibility, blockers, flow fields, sorted
+	# entities). Derived state only — see resolve_context.gd. Created
+	# before distribution so GATHER validation reuses the per-source flow
+	# fields instead of flooding A* per worker; entity spawns during
+	# distribution are caught up lazily by the context.
+	var context := ResolveContext.new(working, registry)
+
 	if profile != null:
 		profile_step = profile.mark()
 	var per_entity := _STATE_HELPERS.distribute_orders(
-		working, orders_a, orders_b, registry, events
+		working, orders_a, orders_b, registry, events, context
 	)
 	if profile != null:
 		profile.add("distribute_orders", profile_step)
-
-	# Shared per-resolve caches (visibility, blockers, flow fields, sorted
-	# entities). Derived state only — see resolve_context.gd.
-	var context := ResolveContext.new(working, registry)
 
 	# 3a. Idle producers that just received a TRAIN/RESEARCH this turn
 	#     should start producing immediately (so build-time is N turns
