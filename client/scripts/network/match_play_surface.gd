@@ -2,8 +2,9 @@ class_name MatchPlaySurface
 extends Node
 
 const MATCH_SCENE_PATH := "res://scenes/match.tscn"
+const MATCH_3D_SCENE_PATH := "res://scenes/match_3d.tscn"
 
-var _renderer: MatchRenderer = null
+var _renderer: Variant = null
 var _state: MatchState = null
 var _registry: EntityRegistry = null
 var _player_slot: int = -1
@@ -34,7 +35,7 @@ func render_authoritative_result(new_state: MatchState, events: Array) -> void:
 		_renderer.set_perspective_player_id(_player_slot)
 
 
-func renderer() -> MatchRenderer:
+func renderer() -> Variant:
 	_ensure_renderer()
 	return _renderer
 
@@ -54,13 +55,16 @@ func player_slot() -> int:
 func _ensure_renderer() -> void:
 	if _renderer != null:
 		return
-	var packed: PackedScene = load(MATCH_SCENE_PATH) as PackedScene
+	var scene_path: String = (
+		MATCH_3D_SCENE_PATH if DisplayServer.get_name() != "headless" else MATCH_SCENE_PATH
+	)
+	var packed: PackedScene = load(scene_path) as PackedScene
 	if packed == null:
-		push_error("MatchPlaySurface: failed to load %s" % MATCH_SCENE_PATH)
+		push_error("MatchPlaySurface: failed to load %s" % scene_path)
 		return
-	_renderer = packed.instantiate() as MatchRenderer
+	_renderer = packed.instantiate()
 	if _renderer == null:
-		push_error("MatchPlaySurface: match scene root is not a MatchRenderer.")
+		push_error("MatchPlaySurface: match scene failed to instantiate.")
 		return
 	add_child(_renderer)
 

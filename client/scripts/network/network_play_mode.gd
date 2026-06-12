@@ -690,7 +690,7 @@ func _update_outcome_overlay(state: MatchState) -> void:
 			_outcome_detail_label.text = "No winner"
 
 
-func _renderer() -> MatchRenderer:
+func _renderer() -> Variant:
 	if _surface == null:
 		return null
 	return _surface.renderer()
@@ -1045,7 +1045,7 @@ func session_registry() -> EntityRegistry:
 	return _registry
 
 
-func session_renderer() -> MatchRenderer:
+func session_renderer() -> Variant:
 	return _renderer()
 
 

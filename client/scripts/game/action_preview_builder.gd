@@ -8,7 +8,7 @@ var _state: MatchState = null
 var _registry: EntityRegistry = null
 var _input: DevTurnInput = null
 var _player_id: int = 0
-var _renderer: MatchRenderer = null
+var _renderer: Variant = null
 var _visibility_by_player: Dictionary[int, VisionSystem.Visibility] = {}
 var _tactical_preview_builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = (
 	TACTICAL_PREVIEW_BUILDER_SCRIPT.new() as TACTICAL_PREVIEW_BUILDER_SCRIPT
@@ -22,7 +22,7 @@ func build(
 	player_id: int,
 	selected_entity_id: int,
 	include_all_friendly: bool = false,
-	renderer: MatchRenderer = null,
+	renderer: Variant = null,
 	selected_entity_ids: Array[int] = []
 ) -> Array[Dictionary]:
 	_state = state
@@ -62,7 +62,7 @@ func build_target_intents(
 	player_id: int,
 	selected_entity_id: int,
 	include_all_friendly: bool = false,
-	renderer: MatchRenderer = null,
+	renderer: Variant = null,
 	selected_entity_ids: Array[int] = []
 ) -> Array[Dictionary]:
 	_state = state

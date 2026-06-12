@@ -3,6 +3,7 @@ extends Node
 
 const DEFAULT_SCENARIO_PATH := "res://data/scenarios/arena_1v1.tres"
 const MATCH_SCENE_PATH := "res://scenes/match.tscn"
+const MATCH_3D_SCENE_PATH := "res://scenes/match_3d.tscn"
 const REGISTRY_PATH := "res://data/entity_registry.tres"
 const TUNABLES_PATH := "res://data/tunables.tres"
 const DEV_TURN_INPUT_SCRIPT := preload("res://scripts/game/dev_turn_input.gd")
@@ -50,7 +51,7 @@ const CAMERA_DRAG_THRESHOLD := 4.0
 @export_file("*.tres") var scenario_path: String = DEFAULT_SCENARIO_PATH
 @export var auto_save_replays: bool = true
 
-var _renderer: MatchRenderer = null
+var _renderer: Variant = null
 var _loaded: LoadedScenario = null
 var _tunables: Tunables = null
 var _input: DevTurnInput = DEV_TURN_INPUT_SCRIPT.new() as DevTurnInput
@@ -138,7 +139,7 @@ func current_state() -> MatchState:
 	return _loaded.state
 
 
-func renderer() -> MatchRenderer:
+func renderer() -> Variant:
 	return _renderer
 
 
@@ -543,11 +544,14 @@ func _ensure_renderer() -> void:
 	if _renderer != null:
 		return
 	_controller.ensure_game_viewport()
-	var packed: PackedScene = load(MATCH_SCENE_PATH) as PackedScene
+	var scene_path: String = (
+		MATCH_3D_SCENE_PATH if DisplayServer.get_name() != "headless" else MATCH_SCENE_PATH
+	)
+	var packed: PackedScene = load(scene_path) as PackedScene
 	if packed == null:
-		push_error("DevPlayMode: failed to load %s" % MATCH_SCENE_PATH)
+		push_error("DevPlayMode: failed to load %s" % scene_path)
 		return
-	_renderer = packed.instantiate() as MatchRenderer
+	_renderer = packed.instantiate()
 	if _renderer == null:
 		push_error("DevPlayMode: match scene root is not a MatchRenderer.")
 		return
@@ -1607,7 +1611,7 @@ func session_registry() -> EntityRegistry:
 	return _loaded.registry if _loaded != null else null
 
 
-func session_renderer() -> MatchRenderer:
+func session_renderer() -> Variant:
 	return _renderer
 
 

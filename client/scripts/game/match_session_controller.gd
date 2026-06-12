@@ -119,7 +119,6 @@ func ensure_game_viewport() -> void:
 
 	_game_viewport = SubViewport.new()
 	_game_viewport.name = "GameViewport"
-	_game_viewport.disable_3d = true
 	_game_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	_game_viewport_container.add_child(_game_viewport)
 	sync_game_viewport_rect()
@@ -183,7 +182,7 @@ func _event_inside_game_viewport(event: InputEventMouse) -> bool:
 
 
 func _event_world_position(event: InputEventMouse) -> Vector2:
-	var renderer: MatchRenderer = _renderer()
+	var renderer: Variant = _renderer()
 	if renderer == null:
 		return event.position
 	if renderer.get_viewport() == null:
@@ -255,7 +254,7 @@ func handle_unhandled_input(event: InputEvent) -> void:
 			_set_event_handled()
 			return
 		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_SPACE:
-			var renderer: MatchRenderer = _renderer()
+			var renderer: Variant = _renderer()
 			if renderer != null and renderer.is_turn_playback_active():
 				renderer.skip_turn_playback()
 				_set_event_handled()
@@ -341,7 +340,7 @@ func select_entity_id(entity_id: int) -> bool:
 	if _host.session_reject_edit():
 		return false
 	var ok: bool = _input.select_entity(entity_id)
-	var renderer: MatchRenderer = _renderer()
+	var renderer: Variant = _renderer()
 	if renderer != null:
 		_clear_build_placement_preview()
 		if ok:
@@ -358,7 +357,7 @@ func select_entity_id(entity_id: int) -> bool:
 func _apply_box_selection(world_rect: Rect2, additive: bool) -> void:
 	if _host.session_reject_edit():
 		return
-	var renderer: MatchRenderer = _renderer()
+	var renderer: Variant = _renderer()
 	if renderer == null:
 		return
 	var ids: Array[int] = renderer.owned_movable_entity_ids_in_world_rect(
@@ -378,7 +377,7 @@ func _apply_box_selection(world_rect: Rect2, additive: bool) -> void:
 func _apply_click_selection(tile: Vector2i, additive: bool) -> void:
 	if _host.session_reject_edit():
 		return
-	var renderer: MatchRenderer = _renderer()
+	var renderer: Variant = _renderer()
 	var entity_id: int = renderer.entity_id_at_tile(tile) if renderer != null else -1
 	if additive:
 		if entity_id >= 0 and _input.toggle_entity_selection(entity_id):
@@ -410,7 +409,7 @@ func _movable_selection_ids(entity_ids: Array[int]) -> Array[int]:
 
 
 func sync_selection_highlights() -> void:
-	var renderer: MatchRenderer = _renderer()
+	var renderer: Variant = _renderer()
 	if renderer == null:
 		return
 	renderer.set_selected_entity_ids(_input.selected_entity_ids())
@@ -419,7 +418,7 @@ func sync_selection_highlights() -> void:
 func reset_selection_drag() -> void:
 	if _selection_drag != null:
 		_selection_drag.reset()
-	var renderer: MatchRenderer = _renderer()
+	var renderer: Variant = _renderer()
 	if renderer != null:
 		renderer.clear_selection_box()
 	_is_panning_camera = false
@@ -724,7 +723,7 @@ func _entity_id_at_tile(tile: Vector2i) -> int:
 		return -1
 	if not state.tile_grid.is_in_bounds(tile):
 		return -1
-	var renderer: MatchRenderer = _renderer()
+	var renderer: Variant = _renderer()
 	if renderer != null:
 		return renderer.entity_id_at_tile(tile)
 	return state.tile_grid.entity_at(tile)
@@ -880,7 +879,7 @@ func _update_context_cursor_for_tile(tile: Vector2i) -> void:
 
 
 func set_hover_tile(tile: Vector2i) -> void:
-	var renderer: MatchRenderer = _renderer()
+	var renderer: Variant = _renderer()
 	if renderer == null:
 		return
 	renderer.set_hover_tile(tile)
@@ -894,7 +893,7 @@ func set_hover_tile(tile: Vector2i) -> void:
 
 
 func _refresh_build_placement_preview(tile: Vector2i) -> void:
-	var renderer: MatchRenderer = _renderer()
+	var renderer: Variant = _renderer()
 	if renderer == null or not renderer.has_method("set_build_placement_preview"):
 		return
 	if _pending_command != PENDING_BUILD or _pending_build_def_id == "":
@@ -905,14 +904,14 @@ func _refresh_build_placement_preview(tile: Vector2i) -> void:
 
 
 func _clear_build_placement_preview() -> void:
-	var renderer: MatchRenderer = _renderer()
+	var renderer: Variant = _renderer()
 	if renderer == null or not renderer.has_method("clear_build_placement_preview"):
 		return
 	renderer.call("clear_build_placement_preview")
 
 
 func refresh_action_previews() -> void:
-	var renderer: MatchRenderer = _renderer()
+	var renderer: Variant = _renderer()
 	if renderer == null:
 		return
 	var state: MatchState = _host.session_state()
@@ -1007,7 +1006,7 @@ func _has_current_submitted_order_for_entity(entity_id: int) -> bool:
 
 
 func refresh_idle_worker_indicators(idle_worker_ids: Array[int]) -> void:
-	var renderer: MatchRenderer = _renderer()
+	var renderer: Variant = _renderer()
 	if renderer == null or not renderer.has_method("set_idle_worker_indicators"):
 		return
 	var indicators: Array[Variant] = []
@@ -1019,5 +1018,5 @@ func refresh_idle_worker_indicators(idle_worker_ids: Array[int]) -> void:
 # ---------- Internals ----------
 
 
-func _renderer() -> MatchRenderer:
+func _renderer() -> Variant:
 	return _host.session_renderer() if _host != null else null
