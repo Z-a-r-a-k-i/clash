@@ -990,6 +990,9 @@ func range_projection_active() -> bool:
 
 func clear_hover_tile() -> void:
 	_has_hover_tile = false
+	var renderer: MatchRenderer = _renderer()
+	if renderer != null and renderer.has_method("clear_hover_tile"):
+		renderer.clear_hover_tile()
 	refresh_range_previews()
 
 
@@ -1122,7 +1125,7 @@ func _damage_preview_payload(
 # TARGET order's primary target.
 func _damage_preview_target(entity: Entity, state: MatchState) -> Entity:
 	if _pending_command == PENDING_TARGET and _has_hover_tile and state.tile_grid != null:
-		var hovered_id: int = state.tile_grid.entity_at(_hover_tile)
+		var hovered_id: int = _entity_id_at_tile(_hover_tile)
 		if hovered_id >= 0:
 			var hovered: Entity = state.get_entity_by_id(hovered_id)
 			if hovered != null and hovered.owner_player_id != entity.owner_player_id:

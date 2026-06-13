@@ -2002,7 +2002,7 @@ func _test_network_alt_hold_and_move_hotkey_route_through_controller() -> bool:
 	if not controller.range_projection_active():
 		push_error("network Alt press should arm the range projection")
 		ok = false
-	controller.set_hover_tile(Vector2i(12, 12))
+	mode.call("_set_hover_tile", Vector2i(12, 12))
 	if renderer.call("range_preview_tile_count") <= current_count:
 		push_error("network Alt hover should project additional range tiles")
 		ok = false

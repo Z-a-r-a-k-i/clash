@@ -104,7 +104,11 @@ func turn_stops_for_path(
 			remaining = full_budget
 		remaining -= cost
 		current = next
-	if current != actor.origin and (stops.is_empty() or stops.back() != current):
+	if (
+		current != actor.origin
+		and stops.size() < max_stops
+		and (stops.is_empty() or stops.back() != current)
+	):
 		stops.append(current)
 	return stops
 

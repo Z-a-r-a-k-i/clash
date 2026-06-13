@@ -633,13 +633,22 @@ func committed_spend_for_player(player_id: int) -> Dictionary:
 		if order == null:
 			continue
 		match order.type:
-			EntityOrder.Type.TRAIN, EntityOrder.Type.BUILD:
-				var def: EntityDef = _registry.get_by_id(order.def_id)
-				if def != null and def.construction != null:
-					out["minerals"] += def.construction.mineral_cost
-					out["gas"] += def.construction.gas_cost
-				if order.type == EntityOrder.Type.TRAIN and def != null and def.population != null:
-					out["pop"] += def.population.pop_cost
+			EntityOrder.Type.TRAIN:
+				var train_def: EntityDef = _registry.get_by_id(order.def_id)
+				if train_def != null and train_def.construction != null:
+					out["minerals"] += train_def.construction.mineral_cost
+					out["gas"] += train_def.construction.gas_cost
+				if train_def != null and train_def.population != null:
+					out["pop"] += train_def.population.pop_cost
+			EntityOrder.Type.BUILD:
+				if order.target_entity_id >= 0:
+					continue
+				var build_def: EntityDef = _registry.get_by_id(order.def_id)
+				if build_def != null and build_def.construction != null:
+					out["minerals"] += build_def.construction.mineral_cost
+					out["gas"] += build_def.construction.gas_cost
+				if build_def != null and build_def.population != null:
+					out["pop"] += build_def.population.pop_cost
 			EntityOrder.Type.RESEARCH:
 				var research: ResearchDef = _registry.get_research_by_id(order.def_id)
 				if research != null:
