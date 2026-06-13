@@ -566,6 +566,11 @@ func _add_turn_stop_tile(
 	if stop_tile == TACTICAL_PREVIEW_BUILDER_SCRIPT.NO_STOP_TILE:
 		return
 	preview["turn_stop_tile"] = stop_tile
+	var stops: Array[Vector2i] = _tactical_preview_builder.turn_stops_for_path(
+		_state, _registry, entity_id, path, fired_this_turn
+	)
+	if not stops.is_empty():
+		preview["turn_stop_tiles"] = stops
 
 
 func _will_fire_before_movement(entity_id: int) -> bool:

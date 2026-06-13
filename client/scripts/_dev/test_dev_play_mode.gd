@@ -2391,14 +2391,24 @@ func _test_move_preview_shows_turn_stop_marker() -> bool:
 	var stop_count: int = renderer.call("action_preview_stop_marker_count")
 	var stop_tile: Vector2i = renderer.call("action_preview_stop_marker_tile", 0)
 	var ok := true
-	if stop_count != 1:
-		push_error("queued long move should draw exactly one next-turn stop marker")
+	if stop_count < 2:
+		push_error("queued long move should draw a stop marker for every turn of travel")
 		ok = false
 	if stop_tile == Vector2i(20, 22):
-		push_error("long move stop marker should not be the final destination")
+		push_error("the first stop marker should not be the final destination")
 		ok = false
 	if stop_tile == Vector2i(-999999, -999999):
 		push_error("long move stop marker should record a concrete tile")
+		ok = false
+	var last_tile: Vector2i = renderer.call("action_preview_stop_marker_tile", stop_count - 1)
+	if last_tile != Vector2i(20, 22):
+		push_error("the last stop marker should be the arrival tile, got %s" % last_tile)
+		ok = false
+	if (
+		renderer.call("action_preview_stop_marker_turn_index", 0) != 1
+		or renderer.call("action_preview_stop_marker_turn_index", stop_count - 1) != stop_count
+	):
+		push_error("stop markers should carry 1-based turn indices")
 		ok = false
 	_free_mode(mode)
 	return ok
