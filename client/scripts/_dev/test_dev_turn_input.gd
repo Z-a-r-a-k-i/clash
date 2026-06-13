@@ -216,6 +216,9 @@ func _test_committed_spend_sums_queued_production_orders() -> bool:
 	marine_def.construction.gas_cost = 25
 	marine_def.population = PopulationDef.new()
 	marine_def.population.pop_cost = 2
+	var barracks_def: EntityDef = registry.get_by_id("barracks")
+	barracks_def.population = PopulationDef.new()
+	barracks_def.population.pop_cost = 1
 	input.bind_context(setup.state, registry)
 	var spend_before: Dictionary = input.committed_spend_for_player(0)
 	if spend_before.get("minerals", -1) != 0 or spend_before.get("pop", -1) != 0:
@@ -225,6 +228,9 @@ func _test_committed_spend_sums_queued_production_orders() -> bool:
 	submit.orders.append(_production_order(EntityOrder.Type.TRAIN, 6, "marine"))
 	submit.orders.append(_production_order(EntityOrder.Type.TRAIN, 6, "marine"))
 	submit.orders.append(_production_order(EntityOrder.Type.BUILD, 1, "barracks"))
+	var resume_build: EntityOrder = _production_order(EntityOrder.Type.BUILD, 1, "barracks")
+	resume_build.target_entity_id = 42
+	submit.orders.append(resume_build)
 	submit.orders.append(_production_order(EntityOrder.Type.RESEARCH, 6, "surge_research"))
 	var spend: Dictionary = input.committed_spend_for_player(0)
 	if spend.get("minerals", -1) != 350:
@@ -233,8 +239,10 @@ func _test_committed_spend_sums_queued_production_orders() -> bool:
 	if spend.get("gas", -1) != 50:
 		push_error("committed gas should sum both marine trains, got %s" % [spend])
 		return false
-	if spend.get("pop", -1) != 4:
-		push_error("committed pop should only count trained units, got %s" % [spend])
+	if spend.get("pop", -1) != 5:
+		push_error(
+			"committed pop should count trained units and non-resume builds, got %s" % [spend]
+		)
 		return false
 	var enemy_spend: Dictionary = input.committed_spend_for_player(1)
 	if enemy_spend.get("minerals", -1) != 0:

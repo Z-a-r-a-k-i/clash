@@ -789,12 +789,17 @@ func _test_cockpit_styles_derive_from_ui_tokens() -> bool:
 	if selection_style == null or selection_style.bg_color != UiTokens.COLOR_SURFACE:
 		push_error("inner panels should use the UiTokens surface color")
 		ok = false
-	var resolve_style: StyleBoxFlat = (
-		_find_exact_button(cockpit, "Resolve").get_theme_stylebox("normal") as StyleBoxFlat
-	)
-	if resolve_style == null or resolve_style.bg_color != UiTokens.COLOR_AMBER:
-		push_error("resolve button should use the UiTokens amber role")
+	var resolve_button: Button = _find_exact_button(cockpit, "Resolve")
+	if resolve_button == null:
+		push_error("resolve button should exist in cockpit shell")
 		ok = false
+	else:
+		var resolve_style: StyleBoxFlat = (
+			resolve_button.get_theme_stylebox("normal") as StyleBoxFlat
+		)
+		if resolve_style == null or resolve_style.bg_color != UiTokens.COLOR_AMBER:
+			push_error("resolve button should use the UiTokens amber role")
+			ok = false
 	_free_mode(cockpit)
 	return ok
 

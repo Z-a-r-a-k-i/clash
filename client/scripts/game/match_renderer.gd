@@ -456,6 +456,11 @@ func set_hover_tile(tile: Vector2i) -> void:
 	_rebuild_input_highlights()
 
 
+func clear_hover_tile() -> void:
+	_has_hover_tile = false
+	_rebuild_input_highlights()
+
+
 func clear_input_highlights() -> void:
 	_selected_entity_ids.clear()
 	_has_hover_tile = false
@@ -630,10 +635,14 @@ func action_preview_line_point_count(preview_index: int) -> int:
 func action_preview_stop_marker_count() -> int:
 	if _action_previews_root == null:
 		return 0
-	var count := 0
-	for group in _action_previews_root.get_children():
-		for child in group.get_children():
-			if String(child.name).begins_with("TurnStopMarker"):
+	var count: int = 0
+	for raw_group in _action_previews_root.get_children():
+		var group: Node = raw_group as Node
+		if group == null:
+			continue
+		for raw_child in group.get_children():
+			var child: Node = raw_child as Node
+			if child != null and String(child.name).begins_with("TurnStopMarker"):
 				count += 1
 	return count
 
@@ -641,10 +650,14 @@ func action_preview_stop_marker_count() -> int:
 func action_preview_stop_marker_tile(marker_index: int) -> Vector2i:
 	if _action_previews_root == null:
 		return Vector2i(-999999, -999999)
-	var seen := 0
-	for group in _action_previews_root.get_children():
-		for child in group.get_children():
-			if not String(child.name).begins_with("TurnStopMarker"):
+	var seen: int = 0
+	for raw_group in _action_previews_root.get_children():
+		var group: Node = raw_group as Node
+		if group == null:
+			continue
+		for raw_child in group.get_children():
+			var child: Node = raw_child as Node
+			if child == null or not String(child.name).begins_with("TurnStopMarker"):
 				continue
 			if seen == marker_index:
 				return child.get_meta("tile", Vector2i(-999999, -999999))
@@ -655,10 +668,14 @@ func action_preview_stop_marker_tile(marker_index: int) -> Vector2i:
 func action_preview_stop_marker_turn_index(marker_index: int) -> int:
 	if _action_previews_root == null:
 		return -1
-	var seen := 0
-	for group in _action_previews_root.get_children():
-		for child in group.get_children():
-			if not String(child.name).begins_with("TurnStopMarker"):
+	var seen: int = 0
+	for raw_group in _action_previews_root.get_children():
+		var group: Node = raw_group as Node
+		if group == null:
+			continue
+		for raw_child in group.get_children():
+			var child: Node = raw_child as Node
+			if child == null or not String(child.name).begins_with("TurnStopMarker"):
 				continue
 			if seen == marker_index:
 				return child.get_meta("turn_index", -1)
@@ -1353,7 +1370,7 @@ func _turn_stop_marker(
 	)
 	group.add_child(fill)
 	if total_stops > 1:
-		var turn_label := Label.new()
+		var turn_label: Label = Label.new()
 		turn_label.text = "%d" % turn_index
 		turn_label.add_theme_font_size_override("font_size", _STOP_MARKER_FONT_SIZE)
 		turn_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
@@ -2085,7 +2102,7 @@ func _ensure_fog_sprite(width: int, height: int) -> void:
 	_fog_sprite.scale = Vector2(float(_tile_size), float(_tile_size))
 	_fog_sprite.texture = _fog_texture
 	_fog_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	var fog_material := ShaderMaterial.new()
+	var fog_material: ShaderMaterial = ShaderMaterial.new()
 	fog_material.shader = _FOG_SHADER
 	_fog_sprite.material = fog_material
 	_fog_root.add_child(_fog_sprite)
