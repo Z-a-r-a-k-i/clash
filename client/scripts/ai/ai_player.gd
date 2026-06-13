@@ -67,7 +67,7 @@ static func _snapshot(
 			continue
 		if entity.owner_player_id != player_id or entity.current_hp <= 0:
 			continue
-		var is_building := def.tags.has("building")
+		var is_building: bool = def.tags.has("building")
 		if is_building:
 			own_buildings.append(entity)
 			if not entity.is_constructing:
@@ -121,7 +121,7 @@ static func _update_enemy_memory(
 		var def: EntityDef = registry.get_by_id(entity.current_def_id)
 		if def == null or def.resource_source != null:
 			continue
-		var seen := config.cheats_vision
+		var seen: bool = config.cheats_vision
 		if not seen:
 			seen = VISION.is_entity_visible_to_player(
 				entity, state, registry, player_id, visibility
@@ -145,7 +145,7 @@ static func _update_enemy_memory(
 			var record: Dictionary = memory.enemy_last_seen[enemy_id]
 			var origin: Vector2i = record["origin"]
 			if visibility.is_tile_visible(origin) and int(record["turn"]) < state.turn_index:
-				var live := state.get_entity_by_id(enemy_id)
+				var live: Entity = state.get_entity_by_id(enemy_id)
 				if live == null or live.origin != origin:
 					stale.append(enemy_id)
 		for enemy_id in stale:
@@ -182,10 +182,10 @@ static func _plan_economy(
 			continue
 		if worker.gather_state != null and worker.gather_state.phase != GatherState.Phase.IDLE:
 			continue
-		var source := _nearest_open_source(state, player_id, registry, worker, assignments)
+		var source: Entity = _nearest_open_source(state, player_id, registry, worker, assignments)
 		if source == null:
 			continue
-		var order := EntityOrder.new()
+		var order: EntityOrder = EntityOrder.new()
 		order.type = EntityOrder.Type.GATHER
 		order.entity_id = worker.id
 		order.target_entity_id = source.id
@@ -195,13 +195,15 @@ static func _plan_economy(
 
 	# Keep worker production running while undersaturated: rally-gather +
 	# repeat-train at every base, once each.
-	var slots := _total_gather_slots(state, player_id, registry, snapshot)
+	var slots: int = _total_gather_slots(state, player_id, registry, snapshot)
 	var want_workers: int = slots + config.worker_margin
 	for base in bases:
 		if not memory.rallied_producer_ids.has(base.id):
-			var rally_source := _nearest_open_source(state, player_id, registry, base, assignments)
+			var rally_source: Entity = _nearest_open_source(
+				state, player_id, registry, base, assignments
+			)
 			if rally_source != null:
-				var rally := EntityOrder.new()
+				var rally: EntityOrder = EntityOrder.new()
 				rally.type = EntityOrder.Type.SET_RALLY_POINT
 				rally.entity_id = base.id
 				rally.mode = ProductionState.RALLY_MODE_GATHER
@@ -209,12 +211,12 @@ static func _plan_economy(
 				submit.orders.append(rally)
 				memory.rallied_producer_ids[base.id] = true
 		if workers.size() < want_workers and not memory.repeat_train_producer_ids.has(base.id):
-			var train := EntityOrder.new()
+			var train: EntityOrder = EntityOrder.new()
 			train.type = EntityOrder.Type.TRAIN
 			train.entity_id = base.id
 			train.def_id = "worker"
 			submit.orders.append(train)
-			var repeat := EntityOrder.new()
+			var repeat: EntityOrder = EntityOrder.new()
 			repeat.type = EntityOrder.Type.REPEAT_TRAIN_TOGGLE
 			repeat.entity_id = base.id
 			repeat.def_id = "worker"
@@ -222,7 +224,7 @@ static func _plan_economy(
 			submit.orders.append(repeat)
 			memory.repeat_train_producer_ids[base.id] = true
 		elif workers.size() >= want_workers and memory.repeat_train_producer_ids.has(base.id):
-			var stop := EntityOrder.new()
+			var stop: EntityOrder = EntityOrder.new()
 			stop.type = EntityOrder.Type.REPEAT_TRAIN_TOGGLE
 			stop.entity_id = base.id
 			stop.enabled = false
@@ -231,11 +233,11 @@ static func _plan_economy(
 
 	# Refinery when the mix wants gas and a nearby geyser is uncovered.
 	if _mix_wants_gas(registry, config) and player.minerals >= 75:
-		var geyser := _uncovered_geyser_near_base(state, player_id, registry, snapshot)
+		var geyser: Entity = _uncovered_geyser_near_base(state, player_id, registry, snapshot)
 		if geyser != null:
-			var builder := _free_builder(workers, issued)
+			var builder: Entity = _free_builder(workers, issued)
 			if builder != null:
-				var build := EntityOrder.new()
+				var build: EntityOrder = EntityOrder.new()
 				build.type = EntityOrder.Type.BUILD
 				build.entity_id = builder.id
 				build.def_id = "refinery"
@@ -251,11 +253,11 @@ static func _plan_economy(
 		and workers.size() >= slots
 		and not _has_pending_base(state, player_id, registry, snapshot)
 	):
-		var spot := _expansion_build_spot(state, player_id, registry, snapshot, memory)
+		var spot: Vector2i = _expansion_build_spot(state, player_id, registry, snapshot, memory)
 		if spot != Vector2i(-1, -1):
-			var builder := _free_builder(workers, issued)
+			var builder: Entity = _free_builder(workers, issued)
 			if builder != null:
-				var build := EntityOrder.new()
+				var build: EntityOrder = EntityOrder.new()
 				build.type = EntityOrder.Type.BUILD
 				build.entity_id = builder.id
 				build.def_id = "base"
@@ -284,14 +286,14 @@ static func _plan_production(
 	var workers: Array[Entity] = snapshot["workers"]
 
 	# Rally army producers toward the staging point, once each.
-	var staging := _staging_tile(state, snapshot, config)
+	var staging: Vector2i = _staging_tile(state, snapshot, config)
 	for producer in producers:
 		if memory.rallied_producer_ids.has(producer.id):
 			continue
 		var def: EntityDef = registry.get_by_id(producer.current_def_id)
 		if def == null or def.id == "base":
 			continue
-		var rally := EntityOrder.new()
+		var rally: EntityOrder = EntityOrder.new()
 		rally.type = EntityOrder.Type.SET_RALLY_POINT
 		rally.entity_id = producer.id
 		rally.mode = ProductionState.RALLY_MODE_MOVE
@@ -315,13 +317,13 @@ static func _plan_production(
 				continue
 			if player.minerals < item_def.construction.mineral_cost:
 				return
-			var builder := _free_builder(workers, issued)
+			var builder: Entity = _free_builder(workers, issued)
 			if builder == null:
 				return
-			var spot := _building_spot_near_main(state, registry, snapshot, item_def)
+			var spot: Vector2i = _building_spot_near_main(state, registry, snapshot, item_def)
 			if spot == Vector2i(-1, -1):
 				return
-			var build := EntityOrder.new()
+			var build: EntityOrder = EntityOrder.new()
 			build.type = EntityOrder.Type.BUILD
 			build.entity_id = builder.id
 			build.def_id = item
@@ -331,12 +333,12 @@ static func _plan_production(
 			memory.build_order_index += 1
 			return
 		# Unit item: needs an idle matching producer + funds.
-		var producer := _idle_producer_for(producers, registry, item, issued)
+		var producer: Entity = _idle_producer_for(producers, registry, item, issued)
 		if producer == null:
 			return
 		if not _can_afford_unit(player, item_def):
 			return
-		var train := EntityOrder.new()
+		var train: EntityOrder = EntityOrder.new()
 		train.type = EntityOrder.Type.TRAIN
 		train.entity_id = producer.id
 		train.def_id = item
@@ -349,7 +351,7 @@ static func _plan_production(
 	# the unit furthest below its mix share.
 	var mix_units: Array[String] = _sorted_mix_units(config)
 	for unit_id in mix_units:
-		var producer_def_id := _producer_def_for_unit(registry, unit_id)
+		var producer_def_id: String = _producer_def_for_unit(registry, unit_id)
 		if producer_def_id == "":
 			continue
 		if (
@@ -361,13 +363,13 @@ static func _plan_production(
 				continue
 			if player.minerals < producer_def.construction.mineral_cost:
 				return
-			var builder := _free_builder(workers, issued)
+			var builder: Entity = _free_builder(workers, issued)
 			if builder == null:
 				return
-			var spot := _building_spot_near_main(state, registry, snapshot, producer_def)
+			var spot: Vector2i = _building_spot_near_main(state, registry, snapshot, producer_def)
 			if spot == Vector2i(-1, -1):
 				return
-			var build := EntityOrder.new()
+			var build: EntityOrder = EntityOrder.new()
 			build.type = EntityOrder.Type.BUILD
 			build.entity_id = builder.id
 			build.def_id = producer_def_id
@@ -378,11 +380,11 @@ static func _plan_production(
 	# Production-bound and rich: add another producer for the heaviest
 	# mix unit so the bank converts into army.
 	if not mix_units.is_empty():
-		var heaviest := mix_units[0]
+		var heaviest: String = mix_units[0]
 		for unit_id in mix_units:
 			if int(config.unit_mix[unit_id]) > int(config.unit_mix[heaviest]):
 				heaviest = unit_id
-		var heavy_producer_id := _producer_def_for_unit(registry, heaviest)
+		var heavy_producer_id: String = _producer_def_for_unit(registry, heaviest)
 		var heavy_producer_def: EntityDef = registry.get_by_id(heavy_producer_id)
 		if (
 			heavy_producer_def != null
@@ -391,12 +393,12 @@ static func _plan_production(
 			and _idle_producer_for(producers, registry, heaviest, issued) == null
 			and not _has_pending_build_of(state, player_id, heavy_producer_id)
 		):
-			var extra_builder := _free_builder(workers, issued)
-			var extra_spot := _building_spot_near_main(
+			var extra_builder: Entity = _free_builder(workers, issued)
+			var extra_spot: Vector2i = _building_spot_near_main(
 				state, registry, snapshot, heavy_producer_def
 			)
 			if extra_builder != null and extra_spot != Vector2i(-1, -1):
-				var extra := EntityOrder.new()
+				var extra: EntityOrder = EntityOrder.new()
 				extra.type = EntityOrder.Type.BUILD
 				extra.entity_id = extra_builder.id
 				extra.def_id = heavy_producer_id
@@ -461,8 +463,8 @@ static func _plan_army(
 	var army: Array[Entity] = snapshot["army"]
 	if army.is_empty():
 		return
-	var staging := _staging_tile(state, snapshot, config)
-	var visible_enemies := _known_enemy_units_near(state, registry, memory, army)
+	var staging: Vector2i = _staging_tile(state, snapshot, config)
+	var visible_enemies: Array[Entity] = _known_enemy_units_near(state, registry, memory, army)
 
 	# Micro first: in-contact units focus the lowest-HP visible enemy.
 	if not visible_enemies.is_empty():
@@ -478,9 +480,9 @@ static func _plan_army(
 			var def: EntityDef = registry.get_by_id(unit.current_def_id)
 			if def == null or def.combat == null:
 				continue
-			var attack_range := MechanicsSystem.effective_attack_range(unit, def.combat)
+			var attack_range: int = MechanicsSystem.effective_attack_range(unit, def.combat)
 			for enemy in visible_enemies:
-				var distance := maxi(
+				var distance: int = maxi(
 					absi(unit.origin.x - enemy.origin.x), absi(unit.origin.y - enemy.origin.y)
 				)
 				if distance <= attack_range + 1:
@@ -493,7 +495,7 @@ static func _plan_army(
 
 	# Attack / retreat state machine on army value.
 	var army_value: int = snapshot["army_value"]
-	var enemy_value := _last_seen_enemy_army_value(registry, memory)
+	var enemy_value: int = _last_seen_enemy_army_value(registry, memory)
 	if memory.attacking:
 		if enemy_value > 0 and army_value * 100 < enemy_value * config.retreat_below_enemy_pct:
 			memory.attacking = false
@@ -508,7 +510,7 @@ static func _plan_army(
 		return
 
 	if memory.attacking:
-		var target := _attack_target(memory)
+		var target: Vector2i = _attack_target(memory)
 		# Close-out sweep: nothing known to kill and the army already
 		# reached the base guess -> rotate through the map's resource
 		# clusters (bases hide near resources; static map knowledge).
@@ -524,7 +526,7 @@ static func _plan_army(
 		state.turn_index >= config.scout_turn
 		and state.turn_index - memory.last_enemy_seen_turn >= config.scout_stale_turns
 	):
-		var scout_id := remaining[0]
+		var scout_id: int = remaining[0]
 		memory.scout_unit_id = scout_id
 		for order in OrderBuilder.fan_out_move([scout_id] as Array[int], memory.enemy_base_guess):
 			submit.orders.append(order)
@@ -534,10 +536,10 @@ static func _plan_army(
 	# Everyone else holds at staging.
 	var to_stage: Array[int] = []
 	for unit_id in remaining:
-		var unit := state.get_entity_by_id(unit_id)
+		var unit: Entity = state.get_entity_by_id(unit_id)
 		if unit == null:
 			continue
-		var distance := maxi(absi(unit.origin.x - staging.x), absi(unit.origin.y - staging.y))
+		var distance: int = maxi(absi(unit.origin.x - staging.x), absi(unit.origin.y - staging.y))
 		if distance > 4:
 			to_stage.append(unit_id)
 	for order in OrderBuilder.fan_out_move(to_stage, staging):
@@ -556,22 +558,22 @@ static func _plan_siege(
 	for unit in army:
 		if unit.current_def_id != "tank" or issued.has(unit.id):
 			continue
-		var sieged := StatusSystem.has_status(unit, "sieged")
-		var nearest := 1 << 30
+		var sieged: bool = StatusSystem.has_status(unit, "sieged")
+		var nearest: int = 1 << 30
 		for enemy in visible_enemies:
-			var distance := maxi(
+			var distance: int = maxi(
 				absi(unit.origin.x - enemy.origin.x), absi(unit.origin.y - enemy.origin.y)
 			)
 			nearest = mini(nearest, distance)
 		if not sieged and nearest <= 6 and nearest >= 2:
-			var siege := EntityOrder.new()
+			var siege: EntityOrder = EntityOrder.new()
 			siege.type = EntityOrder.Type.USE_ABILITY
 			siege.entity_id = unit.id
 			siege.def_id = "siege_mode"
 			submit.orders.append(siege)
 			issued[unit.id] = true
 		elif sieged and nearest > 8:
-			var unsiege := EntityOrder.new()
+			var unsiege: EntityOrder = EntityOrder.new()
 			unsiege.type = EntityOrder.Type.USE_ABILITY
 			unsiege.entity_id = unit.id
 			unsiege.def_id = "unsiege_mode"
@@ -583,7 +585,7 @@ static func _plan_siege(
 
 
 static func _army_value(army: Array[Entity], registry: EntityRegistry) -> int:
-	var value := 0
+	var value: int = 0
 	for unit in army:
 		var def: EntityDef = registry.get_by_id(unit.current_def_id)
 		if def != null and def.construction != null:
@@ -592,7 +594,7 @@ static func _army_value(army: Array[Entity], registry: EntityRegistry) -> int:
 
 
 static func _last_seen_enemy_army_value(registry: EntityRegistry, memory: AiMemory) -> int:
-	var value := 0
+	var value: int = 0
 	for enemy_id in memory.enemy_last_seen:
 		var record: Dictionary = memory.enemy_last_seen[enemy_id]
 		if record["building"]:
@@ -613,13 +615,13 @@ static func _known_enemy_units_near(
 		var record: Dictionary = memory.enemy_last_seen[enemy_id]
 		if int(record["turn"]) != state.turn_index:
 			continue
-		var enemy := state.get_entity_by_id(enemy_id)
+		var enemy: Entity = state.get_entity_by_id(enemy_id)
 		if enemy == null or enemy.current_hp <= 0:
 			continue
 		var def: EntityDef = registry.get_by_id(enemy.current_def_id)
 		if def == null:
 			continue
-		var near := false
+		var near: bool = false
 		for unit in army:
 			if (
 				maxi(absi(unit.origin.x - enemy.origin.x), absi(unit.origin.y - enemy.origin.y))
@@ -649,7 +651,7 @@ static func _army_near(
 	state: MatchState, unit_ids: Array[int], target: Vector2i, radius: int
 ) -> bool:
 	for unit_id in unit_ids:
-		var unit := state.get_entity_by_id(unit_id)
+		var unit: Entity = state.get_entity_by_id(unit_id)
 		if unit == null:
 			continue
 		if maxi(absi(unit.origin.x - target.x), absi(unit.origin.y - target.y)) <= radius:
@@ -667,7 +669,7 @@ static func _sweep_waypoint(
 		var def: EntityDef = registry.get_by_id(entity.current_def_id)
 		if def == null or def.resource_source == null:
 			continue
-		var clustered := false
+		var clustered: bool = false
 		for anchor in anchors:
 			if maxi(absi(anchor.x - entity.origin.x), absi(anchor.y - entity.origin.y)) <= 8:
 				clustered = true
@@ -676,21 +678,21 @@ static func _sweep_waypoint(
 			anchors.append(entity.origin)
 	if anchors.is_empty():
 		return memory.enemy_base_guess
-	var index := (state.turn_index / 8) % anchors.size()
+	var index: int = int(state.turn_index / 8) % anchors.size()
 	return anchors[index]
 
 
 static func _attack_target(memory: AiMemory) -> Vector2i:
 	# Prefer the last-seen enemy building nearest the base guess (kill
 	# the base), else the guess itself.
-	var best := memory.enemy_base_guess
-	var best_distance := 1 << 30
+	var best: Vector2i = memory.enemy_base_guess
+	var best_distance: int = 1 << 30
 	for enemy_id in memory.enemy_last_seen:
 		var record: Dictionary = memory.enemy_last_seen[enemy_id]
 		if not record["building"]:
 			continue
 		var origin: Vector2i = record["origin"]
-		var distance := maxi(
+		var distance: int = maxi(
 			absi(origin.x - memory.enemy_base_guess.x), absi(origin.y - memory.enemy_base_guess.y)
 		)
 		if distance < best_distance:
@@ -704,8 +706,8 @@ static func _staging_tile(state: MatchState, snapshot: Dictionary, config: AiCon
 	if bases.is_empty():
 		return Vector2i(state.tile_grid.width / 2, state.tile_grid.height / 2)
 	var main: Entity = bases[0]
-	var center := Vector2i(state.tile_grid.width / 2, state.tile_grid.height / 2)
-	var direction_x := 1 if center.x >= main.origin.x else -1
+	var center: Vector2i = Vector2i(state.tile_grid.width / 2, state.tile_grid.height / 2)
+	var direction_x: int = 1 if center.x >= main.origin.x else -1
 	return Vector2i(
 		clampi(
 			main.origin.x + direction_x * config.staging_advance_tiles, 1, state.tile_grid.width - 2
@@ -722,7 +724,7 @@ static func _nearest_open_source(
 	assignments: Dictionary
 ) -> Entity:
 	var best: Entity = null
-	var best_distance := 1 << 30
+	var best_distance: int = 1 << 30
 	for entity in state.entities_sorted_by_id():
 		var def: EntityDef = registry.get_by_id(entity.current_def_id)
 		if def == null or def.resource_source == null:
@@ -733,12 +735,12 @@ static func _nearest_open_source(
 			continue  # geysers need a refinery; rally minerals only
 		if not GATHER.source_near_owned_base(state, registry, player_id, entity):
 			continue
-		var cap := GATHER.source_gatherer_cap(registry, entity)
+		var cap: int = GATHER.source_gatherer_cap(registry, entity)
 		if cap <= 0:
 			continue
 		if GATHER._assigned_gatherer_count_for_source(assignments, entity.id, near.id) >= cap:
 			continue
-		var distance := maxi(
+		var distance: int = maxi(
 			absi(entity.origin.x - near.origin.x), absi(entity.origin.y - near.origin.y)
 		)
 		if (
@@ -753,7 +755,7 @@ static func _nearest_open_source(
 static func _total_gather_slots(
 	state: MatchState, player_id: int, registry: EntityRegistry, snapshot: Dictionary
 ) -> int:
-	var slots := 0
+	var slots: int = 0
 	for entity in snapshot["sources"]:
 		var def: EntityDef = registry.get_by_id(entity.current_def_id)
 		if def == null or def.resource_source == null:
@@ -816,7 +818,7 @@ static func _has_pending_base(
 
 
 static func _pending_count_of(state: MatchState, player_id: int, def_id: String) -> int:
-	var count := 0
+	var count: int = 0
 	for entity in state.entities_sorted_by_id():
 		if entity.owner_player_id != player_id:
 			continue
@@ -841,7 +843,7 @@ static func _has_pending_build_of(state: MatchState, player_id: int, def_id: Str
 static func _count_of(
 	state: MatchState, player_id: int, _registry: EntityRegistry, def_id: String
 ) -> int:
-	var count := 0
+	var count: int = 0
 	for entity in state.entities_sorted_by_id():
 		if entity.owner_player_id != player_id or entity.current_hp <= 0:
 			continue
@@ -887,7 +889,7 @@ static func _can_afford_unit(player: PlayerState, def: EntityDef) -> bool:
 		return false
 	if player.gas < def.construction.gas_cost:
 		return false
-	var pop_cost := def.population.pop_cost if def.population != null else 0
+	var pop_cost: int = def.population.pop_cost if def.population != null else 0
 	return player.pop_used + pop_cost <= player.pop_cap
 
 
@@ -906,8 +908,8 @@ static func _largest_deficit_unit(
 	config: AiConfig,
 	mix_units: Array[String]
 ) -> String:
-	var total_weight := 0
-	var total_count := 0
+	var total_weight: int = 0
+	var total_count: int = 0
 	var counts: Dictionary = {}
 	for unit_id in mix_units:
 		total_weight += int(config.unit_mix[unit_id])
@@ -915,8 +917,8 @@ static func _largest_deficit_unit(
 		total_count += int(counts[unit_id])
 	if total_weight <= 0:
 		return ""
-	var best := ""
-	var best_deficit := -(1 << 30)
+	var best: String = ""
+	var best_deficit: int = -(1 << 30)
 	for unit_id in mix_units:
 		var weight: int = int(config.unit_mix[unit_id])
 		# Deficit in integer math: target share minus actual share,
@@ -952,8 +954,8 @@ static func _expansion_build_spot(
 	var main: Entity = bases[0]
 	var base_def: EntityDef = registry.get_by_id("base")
 	var fp: Vector2i = base_def.footprint if base_def != null else Vector2i(4, 4)
-	var best := Vector2i(-1, -1)
-	var best_distance := 1 << 30
+	var best: Vector2i = Vector2i(-1, -1)
+	var best_distance: int = 1 << 30
 	for entity in snapshot["sources"]:
 		var def: EntityDef = registry.get_by_id(entity.current_def_id)
 		if def == null or def.resource_source == null or def.resource_source.requires_extractor:
@@ -962,17 +964,17 @@ static func _expansion_build_spot(
 			continue
 		if GATHER.source_near_owned_base(state, registry, player_id, entity):
 			continue
-		var to_enemy := maxi(
+		var to_enemy: int = maxi(
 			absi(entity.origin.x - memory.enemy_base_guess.x),
 			absi(entity.origin.y - memory.enemy_base_guess.y)
 		)
 		if to_enemy < 14:
 			continue  # don't try to expand into the enemy main
-		var distance := maxi(
+		var distance: int = maxi(
 			absi(entity.origin.x - main.origin.x), absi(entity.origin.y - main.origin.y)
 		)
 		if distance < best_distance:
-			var spot := _clear_spot_near(state, entity.origin, fp)
+			var spot: Vector2i = _clear_spot_near(state, entity.origin, fp)
 			if spot != Vector2i(-1, -1):
 				best = spot
 				best_distance = distance
@@ -986,8 +988,8 @@ static func _clear_spot_near(state: MatchState, around: Vector2i, footprint: Vec
 			for dx in range(-radius, radius + 1):
 				if maxi(absi(dx), absi(dy)) != radius:
 					continue
-				var origin := around + Vector2i(dx, dy)
-				var rect := Rect2i(origin, footprint)
+				var origin: Vector2i = around + Vector2i(dx, dy)
+				var rect: Rect2i = Rect2i(origin, footprint)
 				if not state.tile_grid.is_rect_in_bounds(rect):
 					continue
 				if not state.tile_grid.is_rect_clear(rect):

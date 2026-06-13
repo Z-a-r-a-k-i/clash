@@ -3914,7 +3914,7 @@ func _test_ai_opponent_toggle_drives_player_one() -> bool:
 
 
 func _count_owned(state: MatchState, player_id: int) -> int:
-	var count := 0
+	var count: int = 0
 	for entity: Entity in state.entities_sorted_by_id():
 		if entity.owner_player_id == player_id and entity.current_hp > 0:
 			count += 1

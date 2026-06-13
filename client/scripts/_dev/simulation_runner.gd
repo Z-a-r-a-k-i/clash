@@ -187,7 +187,7 @@ static func run_pairing(
 static func matches_csv(rows: Array, include_timing: bool = true) -> String:
 	# include_timing=false drops the wall-clock column so seeded runs
 	# can be byte-compared.
-	var columns := [
+	var columns: Array[String] = [
 		"strategy_a",
 		"strategy_b",
 		"match_index",
@@ -219,7 +219,7 @@ static func matches_csv(rows: Array, include_timing: bool = true) -> String:
 
 
 static func timeseries_csv(samples: Array) -> String:
-	var columns := [
+	var columns: Array[String] = [
 		"strategy_a",
 		"strategy_b",
 		"seed",
@@ -252,11 +252,11 @@ static func matrix_csv(rows_by_pairing: Dictionary) -> String:
 	var lines: Array[String] = ["strategy_a,strategy_b,matches,a_wins,b_wins,draws,a_win_pct"]
 	for pairing in rows_by_pairing:
 		var rows: Array = rows_by_pairing[pairing]
-		var a_wins := 0
-		var b_wins := 0
-		var draws := 0
-		var strategy_a := ""
-		var strategy_b := ""
+		var a_wins: int = 0
+		var b_wins: int = 0
+		var draws: int = 0
+		var strategy_a: String = ""
+		var strategy_b: String = ""
 		for row in rows:
 			strategy_a = row["strategy_a"] if not bool(row["sides_swapped"]) else row["strategy_b"]
 			strategy_b = row["strategy_b"] if not bool(row["sides_swapped"]) else row["strategy_a"]
@@ -291,10 +291,10 @@ static func tune_strategy(
 	max_turns: int,
 	seed_value: int
 ) -> Dictionary:
-	var rng := RandomNumberGenerator.new()
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng.seed = seed_value
 	var champion: AiConfig = (load(strategy_path(strategy)) as AiConfig).duplicate(true)
-	var champion_score := _evaluate_config(
+	var champion_score: float = _evaluate_config(
 		scenario_path, champion, opponents, matches_per_eval, max_turns, seed_value
 	)
 	var history: Array = [
@@ -303,13 +303,13 @@ static func tune_strategy(
 	for generation in range(1, generations + 1):
 		var challenger: AiConfig = champion.duplicate(true)
 		# Mutate 1-2 parameters by one step in a random direction.
-		var mutations := 1 + (rng.randi() % 2)
+		var mutations: int = 1 + (rng.randi() % 2)
 		for m in range(mutations):
 			var param: String = TUNABLE_PARAMS[rng.randi() % TUNABLE_PARAMS.size()]
 			var step: int = int(_PARAM_STEPS[param]) * (1 if rng.randi() % 2 == 0 else -1)
 			var value: int = int(challenger.get(param)) + step
 			challenger.set(param, clampi(value, int(_PARAM_MIN[param]), int(_PARAM_MAX[param])))
-		var challenger_score := _evaluate_config(
+		var challenger_score: float = _evaluate_config(
 			scenario_path,
 			challenger,
 			opponents,
@@ -368,29 +368,35 @@ static func _evaluate_config(
 ) -> float:
 	var registry: EntityRegistry = _REGISTRY
 	var tunables: Tunables = _TUNABLES
-	var wins := 0
-	var total := 0
+	var wins: int = 0
+	var total: int = 0
 	for opponent_name in opponents:
 		var opponent: AiConfig = load(strategy_path(str(opponent_name))) as AiConfig
 		for index in range(matches_per_eval):
-			var swapped := index % 2 == 1
+			var swapped: bool = index % 2 == 1
 			var scenario: ScenarioDef = load(scenario_path)
 			var state: MatchState = ScenarioLoader.load(scenario, registry, tunables).state
-			var memory_a := AiMemory.new()
-			var memory_b := AiMemory.new()
+			var memory_a: AiMemory = AiMemory.new()
+			var memory_b: AiMemory = AiMemory.new()
 			var config_a: AiConfig = opponent if swapped else config
 			var config_b: AiConfig = config if swapped else opponent
-			var quiet := 0
+			var quiet: int = 0
 			for turn in range(max_turns):
-				var submit_a := AiPlayer.plan_turn(state, 0, registry, tunables, config_a, memory_a)
-				var submit_b := AiPlayer.plan_turn(state, 1, registry, tunables, config_b, memory_b)
-				var result := Resolver.resolve(state, submit_a, submit_b, registry, tunables)
+				var submit_a: SubmitTurn = AiPlayer.plan_turn(
+					state, 0, registry, tunables, config_a, memory_a
+				)
+				var submit_b: SubmitTurn = AiPlayer.plan_turn(
+					state, 1, registry, tunables, config_b, memory_b
+				)
+				var result: ResolveResult = Resolver.resolve(
+					state, submit_a, submit_b, registry, tunables
+				)
 				state = result.new_state
 				quiet = quiet + 1 if result.events.is_empty() else 0
 				if quiet >= STALL_QUIET_TURNS or state.match_over:
 					break
 			total += 1
-			var config_player := 1 if swapped else 0
+			var config_player: int = 1 if swapped else 0
 			if state.match_over:
 				if state.winner_player_id == config_player:
 					wins += 100
@@ -406,19 +412,19 @@ static func _evaluate_config(
 
 # 10..90 score for `player_id`'s position in a drawn end state.
 static func _dominance_score(state: MatchState, registry: EntityRegistry, player_id: int) -> int:
-	var own_value := 0
-	var enemy_value := 0
-	var own_bases := 0
-	var enemy_bases := 0
+	var own_value: int = 0
+	var enemy_value: int = 0
+	var own_bases: int = 0
+	var enemy_bases: int = 0
 	for entity in state.entities_sorted_by_id():
 		if entity.owner_player_id < 0 or entity.current_hp <= 0:
 			continue
 		var def: EntityDef = registry.get_by_id(entity.current_def_id)
 		if def == null:
 			continue
-		var mine := entity.owner_player_id == player_id
+		var mine: bool = entity.owner_player_id == player_id
 		if def.combat != null and def.movement != null and def.construction != null:
-			var value := def.construction.mineral_cost + def.construction.gas_cost
+			var value: int = def.construction.mineral_cost + def.construction.gas_cost
 			if mine:
 				own_value += value
 			else:
@@ -428,7 +434,7 @@ static func _dominance_score(state: MatchState, registry: EntityRegistry, player
 				own_bases += 1
 			else:
 				enemy_bases += 1
-	var score := 50
+	var score: int = 50
 	score += clampi((own_value - enemy_value) / 100, -30, 30)
 	score += clampi((own_bases - enemy_bases) * 5, -10, 10)
 	return clampi(score, 10, 90)
@@ -462,7 +468,7 @@ static func _record_events(
 				if int(row["first_attack_turn"]) < 0:
 					row["first_attack_turn"] = turn
 			ResolverEvent.Type.ENTITY_DESTROYED:
-				var dead := pre_state.get_entity_by_id(event.target_id)
+				var dead: Entity = pre_state.get_entity_by_id(event.target_id)
 				if dead == null:
 					continue
 				var def: EntityDef = registry.get_by_id(dead.current_def_id)
@@ -471,10 +477,12 @@ static func _record_events(
 				if def.id == "base" and int(row["first_base_kill_turn"]) < 0:
 					row["first_base_kill_turn"] = turn
 				if def.movement != null:
-					var key := "units_lost_a" if dead.owner_player_id == 0 else "units_lost_b"
+					var key: String = (
+						"units_lost_a" if dead.owner_player_id == 0 else "units_lost_b"
+					)
 					row[key] = int(row[key]) + 1
 			ResolverEvent.Type.BUILD_COMPLETED:
-				var landmark := "first_%s_turn" % event.def_id
+				var landmark: String = "first_%s_turn" % event.def_id
 				if (
 					["barracks", "factory", "starport"].has(event.def_id)
 					and not first_production.has(landmark)
@@ -501,7 +509,7 @@ static func _sample_turn(
 	var bases: Dictionary = {0: 0, 1: 0}
 	var army_value: Dictionary = {0: 0, 1: 0}
 	for entity in state.entities_sorted_by_id():
-		var owner := entity.owner_player_id
+		var owner: int = entity.owner_player_id
 		if owner != 0 and owner != 1:
 			continue
 		if entity.current_hp <= 0:
@@ -524,7 +532,7 @@ static func _sample_turn(
 		):
 			income[owner] = int(income[owner]) + 2
 	for player_id in [0, 1]:
-		var player := state.get_player(player_id)
+		var player: PlayerState = state.get_player(player_id)
 		sample["minerals_%d" % player_id] = player.minerals if player != null else 0
 		sample["gas_%d" % player_id] = player.gas if player != null else 0
 		sample["income_%d" % player_id] = income[player_id]

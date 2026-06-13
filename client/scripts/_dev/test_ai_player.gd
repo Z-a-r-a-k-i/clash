@@ -163,7 +163,9 @@ func _test_fog_honest() -> bool:
 	hidden.origin = Vector2i(32, 55)
 	hidden.current_hp = 45
 	hidden.current_layer = "ground"
-	state.tile_grid.place(hidden.id, Rect2i(hidden.origin, Vector2i.ONE))
+	if not state.tile_grid.place(hidden.id, Rect2i(hidden.origin, Vector2i.ONE)):
+		push_error("fog-honesty setup failed: could not place hidden enemy at %s" % hidden.origin)
+		return false
 	state.entities.append(hidden)
 	var config: AiConfig = RUSH_MARINES
 	var memory: AiMemory = AiMemory.new()
