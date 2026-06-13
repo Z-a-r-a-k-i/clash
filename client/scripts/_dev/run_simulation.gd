@@ -13,7 +13,10 @@ const DEFAULT_SCENARIO := "res://data/scenarios/arena_1v1.tres"
 
 func _init() -> void:
 	var args: Dictionary = _parse_args(OS.get_cmdline_user_args())
-	var scenario: String = args.get("scenario", DEFAULT_SCENARIO)
+	var scenario: String = str(args.get("scenario", DEFAULT_SCENARIO))
+	if not _is_valid_scenario(scenario):
+		quit(1)
+		return
 	var matches: int = int(args.get("matches", "20"))
 	var max_turns: int = int(args.get("max-turns", "150"))
 	var seed_base: int = int(args.get("seed", "1"))
@@ -153,6 +156,17 @@ func _validated_strategy(raw_name: String, flag_name: String) -> String:
 		)
 	)
 	return ""
+
+
+func _is_valid_scenario(path: String) -> bool:
+	if not ResourceLoader.exists(path):
+		push_error("[simulate] invalid --scenario: %s" % path)
+		return false
+	var scenario: ScenarioDef = load(path) as ScenarioDef
+	if scenario == null:
+		push_error("[simulate] --scenario is not a ScenarioDef: %s" % path)
+		return false
+	return true
 
 
 func _write(path: String, content: String) -> bool:
