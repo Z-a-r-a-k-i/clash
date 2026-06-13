@@ -111,6 +111,10 @@ func _all_tests() -> Array[Array]:
 		["network_command_card_wires_pending_commands", _test_network_pending_command_buttons],
 		["network_a_key_attack_mode", _test_network_a_key_attack_mode],
 		[
+			"network_alt_hold_and_move_hotkey_route_through_controller",
+			_test_network_alt_hold_and_move_hotkey_route_through_controller
+		],
+		[
 			"network_submit_persists_repeat_rally_and_spawn_orders",
 			_test_network_authoritative_producer_state
 		],
@@ -1958,6 +1962,60 @@ func _network_pending_target_button_queues_attack_target() -> bool:
 		or orders[0].target_tile != enemy.origin
 	):
 		push_error("network pending Attack should queue TARGET")
+		ok = false
+	remove_child(mode)
+	mode.queue_free()
+	return ok
+
+
+func _test_network_alt_hold_and_move_hotkey_route_through_controller() -> bool:
+	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
+		return false
+	var mode: Node = script.new()
+	add_child(mode)
+	mode.call("ensure_initialized")
+	var loaded: LoadedScenario = _load_combat()
+	if loaded == null:
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
+	var actor_id: int = _first_target_capable_entity_id(loaded.state, loaded.registry, 0)
+	if actor_id < 0 or not bool(mode.call("select_entity_id", actor_id)):
+		push_error("network Alt test requires a selectable combat unit")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	var controller: MatchSessionController = mode.get("_controller") as MatchSessionController
+	var renderer: MatchRenderer = mode.call("_renderer") as MatchRenderer
+	var ok: bool = true
+	var current_count: int = renderer.call("range_preview_tile_count")
+	if current_count <= 0:
+		push_error("network selection should draw the unit's current range tiles")
+		ok = false
+	var alt_down: InputEventKey = InputEventKey.new()
+	alt_down.keycode = KEY_ALT
+	alt_down.pressed = true
+	mode.call("_unhandled_input", alt_down)
+	if not controller.range_projection_active():
+		push_error("network Alt press should arm the range projection")
+		ok = false
+	controller.set_hover_tile(Vector2i(12, 12))
+	if renderer.call("range_preview_tile_count") <= current_count:
+		push_error("network Alt hover should project additional range tiles")
+		ok = false
+	var alt_up: InputEventKey = InputEventKey.new()
+	alt_up.keycode = KEY_ALT
+	alt_up.pressed = false
+	mode.call("_unhandled_input", alt_up)
+	if controller.range_projection_active():
+		push_error("network Alt release should clear the range projection")
+		ok = false
+	mode.call("_unhandled_input", _key_press(KEY_M))
+	if mode.call("pending_command_kind") != "move":
+		push_error("network M key should enter pending move mode")
 		ok = false
 	remove_child(mode)
 	mode.queue_free()

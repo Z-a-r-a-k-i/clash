@@ -41,6 +41,7 @@ const _SELECTION_DRAG_CONTROLLER_SCRIPT: Script = preload(
 	"res://scripts/game/selection_drag_controller.gd"
 )
 const _ACTION_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/action_preview_builder.gd")
+const _TACTICAL_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/tactical_preview_builder.gd")
 
 const PENDING_NONE := ""
 const PENDING_MOVE := "move"
@@ -75,6 +76,10 @@ var _pending_build_def_id: String = ""
 var _hover_tile: Vector2i = Vector2i.ZERO
 var _has_hover_tile: bool = false
 var _idle_worker_cursor: int = -1
+var _tactical_preview_builder: TacticalPreviewBuilder = (
+	_TACTICAL_PREVIEW_BUILDER_SCRIPT.new() as TacticalPreviewBuilder
+)
+var _range_projection_active: bool = false
 
 
 func setup(host: Node, input: DevTurnInput, drag_threshold_pixels: float) -> void:
@@ -257,13 +262,32 @@ func handle_unhandled_input(event: InputEvent) -> void:
 		if _host.session_handle_mode_key_input(key_event):
 			_set_event_handled()
 			return
-		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_A:
-			begin_target()
+		if key_event.keycode == KEY_ALT and not key_event.echo:
+			set_range_projection_active(key_event.pressed)
 			_set_event_handled()
 			return
+		if (
+			key_event.pressed
+			and not key_event.echo
+			and not key_event.is_command_or_control_pressed()
+			and not key_event.alt_pressed
+		):
+			match key_event.keycode:
+				KEY_M:
+					begin_move()
+					_set_event_handled()
+					return
+				KEY_A:
+					begin_target()
+					_set_event_handled()
+					return
+				KEY_G:
+					begin_gather()
+					_set_event_handled()
+					return
 	if event is InputEventMouse and not _event_inside_game_viewport(event as InputEventMouse):
 		reset_selection_drag()
-		_has_hover_tile = false
+		clear_hover_tile()
 		_host.session_on_pointer_exited_viewport()
 		return
 	if event is InputEventMouseMotion:
@@ -883,6 +907,7 @@ func set_hover_tile(tile: Vector2i) -> void:
 		return
 	_hover_tile = tile
 	_has_hover_tile = true
+	refresh_range_previews()
 	renderer.set_hover_tile(tile)
 	if _pending_command == PENDING_BUILD:
 		_refresh_build_placement_preview(tile)
@@ -942,6 +967,54 @@ func refresh_action_previews() -> void:
 			_input.selected_entity_ids()
 		)
 		renderer.call("set_target_intent_previews", target_intents)
+	refresh_range_previews()
+
+
+# ---------- Range previews ----------
+
+
+# Hold-Alt projection: the selected unit's current attack range always
+# shows; while Alt is held the range is also projected from the hovered
+# tile so players can judge repositioning. Controller-level, so it works
+# identically in dev and network play.
+func set_range_projection_active(active: bool) -> void:
+	if _range_projection_active == active:
+		return
+	_range_projection_active = active
+	refresh_range_previews()
+
+
+func range_projection_active() -> bool:
+	return _range_projection_active
+
+
+func clear_hover_tile() -> void:
+	_has_hover_tile = false
+	refresh_range_previews()
+
+
+func refresh_range_previews() -> void:
+	var renderer: MatchRenderer = _renderer()
+	if renderer == null or not renderer.has_method("set_range_preview_tiles"):
+		return
+	var state: MatchState = _host.session_state()
+	var registry: EntityRegistry = _host.session_registry()
+	var current_tiles: Array[Vector2i] = []
+	var projected_tiles: Array[Vector2i] = []
+	if state != null and registry != null:
+		var entity_id: int = _input.selected_entity_id()
+		if entity_id >= 0:
+			current_tiles = _tactical_preview_builder.attack_range_tiles(state, registry, entity_id)
+			if (
+				_range_projection_active
+				and _has_hover_tile
+				and state.tile_grid != null
+				and state.tile_grid.is_in_bounds(_hover_tile)
+			):
+				projected_tiles = _tactical_preview_builder.attack_range_tiles_from_origin(
+					state, registry, entity_id, _hover_tile
+				)
+	renderer.call("set_range_preview_tiles", current_tiles, projected_tiles)
 
 
 # ---------- HUD payloads ----------

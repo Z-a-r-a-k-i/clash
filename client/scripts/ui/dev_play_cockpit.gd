@@ -418,6 +418,9 @@ func _wire_signals() -> void:
 	if _signals_wired:
 		return
 	_signals_wired = true
+	_move_button.tooltip_text = "Move to a tile, ignoring enemies — the unit idles on arrival"
+	_target_button.tooltip_text = ("Attack a target, or move toward a tile engaging enemies on the way")
+	_gather_button.tooltip_text = "Gather from a mineral patch or a refinery"
 	_move_button.pressed.connect(func() -> void: move_requested.emit())
 	_target_button.pressed.connect(func() -> void: target_requested.emit())
 	_gather_button.pressed.connect(func() -> void: gather_requested.emit())

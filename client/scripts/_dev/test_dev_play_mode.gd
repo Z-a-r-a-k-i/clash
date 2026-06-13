@@ -223,6 +223,10 @@ func _all_tests() -> Array:
 			"dev_play_mode_idle_worker_button_cycles_selection",
 			_test_idle_worker_button_cycles_selection
 		],
+		[
+			"dev_play_mode_move_and_gather_hotkeys_begin_pending_commands",
+			_test_move_and_gather_hotkeys_begin_pending_commands
+		],
 		["dev_play_mode_queues_and_resolves_turn", _test_queues_and_resolves_turn],
 		["dev_play_mode_routes_context_actions", _test_routes_context_actions],
 		["dev_play_mode_context_cursor_classifier", _test_context_cursor_classifier],
@@ -1215,6 +1219,44 @@ func _test_damage_preview_for_ordered_target() -> bool:
 	return ok
 
 
+func _test_move_and_gather_hotkeys_begin_pending_commands() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_id: int = _find_entity_id(mode.current_state(), "worker", 0)
+	if worker_id < 0 or not mode.select_entity_id(worker_id):
+		push_error("expected to select a P0 worker")
+		_free_mode(mode)
+		return false
+	var controller: MatchSessionController = mode.get("_controller") as MatchSessionController
+	var ok := true
+	mode.call("_unhandled_input", _key_press(KEY_M))
+	if mode.pending_command_kind() != "move":
+		push_error("M should begin a pending move command")
+		ok = false
+	controller.cancel_pending_command()
+	mode.select_entity_id(worker_id)
+	mode.call("_unhandled_input", _key_press(KEY_G))
+	if mode.pending_command_kind() != "gather":
+		push_error("G should begin a pending gather command")
+		ok = false
+	controller.cancel_pending_command()
+	mode.select_entity_id(worker_id)
+	var alted: InputEventKey = _key_press(KEY_M)
+	alted.alt_pressed = true
+	mode.call("_unhandled_input", alted)
+	if mode.pending_command_kind() == "move":
+		push_error("Alt-modified keys must not trigger command hotkeys")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
 func _test_production_strip_lists_items_and_cancels_by_index() -> bool:
 	var mode: Node = _make_mode()
 	if mode == null:
@@ -1570,24 +1612,24 @@ func _test_command_card_primary_visibility_tracks_each_command() -> bool:
 		ok = false
 
 	_set_command_card_state(card, true, false, false, false)
-	if not _expect_button_visibility(card, "Move", true):
+	if not _expect_button_visibility(card, "Move (M)", true):
 		ok = false
-	if not _expect_button_visibility(card, "Gather", false):
+	if not _expect_button_visibility(card, "Gather (G)", false):
 		ok = false
 
 	_set_command_card_state(card, true, false, false, false)
-	if not _expect_button_visibility(card, "Move", true):
+	if not _expect_button_visibility(card, "Move (M)", true):
 		ok = false
 
 	_set_command_card_state(card, false, false, false, false)
-	if not _expect_button_visibility(card, "Move", false):
+	if not _expect_button_visibility(card, "Move (M)", false):
 		ok = false
 
 	_set_command_card_state(card, false, true, true, true)
-	for label in ["Attack", "Gather", "Cancel"]:
+	for label in ["Attack-move (A)", "Gather (G)", "Cancel"]:
 		if not _expect_button_visibility(card, label, true):
 			ok = false
-	if not _expect_button_visibility(card, "Move", false):
+	if not _expect_button_visibility(card, "Move (M)", false):
 		ok = false
 	if not card.visible:
 		push_error("command card should show when non-move commands are visible")
@@ -2339,15 +2381,19 @@ func _test_alt_projects_range_from_hover_tile() -> bool:
 		push_error("expected to select a P0 marine")
 		_free_mode(mode)
 		return false
+	var controller: MatchSessionController = mode.get("_controller") as MatchSessionController
 	var current_count: int = renderer.call("range_preview_tile_count")
-	mode.call("_set_range_projection_active", true)
+	mode.call("_unhandled_input", _key_event(KEY_ALT, true))
 	mode.call("_set_hover_tile", Vector2i(12, 12))
 	var projected_count: int = renderer.call("range_preview_tile_count")
 	mode.call("_notification", NOTIFICATION_WM_MOUSE_EXIT)
 	var exited_count: int = renderer.call("range_preview_tile_count")
-	mode.call("_set_range_projection_active", false)
+	mode.call("_unhandled_input", _key_event(KEY_ALT, false))
 	var restored_count: int = renderer.call("range_preview_tile_count")
 	var ok := true
+	if controller.range_projection_active():
+		push_error("releasing Alt should clear the projection flag")
+		ok = false
 	if projected_count <= current_count:
 		push_error("Alt projection should add hover-anchored range tiles to current range preview")
 		ok = false
@@ -4296,9 +4342,13 @@ func _escape_key() -> InputEventKey:
 
 
 func _key_press(keycode: Key) -> InputEventKey:
+	return _key_event(keycode, true)
+
+
+func _key_event(keycode: Key, pressed: bool) -> InputEventKey:
 	var event: InputEventKey = InputEventKey.new()
 	event.keycode = keycode
-	event.pressed = true
+	event.pressed = pressed
 	return event
 
 
