@@ -116,11 +116,11 @@ func _ensure_ui() -> void:
 	_action_row.name = "Actions"
 	add_child(_action_row)
 
-	_move_button = _button("Move")
+	_move_button = _button("Move (M)")
 	_move_button.pressed.connect(func() -> void: move_requested.emit())
 	_action_row.add_child(_move_button)
 
-	_gather_button = _button("Gather")
+	_gather_button = _button("Gather (G)")
 	_gather_button.pressed.connect(func() -> void: gather_requested.emit())
 	_action_row.add_child(_gather_button)
 
@@ -128,7 +128,7 @@ func _ensure_ui() -> void:
 	_state_row.name = "State"
 	add_child(_state_row)
 
-	_target_button = _button("Attack")
+	_target_button = _button("Attack-move (A)")
 	_target_button.pressed.connect(func() -> void: target_requested.emit())
 	_state_row.add_child(_target_button)
 

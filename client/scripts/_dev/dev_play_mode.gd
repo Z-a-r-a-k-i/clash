@@ -15,7 +15,6 @@ const _DEV_SNAPSHOT_PREFIX := "dev_snapshot"
 const _DEV_REPLAY_AUTO_DIR := "user://tmp/replays"
 const _DEV_REPLAY_AUTO_PREFIX := "dev_replay"
 const DEV_PLAY_COCKPIT_SCENE := preload("res://scenes/ui/dev_play_cockpit.tscn")
-const TACTICAL_PREVIEW_BUILDER_SCRIPT := preload("res://scripts/game/tactical_preview_builder.gd")
 const COMMAND_OPTION_BUILDER := preload("res://scripts/game/command_option_builder.gd")
 const PATHFINDING_SCRIPT := preload("res://scripts/resolver/pathfinding_system.gd")
 const PENDING_NONE := ""
@@ -71,9 +70,6 @@ var _replay_file_dialog: FileDialog = null
 var _command_card: Control = null
 var _show_all_friendly_action_previews: bool = false
 var _debug_info_visible: bool = false
-var _range_projection_active: bool = false
-var _last_hover_tile: Vector2i = Vector2i.ZERO
-var _has_last_hover_tile: bool = false
 var _replay: MatchReplay = MatchReplay.new()
 var _checkpoints: Dictionary[int, SavedSession] = {}
 var _replay_mode_active: bool = false
@@ -81,9 +77,6 @@ var _replay_cursor_turn: int = 0
 var _replay_playing: bool = false
 var _updating_replay_timeline: bool = false
 var _auto_replay_path: String = ""
-var _tactical_preview_builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = (
-	TACTICAL_PREVIEW_BUILDER_SCRIPT.new() as TACTICAL_PREVIEW_BUILDER_SCRIPT
-)
 
 
 func _init() -> void:
@@ -124,8 +117,8 @@ func load_scenario_path(path: String) -> bool:
 	_renderer.focus_player_start(_input.active_player_id())
 	_input.bind_context(_loaded.state, _loaded.registry)
 	_input.clear_submissions()
-	_range_projection_active = false
-	_has_last_hover_tile = false
+	_controller.set_range_projection_active(false)
+	_controller.clear_hover_tile()
 	_start_replay_journal()
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 	_update_hud()
@@ -534,8 +527,7 @@ func resolve_turn() -> bool:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_MOUSE_EXIT:
-		_has_last_hover_tile = false
-		_refresh_range_previews()
+		_controller.clear_hover_tile()
 		Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 
 
@@ -755,11 +747,6 @@ func _latest_checkpoint_turn() -> int:
 	for checkpoint_turn in _checkpoints.keys():
 		latest = maxi(latest, int(checkpoint_turn))
 	return latest
-
-
-func _record_hover_tile(tile: Vector2i) -> void:
-	_last_hover_tile = tile
-	_has_last_hover_tile = true
 
 
 func _build_hud() -> void:
@@ -1432,34 +1419,8 @@ func _refresh_command_card() -> void:
 	)
 
 
-func _set_range_projection_active(enabled: bool) -> void:
-	if _range_projection_active == enabled:
-		return
-	_range_projection_active = enabled
-	_refresh_range_previews()
-
-
 func _refresh_range_previews() -> void:
-	if _renderer == null or not _renderer.has_method("set_range_preview_tiles"):
-		return
-	var current_tiles: Array[Vector2i] = []
-	var projected_tiles: Array[Vector2i] = []
-	if _loaded != null and _loaded.state != null and _loaded.registry != null:
-		var entity_id: int = _input.selected_entity_id()
-		if entity_id >= 0:
-			current_tiles = _tactical_preview_builder.attack_range_tiles(
-				_loaded.state, _loaded.registry, entity_id
-			)
-			if (
-				_range_projection_active
-				and _has_last_hover_tile
-				and _loaded.state.tile_grid != null
-				and _loaded.state.tile_grid.is_in_bounds(_last_hover_tile)
-			):
-				projected_tiles = _tactical_preview_builder.attack_range_tiles_from_origin(
-					_loaded.state, _loaded.registry, entity_id, _last_hover_tile
-				)
-	_renderer.call("set_range_preview_tiles", current_tiles, projected_tiles)
+	_controller.refresh_range_previews()
 
 
 func _build_options(ids: Array[String]) -> Array[Dictionary]:
@@ -1659,21 +1620,16 @@ func session_on_escape() -> void:
 	_toggle_escape_menu()
 
 
-func session_handle_mode_key_input(key_event: InputEventKey) -> bool:
-	if key_event.keycode == KEY_ALT and not key_event.echo:
-		_set_range_projection_active(key_event.pressed)
-		return true
+func session_handle_mode_key_input(_key_event: InputEventKey) -> bool:
 	return false
 
 
-func session_on_hover_tile(tile: Vector2i) -> void:
-	_record_hover_tile(tile)
-	_refresh_range_previews()
+func session_on_hover_tile(_tile: Vector2i) -> void:
+	# Hover storage and range refresh live on the controller now.
+	pass
 
 
 func session_on_pointer_exited_viewport() -> void:
-	_has_last_hover_tile = false
-	_refresh_range_previews()
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 
 

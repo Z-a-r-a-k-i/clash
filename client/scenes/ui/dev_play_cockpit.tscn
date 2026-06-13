@@ -252,17 +252,17 @@ columns = 4
 [node name="Move" type="Button" parent="BottomDeck/Row/CommandPanel/Stack/CommandGrid" unique_id=1080712007]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Move"
+text = "Move (M)"
 
 [node name="Attack" type="Button" parent="BottomDeck/Row/CommandPanel/Stack/CommandGrid" unique_id=453514681]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Attack"
+text = "Attack-move (A)"
 
 [node name="Gather" type="Button" parent="BottomDeck/Row/CommandPanel/Stack/CommandGrid" unique_id=1387217016]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Gather"
+text = "Gather (G)"
 
 [node name="Cancel" type="Button" parent="BottomDeck/Row/CommandPanel/Stack/CommandGrid"]
 layout_mode = 2
