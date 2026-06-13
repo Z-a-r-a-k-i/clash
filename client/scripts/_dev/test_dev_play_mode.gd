@@ -215,6 +215,14 @@ func _all_tests() -> Array:
 			"dev_play_mode_damage_preview_for_ordered_target",
 			_test_damage_preview_for_ordered_target
 		],
+		[
+			"dev_play_mode_production_strip_lists_items_and_cancels_by_index",
+			_test_production_strip_lists_items_and_cancels_by_index
+		],
+		[
+			"dev_play_mode_idle_worker_button_cycles_selection",
+			_test_idle_worker_button_cycles_selection
+		],
 		["dev_play_mode_queues_and_resolves_turn", _test_queues_and_resolves_turn],
 		["dev_play_mode_routes_context_actions", _test_routes_context_actions],
 		["dev_play_mode_context_cursor_classifier", _test_context_cursor_classifier],
@@ -1202,6 +1210,152 @@ func _test_damage_preview_for_ordered_target() -> bool:
 				% [expected_damage, preview_row.text if preview_row != null else "<missing>"]
 			)
 		)
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_production_strip_lists_items_and_cancels_by_index() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var base_id: int = _find_entity_id(mode.current_state(), "base", 0)
+	var base: Entity = mode.current_state().get_entity_by_id(base_id)
+	if base == null or base.production_state == null:
+		push_error("expected a P0 base producer")
+		_free_mode(mode)
+		return false
+	base.production_state.active = {
+		ProductionState.KEY_DEF_ID: "worker",
+		ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
+		ProductionState.KEY_TURNS_REMAINING: 1,
+		ProductionState.KEY_PAID_MINERALS: 50,
+		ProductionState.KEY_PAID_GAS: 0,
+		ProductionState.KEY_PAID_POP: 1,
+	}
+	base.production_state.queue = [
+		{
+			ProductionState.KEY_DEF_ID: "worker",
+			ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
+		},
+		{
+			ProductionState.KEY_DEF_ID: "worker",
+			ProductionState.KEY_KIND: ProductionState.KIND_UNIT,
+		},
+	]
+	var ok := true
+	if not mode.select_entity_id(base_id):
+		push_error("expected to select the base")
+		ok = false
+	mode.call("_update_hud")
+	var cockpit: Control = mode.find_child("DevPlayCockpit", true, false) as Control
+	var strip: Control = cockpit.find_child("ProductionStrip", true, false) as Control
+	var items: Control = cockpit.find_child("Items", true, false) as Control
+	if strip == null or not strip.visible or items == null or items.get_child_count() != 3:
+		push_error(
+			(
+				"production strip should show active + 2 queue chips, got %d"
+				% (items.get_child_count() if items != null else -1)
+			)
+		)
+		_free_mode(mode)
+		return false
+	var worker_label: String = mode.input_model().label_for_entity_def_id("worker")
+	if _find_label_with_substring(items, worker_label) == null:
+		push_error("production chips should use the def display label '%s'" % worker_label)
+		ok = false
+	var cancel_buttons: Array[Node] = items.find_children("*", "Button", true, false)
+	if cancel_buttons.size() != 3:
+		push_error("active + queue chips should expose 3 cancel buttons")
+		_free_mode(mode)
+		return false
+	(cancel_buttons[2] as Button).pressed.emit()
+	var found_cancel: bool = false
+	for order: EntityOrder in mode.input_model().submit_for_player(0).orders:
+		if (
+			order != null
+			and order.type == EntityOrder.Type.CANCEL
+			and order.entity_id == base_id
+			and order.cancel_index == 2
+		):
+			found_cancel = true
+	if not found_cancel:
+		push_error("pressing the second queue chip cancel should queue CANCEL index 2")
+		ok = false
+	mode.call("_update_hud")
+	var disabled_count: int = 0
+	for button in items.find_children("*", "Button", true, false):
+		if (button as Button).disabled:
+			disabled_count += 1
+	if disabled_count != 1:
+		push_error("the pending cancel should dim exactly its own chip, got %d" % disabled_count)
+		ok = false
+	mode.current_state().get_player(0).minerals = 500
+	if not mode.issue_train_selected("worker"):
+		push_error("expected a fresh train order to queue")
+		ok = false
+	mode.call("_update_hud")
+	if items.get_child_count() != 4:
+		push_error("a this-turn train order should add a pending chip")
+		ok = false
+	if items.find_children("*", "Button", true, false).size() != 3:
+		push_error("pending chips must not offer cancel before the order resolves")
+		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_idle_worker_button_cycles_selection() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(0)
+	var worker_ids: Array[int] = _find_entity_ids(mode.current_state(), "worker", 0)
+	if worker_ids.size() < 2:
+		push_error("expected at least two P0 workers in the MVP scenario")
+		_free_mode(mode)
+		return false
+	for worker_id in [worker_ids[0], worker_ids[1]]:
+		var worker: Entity = mode.current_state().get_entity_by_id(worker_id)
+		worker.gather_state.phase = GatherState.Phase.IDLE
+		worker.gather_state.assigned_source_entity_id = -1
+	mode.input_model().clear_submissions()
+	mode.call("_update_hud")
+	var controller: MatchSessionController = mode.get("_controller") as MatchSessionController
+	var idle_ids: Array[int] = controller.active_idle_worker_ids()
+	if idle_ids.size() < 2:
+		push_error("expected at least two idle workers after forcing idle state")
+		_free_mode(mode)
+		return false
+	var ok := true
+	var cockpit: Control = mode.find_child("DevPlayCockpit", true, false) as Control
+	var idle_button: Button = cockpit.find_child("IdleWorkers", true, false) as Button
+	if idle_button == null or not idle_button.visible:
+		push_error("idle workers button should be visible with idle workers present")
+		ok = false
+	elif idle_button.text != "Idle %d" % idle_ids.size():
+		push_error("idle workers button should show the count, got '%s'" % idle_button.text)
+		ok = false
+	if not mode.select_next_idle_worker():
+		push_error("idle cycle should select an idle worker")
+		ok = false
+	if mode.input_model().selected_entity_id() != idle_ids[0]:
+		push_error("first cycle should select the lowest idle worker id")
+		ok = false
+	if not mode.select_next_idle_worker():
+		push_error("idle cycle should keep cycling")
+		ok = false
+	if mode.input_model().selected_entity_id() != idle_ids[1]:
+		push_error("second cycle should select the next idle worker id")
 		ok = false
 	_free_mode(mode)
 	return ok

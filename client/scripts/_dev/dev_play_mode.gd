@@ -784,6 +784,7 @@ func _build_hud() -> void:
 	_cockpit.connect("cancel_requested", Callable(self, "issue_cancel_selected"))
 	_cockpit.connect("repeat_train_toggled", Callable(self, "issue_repeat_train_selected"))
 	_cockpit.connect("resolve_requested", Callable(self, "resolve_turn"))
+	_cockpit.connect("idle_workers_requested", Callable(self, "select_next_idle_worker"))
 	_cockpit.connect(
 		"show_all_orders_toggled", Callable(self, "set_show_all_friendly_action_previews")
 	)
@@ -1210,6 +1211,8 @@ func _update_hud(override_status: String = "") -> void:
 		_cockpit.set_selection_details(_selection_details_text(), _selection_intent_text())
 		_cockpit.set_economy_state(_controller.economy_payload())
 		_cockpit.set_selection_stats(_controller.selection_stats_payload())
+		_cockpit.set_production_state(_controller.production_panel_payload())
+		_cockpit.set_idle_worker_state(idle_worker_ids.size())
 	if _replay_label != null:
 		var replay_mode_text := "replay" if _replay_mode_active else "live"
 		_replay_label.text = (
@@ -1520,6 +1523,10 @@ func issue_build_selected(def_id: String, tile: Vector2i, queue_requested: bool 
 
 func issue_cancel_selected(cancel_index: int = -1) -> bool:
 	return _controller.issue_cancel_selected(cancel_index)
+
+
+func select_next_idle_worker() -> bool:
+	return _controller.cycle_idle_worker()
 
 
 func issue_train_selected(def_id: String) -> bool:

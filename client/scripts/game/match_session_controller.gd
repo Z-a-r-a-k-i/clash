@@ -74,6 +74,7 @@ var _pending_command: String = PENDING_NONE
 var _pending_build_def_id: String = ""
 var _hover_tile: Vector2i = Vector2i.ZERO
 var _has_hover_tile: bool = false
+var _idle_worker_cursor: int = -1
 
 
 func setup(host: Node, input: DevTurnInput, drag_threshold_pixels: float) -> void:
@@ -1078,7 +1079,103 @@ func _def_display_label(registry: EntityRegistry, def_id: String) -> String:
 	return def_id.capitalize()
 
 
+# Production summary for the selected producer: the active slot with its
+# progress, unpaid queue items, this turn's not-yet-resolved
+# TRAIN/RESEARCH orders for it, and already-queued CANCEL indices.
+func production_panel_payload() -> Dictionary:
+	var state: MatchState = _host.session_state()
+	var registry: EntityRegistry = _host.session_registry()
+	if state == null or registry == null or _input.selected_entity_ids().size() != 1:
+		return {"visible": false}
+	var entity: Entity = selected_entity()
+	if entity == null or entity.production_state == null:
+		return {"visible": false}
+	var production: ProductionState = entity.production_state
+	var payload: Dictionary = {
+		"visible": true,
+		"active": {},
+		"queue": [],
+		"pending": [],
+		"pending_cancel_indices": [],
+	}
+	if not production.active.is_empty():
+		var active_def_id: String = production.active.get(ProductionState.KEY_DEF_ID, "")
+		var active_kind: String = production.active.get(ProductionState.KEY_KIND, "")
+		payload["active"] = {
+			"label": _production_item_label(active_def_id, active_kind),
+			"turns_remaining": int(production.active.get(ProductionState.KEY_TURNS_REMAINING, 0)),
+			"total_turns": _production_total_turns(registry, active_def_id, active_kind),
+		}
+	var queue_items: Array[Dictionary] = []
+	for item: Dictionary in production.queue:
+		queue_items.append(
+			{
+				"label":
+				_production_item_label(
+					item.get(ProductionState.KEY_DEF_ID, ""), item.get(ProductionState.KEY_KIND, "")
+				)
+			}
+		)
+	payload["queue"] = queue_items
+	var player_id: int = _host.session_local_player_id()
+	if player_id < 0:
+		return payload
+	var pending: Array[Dictionary] = []
+	var cancel_indices: Array[int] = []
+	for order: EntityOrder in _input.submit_for_player(player_id).orders:
+		if order == null or order.entity_id != entity.id:
+			continue
+		if order.type == EntityOrder.Type.TRAIN:
+			pending.append(
+				{"label": _production_item_label(order.def_id, ProductionState.KIND_UNIT)}
+			)
+		elif order.type == EntityOrder.Type.RESEARCH:
+			pending.append(
+				{"label": _production_item_label(order.def_id, ProductionState.KIND_RESEARCH)}
+			)
+		elif order.type == EntityOrder.Type.CANCEL and order.cancel_index >= 0:
+			cancel_indices.append(order.cancel_index)
+	payload["pending"] = pending
+	payload["pending_cancel_indices"] = cancel_indices
+	return payload
+
+
+func _production_item_label(def_id: String, kind: String) -> String:
+	if kind == ProductionState.KIND_RESEARCH:
+		return _input.label_for_research_id(def_id)
+	return _input.label_for_entity_def_id(def_id)
+
+
+func _production_total_turns(registry: EntityRegistry, def_id: String, kind: String) -> int:
+	if kind == ProductionState.KIND_RESEARCH:
+		var research: ResearchDef = registry.get_research_by_id(def_id)
+		return research.research_time_turns if research != null else 1
+	var def: EntityDef = registry.get_by_id(def_id)
+	if def != null and def.construction != null:
+		return maxi(1, def.construction.build_time_turns)
+	return 1
+
+
 # ---------- Idle workers ----------
+
+
+# Select and center the next idle worker (ascending id, wrapping).
+func cycle_idle_worker() -> bool:
+	var idle_ids: Array[int] = active_idle_worker_ids()
+	if idle_ids.is_empty():
+		return false
+	var next_id: int = idle_ids[0]
+	for entity_id: int in idle_ids:
+		if entity_id > _idle_worker_cursor:
+			next_id = entity_id
+			break
+	_idle_worker_cursor = next_id
+	if not select_entity_id(next_id):
+		return false
+	var renderer: MatchRenderer = _renderer()
+	if renderer != null:
+		renderer.center_camera_on_entity(next_id)
+	return true
 
 
 func active_idle_worker_ids() -> Array[int]:
