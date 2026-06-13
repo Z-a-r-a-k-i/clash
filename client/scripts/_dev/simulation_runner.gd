@@ -89,6 +89,7 @@ static func run_match_with_configs(
 		"strategy_b": strategy_b,
 		"seed": seed_value,
 		"winner": -1,
+		"winner_a_perspective": -1,
 		"end_turn": 0,
 		"end_reason": "turn_cap",
 		"first_attack_turn": -1,
@@ -169,14 +170,18 @@ static func run_pairing(
 		var row: Dictionary = outcome["row"]
 		row["match_index"] = index
 		row["sides_swapped"] = swapped
-		# Normalize the winner back into A-perspective for the matrix.
+		# Keep winner/strategy_a/strategy_b in seat coordinates, and
+		# record original-pairing perspective separately for consumers.
 		var winner: int = int(row["winner"])
 		if winner >= 0:
 			row["winner_strategy"] = first if winner == 0 else second
 			if swapped:
-				row["winner"] = 1 - winner
+				row["winner_a_perspective"] = 1 - winner
+			else:
+				row["winner_a_perspective"] = winner
 		else:
 			row["winner_strategy"] = ""
+			row["winner_a_perspective"] = -1
 		if first_loss_replay == null and row["winner_strategy"] == strategy_b:
 			first_loss_replay = outcome["replay"]
 		rows.append(row)
@@ -194,6 +199,7 @@ static func matches_csv(rows: Array, include_timing: bool = true) -> String:
 		"sides_swapped",
 		"seed",
 		"winner",
+		"winner_a_perspective",
 		"winner_strategy",
 		"end_turn",
 		"end_reason",

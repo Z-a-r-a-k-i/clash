@@ -413,9 +413,10 @@ static func _plan_production(
 	var spendable_pop: int = player.pop_cap - player.pop_used
 	var candidate_mix_units: Array[String] = []
 	candidate_mix_units.assign(mix_units)
+	var pending_train_counts: Dictionary = {}
 	while true:
 		var deficit_unit: String = _largest_deficit_unit(
-			state, player_id, registry, config, candidate_mix_units
+			state, player_id, registry, config, candidate_mix_units, pending_train_counts
 		)
 		if deficit_unit == "":
 			break
@@ -444,6 +445,7 @@ static func _plan_production(
 		spendable_minerals -= unit_def.construction.mineral_cost
 		spendable_gas -= unit_def.construction.gas_cost
 		spendable_pop -= pop_cost
+		pending_train_counts[deficit_unit] = int(pending_train_counts.get(deficit_unit, 0)) + 1
 		candidate_mix_units.assign(mix_units)
 
 
@@ -906,14 +908,17 @@ static func _largest_deficit_unit(
 	player_id: int,
 	registry: EntityRegistry,
 	config: AiConfig,
-	mix_units: Array[String]
+	mix_units: Array[String],
+	pending_counts: Dictionary
 ) -> String:
 	var total_weight: int = 0
 	var total_count: int = 0
 	var counts: Dictionary = {}
 	for unit_id in mix_units:
 		total_weight += int(config.unit_mix[unit_id])
-		counts[unit_id] = _count_of(state, player_id, registry, unit_id)
+		counts[unit_id] = (
+			_count_of(state, player_id, registry, unit_id) + int(pending_counts.get(unit_id, 0))
+		)
 		total_count += int(counts[unit_id])
 	if total_weight <= 0:
 		return ""

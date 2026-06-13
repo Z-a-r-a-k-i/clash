@@ -19,6 +19,9 @@ func _init() -> void:
 		return
 	var matches: int = int(args.get("matches", "20"))
 	var max_turns: int = int(args.get("max-turns", "150"))
+	if not _is_positive_arg(matches, "--matches") or not _is_positive_arg(max_turns, "--max-turns"):
+		quit(1)
+		return
 	var seed_base: int = int(args.get("seed", "1"))
 	var out_name: String = args.get("out", "sim")
 	var dump_replays: String = args.get("dump-replays", "none")
@@ -94,6 +97,11 @@ func _run_tuning(
 		return false
 	var generations: int = int(args.get("generations", "10"))
 	var matches_per_eval: int = int(args.get("matches", "4"))
+	if (
+		not _is_positive_arg(generations, "--generations")
+		or not _is_positive_arg(matches_per_eval, "--matches")
+	):
+		return false
 	var opponents: Array = []
 	for name in STRATEGIES:
 		if name != strategy or STRATEGIES.size() == 1:
@@ -167,6 +175,13 @@ func _is_valid_scenario(path: String) -> bool:
 		push_error("[simulate] --scenario is not a ScenarioDef: %s" % path)
 		return false
 	return true
+
+
+func _is_positive_arg(value: int, flag_name: String) -> bool:
+	if value > 0:
+		return true
+	push_error("[simulate] %s must be > 0, got %d" % [flag_name, value])
+	return false
 
 
 func _write(path: String, content: String) -> bool:
