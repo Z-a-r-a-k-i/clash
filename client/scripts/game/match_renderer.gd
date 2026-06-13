@@ -77,7 +77,12 @@ const _CONSTRUCTION_PROGRESS_BACK := Color(0.0, 0.0, 0.0, 0.68)
 const _CONSTRUCTION_PROGRESS_FILL := Color(0.2, 0.95, 0.45, 0.95)
 const _CONSTRUCTION_PROGRESS_PAUSED_FILL := Color(1.0, 0.58, 0.12, 0.96)
 const _CONSTRUCTION_PROGRESS_SIZE := Vector2(64.0, 8.0)
-const _FOG_OUT_OF_VISION_COLOR := Color(0.0, 0.0, 0.0, 0.22)
+# Fog of war: one R8 texel per tile, smoothstepped by the fog shader
+# (0.0 unexplored / 0.5 explored memory / 1.0 visible).
+const _FOG_SHADER := preload("res://shaders/fog.gdshader")
+const _FOG_LEVEL_UNEXPLORED := 0.0
+const _FOG_LEVEL_EXPLORED := 0.5
+const _FOG_LEVEL_VISIBLE := 1.0
 const _DEV_PLAYABLE_ZOOM := 1.1
 const _MIN_CAMERA_ZOOM := 0.5
 const _MAX_CAMERA_ZOOM := 4.0
@@ -132,9 +137,10 @@ var _event_visible_entity_ids: Dictionary[int, bool] = {}
 var _zoom_debug_text: String = ""
 var _zoom_debug_visible: bool = false
 var _camera_screen_safe_margins: Vector4 = Vector4.ZERO
-var _fog_overlay_signature: String = ""
-var _has_fog_overlay_cache := false
 var _fog_overlay_tile_count := 0
+var _fog_image: Image = null
+var _fog_texture: ImageTexture = null
+var _fog_sprite: Sprite2D = null
 var _range_preview_signature: String = ""
 
 @onready var _entities_root: Node2D = $Entities
@@ -741,6 +747,21 @@ func fog_overlay_count() -> int:
 	if _fog_root == null:
 		return 0
 	return _fog_overlay_tile_count
+
+
+# Encoded fog level for a tile (-1.0 when no fog image is bound). R8
+# quantizes, so compare with a small tolerance.
+func fog_value_at_tile(tile: Vector2i) -> float:
+	if _fog_image == null:
+		return -1.0
+	if (
+		tile.x < 0
+		or tile.y < 0
+		or tile.x >= _fog_image.get_width()
+		or tile.y >= _fog_image.get_height()
+	):
+		return -1.0
+	return _fog_image.get_pixel(tile.x, tile.y).r
 
 
 func is_tile_currently_visible(player_id: int, tile: Vector2i) -> bool:
@@ -1844,8 +1865,6 @@ func _reset_visibility_memory() -> void:
 	_visibility_by_player.clear()
 	_seen_tiles_by_player.clear()
 	_seen_enemy_building_snapshots_by_player.clear()
-	_fog_overlay_signature = ""
-	_has_fog_overlay_cache = false
 	_fog_overlay_tile_count = 0
 	for player_id in _player_ids():
 		_seen_tiles_by_player[player_id] = {}
@@ -2021,76 +2040,69 @@ func _rebuild_fog_overlay() -> void:
 		return
 	if _state == null or _state.tile_grid == null:
 		_clear_fog_overlay()
-		_fog_overlay_signature = ""
-		_has_fog_overlay_cache = false
 		return
 	var visibility: VisionSystem.Visibility = _visibility_by_player.get(_perspective_player_id)
 	if visibility == null:
 		_clear_fog_overlay()
-		_fog_overlay_signature = ""
-		_has_fog_overlay_cache = false
 		return
-	var signature: String = _fog_visibility_signature(visibility)
-	if _has_fog_overlay_cache and signature == _fog_overlay_signature:
-		return
-	_fog_overlay_signature = signature
-	_has_fog_overlay_cache = true
-	_clear_fog_overlay()
+	_ensure_fog_sprite(_state.tile_grid.width, _state.tile_grid.height)
+	var seen: Dictionary = _seen_tiles_by_player.get(_perspective_player_id, {})
+	_fog_overlay_tile_count = 0
 	for y in range(_state.tile_grid.height):
-		var run_start := -1
 		for x in range(_state.tile_grid.width):
 			var tile := Vector2i(x, y)
-			if not visibility.is_tile_visible(tile):
+			var encoded: float = _FOG_LEVEL_UNEXPLORED
+			if visibility.is_tile_visible(tile):
+				encoded = _FOG_LEVEL_VISIBLE
+			else:
 				_fog_overlay_tile_count += 1
-				if run_start < 0:
-					run_start = x
-				continue
-			if run_start >= 0:
-				_add_fog_overlay_run(run_start, y, x - run_start)
-				run_start = -1
-		if run_start >= 0:
-			_add_fog_overlay_run(run_start, y, _state.tile_grid.width - run_start)
+				if seen.has(tile):
+					encoded = _FOG_LEVEL_EXPLORED
+			_fog_image.set_pixel(x, y, Color(encoded, 0.0, 0.0))
+	_fog_texture.update(_fog_image)
 
 
-func _add_fog_overlay_run(start_x: int, y: int, width: int) -> void:
-	if _fog_root == null or width <= 0:
+# One sprite spans the whole map: texel (x, y) covers world rect
+# [x*tile, (x+1)*tile) x [y*tile, (y+1)*tile) via the tile-size scale.
+func _ensure_fog_sprite(width: int, height: int) -> void:
+	if (
+		is_instance_valid(_fog_sprite)
+		and _fog_sprite.get_parent() == _fog_root
+		and _fog_image != null
+		and _fog_image.get_width() == width
+		and _fog_image.get_height() == height
+	):
 		return
-	_fog_root.add_child(
-		_highlight_polygon(
-			Rect2i(Vector2i(start_x, y), Vector2i(width, 1)), _FOG_OUT_OF_VISION_COLOR
-		)
-	)
+	if is_instance_valid(_fog_sprite):
+		_fog_sprite.queue_free()
+	_fog_image = Image.create(width, height, false, Image.FORMAT_R8)
+	_fog_image.fill(Color(0.0, 0.0, 0.0))
+	_fog_texture = ImageTexture.create_from_image(_fog_image)
+	_fog_sprite = Sprite2D.new()
+	_fog_sprite.name = "FogSprite"
+	_fog_sprite.centered = false
+	_fog_sprite.position = Vector2.ZERO
+	_fog_sprite.scale = Vector2(float(_tile_size), float(_tile_size))
+	_fog_sprite.texture = _fog_texture
+	_fog_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	var fog_material := ShaderMaterial.new()
+	fog_material.shader = _FOG_SHADER
+	_fog_sprite.material = fog_material
+	_fog_root.add_child(_fog_sprite)
 
 
 func _clear_fog_overlay() -> void:
 	_fog_overlay_tile_count = 0
+	if is_instance_valid(_fog_sprite):
+		_fog_sprite.queue_free()
+	_fog_sprite = null
+	_fog_image = null
+	_fog_texture = null
 	if _fog_root == null:
 		return
 	for child in _fog_root.get_children():
 		_fog_root.remove_child(child)
 		child.queue_free()
-
-
-func _fog_visibility_signature(visibility: VisionSystem.Visibility) -> String:
-	var hash := 17
-	var visible_count := 0
-	for x in range(_state.tile_grid.width):
-		for y in range(_state.tile_grid.height):
-			var tile := Vector2i(x, y)
-			if not visibility.is_tile_visible(tile):
-				continue
-			visible_count += 1
-			hash = int(hash * 31 + x * 73856093 + y * 19349663)
-	return (
-		"%d:%d:%d:%d:%d"
-		% [
-			_perspective_player_id,
-			_state.tile_grid.width,
-			_state.tile_grid.height,
-			visible_count,
-			hash,
-		]
-	)
 
 
 func _remember_visible_tiles(player_id: int, visibility: VisionSystem.Visibility) -> void:
