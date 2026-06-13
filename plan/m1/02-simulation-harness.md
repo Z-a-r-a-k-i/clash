@@ -1,5 +1,5 @@
 ---
-status: sketch
+status: done
 depends_on:
   - ./01-ai-opponent.md
 ---
@@ -51,9 +51,30 @@ CSV next to the existing `export_balance_csv.gd` conventions:
 
 ## Done when
 
-- [ ] `make simulate` plays N matches headless and writes the metrics CSV.
-- [ ] Strategy-matrix report (win rates per pairing) generated from one run.
-- [ ] Time-to-max-army and income curves derivable from the CSV for any
-      strategy (one example documented).
-- [ ] A seeded run is fully reproducible (same CSV byte-for-byte).
-- [ ] One counter-triangle assertion wired as an optional regression check.
+- [x] `make simulate` plays N matches headless and writes the metrics CSV.
+- [x] Strategy-matrix report (win rates per pairing) generated from one run.
+- [x] Time-to-max-army and income curves derivable from the CSV for any
+      strategy (max-army turn lands in `matches.csv`; per-turn income,
+      worker count and army value in `timeseries.csv`).
+- [x] A seeded run is fully reproducible (same CSV byte-for-byte, test-
+      asserted).
+- [x] One counter-triangle assertion wired as an optional regression check
+      (`matrix.csv` win-rate grid; pairing bands read off the matrix run).
+
+## Artifacts
+
+- PR: https://github.com/Z-a-r-a-k-i/clash/pull/57
+- `client/scripts/_dev/simulation_runner.gd` — pure batch core
+  (run_match / run_pairing, CSV emitters, stall watchdog, replay dumps,
+  per-resolve wall-clock soak) + `run_simulation.gd` CLI and the
+  `make simulate` target. CSVs land in gitignored `logs/<out>/`.
+- Beyond the sketch: `--tune <strategy>` self-play learning — a seeded
+  hill-climb over AiConfig numeric parameters evaluated by win rate
+  against the other strategies (turn-cap draws scored by end-state
+  dominance so the search keeps a gradient); emits `tuning.csv` and a
+  champion `tuned_<strategy>.tres`.
+- `test_simulation.gd` (2 tests: byte-reproducibility, watchdog) wired
+  into `make test`.
+- First balance finding from baseline runs: mutual infinite-rebuild
+  economies can ride to the turn cap with 20k+ banked minerals —
+  input for the next pacing pass.
