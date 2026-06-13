@@ -53,18 +53,32 @@ static func strategy_path(name: String) -> String:
 static func run_match(
 	scenario_path: String, strategy_a: String, strategy_b: String, seed_value: int, max_turns: int
 ) -> Dictionary:
+	var config_a: AiConfig = _variant_config(strategy_a, seed_value)
+	var config_b: AiConfig = _variant_config(strategy_b, seed_value + 1)
+	return run_match_with_configs(
+		scenario_path, strategy_a, config_a, strategy_b, config_b, seed_value, max_turns
+	)
+
+
+static func run_match_with_configs(
+	scenario_path: String,
+	strategy_a: String,
+	config_a: AiConfig,
+	strategy_b: String,
+	config_b: AiConfig,
+	seed_value: int,
+	max_turns: int
+) -> Dictionary:
 	var registry: EntityRegistry = _REGISTRY
 	var tunables: Tunables = _TUNABLES
 	var scenario: ScenarioDef = load(scenario_path)
-	var loaded := ScenarioLoader.load(scenario, registry, tunables)
+	var loaded: LoadedScenario = ScenarioLoader.load(scenario, registry, tunables)
 	var state: MatchState = loaded.state
 
-	var config_a := _variant_config(strategy_a, seed_value)
-	var config_b := _variant_config(strategy_b, seed_value + 1)
-	var memory_a := AiMemory.new()
-	var memory_b := AiMemory.new()
+	var memory_a: AiMemory = AiMemory.new()
+	var memory_b: AiMemory = AiMemory.new()
 
-	var replay := MatchReplay.new()
+	var replay: MatchReplay = MatchReplay.new()
 	replay.initial_session = SavedSession.new()
 	replay.initial_session.state = state.clone()
 	replay.initial_session.registry = registry
@@ -87,29 +101,33 @@ static func run_match(
 	}
 	var first_production: Dictionary = {}
 	var timeseries: Array = []
-	var quiet_turns := 0
-	var resolve_usec_total := 0
+	var quiet_turns: int = 0
+	var resolve_usec_total: int = 0
 
 	for turn in range(max_turns):
-		var submit_a := AiPlayer.plan_turn(state, 0, registry, tunables, config_a, memory_a)
-		var submit_b := AiPlayer.plan_turn(state, 1, registry, tunables, config_b, memory_b)
-		var frame := ReplayTurnFrame.new()
+		var submit_a: SubmitTurn = AiPlayer.plan_turn(
+			state, 0, registry, tunables, config_a, memory_a
+		)
+		var submit_b: SubmitTurn = AiPlayer.plan_turn(
+			state, 1, registry, tunables, config_b, memory_b
+		)
+		var frame: ReplayTurnFrame = ReplayTurnFrame.new()
 		frame.turn_index = state.turn_index
 		frame.submit_a = submit_a
 		frame.submit_b = submit_b
 		replay.frames.append(frame)
 
-		var pre_state := state
-		var resolve_start := Time.get_ticks_usec()
-		var result := Resolver.resolve(state, submit_a, submit_b, registry, tunables)
+		var pre_state: MatchState = state
+		var resolve_start: int = Time.get_ticks_usec()
+		var result: ResolveResult = Resolver.resolve(state, submit_a, submit_b, registry, tunables)
 		resolve_usec_total += Time.get_ticks_usec() - resolve_start
 		state = result.new_state
 
 		_record_events(result.events, pre_state, registry, row, first_production, turn)
 		timeseries.append(_sample_turn(state, registry, strategy_a, strategy_b, seed_value, turn))
 		for player_id in [0, 1]:
-			var key := "max_army_turn_a" if player_id == 0 else "max_army_turn_b"
-			var player := state.get_player(player_id)
+			var key: String = "max_army_turn_a" if player_id == 0 else "max_army_turn_b"
+			var player: PlayerState = state.get_player(player_id)
 			if int(row[key]) < 0 and player != null and player.pop_used >= player.pop_cap:
 				row[key] = turn
 
@@ -142,18 +160,20 @@ static func run_pairing(
 	var timeseries: Array = []
 	var first_loss_replay: MatchReplay = null
 	for index in range(matches):
-		var swapped := index % 2 == 1
-		var first := strategy_b if swapped else strategy_a
-		var second := strategy_a if swapped else strategy_b
-		var outcome := run_match(scenario_path, first, second, seed_base + index * 17, max_turns)
+		var swapped: bool = index % 2 == 1
+		var first: String = strategy_b if swapped else strategy_a
+		var second: String = strategy_a if swapped else strategy_b
+		var outcome: Dictionary = run_match(
+			scenario_path, first, second, seed_base + index * 17, max_turns
+		)
 		var row: Dictionary = outcome["row"]
 		row["match_index"] = index
 		row["sides_swapped"] = swapped
 		# Normalize the winner back into A-perspective for the matrix.
 		var winner: int = int(row["winner"])
 		if winner >= 0:
-			row["winner_strategy"] = second if (winner == 1) != swapped else first
-			if swapped and winner >= 0:
+			row["winner_strategy"] = first if winner == 0 else second
+			if swapped:
 				row["winner"] = 1 - winner
 		else:
 			row["winner_strategy"] = ""

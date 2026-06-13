@@ -1,4 +1,4 @@
-.PHONY: help generate lint format test test-resolver-stress export-balance
+.PHONY: help generate lint format test test-resolver-stress export-balance simulate
 
 GODOT ?= godot
 OUT ?= res://exports/balance_stats.csv
@@ -9,6 +9,8 @@ SHELL := pwsh.exe
 # GODOT_HEADLESS redirects APPDATA/LOCALAPPDATA to keep test user data local.
 # This avoids polluting system Godot settings and keeps headless runs isolated.
 GODOT_HEADLESS = $$godotUserRoot = Join-Path (Get-Location) 'client/.godot-codex-user'; $$env:APPDATA = Join-Path $$godotUserRoot 'AppData'; $$env:LOCALAPPDATA = Join-Path $$godotUserRoot 'LocalAppData'; New-Item -ItemType Directory -Force -Path $$env:APPDATA,$$env:LOCALAPPDATA | Out-Null; & '$(GODOT)' --headless --path client
+else
+GODOT_HEADLESS = '$(GODOT)' --headless --path client
 endif
 
 help:

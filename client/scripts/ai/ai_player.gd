@@ -27,13 +27,13 @@ static func plan_turn(
 	config: AiConfig,
 	memory: AiMemory
 ) -> SubmitTurn:
-	var submit := SubmitTurn.new()
+	var submit: SubmitTurn = SubmitTurn.new()
 	if state == null or registry == null or config == null or memory == null:
 		return submit
 	if state.match_over:
 		return submit
 
-	var snapshot := _snapshot(state, player_id, registry, config, memory)
+	var snapshot: Dictionary = _snapshot(state, player_id, registry, config, memory)
 	_update_enemy_memory(state, player_id, registry, config, memory, snapshot)
 
 	if config.decision_cadence > 1 and state.turn_index % config.decision_cadence != 0:
@@ -174,7 +174,7 @@ static func _plan_economy(
 		return
 
 	# Idle workers gather the nearest open source near an owned base.
-	var assignments: Dictionary = GATHER._source_assignments_by_source(state, registry)
+	var assignments: Dictionary = GATHER.source_assignments_by_source(state, registry)
 	for worker in workers:
 		if issued.has(worker.id):
 			continue
@@ -347,7 +347,7 @@ static func _plan_production(
 
 	# Steady state: keep one producer per mixed unit type, then train
 	# the unit furthest below its mix share.
-	var mix_units := _sorted_mix_units(config)
+	var mix_units: Array[String] = _sorted_mix_units(config)
 	for unit_id in mix_units:
 		var producer_def_id := _producer_def_for_unit(registry, unit_id)
 		if producer_def_id == "":
@@ -409,24 +409,31 @@ static func _plan_production(
 	var spendable_minerals: int = player.minerals
 	var spendable_gas: int = player.gas
 	var spendable_pop: int = player.pop_cap - player.pop_used
+	var candidate_mix_units: Array[String] = []
+	candidate_mix_units.assign(mix_units)
 	while true:
-		var deficit_unit := _largest_deficit_unit(state, player_id, registry, config, mix_units)
+		var deficit_unit: String = _largest_deficit_unit(
+			state, player_id, registry, config, candidate_mix_units
+		)
 		if deficit_unit == "":
 			break
 		var unit_def: EntityDef = registry.get_by_id(deficit_unit)
 		if unit_def == null or unit_def.construction == null:
-			break
-		var producer := _idle_producer_for(producers, registry, deficit_unit, issued)
+			candidate_mix_units.erase(deficit_unit)
+			continue
+		var producer: Entity = _idle_producer_for(producers, registry, deficit_unit, issued)
 		if producer == null:
-			break
+			candidate_mix_units.erase(deficit_unit)
+			continue
 		var pop_cost: int = unit_def.population.pop_cost if unit_def.population != null else 0
 		if (
 			spendable_minerals < unit_def.construction.mineral_cost
 			or spendable_gas < unit_def.construction.gas_cost
 			or spendable_pop < pop_cost
 		):
-			break
-		var train := EntityOrder.new()
+			candidate_mix_units.erase(deficit_unit)
+			continue
+		var train: EntityOrder = EntityOrder.new()
 		train.type = EntityOrder.Type.TRAIN
 		train.entity_id = producer.id
 		train.def_id = deficit_unit
@@ -435,6 +442,7 @@ static func _plan_production(
 		spendable_minerals -= unit_def.construction.mineral_cost
 		spendable_gas -= unit_def.construction.gas_cost
 		spendable_pop -= pop_cost
+		candidate_mix_units.assign(mix_units)
 
 
 # ---------- Army ----------

@@ -3888,11 +3888,13 @@ func _test_ai_opponent_toggle_drives_player_one() -> bool:
 		push_error("perspective must stay locked to player 0 while the AI plays")
 		_free_mode(mode)
 		return false
-	var before := _count_owned(mode.current_state(), 1)
+	var before: int = _count_owned(mode.current_state(), 1)
 	for i in range(10):
 		if not mode.resolve_turn():
-			break
-	var after := _count_owned(mode.current_state(), 1)
+			push_error("resolve_turn should succeed while AI opponent is active")
+			_free_mode(mode)
+			return false
+	var after: int = _count_owned(mode.current_state(), 1)
 	if after <= before:
 		push_error("AI player 1 should have grown its entity count (%d -> %d)" % [before, after])
 		_free_mode(mode)
@@ -3900,6 +3902,11 @@ func _test_ai_opponent_toggle_drives_player_one() -> bool:
 	mode.set_ai_opponent("")
 	if mode.ai_opponent_active():
 		push_error("empty path should disable the AI opponent")
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(1)
+	if mode.session_local_player_id() != 1:
+		push_error("manual player switching should be restored after disabling AI opponent")
 		_free_mode(mode)
 		return false
 	_free_mode(mode)
