@@ -269,3 +269,7 @@ text = "Resolve"
 layout_mode = 2
 size_flags_horizontal = 3
 text = "All Orders"
+
+[node name="Opponent" type="OptionButton" parent="BottomDeck/Row/ResolvePanel/Stack"]
+layout_mode = 2
+size_flags_horizontal = 3

@@ -65,6 +65,8 @@ ifeq ($(OS),Windows_NT)
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_network_multiplayer_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_network_live_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_balance_csv_export_headless.gd
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_ai_player_headless.gd
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_simulation_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_m0_playtest_smoke_headless.gd
 else
 	@if ! command -v '$(GODOT)' >/dev/null 2>&1; then echo "Godot executable not found. Run: make test GODOT=/path/to/godot"; exit 1; fi
@@ -81,6 +83,8 @@ else
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_network_multiplayer_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_network_live_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_balance_csv_export_headless.gd
+	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_ai_player_headless.gd
+	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_simulation_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_m0_playtest_smoke_headless.gd
 endif
 
@@ -101,3 +105,9 @@ else
 	@if ! command -v '$(GODOT)' >/dev/null 2>&1; then echo "Godot executable not found. Run: make export-balance GODOT=/path/to/godot"; exit 1; fi
 	@'$(GODOT)' --headless --path client --script scripts/_dev/export_balance_csv.gd -- '$(OUT)'
 endif
+
+# AI-vs-AI simulation (plan m1/02). Examples:
+#   make simulate ARGS="--matrix --matches 20 --seed 1 --out sim_baseline"
+#   make simulate ARGS="--tune rush_marines --generations 12"
+simulate:
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_simulation.gd -- $(ARGS)
