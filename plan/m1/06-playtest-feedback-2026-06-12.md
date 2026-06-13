@@ -51,18 +51,24 @@ Decided: apply all at once, then re-playtest.
 
 ## Wave 2 — HUD/UX (extends node 05's scope)
 
-- [ ] In-world unit life bars; selection panel with full unit stats.
-- [ ] Top bar: income per turn AND committed spending (what next turn's
+- [x] In-world unit life bars; selection panel with full unit stats.
+- [x] Top bar: income per turn AND committed spending (what next turn's
       balance will look like).
-- [ ] Production visibility: what a building is producing, queue state,
+- [x] Production visibility: what a building is producing, queue state,
       progress; cancel production with refund.
-- [ ] Worker state surfaced: building / gathering gas; gas workers
+- [x] Worker state surfaced: building / gathering gas; gas workers
       shown as x/max per geyser.
-- [ ] Damage preview: expected damage vs the hovered/targeted enemy.
-- [ ] Range display on demand (Alt) — works in multiplayer too.
-- [ ] Path preview shows EVERY per-turn stop along the route, not just
+- [x] Damage preview: expected damage vs the hovered/targeted enemy.
+- [x] Range display on demand (Alt) — works in multiplayer too (the
+      selected unit's current range always shows in both modes; Alt
+      adds the hover-projected range).
+- [x] Path preview shows EVERY per-turn stop along the route, not just
       the first stop (lets players count turns to arrival).
-- [ ] Command clarity: distinguish move+attack vs move+idle, etc.
+- [x] Command clarity: distinguish move+attack vs move+idle, etc.
+      (Move (M) / Attack-move (A) / Gather (G) labels, tooltips, and
+      controller-level M/A/G hotkeys). Soft shader fog (unexplored /
+      explored / visible bands) replaced the per-run polygon overlay
+      in the same wave.
 
 ## Wave 3 — mechanics (resolver changes, each with tests)
 
