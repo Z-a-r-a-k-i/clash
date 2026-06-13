@@ -148,6 +148,14 @@ func _all_tests() -> Array:
 			"match_renderer_center_camera_on_entity_targets_entity",
 			_test_center_camera_on_entity_targets_entity
 		],
+		[
+			"tactical_preview_builder_turn_stops_all_turns",
+			_test_tactical_preview_builder_turn_stops_all_turns
+		],
+		[
+			"match_renderer_action_preview_renders_all_turn_stops",
+			_test_action_preview_renders_all_turn_stops
+		],
 		["match_renderer_fog_overlay_marks_unseen_tiles", _test_fog_overlay_marks_unseen_tiles],
 		[
 			"match_renderer_fog_overlay_uses_light_vision_tint",
@@ -1823,6 +1831,105 @@ func _test_tactical_preview_builder_turn_stop_tile_estimate() -> bool:
 			"post-shot movement should reduce the stop marker budget, got %s" % fired_stop_tile
 		)
 		ok = false
+	return ok
+
+
+func _test_tactical_preview_builder_turn_stops_all_turns() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var worker_def: EntityDef = registry.get_by_id("worker")
+	worker_def.movement = MovementDef.new()
+	worker_def.movement.speed_tiles_per_turn = 3
+	var state: MatchState = _make_renderer_state(
+		[{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1}], 16, 16
+	)
+	var worker: Entity = state.get_entity_by_id(1)
+	worker.moves_used_this_turn = 1
+	var builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = TACTICAL_PREVIEW_BUILDER_SCRIPT.new()
+	var short_path: Array[Vector2i] = [
+		Vector2i(2, 1), Vector2i(3, 1), Vector2i(4, 1), Vector2i(5, 1)
+	]
+	var ok := true
+	var short_stops: Array[Vector2i] = builder.turn_stops_for_path(state, registry, 1, short_path)
+	if short_stops != ([Vector2i(3, 1), Vector2i(5, 1)] as Array[Vector2i]):
+		push_error("two-turn path should yield both stops, got %s" % [short_stops])
+		ok = false
+	var long_path: Array[Vector2i] = [
+		Vector2i(2, 1),
+		Vector2i(3, 1),
+		Vector2i(4, 1),
+		Vector2i(5, 1),
+		Vector2i(6, 1),
+		Vector2i(7, 1),
+		Vector2i(8, 1),
+		Vector2i(9, 1),
+	]
+	var long_stops: Array[Vector2i] = builder.turn_stops_for_path(state, registry, 1, long_path)
+	var expected_long: Array[Vector2i] = [Vector2i(3, 1), Vector2i(6, 1), Vector2i(9, 1)]
+	if long_stops != expected_long:
+		push_error("three-turn path should yield three stops, got %s" % [long_stops])
+		ok = false
+	worker_def.movement.post_shot_move_fraction = 0.5
+	var fired_stops: Array[Vector2i] = builder.turn_stops_for_path(
+		state, registry, 1, short_path, true
+	)
+	if fired_stops.is_empty() or fired_stops[0] != Vector2i(2, 1):
+		push_error("post-shot first turn should shorten the first stop, got %s" % [fired_stops])
+		ok = false
+	worker.moves_used_this_turn = 6
+	var exhausted_stops: Array[Vector2i] = builder.turn_stops_for_path(
+		state, registry, 1, short_path
+	)
+	if exhausted_stops.is_empty() or exhausted_stops[0] != Vector2i(1, 1):
+		push_error(
+			"an exhausted first turn should mark the overnight position, got %s" % [exhausted_stops]
+		)
+		ok = false
+	return ok
+
+
+func _test_action_preview_renders_all_turn_stops() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
+		[{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1}], 12, 12
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state, registry)
+	(
+		renderer
+		. call(
+			"set_action_previews",
+			[
+				{
+					"entity_id": 1,
+					"kind": "Move",
+					"target_tile": Vector2i(8, 1),
+					"path": [Vector2i(3, 1), Vector2i(5, 1), Vector2i(8, 1)],
+					"turn_stop_tile": Vector2i(3, 1),
+					"turn_stop_tiles":
+					[Vector2i(3, 1), Vector2i(5, 1), Vector2i(8, 1)] as Array[Vector2i],
+				},
+			]
+		)
+	)
+	var ok := true
+	if renderer.call("action_preview_stop_marker_count") != 3:
+		push_error("every turn stop should render a marker")
+		ok = false
+	var expected_tiles: Array[Vector2i] = [Vector2i(3, 1), Vector2i(5, 1), Vector2i(8, 1)]
+	for marker_index in 3:
+		if (
+			renderer.call("action_preview_stop_marker_tile", marker_index)
+			!= (expected_tiles[marker_index])
+		):
+			push_error("stop markers should keep path order")
+			ok = false
+		if (
+			renderer.call("action_preview_stop_marker_turn_index", marker_index)
+			!= (marker_index + 1)
+		):
+			push_error("stop markers should carry their 1-based turn index")
+			ok = false
+	_free_renderer(renderer)
 	return ok
 
 

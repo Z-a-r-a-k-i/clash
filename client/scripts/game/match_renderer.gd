@@ -52,6 +52,10 @@ const _BUILD_PLACEMENT_GRID_WIDTH := 1.0
 const _ACTION_PREVIEW_COLOR := Color(0.2, 0.95, 0.9, 0.86)
 const _ACTION_PREVIEW_STOP_COLOR := Color(1.0, 0.78, 0.12, 0.96)
 const _ACTION_PREVIEW_STOP_OUTLINE_COLOR := Color(0.0, 0.0, 0.0, 0.85)
+# Later-turn stop markers fade so the next stop reads strongest.
+const _STOP_MARKER_ALPHA_FALLOFF := 0.15
+const _STOP_MARKER_ALPHA_FLOOR := 0.45
+const _STOP_MARKER_FONT_SIZE := 12
 const _ACTION_PREVIEW_TEXT_COLOR := Color(0.95, 1.0, 1.0, 1.0)
 const _ACTION_PREVIEW_LINE_WIDTH := 3.0
 const _ACTION_PREVIEW_FONT_SIZE := 18
@@ -623,7 +627,7 @@ func action_preview_stop_marker_count() -> int:
 	var count := 0
 	for group in _action_previews_root.get_children():
 		for child in group.get_children():
-			if child.name == "TurnStopMarker":
+			if String(child.name).begins_with("TurnStopMarker"):
 				count += 1
 	return count
 
@@ -634,12 +638,26 @@ func action_preview_stop_marker_tile(marker_index: int) -> Vector2i:
 	var seen := 0
 	for group in _action_previews_root.get_children():
 		for child in group.get_children():
-			if child.name != "TurnStopMarker":
+			if not String(child.name).begins_with("TurnStopMarker"):
 				continue
 			if seen == marker_index:
 				return child.get_meta("tile", Vector2i(-999999, -999999))
 			seen += 1
 	return Vector2i(-999999, -999999)
+
+
+func action_preview_stop_marker_turn_index(marker_index: int) -> int:
+	if _action_previews_root == null:
+		return -1
+	var seen := 0
+	for group in _action_previews_root.get_children():
+		for child in group.get_children():
+			if not String(child.name).begins_with("TurnStopMarker"):
+				continue
+			if seen == marker_index:
+				return child.get_meta("turn_index", -1)
+			seen += 1
+	return -1
 
 
 func production_progress_count() -> int:
@@ -1107,11 +1125,23 @@ func _render_action_preview(preview: Dictionary) -> void:
 		line.width = _ACTION_PREVIEW_LINE_WIDTH
 		line.points = line_points
 		group.add_child(line)
-		if preview.has("turn_stop_tile"):
-			var stop_tile: Vector2i = preview.get("turn_stop_tile", Vector2i(-999999, -999999))
-			if stop_tile != Vector2i(-999999, -999999):
-				var stop_alpha: float = preview_color.a / maxf(_ACTION_PREVIEW_COLOR.a, 0.001)
-				group.add_child(_turn_stop_marker(stop_tile, stop_alpha))
+		var stop_tiles: Array = preview.get("turn_stop_tiles", [])
+		if stop_tiles.is_empty() and preview.has("turn_stop_tile"):
+			var legacy_stop: Vector2i = preview.get("turn_stop_tile", Vector2i(-999999, -999999))
+			if legacy_stop != Vector2i(-999999, -999999):
+				stop_tiles = [legacy_stop]
+		var stop_alpha: float = preview_color.a / maxf(_ACTION_PREVIEW_COLOR.a, 0.001)
+		for stop_index in stop_tiles.size():
+			var stop_tile: Vector2i = stop_tiles[stop_index]
+			var marker_alpha: float = (
+				stop_alpha
+				* maxf(
+					1.0 - _STOP_MARKER_ALPHA_FALLOFF * float(stop_index), _STOP_MARKER_ALPHA_FLOOR
+				)
+			)
+			group.add_child(
+				_turn_stop_marker(stop_tile, marker_alpha, stop_index + 1, stop_tiles.size())
+			)
 		group.add_child(_target_marker(target, preview_color))
 	var label := Label.new()
 	label.text = _preview_label(preview)
@@ -1264,10 +1294,14 @@ func _target_marker(marker_position: Vector2, color: Color = _ACTION_PREVIEW_COL
 	return marker
 
 
-func _turn_stop_marker(tile: Vector2i, alpha_multiplier: float = 1.0) -> Node2D:
+func _turn_stop_marker(
+	tile: Vector2i, alpha_multiplier: float = 1.0, turn_index: int = 1, total_stops: int = 1
+) -> Node2D:
 	var group := Node2D.new()
-	group.name = "TurnStopMarker"
+	# Indexed name: same-named siblings would be auto-renamed by Godot.
+	group.name = "TurnStopMarker%d" % turn_index
 	group.set_meta("tile", tile)
+	group.set_meta("turn_index", turn_index)
 	var marker_position: Vector2 = _tile_center(tile)
 	var outer_radius := 11.0
 	var inner_radius := 7.0
@@ -1297,6 +1331,17 @@ func _turn_stop_marker(tile: Vector2i, alpha_multiplier: float = 1.0) -> Node2D:
 		]
 	)
 	group.add_child(fill)
+	if total_stops > 1:
+		var turn_label := Label.new()
+		turn_label.text = "%d" % turn_index
+		turn_label.add_theme_font_size_override("font_size", _STOP_MARKER_FONT_SIZE)
+		turn_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+		turn_label.add_theme_constant_override("outline_size", 3)
+		turn_label.modulate = Color(1.0, 1.0, 1.0, minf(1.0, alpha_multiplier + 0.3))
+		turn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		turn_label.size = Vector2(outer_radius * 2.0, outer_radius * 2.0)
+		turn_label.position = marker_position - Vector2(outer_radius, outer_radius + 1.0)
+		group.add_child(turn_label)
 	return group
 
 

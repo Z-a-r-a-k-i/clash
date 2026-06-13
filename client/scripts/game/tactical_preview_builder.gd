@@ -4,6 +4,7 @@ extends RefCounted
 const PATHFINDING_SCRIPT := preload("res://scripts/resolver/pathfinding_system.gd")
 const MOVEMENT_SYSTEM_SCRIPT := preload("res://scripts/resolver/movement_system.gd")
 const NO_STOP_TILE := Vector2i(-999999, -999999)
+const MAX_PREVIEW_TURN_STOPS := 16
 
 
 func attack_range_tiles(
@@ -54,6 +55,58 @@ func attack_range_tiles_from_origin(
 			):
 				out.append(tile)
 	return out
+
+
+# Every per-turn stop along `path`, in order; the final element is the
+# last reachable tile (the destination when the budget allows). The first
+# turn honors budget already spent this turn (moves_used_this_turn and a
+# shot via `fired_this_turn`); later turns assume a fresh, unfired
+# budget. An exhausted first turn yields a stop at the current position —
+# unlike turn_stop_tile_for_path, which reports NO_STOP_TILE for "cannot
+# move this turn".
+func turn_stops_for_path(
+	state: MatchState,
+	registry: EntityRegistry,
+	entity_id: int,
+	path: Array,
+	fired_this_turn: bool = false,
+	max_stops: int = MAX_PREVIEW_TURN_STOPS
+) -> Array[Vector2i]:
+	var stops: Array[Vector2i] = []
+	if state == null or registry == null or path.is_empty():
+		return stops
+	var actor: Entity = state.get_entity_by_id(entity_id)
+	if actor == null or actor.current_hp <= 0:
+		return stops
+	var full_budget: int = (
+		MOVEMENT_SYSTEM_SCRIPT.movement_budget_for_entity(actor, registry, false)
+		* PATHFINDING_SCRIPT.STEP_COST_ORTHOGONAL
+	)
+	if full_budget < PATHFINDING_SCRIPT.STEP_COST_ORTHOGONAL:
+		return stops
+	var remaining: int = (
+		(
+			MOVEMENT_SYSTEM_SCRIPT.movement_budget_for_entity(actor, registry, fired_this_turn)
+			* PATHFINDING_SCRIPT.STEP_COST_ORTHOGONAL
+		)
+		- actor.moves_used_this_turn
+	)
+	var current: Vector2i = actor.origin
+	for item in path:
+		var next: Vector2i = item
+		var cost: int = PATHFINDING_SCRIPT.step_cost(current, next)
+		if cost > full_budget:
+			break
+		if cost > remaining:
+			if stops.size() >= max_stops:
+				return stops
+			stops.append(current)
+			remaining = full_budget
+		remaining -= cost
+		current = next
+	if current != actor.origin and (stops.is_empty() or stops.back() != current):
+		stops.append(current)
+	return stops
 
 
 func turn_stop_tile_for_path(
