@@ -679,6 +679,20 @@ func focus_player_start(player_id: int) -> void:
 	_set_camera_zoom(_DEV_PLAYABLE_ZOOM)
 
 
+func center_camera_on_entity(entity_id: int) -> void:
+	_resolve_internal_nodes()
+	if _camera == null or _state == null:
+		return
+	var entity: Entity = _state.get_entity_by_id(entity_id)
+	if entity == null:
+		return
+	var world_rect: Rect2 = _entity_world_rect(entity, _state, _def_for_entity(entity))
+	if world_rect.size.x <= 0.0 or world_rect.size.y <= 0.0:
+		return
+	_camera.position = world_rect.get_center()
+	_clamp_camera_to_map_bounds()
+
+
 func zoom_camera(multiplier: float) -> void:
 	_resolve_internal_nodes()
 	if _camera == null or multiplier <= 0.0:

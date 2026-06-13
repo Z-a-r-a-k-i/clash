@@ -144,6 +144,10 @@ func _all_tests() -> Array:
 			"match_renderer_hidden_refinery_does_not_hide_unseen_geyser",
 			_test_hidden_refinery_does_not_hide_unseen_geyser
 		],
+		[
+			"match_renderer_center_camera_on_entity_targets_entity",
+			_test_center_camera_on_entity_targets_entity
+		],
 		["match_renderer_fog_overlay_marks_unseen_tiles", _test_fog_overlay_marks_unseen_tiles],
 		[
 			"match_renderer_fog_overlay_uses_light_vision_tint",
@@ -2473,6 +2477,32 @@ func _test_hidden_refinery_does_not_hide_unseen_geyser() -> bool:
 		ok = false
 	_free_renderer(renderer)
 	return ok
+
+
+func _test_center_camera_on_entity_targets_entity() -> bool:
+	var renderer: MatchRenderer = _make_renderer()
+	if renderer == null:
+		return false
+	var state: MatchState = _make_renderer_state(
+		[{"def_id": "marine", "owner": 0, "origin": Vector2i(10, 10)}], 24, 24
+	)
+	renderer.bind_state(state, _renderer_registry())
+	renderer.zoom_camera(8.0)
+	renderer.center_camera_on_entity(1)
+	var camera: Camera2D = renderer.get("_camera") as Camera2D
+	var tile: float = _test_tile_size()
+	var expected := Vector2(10.5 * tile, 10.5 * tile)
+	if camera == null or camera.position.distance_to(expected) > tile:
+		push_error(
+			(
+				"center_camera_on_entity should aim at the entity center %s, got %s"
+				% [expected, camera.position if camera != null else Vector2.INF]
+			)
+		)
+		_free_renderer(renderer)
+		return false
+	_free_renderer(renderer)
+	return true
 
 
 func _test_fog_overlay_marks_unseen_tiles() -> bool:

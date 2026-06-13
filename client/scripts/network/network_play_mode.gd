@@ -383,6 +383,7 @@ func _build_cockpit() -> void:
 	_cockpit.connect("ability_requested", Callable(self, "issue_ability_selected"))
 	_cockpit.connect("repeat_train_toggled", Callable(self, "issue_repeat_train_selected"))
 	_cockpit.connect("resolve_requested", Callable(self, "_submit_turn_button_pressed"))
+	_cockpit.connect("idle_workers_requested", Callable(self, "select_next_idle_worker"))
 	_cockpit.connect("show_all_orders_toggled", Callable(self, "set_show_all_orders"))
 	_hud_layer.add_child(_cockpit)
 	_submit_button = _cockpit.find_child("Resolve", true, false) as Button
@@ -634,6 +635,8 @@ func _update_hud() -> void:
 		_cockpit.set_selection_details(_controller.selection_resource_text(), "")
 		_cockpit.set_economy_state(_controller.economy_payload())
 		_cockpit.set_selection_stats(_controller.selection_stats_payload())
+		_cockpit.set_production_state(_controller.production_panel_payload())
+		_cockpit.set_idle_worker_state(idle_worker_ids.size())
 		_cockpit.set_submit_state_text(submit_state_text)
 		_cockpit.set_command_state(
 			_input.selected_entity_label(),
@@ -959,6 +962,10 @@ func issue_build_selected(def_id: String, tile: Vector2i, queue_requested: bool 
 
 func issue_cancel_selected(cancel_index: int = -1) -> bool:
 	return _controller.issue_cancel_selected(cancel_index)
+
+
+func select_next_idle_worker() -> bool:
+	return _controller.cycle_idle_worker()
 
 
 func issue_train_selected(def_id: String) -> bool:
