@@ -310,6 +310,7 @@ func _all_tests() -> Array:
 			_test_tied_same_target_move_completes_for_future_queue
 		],
 		["dev_play_mode_routes_command_card_orders", _test_routes_command_card_orders],
+		["dev_play_mode_ai_opponent_toggle", _test_ai_opponent_toggle_drives_player_one],
 		["dev_play_mode_pending_target_targets_enemy", _test_pending_target_targets_enemy],
 		["dev_play_mode_a_key_attack_mode", _test_a_key_attack_mode],
 		[
@@ -3861,6 +3862,56 @@ func _set_command_card_state(
 		ability_options,
 		can_cancel
 	)
+
+
+func _test_ai_opponent_toggle_drives_player_one() -> bool:
+	# Plan m1/01: selecting an AI opponent makes the AI submit player 1's
+	# turns at resolve time and locks the perspective to player 0.
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path("res://data/scenarios/arena_1v1.tres"):
+		_free_mode(mode)
+		return false
+	if mode.command_card().opponent_option_count() < 4:
+		push_error("cockpit should offer None + three AI strategies")
+		_free_mode(mode)
+		return false
+	mode.set_ai_opponent("res://data/ai/rush_marines.tres")
+	if not mode.ai_opponent_active():
+		push_error("AI opponent should be active after selection")
+		_free_mode(mode)
+		return false
+	mode.set_active_player_id(1)
+	if mode.input_model().active_player_id() != 0:
+		push_error("perspective must stay locked to player 0 while the AI plays")
+		_free_mode(mode)
+		return false
+	var before := _count_owned(mode.current_state(), 1)
+	for i in range(10):
+		if not mode.resolve_turn():
+			break
+	var after := _count_owned(mode.current_state(), 1)
+	if after <= before:
+		push_error("AI player 1 should have grown its entity count (%d -> %d)" % [before, after])
+		_free_mode(mode)
+		return false
+	mode.set_ai_opponent("")
+	if mode.ai_opponent_active():
+		push_error("empty path should disable the AI opponent")
+		_free_mode(mode)
+		return false
+	_free_mode(mode)
+	return true
+
+
+func _count_owned(state: MatchState, player_id: int) -> int:
+	var count := 0
+	for entity: Entity in state.entities_sorted_by_id():
+		if entity.owner_player_id == player_id and entity.current_hp > 0:
+			count += 1
+	return count
 
 
 func _find_entity_id(state: MatchState, def_id: String, owner: int) -> int:

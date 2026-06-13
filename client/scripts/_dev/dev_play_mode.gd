@@ -49,6 +49,12 @@ const CAMERA_DRAG_THRESHOLD := 4.0
 @export_file("*.tres") var scenario_path: String = DEFAULT_SCENARIO_PATH
 @export var auto_save_replays: bool = true
 
+# AI opponent (plan m1/01): when set, the AI submits player 1's turn at
+# resolve time, planning only from the resolved state (blind
+# simultaneity). Perspective switching is blocked while active.
+var _ai_config: AiConfig = null
+var _ai_memory: AiMemory = AiMemory.new()
+
 var _renderer: MatchRenderer = null
 var _loaded: LoadedScenario = null
 var _tunables: Tunables = null
@@ -120,6 +126,7 @@ func load_scenario_path(path: String) -> bool:
 	_controller.set_range_projection_active(false)
 	_controller.clear_hover_tile()
 	_start_replay_journal()
+	_ai_memory = AiMemory.new()
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 	_update_hud()
 	return true
@@ -185,9 +192,35 @@ func set_show_all_friendly_action_previews(enabled: bool) -> void:
 	_refresh_action_previews()
 
 
+# AI opponent selection (plan m1/01): empty path disables. Memory
+# resets so a new strategy starts fresh.
+func set_ai_opponent(strategy_path: String) -> void:
+	if strategy_path == "":
+		_ai_config = null
+		_ai_memory = AiMemory.new()
+		_update_hud("AI opponent disabled.")
+		return
+	var config: AiConfig = load(strategy_path) as AiConfig
+	if config == null:
+		_update_hud("AI strategy failed to load: %s" % strategy_path)
+		return
+	_ai_config = config
+	_ai_memory = AiMemory.new()
+	if _input.active_player_id() != 0:
+		set_active_player_id(0)
+	_update_hud("AI opponent enabled: %s" % strategy_path.get_file().get_basename())
+
+
+func ai_opponent_active() -> bool:
+	return _ai_config != null
+
+
 func set_active_player_id(player_id: int) -> void:
 	if _replay_mode_active:
 		_reject_replay_edit()
+		return
+	if _ai_config != null and player_id != 0:
+		_update_hud("Perspective locked: the AI controls player 1.")
 		return
 	_input.set_active_player_id(player_id)
 	_controller.clear_pending_command()
@@ -416,6 +449,10 @@ func resolve_turn() -> bool:
 	var turn_before: int = _loaded.state.turn_index
 	var submit_a: SubmitTurn = _input.submit_for_player(0)
 	var submit_b: SubmitTurn = _input.submit_for_player(1)
+	if _ai_config != null:
+		submit_b = AiPlayer.plan_turn(
+			_loaded.state, 1, _loaded.registry, _tunables, _ai_config, _ai_memory
+		)
 	var journal_submit_a: SubmitTurn = submit_a.clone()
 	var journal_submit_b: SubmitTurn = submit_b.clone()
 	if profile_enabled:
@@ -775,6 +812,7 @@ func _build_hud() -> void:
 	_cockpit.connect(
 		"show_all_orders_toggled", Callable(self, "set_show_all_friendly_action_previews")
 	)
+	_cockpit.connect("ai_opponent_selected", Callable(self, "set_ai_opponent"))
 	_hud_layer.add_child(_cockpit)
 	_command_card = _cockpit
 	_build_replay_panel()

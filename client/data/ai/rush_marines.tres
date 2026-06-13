@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="AiConfig" format=3]
+
+[ext_resource type="Script" path="res://scripts/ai/ai_config.gd" id="1_cfg"]
+
+[resource]
+script = ExtResource("1_cfg")
+build_order = Array[String](["worker", "worker", "barracks", "marine", "marine", "barracks"])
+unit_mix = {
+"marine": 1
+}
+attack_army_value = 600
+retreat_below_enemy_pct = 50
+staging_advance_tiles = 10
+scout_turn = 5
+scout_stale_turns = 8
+decision_cadence = 1
+worker_margin = 1
+expand_mineral_buffer = 250
+cheats_vision = false
+seed = 0

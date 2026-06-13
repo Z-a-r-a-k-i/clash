@@ -12,6 +12,7 @@ signal ability_requested(def_id: String)
 signal cancel_requested(cancel_index: int)
 signal repeat_train_toggled(enabled: bool)
 signal resolve_requested
+signal ai_opponent_selected(strategy_path: String)
 signal show_all_orders_toggled(enabled: bool)
 signal idle_workers_requested
 
@@ -60,6 +61,7 @@ var _gather_button: Button = null
 var _unit_cancel_button: Button = null
 var _build_cancel_button: Button = null
 var _resolve_button: Button = null
+var _opponent_select: OptionButton = null
 var _repeat_train_toggle: CheckBox = null
 var _show_all_orders_toggle: CheckBox = null
 var _build_list: VBoxContainer = null
@@ -407,6 +409,10 @@ func _resolve_nodes() -> void:
 		get_node("BottomDeck/Row/BuildPanel/Stack/OptionColumns/Abilities") as VBoxContainer
 	)
 	_resolve_button = get_node("BottomDeck/Row/ResolvePanel/Stack/Resolve") as Button
+	_opponent_select = (
+		get_node_or_null("BottomDeck/Row/ResolvePanel/Stack/Opponent") as OptionButton
+	)
+	_populate_opponent_options()
 	_show_all_orders_toggle = (
 		get_node("BottomDeck/Row/ResolvePanel/Stack/ShowAllOrders") as CheckBox
 	)
@@ -434,6 +440,31 @@ func _wire_signals() -> void:
 	_show_all_orders_toggle.toggled.connect(
 		func(enabled: bool) -> void: show_all_orders_toggled.emit(enabled)
 	)
+	if _opponent_select != null:
+		_opponent_select.item_selected.connect(
+			func(index: int) -> void:
+				ai_opponent_selected.emit(str(_opponent_select.get_item_metadata(index)))
+		)
+
+
+# AI opponent choices (plan m1/01): "None" plus the shipped strategies.
+func _populate_opponent_options() -> void:
+	if _opponent_select == null or _opponent_select.item_count > 0:
+		return
+	_opponent_select.add_item("Opponent: None")
+	_opponent_select.set_item_metadata(0, "")
+	var strategies := {
+		"Opponent: Rush Marines": "res://data/ai/rush_marines.tres",
+		"Opponent: Two-Base Tanks": "res://data/ai/two_base_tanks.tres",
+		"Opponent: Heli Harass": "res://data/ai/heli_harass.tres",
+	}
+	for label in strategies:
+		_opponent_select.add_item(label)
+		_opponent_select.set_item_metadata(_opponent_select.item_count - 1, strategies[label])
+
+
+func opponent_option_count() -> int:
+	return _opponent_select.item_count if _opponent_select != null else 0
 
 
 func _apply_theme() -> void:
