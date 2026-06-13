@@ -66,9 +66,9 @@ Decided: apply all at once, then re-playtest.
       the first stop (lets players count turns to arrival).
 - [x] Command clarity: distinguish move+attack vs move+idle, etc.
       (Move (M) / Attack-move (A) / Gather (G) labels, tooltips, and
-      controller-level M/A/G hotkeys). Soft shader fog (unexplored /
-      explored / visible bands) replaced the per-run polygon overlay
-      in the same wave.
+      controller-level M/A/G hotkeys). Soft shader fog (discovered /
+      visible bands) replaced the per-run polygon overlay in the same
+      wave.
 
 ## Wave 3 — mechanics (resolver changes, each with tests)
 

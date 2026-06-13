@@ -164,10 +164,13 @@ func _all_tests() -> Array:
 			"match_renderer_action_preview_renders_all_turn_stops",
 			_test_action_preview_renders_all_turn_stops
 		],
-		["match_renderer_fog_overlay_marks_unseen_tiles", _test_fog_overlay_marks_unseen_tiles],
 		[
-			"match_renderer_fog_image_marks_explored_tiles_and_wires_shader",
-			_test_fog_image_marks_explored_tiles_and_wires_shader
+			"match_renderer_fog_overlay_marks_out_of_vision_tiles",
+			_test_fog_overlay_marks_out_of_vision_tiles
+		],
+		[
+			"match_renderer_fog_image_treats_all_terrain_as_explored",
+			_test_fog_image_treats_all_terrain_as_explored
 		],
 		["match_renderer_hidden_combat_events_do_not_leak", _test_hidden_combat_events_do_not_leak],
 		[
@@ -2699,7 +2702,7 @@ func _test_center_camera_on_entity_targets_entity() -> bool:
 	return true
 
 
-func _test_fog_overlay_marks_unseen_tiles() -> bool:
+func _test_fog_overlay_marks_out_of_vision_tiles() -> bool:
 	var registry := _renderer_registry()
 	var state := _make_renderer_state(
 		[
@@ -2714,20 +2717,20 @@ func _test_fog_overlay_marks_unseen_tiles() -> bool:
 	var overlay_count: int = renderer.call("fog_overlay_count")
 	var ok := overlay_count == 24
 	if not ok:
-		push_error("expected 24 unseen fog tiles, got %d" % overlay_count)
+		push_error("expected 24 out-of-vision fog tiles, got %d" % overlay_count)
 	var visible_value: float = renderer.call("fog_value_at_tile", Vector2i(2, 2))
 	if absf(visible_value - 1.0) > 0.02:
 		push_error("a visible tile should encode 1.0 in the fog image, got %f" % visible_value)
 		ok = false
-	var unexplored_value: float = renderer.call("fog_value_at_tile", Vector2i(4, 4))
-	if absf(unexplored_value) > 0.02:
-		push_error("an unexplored tile should encode 0.0, got %f" % unexplored_value)
+	var explored_value: float = renderer.call("fog_value_at_tile", Vector2i(4, 4))
+	if absf(explored_value - 0.5) > 0.02:
+		push_error("an out-of-vision tile should encode explored, got %f" % explored_value)
 		ok = false
 	_free_renderer(renderer)
 	return ok
 
 
-func _test_fog_image_marks_explored_tiles_and_wires_shader() -> bool:
+func _test_fog_image_treats_all_terrain_as_explored() -> bool:
 	var registry := _renderer_registry()
 	var state := _make_renderer_state(
 		[{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1}], 12, 12
@@ -2751,8 +2754,8 @@ func _test_fog_image_marks_explored_tiles_and_wires_shader() -> bool:
 		push_error("the marine's new tile should encode visible, got %f" % visible_value)
 		ok = false
 	var corner_value: float = renderer.call("fog_value_at_tile", Vector2i(11, 0))
-	if absf(corner_value) > 0.02:
-		push_error("a never-seen corner should stay unexplored, got %f" % corner_value)
+	if absf(corner_value - 0.5) > 0.02:
+		push_error("a distant out-of-vision corner should encode explored, got %f" % corner_value)
 		ok = false
 	var fog_root: Node2D = renderer.get_node_or_null("Overlays/Fog") as Node2D
 	var fog_sprite: Sprite2D = (
