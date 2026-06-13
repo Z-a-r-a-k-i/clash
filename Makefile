@@ -1,4 +1,4 @@
-.PHONY: help generate lint format test test-resolver-stress export-balance
+.PHONY: help generate lint format test test-resolver-stress export-balance simulate
 
 GODOT ?= godot
 OUT ?= res://exports/balance_stats.csv
@@ -9,6 +9,8 @@ SHELL := pwsh.exe
 # GODOT_HEADLESS redirects APPDATA/LOCALAPPDATA to keep test user data local.
 # This avoids polluting system Godot settings and keeps headless runs isolated.
 GODOT_HEADLESS = $$godotUserRoot = Join-Path (Get-Location) 'client/.godot-codex-user'; $$env:APPDATA = Join-Path $$godotUserRoot 'AppData'; $$env:LOCALAPPDATA = Join-Path $$godotUserRoot 'LocalAppData'; New-Item -ItemType Directory -Force -Path $$env:APPDATA,$$env:LOCALAPPDATA | Out-Null; & '$(GODOT)' --headless --path client
+else
+GODOT_HEADLESS = '$(GODOT)' --headless --path client
 endif
 
 help:
@@ -65,6 +67,8 @@ ifeq ($(OS),Windows_NT)
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_network_multiplayer_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_network_live_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_balance_csv_export_headless.gd
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_ai_player_headless.gd
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_simulation_headless.gd
 	@$(GODOT_HEADLESS) --script scripts/_dev/run_test_m0_playtest_smoke_headless.gd
 else
 	@if ! command -v '$(GODOT)' >/dev/null 2>&1; then echo "Godot executable not found. Run: make test GODOT=/path/to/godot"; exit 1; fi
@@ -81,6 +85,8 @@ else
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_network_multiplayer_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_network_live_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_balance_csv_export_headless.gd
+	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_ai_player_headless.gd
+	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_simulation_headless.gd
 	@'$(GODOT)' --headless --path client --script scripts/_dev/run_test_m0_playtest_smoke_headless.gd
 endif
 
@@ -101,3 +107,9 @@ else
 	@if ! command -v '$(GODOT)' >/dev/null 2>&1; then echo "Godot executable not found. Run: make export-balance GODOT=/path/to/godot"; exit 1; fi
 	@'$(GODOT)' --headless --path client --script scripts/_dev/export_balance_csv.gd -- '$(OUT)'
 endif
+
+# AI-vs-AI simulation (plan m1/02). Examples:
+#   make simulate ARGS="--matrix --matches 20 --seed 1 --out sim_baseline"
+#   make simulate ARGS="--tune rush_marines --generations 12"
+simulate:
+	@$(GODOT_HEADLESS) --script scripts/_dev/run_simulation.gd -- $(ARGS)

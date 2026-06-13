@@ -1,5 +1,5 @@
 ---
-status: sketch
+status: done
 depends_on:
   - ./00-play-mode-consolidation.md
 ---
@@ -50,10 +50,26 @@ simulator's strategy matrix (node 02).
 
 ## Done when
 
-- [ ] AI plays a complete match (gathers, builds, expands, trains, attacks,
+- [x] AI plays a complete match (gathers, builds, expands, trains, attacks,
       can win by raze) from any loaded scenario on the 1v1 map.
-- [ ] Headless test: AI vs do-nothing opponent wins within a turn bound;
+- [x] Headless test: AI vs do-nothing opponent wins within a turn bound;
       AI vs AI completes without errors or stalls (no-progress watchdog).
-- [ ] All three starter strategies are expressed purely as `AiConfig` data.
-- [ ] Determinism: same (state, config, seed) → identical SubmitTurn (golden
+- [x] All three starter strategies are expressed purely as `AiConfig` data.
+- [x] Determinism: same (state, config, seed) → identical SubmitTurn (golden
       test), so simulator runs are reproducible.
+
+## Artifacts
+
+- PR: https://github.com/Z-a-r-a-k-i/clash/pull/57
+- `client/scripts/ai/ai_player.gd` — pure fog-honest planner
+  (economy / production / army / micro layers) consuming only public
+  resolver-side APIs; `ai_config.gd` + `ai_memory.gd` carry strategy
+  parameters and cross-turn last-seen state.
+- `client/data/ai/{rush_marines,two_base_tanks,heli_harass}.tres` —
+  strategies as hand-authored canon data.
+- Dev play "Opponent" dropdown (cockpit) — AI substitutes player 1's
+  submission at resolve time; perspective locked to player 0 while on.
+- `test_ai_player.gd` (5 tests) wired into `make test`.
+- Beyond the sketch: a close-out sweep (rotating resource-cluster
+  waypoints when no enemy building is known) so razes finish instead of
+  stalemating at the enemy main.

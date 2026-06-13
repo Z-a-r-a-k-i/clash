@@ -53,6 +53,8 @@ desktop.ini
 
 # Logs
 *.log
+# Simulation CSVs / replays from run_simulation.gd (make simulate).
+/logs/
 
 # Claude Code: keep settings.json shared, ignore local overrides
 .claude/settings.local.json
