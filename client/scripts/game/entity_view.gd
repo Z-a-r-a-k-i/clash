@@ -22,10 +22,21 @@ const COLOR_FOG_SILHOUETTE := Color(0.16, 0.18, 0.20, 0.72)
 const CONSTRUCTION_COLOR_SCALE := 0.62
 const CONSTRUCTION_ALPHA := 0.58
 
+# In-world HP bar over damaged units; colors come from UiTokens so the
+# world readout matches the cockpit's HP language.
+const HP_BAR_HEIGHT_PX := 5.0
+const HP_BAR_WIDTH_RATIO := 0.9  # of the footprint's pixel width
+const HP_BAR_GAP_PX := 4.0  # clearance above the placement rect
+
 var _entity_id: int = -1
 var _owner_player_id: int = -1
 var _fog_silhouette: bool = false
 var _is_constructing: bool = false
+var _hp_bar_root: Node2D = null
+var _hp_fill: ColorRect = null
+var _hp_bar_damaged: bool = false
+var _hp_ratio: float = 1.0
+var _hp_bar_width: float = 0.0
 
 @onready var _sprite: Sprite2D = $Sprite2D
 @onready var _label: Label = $Label
@@ -52,7 +63,7 @@ func get_entity_id() -> int:
 # at construction time.
 func update_from_state(
 	entity: Entity,
-	_def: EntityDef,
+	def: EntityDef,
 	sprite_texture: Texture2D,
 	placement_rect: Rect2i,
 	tile_pixel_size: int = -1
@@ -97,11 +108,15 @@ func update_from_state(
 		var def_id: String = entity.current_def_id if entity.current_def_id != "" else entity.def_id
 		_label.text = "%s #%d" % [def_id, entity.id]
 
+	_update_hp_bar(entity, def, fp_x, fp_y, tile_size)
+
 
 func set_fog_silhouette(enabled: bool) -> void:
 	if _sprite == null:
 		_sprite = get_node_or_null("Sprite2D") as Sprite2D
 	_fog_silhouette = enabled
+	if _hp_bar_root != null:
+		_hp_bar_root.visible = _hp_bar_damaged and not _fog_silhouette
 	if _sprite == null:
 		return
 	_sprite.modulate = _current_modulate()
@@ -109,6 +124,62 @@ func set_fog_silhouette(enabled: bool) -> void:
 
 func is_fog_silhouette() -> bool:
 	return _fog_silhouette
+
+
+func hp_bar_visible() -> bool:
+	return _hp_bar_root != null and _hp_bar_root.visible
+
+
+func hp_bar_ratio() -> float:
+	return _hp_ratio
+
+
+func hp_bar_fill_color() -> Color:
+	return _hp_fill.color if _hp_fill != null else Color.TRANSPARENT
+
+
+func hp_bar_size() -> Vector2:
+	return Vector2(_hp_bar_width, HP_BAR_HEIGHT_PX)
+
+
+# Memory silhouettes never show HP (they are stale information), and
+# constructing buildings already render a construction progress bar.
+func _update_hp_bar(entity: Entity, def: EntityDef, fp_x: int, fp_y: int, tile_size: int) -> void:
+	var max_hp: int = 0
+	if def != null and def.health != null:
+		max_hp = def.health.max_hp
+	_hp_bar_damaged = (
+		max_hp > 0
+		and entity.current_hp > 0
+		and entity.current_hp < max_hp
+		and not entity.is_constructing
+	)
+	if not _hp_bar_damaged:
+		if _hp_bar_root != null:
+			_hp_bar_root.visible = false
+		return
+	_hp_ratio = clampf(float(entity.current_hp) / float(max_hp), 0.0, 1.0)
+	_hp_bar_width = float(fp_x * tile_size) * HP_BAR_WIDTH_RATIO
+	if _hp_bar_root == null:
+		_hp_bar_root = Node2D.new()
+		_hp_bar_root.name = "HpBar"
+		var back := ColorRect.new()
+		back.name = "Back"
+		back.color = UiTokens.COLOR_PROGRESS_BACK
+		_hp_bar_root.add_child(back)
+		_hp_fill = ColorRect.new()
+		_hp_fill.name = "Fill"
+		_hp_bar_root.add_child(_hp_fill)
+		add_child(_hp_bar_root)
+	var back_rect: ColorRect = _hp_bar_root.get_node("Back") as ColorRect
+	back_rect.size = Vector2(_hp_bar_width, HP_BAR_HEIGHT_PX)
+	_hp_fill.size = Vector2(_hp_bar_width * _hp_ratio, HP_BAR_HEIGHT_PX)
+	_hp_fill.color = UiTokens.COLOR_HP_LOW.lerp(UiTokens.COLOR_HP_HIGH, _hp_ratio)
+	# View position is the rect center; hang the bar above the top edge.
+	_hp_bar_root.position = Vector2(
+		-_hp_bar_width * 0.5, -float(fp_y * tile_size) * 0.5 - HP_BAR_GAP_PX - HP_BAR_HEIGHT_PX
+	)
+	_hp_bar_root.visible = not _fog_silhouette
 
 
 # Trigger the destruction fade. The view stays alive for the fade duration,

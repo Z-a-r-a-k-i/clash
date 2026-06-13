@@ -153,6 +153,14 @@ func _all_tests() -> Array:
 			_test_tactical_preview_builder_turn_stops_all_turns
 		],
 		[
+			"entity_view_hp_bar_shows_for_damaged_units_only",
+			_test_entity_view_hp_bar_shows_for_damaged_units_only
+		],
+		[
+			"entity_view_hp_bar_hides_on_silhouette_and_scales_with_footprint",
+			_test_entity_view_hp_bar_hides_on_silhouette_and_scales_with_footprint
+		],
+		[
 			"match_renderer_action_preview_renders_all_turn_stops",
 			_test_action_preview_renders_all_turn_stops
 		],
@@ -1831,6 +1839,97 @@ func _test_tactical_preview_builder_turn_stop_tile_estimate() -> bool:
 			"post-shot movement should reduce the stop marker budget, got %s" % fired_stop_tile
 		)
 		ok = false
+	return ok
+
+
+func _test_entity_view_hp_bar_shows_for_damaged_units_only() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var marine_health := HealthDef.new()
+	marine_health.max_hp = 50
+	registry.get_by_id("marine").health = marine_health
+	var state: MatchState = _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(2, 2), "id": 1, "hp": 5},
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(4, 2), "id": 2, "hp": 50},
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(6, 2), "id": 3, "hp": 45},
+		],
+		12,
+		12
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state, registry)
+	var ok := true
+	var hurt_view: EntityView = renderer.get_entity_view(1)
+	if hurt_view == null or not hurt_view.hp_bar_visible():
+		push_error("a damaged unit should show an hp bar")
+		ok = false
+	elif absf(hurt_view.hp_bar_ratio() - 0.1) > 0.001:
+		push_error("hp bar ratio should be current/max, got %f" % hurt_view.hp_bar_ratio())
+		ok = false
+	elif not hurt_view.hp_bar_fill_color().is_equal_approx(
+		UiTokens.COLOR_HP_LOW.lerp(UiTokens.COLOR_HP_HIGH, 0.1)
+	):
+		push_error("hp bar fill should lerp the UiTokens HP colors")
+		ok = false
+	var full_view: EntityView = renderer.get_entity_view(2)
+	if full_view == null or full_view.hp_bar_visible():
+		push_error("a full-hp unit should not show an hp bar")
+		ok = false
+	var grazed_view: EntityView = renderer.get_entity_view(3)
+	if grazed_view == null or not grazed_view.hp_bar_visible():
+		push_error("any damage should show the hp bar")
+		ok = false
+	elif grazed_view.hp_bar_fill_color().is_equal_approx(hurt_view.hp_bar_fill_color()):
+		push_error("hp bar color should shift with the damage ratio")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_entity_view_hp_bar_hides_on_silhouette_and_scales_with_footprint() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var marine_health := HealthDef.new()
+	marine_health.max_hp = 50
+	registry.get_by_id("marine").health = marine_health
+	var tank_health := HealthDef.new()
+	tank_health.max_hp = 80
+	registry.get_by_id("tank").health = tank_health
+	var state: MatchState = _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(2, 2), "id": 1, "hp": 20},
+			{
+				"def_id": "tank",
+				"owner": 1,
+				"origin": Vector2i(6, 2),
+				"id": 2,
+				"hp": 40,
+				"footprint": Vector2i(2, 2),
+			},
+		],
+		12,
+		12
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state, registry)
+	var ok := true
+	var marine_view: EntityView = renderer.get_entity_view(1)
+	var tank_view: EntityView = renderer.get_entity_view(2)
+	if marine_view == null or tank_view == null:
+		push_error("expected views for both units")
+		_free_renderer(renderer)
+		return false
+	if absf(tank_view.hp_bar_size().x - 2.0 * marine_view.hp_bar_size().x) > 0.001:
+		push_error("hp bar width should scale with the footprint")
+		ok = false
+	tank_view.set_fog_silhouette(true)
+	if tank_view.hp_bar_visible():
+		push_error("fog silhouettes must not show hp bars")
+		ok = false
+	tank_view.set_fog_silhouette(false)
+	if not tank_view.hp_bar_visible():
+		push_error("clearing the silhouette should restore the hp bar")
+		ok = false
+	_free_renderer(renderer)
 	return ok
 
 
