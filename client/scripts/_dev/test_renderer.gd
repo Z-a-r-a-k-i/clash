@@ -166,8 +166,8 @@ func _all_tests() -> Array:
 		],
 		["match_renderer_fog_overlay_marks_unseen_tiles", _test_fog_overlay_marks_unseen_tiles],
 		[
-			"match_renderer_fog_overlay_uses_light_vision_tint",
-			_test_fog_overlay_uses_light_vision_tint
+			"match_renderer_fog_image_marks_explored_tiles_and_wires_shader",
+			_test_fog_image_marks_explored_tiles_and_wires_shader
 		],
 		["match_renderer_hidden_combat_events_do_not_leak", _test_hidden_combat_events_do_not_leak],
 		[
@@ -762,18 +762,6 @@ static func _construction_progress_fill_color(renderer: MatchRenderer) -> Color:
 	if fill == null:
 		return Color.TRANSPARENT
 	return fill.color
-
-
-static func _fog_overlay_first_color(renderer: MatchRenderer) -> Color:
-	if renderer == null:
-		return Color.TRANSPARENT
-	var root := renderer.get_node_or_null("Overlays/Fog")
-	if root == null or root.get_child_count() <= 0:
-		return Color.TRANSPARENT
-	var poly := root.get_child(0) as Polygon2D
-	if poly == null:
-		return Color.TRANSPARENT
-	return poly.color
 
 
 # ---------- Chunk 4 — render_step events + reconciliation ----------
@@ -2727,27 +2715,68 @@ func _test_fog_overlay_marks_unseen_tiles() -> bool:
 	var ok := overlay_count == 24
 	if not ok:
 		push_error("expected 24 unseen fog tiles, got %d" % overlay_count)
+	var visible_value: float = renderer.call("fog_value_at_tile", Vector2i(2, 2))
+	if absf(visible_value - 1.0) > 0.02:
+		push_error("a visible tile should encode 1.0 in the fog image, got %f" % visible_value)
+		ok = false
+	var unexplored_value: float = renderer.call("fog_value_at_tile", Vector2i(4, 4))
+	if absf(unexplored_value) > 0.02:
+		push_error("an unexplored tile should encode 0.0, got %f" % unexplored_value)
+		ok = false
 	_free_renderer(renderer)
 	return ok
 
 
-func _test_fog_overlay_uses_light_vision_tint() -> bool:
+func _test_fog_image_marks_explored_tiles_and_wires_shader() -> bool:
 	var registry := _renderer_registry()
 	var state := _make_renderer_state(
-		[
-			{"def_id": "watch_tower", "owner": 0, "origin": Vector2i(2, 2), "id": 1},
-		],
-		5,
-		5
+		[{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1}], 12, 12
 	)
 	var renderer := _make_renderer()
 	renderer.bind_state(state, registry)
 	renderer.call("set_perspective_player_id", 0)
-	var color := _fog_overlay_first_color(renderer)
 	var ok := true
-	if color.a <= 0.0 or color.a > 0.28:
-		push_error("out-of-vision fog tint should be light, got %s" % str(color))
+	var moved_state := _make_renderer_state(
+		[{"def_id": "marine", "owner": 0, "origin": Vector2i(8, 8), "id": 1}], 12, 12
+	)
+	renderer.render_step(moved_state, [])
+	var explored_value: float = renderer.call("fog_value_at_tile", Vector2i(1, 1))
+	if absf(explored_value - 0.5) > 0.02:
+		push_error(
+			"a previously seen tile should encode the explored level, got %f" % explored_value
+		)
 		ok = false
+	var visible_value: float = renderer.call("fog_value_at_tile", Vector2i(8, 8))
+	if absf(visible_value - 1.0) > 0.02:
+		push_error("the marine's new tile should encode visible, got %f" % visible_value)
+		ok = false
+	var corner_value: float = renderer.call("fog_value_at_tile", Vector2i(11, 0))
+	if absf(corner_value) > 0.02:
+		push_error("a never-seen corner should stay unexplored, got %f" % corner_value)
+		ok = false
+	var fog_root: Node2D = renderer.get_node_or_null("Overlays/Fog") as Node2D
+	var fog_sprite: Sprite2D = (
+		fog_root.get_node_or_null("FogSprite") as Sprite2D if fog_root != null else null
+	)
+	if fog_sprite == null:
+		push_error("fog should render as a single full-map sprite under Overlays/Fog")
+		ok = false
+	else:
+		var fog_material: ShaderMaterial = fog_sprite.material as ShaderMaterial
+		if (
+			fog_material == null
+			or fog_material.shader == null
+			or fog_material.shader.resource_path != "res://shaders/fog.gdshader"
+		):
+			push_error("fog sprite should sample the fog shader")
+			ok = false
+		if fog_sprite.texture_filter != CanvasItem.TEXTURE_FILTER_LINEAR:
+			push_error("fog sprite needs linear filtering for soft edges")
+			ok = false
+		var tile: float = _test_tile_size()
+		if not fog_sprite.scale.is_equal_approx(Vector2(tile, tile)):
+			push_error("fog sprite should scale one texel to one tile")
+			ok = false
 	_free_renderer(renderer)
 	return ok
 
