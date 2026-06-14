@@ -78,10 +78,10 @@ const _CONSTRUCTION_PROGRESS_FILL := Color(0.2, 0.95, 0.45, 0.95)
 const _CONSTRUCTION_PROGRESS_PAUSED_FILL := Color(1.0, 0.58, 0.12, 0.96)
 const _CONSTRUCTION_PROGRESS_SIZE := Vector2(64.0, 8.0)
 # Fog of war: one R8 texel per tile, smoothstepped by the fog shader
-# (0.0 unexplored / 0.5 explored memory / 1.0 visible).
+# (0.5 discovered / 1.0 visible). Terrain starts discovered; enemy
+# entity visibility is still governed by current vision below.
 const _FOG_SHADER := preload("res://shaders/fog.gdshader")
-const _FOG_LEVEL_UNEXPLORED := 0.0
-const _FOG_LEVEL_EXPLORED := 0.5
+const _FOG_LEVEL_DISCOVERED := 0.5
 const _FOG_LEVEL_VISIBLE := 1.0
 const _DEV_PLAYABLE_ZOOM := 1.1
 const _MIN_CAMERA_ZOOM := 0.5
@@ -131,7 +131,6 @@ var _selection_box_world_rect: Rect2 = Rect2()
 var _has_selection_box: bool = false
 var _perspective_player_id: int = 0
 var _visibility_by_player: Dictionary = {}
-var _seen_tiles_by_player: Dictionary = {}
 var _seen_enemy_building_snapshots_by_player: Dictionary = {}
 var _event_visible_entity_ids: Dictionary[int, bool] = {}
 var _zoom_debug_text: String = ""
@@ -786,11 +785,6 @@ func is_tile_currently_visible(player_id: int, tile: Vector2i) -> bool:
 	if visibility == null:
 		return false
 	return visibility.is_tile_visible(tile)
-
-
-func is_tile_previously_seen(player_id: int, tile: Vector2i) -> bool:
-	var seen: Dictionary = _seen_tiles_by_player.get(player_id, {})
-	return seen.has(tile)
 
 
 # ---------- Internals ----------
@@ -1880,11 +1874,9 @@ func _update_surviving_views(new_state: MatchState) -> void:
 
 func _reset_visibility_memory() -> void:
 	_visibility_by_player.clear()
-	_seen_tiles_by_player.clear()
 	_seen_enemy_building_snapshots_by_player.clear()
 	_fog_overlay_tile_count = 0
 	for player_id in _player_ids():
-		_seen_tiles_by_player[player_id] = {}
 		_seen_enemy_building_snapshots_by_player[player_id] = {}
 
 
@@ -1916,7 +1908,6 @@ func _refresh_all_visibility() -> void:
 	var profile_total_start := Time.get_ticks_usec()
 	var profile_step := profile_total_start
 	var compute_visibility_usec: int = 0
-	var remember_tiles_usec: int = 0
 	var snapshot_usec: int = 0
 	var player_count := 0
 	var visible_tile_count := 0
@@ -1936,9 +1927,6 @@ func _refresh_all_visibility() -> void:
 		_visibility_by_player[player_id] = visibility
 		visible_tile_count += visibility.visible_tile_count()
 		step_start = Time.get_ticks_usec()
-		_remember_visible_tiles(player_id, visibility)
-		remember_tiles_usec += Time.get_ticks_usec() - step_start
-		step_start = Time.get_ticks_usec()
 		_refresh_seen_enemy_building_snapshots(player_id, visibility)
 		snapshot_usec += Time.get_ticks_usec() - step_start
 	profile_step = Time.get_ticks_usec()
@@ -1951,12 +1939,6 @@ func _refresh_all_visibility() -> void:
 			(
 				"[visibility_profile] compute_player_visibility=%.3fms"
 				% (float(compute_visibility_usec) / 1000.0)
-			)
-		)
-		profile_lines.append(
-			(
-				"[visibility_profile] remember_visible_tiles=%.3fms"
-				% (float(remember_tiles_usec) / 1000.0)
 			)
 		)
 		profile_lines.append(
@@ -2063,18 +2045,15 @@ func _rebuild_fog_overlay() -> void:
 		_clear_fog_overlay()
 		return
 	_ensure_fog_sprite(_state.tile_grid.width, _state.tile_grid.height)
-	var seen: Dictionary = _seen_tiles_by_player.get(_perspective_player_id, {})
 	_fog_overlay_tile_count = 0
 	for y in range(_state.tile_grid.height):
 		for x in range(_state.tile_grid.width):
 			var tile := Vector2i(x, y)
-			var encoded: float = _FOG_LEVEL_UNEXPLORED
+			var encoded: float = _FOG_LEVEL_DISCOVERED
 			if visibility.is_tile_visible(tile):
 				encoded = _FOG_LEVEL_VISIBLE
 			else:
 				_fog_overlay_tile_count += 1
-				if seen.has(tile):
-					encoded = _FOG_LEVEL_EXPLORED
 			_fog_image.set_pixel(x, y, Color(encoded, 0.0, 0.0))
 	_fog_texture.update(_fog_image)
 
@@ -2093,7 +2072,7 @@ func _ensure_fog_sprite(width: int, height: int) -> void:
 	if is_instance_valid(_fog_sprite):
 		_fog_sprite.queue_free()
 	_fog_image = Image.create(width, height, false, Image.FORMAT_R8)
-	_fog_image.fill(Color(0.0, 0.0, 0.0))
+	_fog_image.fill(Color(_FOG_LEVEL_DISCOVERED, 0.0, 0.0))
 	_fog_texture = ImageTexture.create_from_image(_fog_image)
 	_fog_sprite = Sprite2D.new()
 	_fog_sprite.name = "FogSprite"
@@ -2120,13 +2099,6 @@ func _clear_fog_overlay() -> void:
 	for child in _fog_root.get_children():
 		_fog_root.remove_child(child)
 		child.queue_free()
-
-
-func _remember_visible_tiles(player_id: int, visibility: VisionSystem.Visibility) -> void:
-	var seen: Dictionary = _seen_tiles_by_player.get(player_id, {})
-	for tile in visibility.visible_tiles():
-		seen[tile] = true
-	_seen_tiles_by_player[player_id] = seen
 
 
 func _refresh_seen_enemy_building_snapshots(

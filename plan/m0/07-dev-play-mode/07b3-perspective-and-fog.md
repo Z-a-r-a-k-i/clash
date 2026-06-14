@@ -15,8 +15,8 @@ ADR-0016).
 - Perspective switch follows the dev HUD's active player buttons.
 - Per-player vision computation gathers live owned entities and unions
   their `VisionDef.sight_radius` tile coverage.
-- Fog overlay is a simple tile overlay for M0, not a shader mask.
-- Visibility has two states: currently visible and previously seen.
+- Fog overlay is a shader-backed tile mask.
+- Terrain starts discovered; current vision is the only tile-level fog layer.
 - Enemies outside current vision are hidden from rendering and
   hit-testing.
 - Previously seen enemy buildings render as silhouettes.
@@ -31,7 +31,7 @@ ADR-0016 (fog of war from M0) lands here.
 - [x] Multi-tile footprints reveal from the full occupied rect.
 - [x] Detector radius reveals hidden enemies; normal sight alone does not.
 - [x] Match renderer supports an active perspective player id.
-- [x] Fog overlay draws unseen and previously seen tiles distinctly.
+- [x] Fog overlay draws visible tiles distinctly from discovered tiles.
 - [x] Enemy entities outside current vision are not rendered or
   hit-testable.
 - [x] Previously seen enemy buildings render as silhouettes.

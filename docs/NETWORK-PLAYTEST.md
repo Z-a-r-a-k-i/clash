@@ -19,8 +19,11 @@ PowerShell:
 
 ```powershell
 $godot = "C:\Program Files\Godot_v4.6.1-stable_mono_win64\Godot_v4.6.1-stable_mono_win64_console.exe"
-& $godot --headless --path client --script scripts/network/headless_server.gd -- --port=9087 --bind=127.0.0.1 --scenario=res://data/scenarios/mvp_map.tres
+& $godot --headless --path client --script scripts/network/headless_server.gd -- --port=9087 --bind=127.0.0.1
 ```
+
+The server default scenario is the same 1v1 arena used by solo dev play. Only pass
+`--scenario=...` when intentionally testing a different map.
 
 Then connect clients to:
 
