@@ -2634,7 +2634,7 @@ func _has_move_order(orders: Array[EntityOrder], entity_id: int, target_tile: Ve
 func _move_event_for_test(
 	actor_id: int, from_origin: Vector2i, to_origin: Vector2i
 ) -> ResolverEvent:
-	var event := ResolverEvent.new()
+	var event: ResolverEvent = ResolverEvent.new()
 	event.type = ResolverEvent.Type.ENTITY_MOVED
 	event.actor_id = actor_id
 	event.from_origin = from_origin

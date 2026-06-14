@@ -610,7 +610,7 @@ func _has_renderer_method(renderer: MatchRenderer, method_name: String) -> bool:
 
 
 func _move_event(actor_id: int, from_origin: Vector2i, to_origin: Vector2i) -> ResolverEvent:
-	var event := ResolverEvent.new()
+	var event: ResolverEvent = ResolverEvent.new()
 	event.type = ResolverEvent.Type.ENTITY_MOVED
 	event.actor_id = actor_id
 	event.from_origin = from_origin

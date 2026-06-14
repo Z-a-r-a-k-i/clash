@@ -147,7 +147,7 @@ var _fog_texture: ImageTexture = null
 var _fog_sprite: Sprite2D = null
 var _range_preview_signature: String = ""
 var _resolve_animation_playing: bool = false
-var _resolve_animation_batches: Array = []
+var _resolve_animation_batches: Array[Array] = []
 var _resolve_animation_batch_index: int = 0
 var _resolve_animation_state: MatchState = null
 var _resolve_animation_final_state: MatchState = null
@@ -236,7 +236,7 @@ func advance_resolve_animation_for_tests() -> bool:
 	if _resolve_animation_batch_index >= _resolve_animation_batches.size():
 		return false
 	_stop_resolve_animation_tween()
-	var batch: Array = _resolve_animation_batches[_resolve_animation_batch_index]
+	var batch: Array[Dictionary] = _resolve_animation_batches[_resolve_animation_batch_index]
 	_apply_resolve_animation_batch(batch)
 	_position_views_for_move_batch(batch)
 	_refresh_visibility_for_animation_state(_resolve_animation_state)
@@ -251,7 +251,7 @@ func finish_resolve_animation_for_tests() -> void:
 		return
 	_stop_resolve_animation_tween()
 	while _resolve_animation_batch_index < _resolve_animation_batches.size():
-		var batch: Array = _resolve_animation_batches[_resolve_animation_batch_index]
+		var batch: Array[Dictionary] = _resolve_animation_batches[_resolve_animation_batch_index]
 		_apply_resolve_animation_batch(batch)
 		_position_views_for_move_batch(batch)
 		_refresh_visibility_for_animation_state(_resolve_animation_state)
@@ -280,7 +280,7 @@ func render_step(new_state: MatchState, events: Array[ResolverEvent]) -> void:
 	if _resolve_animation_playing:
 		_finish_resolve_animation()
 	var previous_state: MatchState = _state
-	var movement_batches: Array = _movement_batches_from_events(events)
+	var movement_batches: Array[Array] = _movement_batches_from_events(events)
 	var moved_entity_ids: Dictionary[int, bool] = _moved_entity_ids_from_batches(movement_batches)
 	if profile_enabled:
 		profile_lines.append(
@@ -1937,8 +1937,8 @@ func _update_surviving_views(new_state: MatchState, skipped_entity_ids: Dictiona
 		)
 
 
-func _movement_batches_from_events(events: Array[ResolverEvent]) -> Array:
-	var batches: Array = []
+func _movement_batches_from_events(events: Array[ResolverEvent]) -> Array[Array]:
+	var batches: Array[Array] = []
 	var current_batch: Array[Dictionary] = []
 	var current_actor_ids: Dictionary[int, bool] = {}
 	for event: ResolverEvent in events:
@@ -1965,9 +1965,9 @@ func _movement_batches_from_events(events: Array[ResolverEvent]) -> Array:
 	return batches
 
 
-func _moved_entity_ids_from_batches(batches: Array) -> Dictionary[int, bool]:
+func _moved_entity_ids_from_batches(batches: Array[Array]) -> Dictionary[int, bool]:
 	var moved_ids: Dictionary[int, bool] = {}
-	for batch: Array in batches:
+	for batch: Array[Dictionary] in batches:
 		for item: Dictionary in batch:
 			var entity_id: int = int(item.get("entity_id", -1))
 			if entity_id >= 0:
@@ -1976,7 +1976,7 @@ func _moved_entity_ids_from_batches(batches: Array) -> Dictionary[int, bool]:
 
 
 func _start_resolve_animation(
-	previous_state: MatchState, final_state: MatchState, movement_batches: Array
+	previous_state: MatchState, final_state: MatchState, movement_batches: Array[Array]
 ) -> void:
 	_cancel_resolve_animation()
 	_resolve_animation_batches = movement_batches.duplicate(true)
@@ -1997,7 +1997,7 @@ func _start_resolve_animation(
 
 
 func _build_resolve_animation_state(
-	previous_state: MatchState, final_state: MatchState, movement_batches: Array
+	previous_state: MatchState, final_state: MatchState, movement_batches: Array[Array]
 ) -> MatchState:
 	if final_state == null:
 		return null
@@ -2005,7 +2005,7 @@ func _build_resolve_animation_state(
 	if previous_state == null:
 		return animation_state
 	var initial_origins: Dictionary = {}
-	for batch: Array in movement_batches:
+	for batch: Array[Dictionary] in movement_batches:
 		for item: Dictionary in batch:
 			var entity_id: int = int(item.get("entity_id", -1))
 			if entity_id < 0 or initial_origins.has(entity_id):
@@ -2031,7 +2031,7 @@ func _play_next_resolve_animation_batch() -> void:
 	if _resolve_animation_batch_index >= _resolve_animation_batches.size():
 		_finish_resolve_animation()
 		return
-	var batch: Array = _resolve_animation_batches[_resolve_animation_batch_index]
+	var batch: Array[Dictionary] = _resolve_animation_batches[_resolve_animation_batch_index]
 	_apply_resolve_animation_batch(batch)
 	_refresh_visibility_for_animation_state(_resolve_animation_state)
 	var animated_count := 0
@@ -2067,7 +2067,7 @@ func _on_resolve_animation_batch_complete() -> void:
 	_play_next_resolve_animation_batch()
 
 
-func _apply_resolve_animation_batch(batch: Array) -> void:
+func _apply_resolve_animation_batch(batch: Array[Dictionary]) -> void:
 	if _resolve_animation_state == null:
 		return
 	var moves: Dictionary = {}
@@ -2085,7 +2085,7 @@ func _apply_resolve_animation_batch(batch: Array) -> void:
 		_resolve_animation_state.tile_grid.move_batch(moves, true)
 
 
-func _position_views_for_move_batch(batch: Array) -> void:
+func _position_views_for_move_batch(batch: Array[Dictionary]) -> void:
 	if _resolve_animation_state == null:
 		return
 	for item: Dictionary in batch:
