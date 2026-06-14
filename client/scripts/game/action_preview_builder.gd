@@ -10,6 +10,7 @@ var _input: DevTurnInput = null
 var _player_id: int = 0
 var _renderer: MatchRenderer = null
 var _visibility_by_player: Dictionary[int, VisionSystem.Visibility] = {}
+var _path_preview_options_by_player: Dictionary = {}
 var _tactical_preview_builder: TACTICAL_PREVIEW_BUILDER_SCRIPT = (
 	TACTICAL_PREVIEW_BUILDER_SCRIPT.new() as TACTICAL_PREVIEW_BUILDER_SCRIPT
 )
@@ -31,6 +32,7 @@ func build(
 	_player_id = player_id
 	_renderer = renderer
 	_visibility_by_player.clear()
+	_path_preview_options_by_player.clear()
 	var previews: Array[Dictionary] = []
 	var selected_ids: Array[int] = selected_entity_ids.duplicate()
 	if selected_ids.is_empty() and selected_entity_id >= 0:
@@ -71,6 +73,7 @@ func build_target_intents(
 	_player_id = player_id
 	_renderer = renderer
 	_visibility_by_player.clear()
+	_path_preview_options_by_player.clear()
 	var intents: Array[Dictionary] = []
 	var selected_ids: Array[int] = selected_entity_ids.duplicate()
 	if selected_ids.is_empty() and selected_entity_id >= 0:
@@ -607,10 +610,13 @@ func _preview_planned_tile_value(preview: Dictionary, fallback: Vector2i) -> Vec
 
 
 func _path_preview_options(player_id: int) -> Dictionary:
-	return {
-		PATHFINDING_SCRIPT.OPTION_KNOWN_ENTITY_IDS: _preview_known_entity_ids(player_id),
-		PATHFINDING_SCRIPT.OPTION_PASSABLE_ENTITY_IDS: _preview_passable_entity_ids(),
-	}
+	if not _path_preview_options_by_player.has(player_id):
+		_path_preview_options_by_player[player_id] = {
+			PATHFINDING_SCRIPT.OPTION_KNOWN_ENTITY_IDS: _preview_known_entity_ids(player_id),
+			PATHFINDING_SCRIPT.OPTION_PASSABLE_ENTITY_IDS: _preview_passable_entity_ids(),
+		}
+	var cached: Dictionary = _path_preview_options_by_player[player_id]
+	return cached.duplicate(true)
 
 
 func _preview_known_entity_ids(player_id: int) -> Dictionary:

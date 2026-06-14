@@ -228,11 +228,10 @@ static func _select_target(
 			var candidate := state.get_entity_by_id(target_id)
 			if not _is_targetable(attacker, combat, candidate):
 				continue
-			if not _is_visible_to_attacker(state, attacker, candidate, registry, visibility):
-				continue
 			var d := _entity_distance_from_rect(state, attacker_rect, candidate, registry)
 			if d >= 0 and d <= attack_range:
-				return candidate
+				if _is_visible_to_attacker(state, attacker, candidate, registry, visibility):
+					return candidate
 
 	# Closest enemy in range, ties broken by id (entities_sorted_by_id
 	# guarantees stable iteration).
@@ -245,10 +244,10 @@ static func _select_target(
 		var candidate: Entity = item as Entity
 		if not _is_targetable(attacker, combat, candidate):
 			continue
-		if not _is_visible_to_attacker(state, attacker, candidate, registry, visibility):
-			continue
 		var d := _entity_distance_from_rect(state, attacker_rect, candidate, registry)
 		if d < 0 or d > attack_range:
+			continue
+		if not _is_visible_to_attacker(state, attacker, candidate, registry, visibility):
 			continue
 		if closest == null or d < closest_dist or (d == closest_dist and candidate.id < closest.id):
 			closest = candidate
