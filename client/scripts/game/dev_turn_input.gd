@@ -249,7 +249,9 @@ func issue_target(target_entity_id: int) -> bool:
 	if not queue_requested:
 		var prepared_orders: Array[Dictionary] = []
 		for actor in candidates:
-			var bundle: Dictionary = _target_order_bundle_for_actor(actor, target, firing_tile_cache)
+			var bundle: Dictionary = _target_order_bundle_for_actor(
+				actor, target, firing_tile_cache
+			)
 			if bundle.is_empty():
 				no_reachable_firing_tile = true
 				continue
@@ -1711,15 +1713,18 @@ func _firing_candidate_rings(
 	target_rect: Rect2i, footprint: Vector2i, attack_range: int, cache: Dictionary
 ) -> Array:
 	var rings_by_key: Dictionary = cache.get("_firing_candidate_rings", {})
-	var key := "%d,%d,%d,%d:%d,%d:%d" % [
-		target_rect.position.x,
-		target_rect.position.y,
-		target_rect.size.x,
-		target_rect.size.y,
-		footprint.x,
-		footprint.y,
-		attack_range,
-	]
+	var key := (
+		"%d,%d,%d,%d:%d,%d:%d"
+		% [
+			target_rect.position.x,
+			target_rect.position.y,
+			target_rect.size.x,
+			target_rect.size.y,
+			footprint.x,
+			footprint.y,
+			attack_range,
+		]
+	)
 	if rings_by_key.has(key):
 		return rings_by_key[key]
 	var rings: Array = []
@@ -2134,9 +2139,7 @@ func _formation_target_tiles(actors: Array[Entity], target_tile: Vector2i) -> Di
 		)
 		var profile_key: String = _formation_profile_key(actor)
 		if not checks_by_profile.has(profile_key):
-			checks_by_profile[profile_key] = _formation_occupiable_check(
-				actor, blockers_by_layer
-			)
+			checks_by_profile[profile_key] = _formation_occupiable_check(actor, blockers_by_layer)
 		var occupiable_check: Dictionary = checks_by_profile.get(profile_key, {})
 		var actor_target: Vector2i = desired_tile
 		if not (
@@ -2157,11 +2160,7 @@ func _formation_target_tiles(actors: Array[Entity], target_tile: Vector2i) -> Di
 				)
 			var actor_candidates: Array[Vector2i] = candidates_by_profile.get(profile_key, [])
 			actor_target = _best_formation_target_for_actor(
-				actor,
-				desired_tile,
-				target_tile,
-				actor_candidates,
-				reserved_by_layer
+				actor, desired_tile, target_tile, actor_candidates, reserved_by_layer
 			)
 		out[actor.id] = actor_target
 		_reserve_formation_target_for_profile(
@@ -2176,10 +2175,7 @@ func _formation_target_tiles(actors: Array[Entity], target_tile: Vector2i) -> Di
 func _formation_tile_in_candidate_radius(
 	tile: Vector2i, target_tile: Vector2i, formation_radius: int
 ) -> bool:
-	return (
-		maxi(abs(tile.x - target_tile.x), abs(tile.y - target_tile.y))
-		<= formation_radius
-	)
+	return maxi(abs(tile.x - target_tile.x), abs(tile.y - target_tile.y)) <= formation_radius
 
 
 # Spread selections CONVERGE on the click: offsets from the group center
@@ -2267,12 +2263,15 @@ func _formation_profile_key(actor: Entity) -> String:
 		return ""
 	var footprint: Vector2i = _PATHFINDING.entity_footprint(_state, actor, _registry)
 	var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, _registry)
-	return "%s:%d,%d:%d" % [
-		_PATHFINDING.layer_for_entity(actor, _registry),
-		footprint.x,
-		footprint.y,
-		movement.get_instance_id() if movement != null else 0,
-	]
+	return (
+		"%s:%d,%d:%d"
+		% [
+			_PATHFINDING.layer_for_entity(actor, _registry),
+			footprint.x,
+			footprint.y,
+			movement.get_instance_id() if movement != null else 0,
+		]
+	)
 
 
 func _formation_occupiable_candidates(
@@ -2396,24 +2395,17 @@ func _best_formation_target_for_actor(
 
 
 func _formation_target_available(
-	actor: Entity,
-	target_tile: Vector2i,
-	reserved_by_layer: Dictionary
+	actor: Entity, target_tile: Vector2i, reserved_by_layer: Dictionary
 ) -> bool:
 	if actor == null or _state == null or _state.tile_grid == null or _registry == null:
 		return false
 	var footprint: Vector2i = _PATHFINDING.entity_footprint(_state, actor, _registry)
 	var layer: String = _PATHFINDING.layer_for_entity(actor, _registry)
-	return _formation_target_available_for_profile(
-		target_tile, reserved_by_layer, footprint, layer
-	)
+	return _formation_target_available_for_profile(target_tile, reserved_by_layer, footprint, layer)
 
 
 func _formation_target_available_for_profile(
-	target_tile: Vector2i,
-	reserved_by_layer: Dictionary,
-	footprint: Vector2i,
-	layer: String
+	target_tile: Vector2i, reserved_by_layer: Dictionary, footprint: Vector2i, layer: String
 ) -> bool:
 	if footprint.x <= 0 or footprint.y <= 0 or layer == "":
 		return false
@@ -2441,10 +2433,7 @@ func _reserve_formation_target(
 
 
 func _reserve_formation_target_for_profile(
-	target_tile: Vector2i,
-	reserved_by_layer: Dictionary,
-	footprint: Vector2i,
-	layer: String
+	target_tile: Vector2i, reserved_by_layer: Dictionary, footprint: Vector2i, layer: String
 ) -> void:
 	if footprint.x <= 0 or footprint.y <= 0 or layer == "":
 		return

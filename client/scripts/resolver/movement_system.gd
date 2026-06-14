@@ -1121,7 +1121,10 @@ static func _min_conflict_degree(
 ) -> int:
 	var degree: int = 0
 	for candidate_id in candidate_ids:
-		if candidate_id != entity_id and _proposal_conflict_exists(entity_id, candidate_id, conflicts):
+		if (
+			candidate_id != entity_id
+			and _proposal_conflict_exists(entity_id, candidate_id, conflicts)
+		):
 			degree += 1
 	return degree
 

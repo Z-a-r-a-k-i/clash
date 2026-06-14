@@ -280,15 +280,19 @@ func _test_large_group_move_stays_under_budget() -> bool:
 		return false
 	if input.submit_for_player(0).orders.size() != selected_ids.size():
 		push_error(
-			"[large_group_move] expected %d orders, got %d"
-			% [selected_ids.size(), input.submit_for_player(0).orders.size()]
+			(
+				"[large_group_move] expected %d orders, got %d"
+				% [selected_ids.size(), input.submit_for_player(0).orders.size()]
+			)
 		)
 		return false
 	var budget_usec := _input_perf_budget_usec()
 	if elapsed_usec > budget_usec:
 		push_error(
-			"[large_group_move] issue_move took %.3fms; budget is %.3fms"
-			% [float(elapsed_usec) / 1000.0, float(budget_usec) / 1000.0]
+			(
+				"[large_group_move] issue_move took %.3fms; budget is %.3fms"
+				% [float(elapsed_usec) / 1000.0, float(budget_usec) / 1000.0]
+			)
 		)
 		return false
 	return true
@@ -317,8 +321,10 @@ func _test_large_group_target_stays_under_budget() -> bool:
 	var budget_usec := _input_perf_budget_usec()
 	if elapsed_usec > budget_usec:
 		push_error(
-			"[large_group_target] issue_target took %.3fms; budget is %.3fms"
-			% [float(elapsed_usec) / 1000.0, float(budget_usec) / 1000.0]
+			(
+				"[large_group_target] issue_target took %.3fms; budget is %.3fms"
+				% [float(elapsed_usec) / 1000.0, float(budget_usec) / 1000.0]
+			)
 		)
 		return false
 	return true
