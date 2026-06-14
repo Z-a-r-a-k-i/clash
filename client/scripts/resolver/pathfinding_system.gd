@@ -736,7 +736,7 @@ static func _exact_straight_monotonic_path(
 	while current != target_origin:
 		if path.size() > guard:
 			return []
-		var delta := Vector2i(
+		var delta: Vector2i = Vector2i(
 			signi(target_origin.x - current.x), signi(target_origin.y - current.y)
 		)
 		if delta == Vector2i.ZERO:

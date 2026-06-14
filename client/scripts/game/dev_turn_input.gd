@@ -2410,10 +2410,12 @@ func _formation_target_available_for_profile(
 	if footprint.x <= 0 or footprint.y <= 0 or layer == "":
 		return false
 	var reserved: Dictionary = reserved_by_layer.get(layer, {})
-	if footprint == Vector2i.ONE:
-		var reserved_tiles: Dictionary = reserved.get("tiles", {})
-		return not reserved_tiles.has(target_tile)
-	var candidate_rect := Rect2i(target_tile, footprint)
+	var candidate_rect: Rect2i = Rect2i(target_tile, footprint)
+	var reserved_tiles: Dictionary = reserved.get("tiles", {})
+	for item in reserved_tiles.keys():
+		var reserved_tile: Vector2i = item
+		if candidate_rect.has_point(reserved_tile):
+			return false
 	var reserved_rects: Array = reserved.get("rects", [])
 	for item in reserved_rects:
 		var reserved_rect: Rect2i = item

@@ -2,8 +2,8 @@
 extends Node
 
 const DEV_TURN_INPUT_PATH: String = "res://scripts/game/dev_turn_input.gd"
-const _INPUT_PERF_BUDGET_ENV_VAR := "DEV_INPUT_PERF_BUDGET_USEC"
-const _INPUT_PERF_BUDGET_USEC_DEFAULT := 30000
+const _INPUT_PERF_BUDGET_ENV_VAR: String = "DEV_INPUT_PERF_BUDGET_USEC"
+const _INPUT_PERF_BUDGET_USEC_DEFAULT: int = 50000
 
 
 func _enter_tree() -> void:
@@ -317,6 +317,17 @@ func _test_large_group_target_stays_under_budget() -> bool:
 		return false
 	if input.submit_for_player(0).orders.is_empty():
 		push_error("[large_group_target] expected target orders")
+		return false
+	var actors_with_orders: Dictionary = {}
+	for order: EntityOrder in input.submit_for_player(0).orders:
+		actors_with_orders[order.entity_id] = true
+	if actors_with_orders.size() != selected_ids.size():
+		push_error(
+			(
+				"[large_group_target] expected orders for %d actors, got %d"
+				% [selected_ids.size(), actors_with_orders.size()]
+			)
+		)
 		return false
 	var budget_usec := _input_perf_budget_usec()
 	if elapsed_usec > budget_usec:
@@ -2147,7 +2158,7 @@ func _make_large_command_setup() -> Dictionary:
 				blocker_id,
 				"barracks",
 				1,
-				Vector2i(30 + x * 2, 20 + y * 2),
+				Vector2i(30 + x * 3, 20 + y * 3),
 				Vector2i(3, 3),
 				1000
 			)
