@@ -2,6 +2,8 @@
 extends Node
 
 const DEV_TURN_INPUT_PATH: String = "res://scripts/game/dev_turn_input.gd"
+const _INPUT_PERF_BUDGET_ENV_VAR := "DEV_INPUT_PERF_BUDGET_USEC"
+const _INPUT_PERF_BUDGET_USEC_DEFAULT := 30000
 
 
 func _enter_tree() -> void:
@@ -162,6 +164,14 @@ func _all_tests() -> Array:
 			"dev_input_committed_spend_sums_queued_production_orders",
 			_test_committed_spend_sums_queued_production_orders
 		],
+		[
+			"dev_input_large_group_move_stays_under_budget",
+			_test_large_group_move_stays_under_budget
+		],
+		[
+			"dev_input_large_group_target_stays_under_budget",
+			_test_large_group_target_stays_under_budget
+		],
 	]
 
 
@@ -247,6 +257,69 @@ func _test_committed_spend_sums_queued_production_orders() -> bool:
 	var enemy_spend: Dictionary = input.committed_spend_for_player(1)
 	if enemy_spend.get("minerals", -1) != 0:
 		push_error("the other player's committed spend should stay zero")
+		return false
+	return true
+
+
+func _test_large_group_move_stays_under_budget() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_large_command_setup()
+	var state: MatchState = setup["state"]
+	var selected_ids: Array[int] = setup["selected_ids"]
+	input.bind_context(state, setup["registry"])
+	if not _select_entities_for_test(input, selected_ids):
+		return false
+	var target_tile := Vector2i(58, 42)
+	var start_usec := Time.get_ticks_usec()
+	var ok: bool = input.issue_move(target_tile)
+	var elapsed_usec := Time.get_ticks_usec() - start_usec
+	if not ok:
+		push_error("[large_group_move] issue_move rejected: %s" % input.status_message())
+		return false
+	if input.submit_for_player(0).orders.size() != selected_ids.size():
+		push_error(
+			"[large_group_move] expected %d orders, got %d"
+			% [selected_ids.size(), input.submit_for_player(0).orders.size()]
+		)
+		return false
+	var budget_usec := _input_perf_budget_usec()
+	if elapsed_usec > budget_usec:
+		push_error(
+			"[large_group_move] issue_move took %.3fms; budget is %.3fms"
+			% [float(elapsed_usec) / 1000.0, float(budget_usec) / 1000.0]
+		)
+		return false
+	return true
+
+
+func _test_large_group_target_stays_under_budget() -> bool:
+	var input: DevTurnInput = _make_input()
+	if input == null:
+		return false
+	var setup: Dictionary = _make_large_command_setup()
+	var state: MatchState = setup["state"]
+	var selected_ids: Array[int] = setup["selected_ids"]
+	var target_id: int = setup["target_id"]
+	input.bind_context(state, setup["registry"])
+	if not _select_entities_for_test(input, selected_ids):
+		return false
+	var start_usec := Time.get_ticks_usec()
+	var ok: bool = input.issue_target(target_id)
+	var elapsed_usec := Time.get_ticks_usec() - start_usec
+	if not ok:
+		push_error("[large_group_target] issue_target rejected: %s" % input.status_message())
+		return false
+	if input.submit_for_player(0).orders.is_empty():
+		push_error("[large_group_target] expected target orders")
+		return false
+	var budget_usec := _input_perf_budget_usec()
+	if elapsed_usec > budget_usec:
+		push_error(
+			"[large_group_target] issue_target took %.3fms; budget is %.3fms"
+			% [float(elapsed_usec) / 1000.0, float(budget_usec) / 1000.0]
+		)
 		return false
 	return true
 
@@ -2035,6 +2108,58 @@ func _make_input_setup() -> Dictionary:
 	state.get_entity_by_id(6).production_state = ProductionState.new()
 	state.get_entity_by_id(11).production_state = ProductionState.new()
 	return {"state": state, "registry": registry}
+
+
+func _make_large_command_setup() -> Dictionary:
+	var state: MatchState = MatchState.new()
+	state.tile_grid = TileGrid.new(72, 56)
+	state.next_entity_id = 1
+	for player_id in [0, 1]:
+		var player: PlayerState = PlayerState.new()
+		player.player_id = player_id
+		state.players.append(player)
+	var registry: EntityRegistry = EntityRegistry.new()
+	registry.entities = [
+		_make_def("marine", Vector2i(1, 1), true, false, false),
+		_make_barracks_def(),
+	]
+	var selected_ids: Array[int] = []
+	for y in range(5):
+		for x in range(10):
+			var entity_id: int = state.allocate_entity_id()
+			_add_entity(state, entity_id, "marine", 0, Vector2i(5 + x, 8 + y), Vector2i.ONE, 45)
+			selected_ids.append(entity_id)
+	var target_id: int = state.allocate_entity_id()
+	_add_entity(state, target_id, "marine", 1, Vector2i(62, 43), Vector2i.ONE, 45)
+	for y in range(6):
+		for x in range(6):
+			if (x + y) % 3 != 0:
+				continue
+			var blocker_id: int = state.allocate_entity_id()
+			_add_entity(
+				state,
+				blocker_id,
+				"barracks",
+				1,
+				Vector2i(30 + x * 2, 20 + y * 2),
+				Vector2i(3, 3),
+				1000
+			)
+	return {
+		"state": state,
+		"registry": registry,
+		"selected_ids": selected_ids,
+		"target_id": target_id,
+	}
+
+
+func _input_perf_budget_usec() -> int:
+	var override: String = OS.get_environment(_INPUT_PERF_BUDGET_ENV_VAR)
+	if override.is_valid_int():
+		var value: int = override.to_int()
+		if value > 0:
+			return value
+	return _INPUT_PERF_BUDGET_USEC_DEFAULT
 
 
 func _make_def(

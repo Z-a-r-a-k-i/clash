@@ -1006,6 +1006,7 @@ static func _chebyshev_distance(a: Vector2i, b: Vector2i) -> int:
 static func _target_conflict_result(remaining: Dictionary) -> Dictionary:
 	var losers: Dictionary = {}
 	var complete_on_stop: Dictionary = {}
+	var conflicts: Dictionary = _proposal_conflicts_by_id(remaining)
 	var ids: Array[int] = []
 	for entity_id in remaining.keys():
 		ids.append(int(entity_id))
@@ -1014,7 +1015,7 @@ static func _target_conflict_result(remaining: Dictionary) -> Dictionary:
 	for start_id in ids:
 		if visited.has(start_id):
 			continue
-		var component: Array[int] = _proposal_conflict_component(start_id, remaining)
+		var component: Array[int] = _proposal_conflict_component(start_id, conflicts)
 		for entity_id in component:
 			visited[entity_id] = true
 		if component.size() <= 1:
@@ -1032,9 +1033,11 @@ static func _target_conflict_result(remaining: Dictionary) -> Dictionary:
 		if min_ids.size() == 1:
 			var winner_id: int = min_ids[0]
 			var single_winner_ids: Array[int] = [winner_id]
-			_mark_direct_conflict_losers(single_winner_ids, component, remaining, losers)
+			_mark_direct_conflict_losers(single_winner_ids, component, conflicts, losers)
 		else:
-			_process_equal_distance_minima(min_ids, component, remaining, losers, complete_on_stop)
+			_process_equal_distance_minima(
+				min_ids, component, remaining, conflicts, losers, complete_on_stop
+			)
 	return {"losers": losers, "complete_on_stop": complete_on_stop}
 
 
@@ -1042,6 +1045,7 @@ static func _process_equal_distance_minima(
 	min_ids: Array[int],
 	component: Array[int],
 	remaining: Dictionary,
+	conflicts: Dictionary,
 	losers: Dictionary,
 	complete_on_stop: Dictionary
 ) -> void:
@@ -1049,29 +1053,29 @@ static func _process_equal_distance_minima(
 	for start_id in min_ids:
 		if visited.has(start_id):
 			continue
-		var group: Array[int] = _min_conflict_group(start_id, min_ids, remaining)
+		var group: Array[int] = _min_conflict_group(start_id, min_ids, conflicts)
 		for entity_id in group:
 			visited[entity_id] = true
 		if group.size() <= 1:
-			_mark_direct_conflict_losers(group, component, remaining, losers)
+			_mark_direct_conflict_losers(group, component, conflicts, losers)
 			continue
 		if _is_final_exact_target_tie(group, remaining):
 			for entity_id in group:
 				losers[entity_id] = true
 				complete_on_stop[entity_id] = true
-			_mark_direct_conflict_losers(group, component, remaining, losers)
+			_mark_direct_conflict_losers(group, component, conflicts, losers)
 			continue
-		var winner_ids: Array[int] = _non_conflicting_min_winners(group, remaining)
+		var winner_ids: Array[int] = _non_conflicting_min_winners(group, conflicts)
 		if winner_ids.is_empty():
 			continue
 		for entity_id in group:
 			if not winner_ids.has(entity_id):
 				losers[entity_id] = true
-		_mark_direct_conflict_losers(winner_ids, component, remaining, losers)
+		_mark_direct_conflict_losers(winner_ids, component, conflicts, losers)
 
 
 static func _min_conflict_group(
-	start_id: int, candidate_ids: Array[int], remaining: Dictionary
+	start_id: int, candidate_ids: Array[int], conflicts: Dictionary
 ) -> Array[int]:
 	var group: Array[int] = []
 	var queue: Array[int] = [start_id]
@@ -1082,21 +1086,21 @@ static func _min_conflict_group(
 		for other_id in candidate_ids:
 			if seen.has(other_id):
 				continue
-			if _proposals_directly_conflict(current_id, other_id, remaining):
+			if _proposal_conflict_exists(current_id, other_id, conflicts):
 				seen[other_id] = true
 				queue.append(other_id)
 	group.sort()
 	return group
 
 
-static func _non_conflicting_min_winners(group: Array[int], remaining: Dictionary) -> Array[int]:
+static func _non_conflicting_min_winners(group: Array[int], conflicts: Dictionary) -> Array[int]:
 	var candidates: Array[int] = group.duplicate()
 	var winners: Array[int] = []
 	while not candidates.is_empty():
 		var best_id: int = candidates[0]
-		var best_degree: int = _min_conflict_degree(best_id, candidates, remaining)
+		var best_degree: int = _min_conflict_degree(best_id, candidates, conflicts)
 		for candidate_id in candidates:
-			var degree: int = _min_conflict_degree(candidate_id, candidates, remaining)
+			var degree: int = _min_conflict_degree(candidate_id, candidates, conflicts)
 			if degree < best_degree or (degree == best_degree and candidate_id < best_id):
 				best_id = candidate_id
 				best_degree = degree
@@ -1105,7 +1109,7 @@ static func _non_conflicting_min_winners(group: Array[int], remaining: Dictionar
 		for candidate_id in candidates:
 			if candidate_id == best_id:
 				continue
-			if not _proposals_directly_conflict(best_id, candidate_id, remaining):
+			if not _proposal_conflict_exists(best_id, candidate_id, conflicts):
 				next_candidates.append(candidate_id)
 		candidates = next_candidates
 	winners.sort()
@@ -1113,37 +1117,39 @@ static func _non_conflicting_min_winners(group: Array[int], remaining: Dictionar
 
 
 static func _min_conflict_degree(
-	entity_id: int, candidate_ids: Array[int], remaining: Dictionary
+	entity_id: int, candidate_ids: Array[int], conflicts: Dictionary
 ) -> int:
 	var degree: int = 0
 	for candidate_id in candidate_ids:
-		if (
-			candidate_id != entity_id
-			and _proposals_directly_conflict(entity_id, candidate_id, remaining)
-		):
+		if candidate_id != entity_id and _proposal_conflict_exists(entity_id, candidate_id, conflicts):
 			degree += 1
 	return degree
 
 
 static func _mark_direct_conflict_losers(
-	blocker_ids: Array[int], component: Array[int], remaining: Dictionary, losers: Dictionary
+	blocker_ids: Array[int], component: Array[int], conflicts: Dictionary, losers: Dictionary
 ) -> void:
 	for entity_id in component:
 		if blocker_ids.has(entity_id):
 			continue
-		if _has_direct_conflict_with_any(entity_id, blocker_ids, remaining):
+		if _has_direct_conflict_with_any(entity_id, blocker_ids, conflicts):
 			losers[entity_id] = true
 
 
 static func _has_direct_conflict_with_any(
-	entity_id: int, candidate_ids: Array[int], remaining: Dictionary
+	entity_id: int, candidate_ids: Array[int], conflicts: Dictionary
 ) -> bool:
 	for candidate_id in candidate_ids:
 		if candidate_id == entity_id:
 			continue
-		if _proposals_directly_conflict(entity_id, candidate_id, remaining):
+		if _proposal_conflict_exists(entity_id, candidate_id, conflicts):
 			return true
 	return false
+
+
+static func _proposal_conflict_exists(a_id: int, b_id: int, conflicts: Dictionary) -> bool:
+	var a_conflicts: Dictionary = conflicts.get(a_id, {})
+	return a_conflicts.has(b_id)
 
 
 static func _proposals_directly_conflict(a_id: int, b_id: int, remaining: Dictionary) -> bool:
@@ -1208,27 +1214,59 @@ static func _emit_completed_at_stop(proposal: Dictionary, events: Array[Resolver
 	events.append(ev)
 
 
-static func _proposal_conflict_component(start_id: int, remaining: Dictionary) -> Array[int]:
+static func _proposal_conflicts_by_id(remaining: Dictionary) -> Dictionary:
+	var conflicts: Dictionary = {}
+	var ids: Array[int] = []
+	for entity_id in remaining.keys():
+		ids.append(int(entity_id))
+	ids.sort()
+	var buckets_by_layer: Dictionary = {}
+	for entity_id in ids:
+		conflicts[entity_id] = {}
+		var proposal: Dictionary = remaining.get(entity_id, {})
+		var layer: String = proposal.get("layer", "ground")
+		var layer_buckets: Dictionary = buckets_by_layer.get(layer, {})
+		var target_rect: Rect2i = proposal.get("target_rect", Rect2i())
+		for x in range(target_rect.position.x, target_rect.position.x + target_rect.size.x):
+			for y in range(target_rect.position.y, target_rect.position.y + target_rect.size.y):
+				var tile := Vector2i(x, y)
+				var bucket: Array = layer_buckets.get(tile, [])
+				bucket.append(entity_id)
+				layer_buckets[tile] = bucket
+		buckets_by_layer[layer] = layer_buckets
+	for layer_buckets in buckets_by_layer.values():
+		var typed_layer_buckets: Dictionary = layer_buckets
+		for bucket_value in typed_layer_buckets.values():
+			var bucket: Array = bucket_value
+			if bucket.size() <= 1:
+				continue
+			for i in range(bucket.size()):
+				var a_id: int = int(bucket[i])
+				var a_conflicts: Dictionary = conflicts.get(a_id, {})
+				for j in range(i + 1, bucket.size()):
+					var b_id: int = int(bucket[j])
+					var b_conflicts: Dictionary = conflicts.get(b_id, {})
+					a_conflicts[b_id] = true
+					b_conflicts[a_id] = true
+					conflicts[b_id] = b_conflicts
+				conflicts[a_id] = a_conflicts
+	return conflicts
+
+
+static func _proposal_conflict_component(start_id: int, conflicts: Dictionary) -> Array[int]:
 	var component: Array[int] = []
 	var queue: Array[int] = [start_id]
 	var seen: Dictionary = {start_id: true}
 	while not queue.is_empty():
 		var current_id: int = queue.pop_front()
 		component.append(current_id)
-		var current: Dictionary = remaining[current_id]
-		var current_rect: Rect2i = current.get("target_rect", Rect2i())
-		for other_id in remaining.keys():
+		var current_conflicts: Dictionary = conflicts.get(current_id, {})
+		for other_id in current_conflicts.keys():
 			var candidate_id: int = int(other_id)
 			if seen.has(candidate_id):
 				continue
-			var other: Dictionary = remaining[candidate_id]
-			var other_rect: Rect2i = other.get("target_rect", Rect2i())
-			if (
-				current.get("layer", "ground") == other.get("layer", "ground")
-				and current_rect.intersects(other_rect)
-			):
-				seen[candidate_id] = true
-				queue.append(candidate_id)
+			seen[candidate_id] = true
+			queue.append(candidate_id)
 	component.sort()
 	return component
 

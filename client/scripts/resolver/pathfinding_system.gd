@@ -375,6 +375,38 @@ static func _occupancy_blockers(
 	return {"tiles": blocked_tiles}
 
 
+static func filterable_occupancy_blocker_tiles(
+	state: MatchState,
+	registry: EntityRegistry,
+	actor_layer: String,
+	known_entity_ids: Dictionary = {}
+) -> Dictionary:
+	var blocked_tiles: Dictionary = {}
+	if state == null or state.tile_grid == null or registry == null:
+		return blocked_tiles
+	for entity in state.entities_sorted_by_id():
+		if entity == null:
+			continue
+		if not known_entity_ids.is_empty() and not known_entity_ids.has(entity.id):
+			continue
+		if not _is_spatial_blocker(entity, registry):
+			continue
+		if layer_for_entity(entity, registry) != actor_layer:
+			continue
+		var other_rect: Rect2i = state.tile_grid.entity_rect(entity.id)
+		if other_rect.size.x <= 0 or other_rect.size.y <= 0:
+			continue
+		for x in range(other_rect.position.x, other_rect.position.x + other_rect.size.x):
+			for y in range(other_rect.position.y, other_rect.position.y + other_rect.size.y):
+				var tile := Vector2i(x, y)
+				var ids: Variant = blocked_tiles.get(tile)
+				if ids is Dictionary:
+					ids[entity.id] = true
+				else:
+					blocked_tiles[tile] = {entity.id: true}
+	return blocked_tiles
+
+
 static func _can_occupy_origin_with_blockers(
 	grid: TileGrid,
 	origin: Vector2i,
@@ -660,6 +692,12 @@ static func _monotonic_path(
 	goal_range: int,
 	exact_origin: bool
 ) -> Array[Vector2i]:
+	if exact_origin and footprint == Vector2i.ONE:
+		var straight_path: Array[Vector2i] = _exact_straight_monotonic_path(
+			grid, start, target_origin, footprint, movement, occupancy_blockers
+		)
+		if not straight_path.is_empty():
+			return straight_path
 	var path: Array[Vector2i] = []
 	var current: Vector2i = start
 	var guard: int = max(grid.width, grid.height) + max(footprint.x, footprint.y) + goal_range
@@ -680,6 +718,35 @@ static func _monotonic_path(
 		if next_origin == current:
 			return []
 		current = next_origin
+		path.append(current)
+	return path
+
+
+static func _exact_straight_monotonic_path(
+	grid: TileGrid,
+	start: Vector2i,
+	target_origin: Vector2i,
+	footprint: Vector2i,
+	movement: MovementDef,
+	occupancy_blockers: Dictionary
+) -> Array[Vector2i]:
+	var path: Array[Vector2i] = []
+	var current: Vector2i = start
+	var guard: int = max(grid.width, grid.height) + max(footprint.x, footprint.y)
+	while current != target_origin:
+		if path.size() > guard:
+			return []
+		var delta := Vector2i(signi(target_origin.x - current.x), signi(target_origin.y - current.y))
+		if delta == Vector2i.ZERO:
+			return []
+		var next: Vector2i = current + delta
+		if not _can_occupy_origin_with_blockers(
+			grid, next, footprint, movement, occupancy_blockers
+		):
+			return []
+		if _diagonal_step_blocked(grid, current, delta, footprint, movement, occupancy_blockers):
+			return []
+		current = next
 		path.append(current)
 	return path
 

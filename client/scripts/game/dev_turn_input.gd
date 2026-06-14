@@ -164,13 +164,20 @@ func issue_move(target_tile: Vector2i) -> bool:
 		return false
 	var queue_requested: bool = _consume_queue_modifier()
 	var target_tiles_by_entity: Dictionary = _formation_target_tiles(eligible, target_tile)
+	if not queue_requested:
+		_clear_current_and_future_orders_for_entities(_entity_id_set(eligible))
+	var submit: SubmitTurn = _submission_for(_active_player_id)
 	for actor in eligible:
 		var order: EntityOrder = EntityOrder.new()
 		order.type = EntityOrder.Type.MOVE
 		order.entity_id = actor.id
 		order.target_tile = target_tiles_by_entity.get(actor.id, target_tile)
 		actor.focus_target_entity_id = -1
-		_append_order_with_queue_request(order, queue_requested)
+		if queue_requested:
+			_append_order_with_queue_request(order, queue_requested)
+		else:
+			submit.orders.append(order)
+			_remember_direct_move_assist(actor, order)
 	_status_message = _group_order_status(
 		"Queued Move", eligible, selected.size() - eligible.size(), "to %s" % str(target_tile)
 	)
@@ -194,6 +201,9 @@ func issue_attack_move(target_tile: Vector2i) -> bool:
 		return false
 	var queue_requested: bool = _consume_queue_modifier()
 	var target_tiles_by_entity: Dictionary = _formation_target_tiles(eligible, target_tile)
+	if not queue_requested:
+		_clear_current_and_future_orders_for_entities(_entity_id_set(eligible))
+	var submit: SubmitTurn = _submission_for(_active_player_id)
 	for actor in eligible:
 		var priority_chain: Array[int] = _attack_move_priority_chain_for_actor(actor)
 		var order: EntityOrder = EntityOrder.new()
@@ -202,7 +212,12 @@ func issue_attack_move(target_tile: Vector2i) -> bool:
 		order.target_tile = target_tiles_by_entity.get(actor.id, target_tile)
 		order.target_priority_chain = priority_chain
 		actor.focus_target_entity_id = -1
-		if _append_order_with_queue_request(order, queue_requested):
+		if queue_requested:
+			if _append_order_with_queue_request(order, queue_requested):
+				_remove_standing_target_for_entity(actor.id)
+		else:
+			submit.orders.append(order)
+			_remember_direct_move_assist(actor, order)
 			_remove_standing_target_for_entity(actor.id)
 	_status_message = _group_order_status(
 		"Queued Attack", eligible, selected.size() - eligible.size(), "to %s" % str(target_tile)
@@ -221,16 +236,58 @@ func issue_target(target_entity_id: int) -> bool:
 		return false
 	var candidates: Array[Entity] = []
 	var no_reachable_firing_tile := false
+	var visibility_by_player: Dictionary = {}
 	for actor in selected:
-		if _can_entity_target(actor, target):
+		if _can_entity_target_with_visibility(actor, target, visibility_by_player):
 			candidates.append(actor)
 	if candidates.is_empty():
 		_status_message = "%s cannot attack enemies." % _selection_subject_label(selected)
 		return false
 	var eligible: Array[Entity] = []
 	var queue_requested: bool = _consume_queue_modifier()
+	var firing_tile_cache: Dictionary = {"passable_entity_ids": _entity_id_set(candidates)}
+	if not queue_requested:
+		var prepared_orders: Array[Dictionary] = []
+		for actor in candidates:
+			var bundle: Dictionary = _target_order_bundle_for_actor(actor, target, firing_tile_cache)
+			if bundle.is_empty():
+				no_reachable_firing_tile = true
+				continue
+			prepared_orders.append(bundle)
+			eligible.append(actor)
+		if eligible.is_empty():
+			if no_reachable_firing_tile:
+				_status_message = "No reachable firing position for Attack."
+			else:
+				_status_message = "%s cannot attack enemies." % _selection_subject_label(selected)
+			return false
+		var eligible_ids: Dictionary = _entity_id_set(eligible)
+		var generated_move_ids: Dictionary = {}
+		for bundle in prepared_orders:
+			var move_order: EntityOrder = bundle.get("move_order") as EntityOrder
+			if move_order != null:
+				generated_move_ids[move_order.entity_id] = true
+		_clear_current_and_future_orders_for_entities(generated_move_ids)
+		_remove_standing_targets_for_entities(eligible_ids)
+		var submit: SubmitTurn = _submission_for(_active_player_id)
+		for bundle in prepared_orders:
+			var actor: Entity = bundle.get("actor") as Entity
+			var prepared_move: EntityOrder = bundle.get("move_order") as EntityOrder
+			if prepared_move != null:
+				submit.orders.append(prepared_move)
+				_remember_direct_move_assist(actor, prepared_move)
+			var target_order: EntityOrder = bundle.get("target_order") as EntityOrder
+			if target_order != null:
+				submit.orders.append(target_order)
+		_status_message = _group_order_status(
+			"Queued Attack target",
+			eligible,
+			selected.size() - eligible.size(),
+			"against #%d" % target.id
+		)
+		return true
 	for actor in candidates:
-		if _queue_target_for_actor(actor, target, queue_requested):
+		if _queue_target_for_actor(actor, target, queue_requested, firing_tile_cache):
 			eligible.append(actor)
 		else:
 			no_reachable_firing_tile = true
@@ -249,12 +306,44 @@ func issue_target(target_entity_id: int) -> bool:
 	return true
 
 
-func _queue_target_for_actor(actor: Entity, target: Entity, queue_requested: bool) -> bool:
-	if actor == null or target == null:
+func _queue_target_for_actor(
+	actor: Entity, target: Entity, queue_requested: bool, firing_tile_cache: Dictionary = {}
+) -> bool:
+	var bundle: Dictionary = _target_order_bundle_for_actor(actor, target, firing_tile_cache)
+	if bundle.is_empty():
 		return false
+	var move_order: EntityOrder = bundle.get("move_order") as EntityOrder
+	var target_order: EntityOrder = bundle.get("target_order") as EntityOrder
+	var target_should_defer: bool = false
+	if move_order != null:
+		if not queue_requested:
+			_clear_current_and_future_orders_for_entity(actor.id)
+			_submission_for(_active_player_id).orders.append(move_order)
+			_remember_direct_move_assist(actor, move_order)
+			_remove_standing_target_for_entity(actor.id)
+		elif _append_order_with_queue_request(move_order, queue_requested):
+			_remove_standing_target_for_entity(actor.id)
+		else:
+			target_should_defer = true
+	if target_order == null:
+		return false
+	if target_should_defer:
+		_append_future_order(target_order)
+	elif not queue_requested:
+		_append_order_to_submit(_submission_for(_active_player_id), target_order)
+	else:
+		_append_order_with_queue_request(target_order, queue_requested)
+	return true
+
+
+func _target_order_bundle_for_actor(
+	actor: Entity, target: Entity, firing_tile_cache: Dictionary = {}
+) -> Dictionary:
+	if actor == null or target == null:
+		return {}
 	var def: EntityDef = _def_for_entity(actor)
 	if def == null or def.combat == null:
-		return false
+		return {}
 	var has_user_move: bool = _has_user_move_for_actor(actor)
 	var current_origin_in_range: bool = _is_target_in_range_from_origin(
 		actor, actor.origin, target, def.combat
@@ -263,31 +352,25 @@ func _queue_target_for_actor(actor: Entity, target: Entity, queue_requested: boo
 		not _has_user_move_ending_in_range(actor, target, def.combat)
 		and (has_user_move or not current_origin_in_range)
 	)
-	var target_should_defer: bool = false
+	var move_order: EntityOrder = null
 	if needs_generated_move:
-		var firing_tile: Vector2i = _best_firing_tile_for_target(actor, target, def.combat)
+		var firing_tile: Vector2i = _best_firing_tile_for_target(
+			actor, target, def.combat, firing_tile_cache
+		)
 		if firing_tile == Vector2i(-1, -1):
-			return false
-		var move_order: EntityOrder = EntityOrder.new()
+			return {}
+		move_order = EntityOrder.new()
 		move_order.type = EntityOrder.Type.MOVE
 		move_order.entity_id = actor.id
 		move_order.target_tile = firing_tile
 		move_order.target_entity_id = target.id
-		if _append_order_with_queue_request(move_order, queue_requested):
-			_remove_standing_target_for_entity(actor.id)
-		else:
-			target_should_defer = true
 	var order: EntityOrder = EntityOrder.new()
 	order.type = EntityOrder.Type.TARGET
 	order.entity_id = actor.id
 	order.target_entity_id = target.id
 	order.target_priority_chain = [target.id]
 	order.target_tile = _entity_origin_for_order_target(target)
-	if target_should_defer:
-		_append_future_order(order)
-	else:
-		_append_order_with_queue_request(order, queue_requested)
-	return true
+	return {"actor": actor, "move_order": move_order, "target_order": order}
 
 
 func issue_gather(target_entity_id: int) -> bool:
@@ -1284,6 +1367,44 @@ func _clear_current_and_future_orders_for_entity(entity_id: int) -> void:
 	_clear_move_assist(entity_id)
 
 
+func _clear_current_and_future_orders_for_entities(entity_ids: Dictionary) -> void:
+	if entity_ids.is_empty():
+		return
+	for submit in _submissions.values():
+		var submit_turn: SubmitTurn = submit
+		for i in range(submit_turn.orders.size() - 1, -1, -1):
+			var order: EntityOrder = submit_turn.orders[i]
+			if _is_action_queue_order(order) and entity_ids.has(order.entity_id):
+				submit_turn.orders.remove_at(i)
+	for entity_id in entity_ids.keys():
+		var id := int(entity_id)
+		_future_orders.erase(id)
+		_clear_move_assist(id)
+
+
+func _remove_standing_targets_for_entities(entity_ids: Dictionary) -> void:
+	if entity_ids.is_empty():
+		return
+	for submit in _submissions.values():
+		var submit_turn: SubmitTurn = submit
+		for i in range(submit_turn.orders.size() - 1, -1, -1):
+			var order: EntityOrder = submit_turn.orders[i]
+			if (
+				order != null
+				and order.type == EntityOrder.Type.TARGET
+				and entity_ids.has(order.entity_id)
+			):
+				submit_turn.orders.remove_at(i)
+
+
+func _entity_id_set(entities: Array[Entity]) -> Dictionary:
+	var out: Dictionary = {}
+	for entity in entities:
+		if entity != null:
+			out[entity.id] = true
+	return out
+
+
 func _remember_move_assist(order: EntityOrder) -> void:
 	if order == null or not _is_continuation_order(order.type):
 		return
@@ -1296,6 +1417,15 @@ func _remember_move_assist(order: EntityOrder) -> void:
 		_move_assists.erase(order.entity_id)
 		return
 	_move_assists[order.entity_id] = order.clone()
+
+
+func _remember_direct_move_assist(actor: Entity, order: EntityOrder) -> void:
+	if actor == null or order == null or not _is_continuation_order(order.type):
+		return
+	if actor.origin == order.target_tile:
+		_move_assists.erase(order.entity_id)
+		return
+	_move_assists[order.entity_id] = order
 
 
 func _clear_move_assist(entity_id: int, remove_queued_move: bool = false) -> void:
@@ -1454,7 +1584,9 @@ func _is_target_in_range_from_origin(
 	)
 
 
-func _best_firing_tile_for_target(actor: Entity, target: Entity, combat: CombatDef) -> Vector2i:
+func _best_firing_tile_for_target(
+	actor: Entity, target: Entity, combat: CombatDef, blocker_cache: Dictionary = {}
+) -> Vector2i:
 	if (
 		actor == null
 		or target == null
@@ -1468,6 +1600,19 @@ func _best_firing_tile_for_target(actor: Entity, target: Entity, combat: CombatD
 	if target_rect.size == Vector2i.ZERO:
 		return Vector2i(-1, -1)
 	var footprint: Vector2i = PathfindingSystem.entity_footprint(_state, actor, _registry)
+	var layer: String = PathfindingSystem.layer_for_entity(actor, _registry)
+	var blocked_tiles: Dictionary = _filterable_blocker_tiles_for_layer(blocker_cache, layer)
+	var passable: Dictionary = blocker_cache.get("passable_entity_ids", {}).duplicate()
+	passable[actor.id] = true
+	var occupancy_blockers: Dictionary = {"tiles": blocked_tiles, "passable": passable}
+	var movement: MovementDef = PathfindingSystem.movement_def_for_entity(actor, _registry)
+	if movement == null:
+		return Vector2i(-1, -1)
+	var direct_tile: Vector2i = _direct_firing_tile_for_target(
+		actor, target_rect, combat, footprint, movement, occupancy_blockers, blocker_cache
+	)
+	if direct_tile != Vector2i(-1, -1):
+		return direct_tile
 	var best_tile := Vector2i(-1, -1)
 	var best_target_distance := -1
 	var best_path_distance := 0
@@ -1479,6 +1624,8 @@ func _best_firing_tile_for_target(actor: Entity, target: Entity, combat: CombatD
 		var candidate: Vector2i = queue[cursor]
 		cursor += 1
 		var path_distance: int = int(path_distances[candidate])
+		if best_target_distance >= combat.attack_range and path_distance > best_path_distance:
+			break
 		var candidate_rect := Rect2i(candidate, footprint)
 		var target_distance: int = TileGrid.distance_between_rects(candidate_rect, target_rect)
 		if target_distance <= combat.attack_range:
@@ -1502,15 +1649,99 @@ func _best_firing_tile_for_target(actor: Entity, target: Entity, combat: CombatD
 				best_tile = candidate
 				best_target_distance = target_distance
 				best_path_distance = path_distance
+		if best_target_distance >= combat.attack_range and path_distance >= best_path_distance:
+			continue
 		for delta in _FIRING_TILE_NEIGHBORS:
 			var next: Vector2i = candidate + delta
 			if path_distances.has(next):
 				continue
-			if not PathfindingSystem.can_occupy_origin(_state, actor, next, _registry):
+			if not PathfindingSystem._can_occupy_origin_with_blockers(
+				_state.tile_grid, next, footprint, movement, occupancy_blockers
+			):
 				continue
 			path_distances[next] = path_distance + 1
 			queue.append(next)
 	return best_tile
+
+
+func _direct_firing_tile_for_target(
+	actor: Entity,
+	target_rect: Rect2i,
+	combat: CombatDef,
+	footprint: Vector2i,
+	movement: MovementDef,
+	occupancy_blockers: Dictionary,
+	cache: Dictionary
+) -> Vector2i:
+	if actor == null or combat == null or _state == null or _state.tile_grid == null:
+		return Vector2i(-1, -1)
+	var rings: Array = _firing_candidate_rings(target_rect, footprint, combat.attack_range, cache)
+	for ring in rings:
+		var candidates: Array[Vector2i] = ring
+		var best_tile := Vector2i(-1, -1)
+		var best_path_distance := 0
+		for candidate in candidates:
+			if not PathfindingSystem._can_occupy_origin_with_blockers(
+				_state.tile_grid, candidate, footprint, movement, occupancy_blockers
+			):
+				continue
+			var path_distance: int = maxi(
+				abs(candidate.x - actor.origin.x), abs(candidate.y - actor.origin.y)
+			)
+			if (
+				best_tile == Vector2i(-1, -1)
+				or path_distance < best_path_distance
+				or (
+					path_distance == best_path_distance
+					and (
+						candidate.y < best_tile.y
+						or (candidate.y == best_tile.y and candidate.x < best_tile.x)
+					)
+				)
+			):
+				best_tile = candidate
+				best_path_distance = path_distance
+		if best_tile == Vector2i(-1, -1):
+			continue
+		return best_tile
+	return Vector2i(-1, -1)
+
+
+func _firing_candidate_rings(
+	target_rect: Rect2i, footprint: Vector2i, attack_range: int, cache: Dictionary
+) -> Array:
+	var rings_by_key: Dictionary = cache.get("_firing_candidate_rings", {})
+	var key := "%d,%d,%d,%d:%d,%d:%d" % [
+		target_rect.position.x,
+		target_rect.position.y,
+		target_rect.size.x,
+		target_rect.size.y,
+		footprint.x,
+		footprint.y,
+		attack_range,
+	]
+	if rings_by_key.has(key):
+		return rings_by_key[key]
+	var rings: Array = []
+	for target_distance in range(attack_range, -1, -1):
+		var ring: Array[Vector2i] = []
+		var min_x: int = target_rect.position.x - target_distance - footprint.x
+		var max_x: int = target_rect.position.x + target_rect.size.x + target_distance
+		var min_y: int = target_rect.position.y - target_distance - footprint.y
+		var max_y: int = target_rect.position.y + target_rect.size.y + target_distance
+		for y in range(min_y, max_y + 1):
+			for x in range(min_x, max_x + 1):
+				var candidate := Vector2i(x, y)
+				var candidate_rect := Rect2i(candidate, footprint)
+				if not _state.tile_grid.is_rect_in_bounds(candidate_rect):
+					continue
+				if TileGrid.distance_between_rects(candidate_rect, target_rect) != target_distance:
+					continue
+				ring.append(candidate)
+		rings.append(ring)
+	rings_by_key[key] = rings
+	cache["_firing_candidate_rings"] = rings_by_key
+	return rings
 
 
 func _target_rect(target: Entity) -> Rect2i:
@@ -1521,6 +1752,16 @@ func _target_rect(target: Entity) -> Rect2i:
 		if rect.size != Vector2i.ZERO:
 			return rect
 	return Rect2i(target.origin, PathfindingSystem.entity_footprint(_state, target, _registry))
+
+
+func _filterable_blocker_tiles_for_layer(cache: Dictionary, layer: String) -> Dictionary:
+	if cache.has(layer):
+		return cache[layer]
+	var tiles: Dictionary = PathfindingSystem.filterable_occupancy_blocker_tiles(
+		_state, _registry, layer
+	)
+	cache[layer] = tiles
+	return tiles
 
 
 func _has_queued_order_for_entity(entity_id: int) -> bool:
@@ -1804,8 +2045,9 @@ func _ensure_submit_turn(player_id: int) -> void:
 
 func _valid_selection_ids(entity_ids: Array[int], movable_only: bool) -> Array[int]:
 	var out: Array[int] = []
+	var seen: Dictionary = {}
 	for entity_id in entity_ids:
-		if out.has(entity_id):
+		if seen.has(entity_id):
 			continue
 		if not _is_selectable(entity_id):
 			continue
@@ -1813,6 +2055,7 @@ func _valid_selection_ids(entity_ids: Array[int], movable_only: bool) -> Array[i
 		if movable_only and not _can_entity_move(entity):
 			continue
 		out.append(entity_id)
+		seen[entity_id] = true
 	return out
 
 
@@ -1864,9 +2107,22 @@ func _formation_target_tiles(actors: Array[Entity], target_tile: Vector2i) -> Di
 	for actor in actors:
 		if actor != null:
 			passable_entity_ids[actor.id] = true
-	var candidates: Array[Vector2i] = _formation_candidate_tiles(
-		target_tile, _formation_radius_for_actor_count(actors.size())
-	)
+	var blocker_cache: Dictionary = {}
+	var blockers_by_layer: Dictionary = {}
+	for actor in actors:
+		if actor == null:
+			continue
+		var layer: String = _PATHFINDING.layer_for_entity(actor, _registry)
+		if blockers_by_layer.has(layer):
+			continue
+		blockers_by_layer[layer] = {
+			"tiles": _filterable_blocker_tiles_for_layer(blocker_cache, layer),
+			"passable": passable_entity_ids,
+		}
+	var formation_radius: int = _formation_radius_for_actor_count(actors.size())
+	var candidates: Array[Vector2i] = []
+	var candidates_by_profile: Dictionary = {}
+	var checks_by_profile: Dictionary = {}
 	var center: Vector2 = _formation_center(actors)
 	var offset_scale: float = _formation_offset_scale(actors, center)
 	var reserved_by_layer: Dictionary = {}
@@ -1876,12 +2132,54 @@ func _formation_target_tiles(actors: Array[Entity], target_tile: Vector2i) -> Di
 		var desired_tile: Vector2i = _formation_desired_tile(
 			actor, target_tile, center, offset_scale
 		)
-		var actor_target: Vector2i = _best_formation_target_for_actor(
-			actor, desired_tile, target_tile, candidates, passable_entity_ids, reserved_by_layer
-		)
+		var profile_key: String = _formation_profile_key(actor)
+		if not checks_by_profile.has(profile_key):
+			checks_by_profile[profile_key] = _formation_occupiable_check(
+				actor, blockers_by_layer
+			)
+		var occupiable_check: Dictionary = checks_by_profile.get(profile_key, {})
+		var actor_target: Vector2i = desired_tile
+		if not (
+			_formation_tile_in_candidate_radius(desired_tile, target_tile, formation_radius)
+			and _formation_target_occupiable_with_check(desired_tile, occupiable_check)
+			and _formation_target_available_for_profile(
+				desired_tile,
+				reserved_by_layer,
+				occupiable_check.get("footprint", Vector2i.ZERO),
+				String(occupiable_check.get("layer", ""))
+			)
+		):
+			if candidates.is_empty():
+				candidates = _formation_candidate_tiles(target_tile, formation_radius)
+			if not candidates_by_profile.has(profile_key):
+				candidates_by_profile[profile_key] = _formation_occupiable_candidates(
+					candidates, occupiable_check
+				)
+			var actor_candidates: Array[Vector2i] = candidates_by_profile.get(profile_key, [])
+			actor_target = _best_formation_target_for_actor(
+				actor,
+				desired_tile,
+				target_tile,
+				actor_candidates,
+				reserved_by_layer
+			)
 		out[actor.id] = actor_target
-		_reserve_formation_target(actor, actor_target, reserved_by_layer)
+		_reserve_formation_target_for_profile(
+			actor_target,
+			reserved_by_layer,
+			occupiable_check.get("footprint", Vector2i.ONE),
+			String(occupiable_check.get("layer", ""))
+		)
 	return out
+
+
+func _formation_tile_in_candidate_radius(
+	tile: Vector2i, target_tile: Vector2i, formation_radius: int
+) -> bool:
+	return (
+		maxi(abs(tile.x - target_tile.x), abs(tile.y - target_tile.y))
+		<= formation_radius
+	)
 
 
 # Spread selections CONVERGE on the click: offsets from the group center
@@ -1964,26 +2262,135 @@ func _formation_candidate_tiles(target_tile: Vector2i, max_radius: int) -> Array
 	return out
 
 
+func _formation_profile_key(actor: Entity) -> String:
+	if actor == null or _state == null or _registry == null:
+		return ""
+	var footprint: Vector2i = _PATHFINDING.entity_footprint(_state, actor, _registry)
+	var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, _registry)
+	return "%s:%d,%d:%d" % [
+		_PATHFINDING.layer_for_entity(actor, _registry),
+		footprint.x,
+		footprint.y,
+		movement.get_instance_id() if movement != null else 0,
+	]
+
+
+func _formation_occupiable_candidates(
+	candidates: Array[Vector2i], check: Dictionary
+) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	if check.is_empty():
+		return out
+	var footprint: Vector2i = check["footprint"]
+	var movement: MovementDef = check["movement"] as MovementDef
+	var occupancy_blockers: Dictionary = check["occupancy_blockers"]
+	for candidate in candidates:
+		if _PATHFINDING._can_occupy_origin_with_blockers(
+			_state.tile_grid, candidate, footprint, movement, occupancy_blockers
+		):
+			out.append(candidate)
+	return out
+
+
+func _formation_target_occupiable_with_check(target_tile: Vector2i, check: Dictionary) -> bool:
+	if check.is_empty():
+		return false
+	return _PATHFINDING._can_occupy_origin_with_blockers(
+		_state.tile_grid,
+		target_tile,
+		check["footprint"],
+		check["movement"] as MovementDef,
+		check["occupancy_blockers"]
+	)
+
+
+func _formation_occupiable_check(actor: Entity, blockers_by_layer: Dictionary) -> Dictionary:
+	if actor == null or _state == null or _state.tile_grid == null or _registry == null:
+		return {}
+	var footprint: Vector2i = _PATHFINDING.entity_footprint(_state, actor, _registry)
+	var movement: MovementDef = _PATHFINDING.movement_def_for_entity(actor, _registry)
+	if movement == null:
+		return {}
+	var layer: String = _PATHFINDING.layer_for_entity(actor, _registry)
+	var occupancy_blockers: Dictionary = blockers_by_layer.get(layer, {})
+	if occupancy_blockers.is_empty():
+		occupancy_blockers = {"tiles": _filterable_blocker_tiles_for_layer({}, layer)}
+	return {
+		"footprint": footprint,
+		"layer": layer,
+		"movement": movement,
+		"occupancy_blockers": occupancy_blockers,
+	}
+
+
 func _best_formation_target_for_actor(
 	actor: Entity,
 	desired_tile: Vector2i,
 	target_tile: Vector2i,
 	candidates: Array[Vector2i],
-	passable_entity_ids: Dictionary,
 	reserved_by_layer: Dictionary
 ) -> Vector2i:
 	var best_tile: Vector2i = target_tile
-	var best_score: Array[int] = []
+	var best_desired_chebyshev := 0
+	var best_desired_manhattan := 0
+	var best_target_chebyshev := 0
+	var best_target_manhattan := 0
 	var has_best := false
 	for candidate in candidates:
-		if not _formation_target_available(
-			actor, candidate, passable_entity_ids, reserved_by_layer
-		):
+		if not _formation_target_available(actor, candidate, reserved_by_layer):
 			continue
-		var score: Array[int] = _formation_target_score(candidate, desired_tile, target_tile)
-		if not has_best or _formation_score_less(score, best_score):
+		var desired_chebyshev: int = maxi(
+			abs(candidate.x - desired_tile.x), abs(candidate.y - desired_tile.y)
+		)
+		var desired_manhattan: int = (
+			abs(candidate.x - desired_tile.x) + abs(candidate.y - desired_tile.y)
+		)
+		var target_chebyshev: int = maxi(
+			abs(candidate.x - target_tile.x), abs(candidate.y - target_tile.y)
+		)
+		var target_manhattan: int = (
+			abs(candidate.x - target_tile.x) + abs(candidate.y - target_tile.y)
+		)
+		var better := (
+			not has_best
+			or desired_chebyshev < best_desired_chebyshev
+			or (
+				desired_chebyshev == best_desired_chebyshev
+				and desired_manhattan < best_desired_manhattan
+			)
+			or (
+				desired_chebyshev == best_desired_chebyshev
+				and desired_manhattan == best_desired_manhattan
+				and target_chebyshev < best_target_chebyshev
+			)
+			or (
+				desired_chebyshev == best_desired_chebyshev
+				and desired_manhattan == best_desired_manhattan
+				and target_chebyshev == best_target_chebyshev
+				and target_manhattan < best_target_manhattan
+			)
+			or (
+				desired_chebyshev == best_desired_chebyshev
+				and desired_manhattan == best_desired_manhattan
+				and target_chebyshev == best_target_chebyshev
+				and target_manhattan == best_target_manhattan
+				and candidate.y < best_tile.y
+			)
+			or (
+				desired_chebyshev == best_desired_chebyshev
+				and desired_manhattan == best_desired_manhattan
+				and target_chebyshev == best_target_chebyshev
+				and target_manhattan == best_target_manhattan
+				and candidate.y == best_tile.y
+				and candidate.x < best_tile.x
+			)
+		)
+		if better:
 			best_tile = candidate
-			best_score = score
+			best_desired_chebyshev = desired_chebyshev
+			best_desired_manhattan = desired_manhattan
+			best_target_chebyshev = target_chebyshev
+			best_target_manhattan = target_manhattan
 			has_best = true
 	return best_tile
 
@@ -1991,19 +2398,31 @@ func _best_formation_target_for_actor(
 func _formation_target_available(
 	actor: Entity,
 	target_tile: Vector2i,
-	passable_entity_ids: Dictionary,
 	reserved_by_layer: Dictionary
 ) -> bool:
 	if actor == null or _state == null or _state.tile_grid == null or _registry == null:
 		return false
-	if not _PATHFINDING.can_occupy_origin(
-		_state, actor, target_tile, _registry, passable_entity_ids
-	):
-		return false
 	var footprint: Vector2i = _PATHFINDING.entity_footprint(_state, actor, _registry)
-	var candidate_rect: Rect2i = Rect2i(target_tile, footprint)
 	var layer: String = _PATHFINDING.layer_for_entity(actor, _registry)
-	var reserved_rects: Array = reserved_by_layer.get(layer, [])
+	return _formation_target_available_for_profile(
+		target_tile, reserved_by_layer, footprint, layer
+	)
+
+
+func _formation_target_available_for_profile(
+	target_tile: Vector2i,
+	reserved_by_layer: Dictionary,
+	footprint: Vector2i,
+	layer: String
+) -> bool:
+	if footprint.x <= 0 or footprint.y <= 0 or layer == "":
+		return false
+	var reserved: Dictionary = reserved_by_layer.get(layer, {})
+	if footprint == Vector2i.ONE:
+		var reserved_tiles: Dictionary = reserved.get("tiles", {})
+		return not reserved_tiles.has(target_tile)
+	var candidate_rect := Rect2i(target_tile, footprint)
+	var reserved_rects: Array = reserved.get("rects", [])
 	for item in reserved_rects:
 		var reserved_rect: Rect2i = item
 		if reserved_rect.intersects(candidate_rect):
@@ -2018,31 +2437,29 @@ func _reserve_formation_target(
 		return
 	var footprint: Vector2i = _PATHFINDING.entity_footprint(_state, actor, _registry)
 	var layer: String = _PATHFINDING.layer_for_entity(actor, _registry)
-	var reserved_rects: Array = reserved_by_layer.get(layer, [])
-	reserved_rects.append(Rect2i(target_tile, footprint))
-	reserved_by_layer[layer] = reserved_rects
+	_reserve_formation_target_for_profile(target_tile, reserved_by_layer, footprint, layer)
 
 
-func _formation_target_score(
-	candidate: Vector2i, desired_tile: Vector2i, target_tile: Vector2i
-) -> Array[int]:
-	return [
-		maxi(abs(candidate.x - desired_tile.x), abs(candidate.y - desired_tile.y)),
-		abs(candidate.x - desired_tile.x) + abs(candidate.y - desired_tile.y),
-		maxi(abs(candidate.x - target_tile.x), abs(candidate.y - target_tile.y)),
-		abs(candidate.x - target_tile.x) + abs(candidate.y - target_tile.y),
-		candidate.y,
-		candidate.x,
-	]
-
-
-func _formation_score_less(a: Array[int], b: Array[int]) -> bool:
-	if b.is_empty():
-		return true
-	for i in range(mini(a.size(), b.size())):
-		if a[i] != b[i]:
-			return a[i] < b[i]
-	return a.size() < b.size()
+func _reserve_formation_target_for_profile(
+	target_tile: Vector2i,
+	reserved_by_layer: Dictionary,
+	footprint: Vector2i,
+	layer: String
+) -> void:
+	if footprint.x <= 0 or footprint.y <= 0 or layer == "":
+		return
+	var reserved: Dictionary = reserved_by_layer.get(layer, {})
+	if reserved.is_empty():
+		reserved = {"tiles": {}, "rects": []}
+	if footprint == Vector2i.ONE:
+		var reserved_tiles: Dictionary = reserved.get("tiles", {})
+		reserved_tiles[target_tile] = true
+		reserved["tiles"] = reserved_tiles
+	else:
+		var reserved_rects: Array = reserved.get("rects", [])
+		reserved_rects.append(Rect2i(target_tile, footprint))
+		reserved["rects"] = reserved_rects
+	reserved_by_layer[layer] = reserved
 
 
 func _is_selectable(entity_id: int) -> bool:
@@ -2200,6 +2617,36 @@ func _can_entity_target(actor: Entity, target: Entity) -> bool:
 		return false
 	var def: EntityDef = _def_for_entity(actor)
 	return def != null and def.combat != null and def.combat.target_layers.has(target.current_layer)
+
+
+func _can_entity_target_with_visibility(
+	actor: Entity, target: Entity, visibility_by_player: Dictionary
+) -> bool:
+	if not _can_entity_attack(actor):
+		return false
+	if (
+		target == null
+		or not _is_entity_visible_to_player_cached(
+			target, actor.owner_player_id, visibility_by_player
+		)
+	):
+		return false
+	var def: EntityDef = _def_for_entity(actor)
+	return def != null and def.combat != null and def.combat.target_layers.has(target.current_layer)
+
+
+func _is_entity_visible_to_player_cached(
+	entity: Entity, player_id: int, visibility_by_player: Dictionary
+) -> bool:
+	if _state == null or _registry == null or player_id < 0:
+		return false
+	if not visibility_by_player.has(player_id):
+		visibility_by_player[player_id] = VisionSystem.compute_player_visibility(
+			_state, _registry, player_id
+		)
+	return VisionSystem.is_entity_visible_to_player(
+		entity, _state, _registry, player_id, visibility_by_player[player_id]
+	)
 
 
 func _can_entity_gather(entity: Entity) -> bool:
