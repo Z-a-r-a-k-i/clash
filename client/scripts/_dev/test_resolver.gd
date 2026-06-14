@@ -5247,20 +5247,20 @@ func _test_trained_unit_spawns_toward_rally() -> bool:
 
 
 func _test_train_ground_spawn_skips_cliff_tiles() -> bool:
-	var registry := _production_registry()
-	var state := _state_with_grid(20, 20)
+	var registry: EntityRegistry = _production_registry()
+	var state: MatchState = _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
-	var barracks := _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
+	var barracks: Entity = _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
 	barracks.production_state = ProductionState.new()
 	barracks.production_state.rally_mode = ProductionState.RALLY_MODE_MOVE
 	barracks.production_state.rally_target_tile = Vector2i(6, 14)
 	state.tile_grid.place(barracks.id, Rect2i(5, 5, 3, 3))
 	var marine_def: EntityDef = registry.get_by_id("marine")
 	marine_def.movement.impassable_terrain_tags = ["cliff"]
-	for x in range(5, 8):
+	for x: int in range(5, 8):
 		state.tile_grid.set_tile_terrain_tags(Vector2i(x, 8), ["cliff"])
 
-	var spawn := ProductionSystem.find_spawn_tile(state, registry, barracks, marine_def)
+	var spawn: Vector2i = ProductionSystem.find_spawn_tile(state, registry, barracks, marine_def)
 	if spawn == Vector2i(-1, -1):
 		push_error("ground spawn should use a non-cliff tile when one is available")
 		return false
@@ -5271,11 +5271,11 @@ func _test_train_ground_spawn_skips_cliff_tiles() -> bool:
 
 
 func _test_train_ground_spawn_deferred_when_ring_is_cliff() -> bool:
-	var registry := _production_registry()
-	var state := _state_with_grid(20, 20)
+	var registry: EntityRegistry = _production_registry()
+	var state: MatchState = _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
 	state.players[0].pop_cap = 10
-	var barracks := _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
+	var barracks: Entity = _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
 	barracks.production_state = ProductionState.new()
 	barracks.production_state.active = {
 		ProductionState.KEY_DEF_ID: "marine",
@@ -5291,11 +5291,11 @@ func _test_train_ground_spawn_deferred_when_ring_is_cliff() -> bool:
 	marine_def.movement.impassable_terrain_tags = ["cliff"]
 	_mark_spawn_ring_terrain(state, Rect2i(5, 5, 3, 3), marine_def.footprint, ["cliff"])
 
-	var result := Resolver.resolve(state, _submit(), _submit(), registry, null)
+	var result: ResolveResult = Resolver.resolve(state, _submit(), _submit(), registry, null)
 	if not _has_event_of_type(result.events, ResolverEvent.Type.SPAWN_DEFERRED):
 		push_error("ground spawn should defer when every adjacent candidate is cliff")
 		return false
-	var updated_barracks := result.new_state.get_entity_by_id(barracks.id)
+	var updated_barracks: Entity = result.new_state.get_entity_by_id(barracks.id)
 	if updated_barracks.production_state.active.is_empty():
 		push_error("deferred spawn should keep the active production slot")
 		return false
@@ -5303,13 +5303,13 @@ func _test_train_ground_spawn_deferred_when_ring_is_cliff() -> bool:
 
 
 func _test_train_flying_spawn_allows_cliff_tiles() -> bool:
-	var registry := _production_registry()
-	var state := _state_with_grid(20, 20)
+	var registry: EntityRegistry = _production_registry()
+	var state: MatchState = _state_with_grid(20, 20)
 	state.players = [_player(0), _player(1)]
-	var barracks := _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
+	var barracks: Entity = _make_entity(state, "barracks", 0, Vector2i(5, 5), 1000, "ground")
 	barracks.production_state = ProductionState.new()
 	state.tile_grid.place(barracks.id, Rect2i(5, 5, 3, 3))
-	var flyer_def := EntityDef.new()
+	var flyer_def: EntityDef = EntityDef.new()
 	flyer_def.id = "flyer"
 	flyer_def.footprint = Vector2i(1, 1)
 	flyer_def.tags = ["flying"]
@@ -5320,7 +5320,7 @@ func _test_train_flying_spawn_allows_cliff_tiles() -> bool:
 	flyer_def.movement.default_layer = "flying"
 	_mark_spawn_ring_terrain(state, Rect2i(5, 5, 3, 3), flyer_def.footprint, ["cliff"])
 
-	var spawn := ProductionSystem.find_spawn_tile(state, registry, barracks, flyer_def)
+	var spawn: Vector2i = ProductionSystem.find_spawn_tile(state, registry, barracks, flyer_def)
 	if spawn == Vector2i(-1, -1):
 		push_error("flying spawn should allow cliff tiles")
 		return false
@@ -6777,19 +6777,19 @@ func _make_entity(
 func _mark_spawn_ring_terrain(
 	state: MatchState, producer_rect: Rect2i, unit_fp: Vector2i, tags: Array[String]
 ) -> void:
-	var top := producer_rect.position.y - unit_fp.y
-	var bottom := producer_rect.position.y + producer_rect.size.y
-	var left := producer_rect.position.x - unit_fp.x
-	var right := producer_rect.position.x + producer_rect.size.x
-	for x in range(producer_rect.position.x, producer_rect.position.x + producer_rect.size.x):
+	var top: int = producer_rect.position.y - unit_fp.y
+	var bottom: int = producer_rect.position.y + producer_rect.size.y
+	var left: int = producer_rect.position.x - unit_fp.x
+	var right: int = producer_rect.position.x + producer_rect.size.x
+	for x: int in range(producer_rect.position.x, producer_rect.position.x + producer_rect.size.x):
 		_mark_spawn_candidate_terrain(state, Vector2i(x, top), unit_fp, tags)
-	for y in range(producer_rect.position.y, producer_rect.position.y + producer_rect.size.y):
+	for y: int in range(producer_rect.position.y, producer_rect.position.y + producer_rect.size.y):
 		_mark_spawn_candidate_terrain(state, Vector2i(right, y), unit_fp, tags)
-	for x in range(
+	for x: int in range(
 		producer_rect.position.x + producer_rect.size.x - 1, producer_rect.position.x - 1, -1
 	):
 		_mark_spawn_candidate_terrain(state, Vector2i(x, bottom), unit_fp, tags)
-	for y in range(
+	for y: int in range(
 		producer_rect.position.y + producer_rect.size.y - 1, producer_rect.position.y - 1, -1
 	):
 		_mark_spawn_candidate_terrain(state, Vector2i(left, y), unit_fp, tags)
@@ -6802,8 +6802,8 @@ func _mark_spawn_ring_terrain(
 func _mark_spawn_candidate_terrain(
 	state: MatchState, origin: Vector2i, unit_fp: Vector2i, tags: Array[String]
 ) -> void:
-	for x in range(origin.x, origin.x + unit_fp.x):
-		for y in range(origin.y, origin.y + unit_fp.y):
+	for x: int in range(origin.x, origin.x + unit_fp.x):
+		for y: int in range(origin.y, origin.y + unit_fp.y):
 			state.tile_grid.set_tile_terrain_tags(Vector2i(x, y), tags)
 
 

@@ -352,15 +352,15 @@ static func _can_spawn_unit_at(state: MatchState, unit_rect: Rect2i, unit_def: E
 static func _terrain_allows_spawn_rect(grid: TileGrid, rect: Rect2i, movement: MovementDef) -> bool:
 	if movement.impassable_terrain_tags.is_empty() and movement.pathable_terrain_tags.is_empty():
 		return true
-	for x in range(rect.position.x, rect.position.x + rect.size.x):
-		for y in range(rect.position.y, rect.position.y + rect.size.y):
+	for x: int in range(rect.position.x, rect.position.x + rect.size.x):
+		for y: int in range(rect.position.y, rect.position.y + rect.size.y):
 			var tags: Array[String] = grid.tile_terrain_tags(Vector2i(x, y))
-			for blocked_tag in movement.impassable_terrain_tags:
+			for blocked_tag: String in movement.impassable_terrain_tags:
 				if tags.has(blocked_tag):
 					return false
 			if not movement.pathable_terrain_tags.is_empty():
-				var has_pathable_tag := false
-				for allowed_tag in movement.pathable_terrain_tags:
+				var has_pathable_tag: bool = false
+				for allowed_tag: String in movement.pathable_terrain_tags:
 					if tags.has(allowed_tag):
 						has_pathable_tag = true
 						break
