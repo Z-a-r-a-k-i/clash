@@ -331,12 +331,42 @@ static func _find_spawn_tile(
 	)
 	for tile in candidates:
 		var unit_rect := Rect2i(tile, unit_fp)
-		if (
-			state.tile_grid.is_rect_in_bounds(unit_rect)
-			and state.tile_grid.is_rect_clear(unit_rect)
-		):
+		if _can_spawn_unit_at(state, unit_rect, unit_def):
 			return tile
 	return Vector2i(-1, -1)
+
+
+static func _can_spawn_unit_at(state: MatchState, unit_rect: Rect2i, unit_def: EntityDef) -> bool:
+	if state.tile_grid == null:
+		return false
+	if not state.tile_grid.is_rect_in_bounds(unit_rect):
+		return false
+	if not state.tile_grid.is_rect_clear(unit_rect):
+		return false
+	var movement: MovementDef = unit_def.movement
+	if movement == null:
+		return true
+	return _terrain_allows_spawn_rect(state.tile_grid, unit_rect, movement)
+
+
+static func _terrain_allows_spawn_rect(grid: TileGrid, rect: Rect2i, movement: MovementDef) -> bool:
+	if movement.impassable_terrain_tags.is_empty() and movement.pathable_terrain_tags.is_empty():
+		return true
+	for x in range(rect.position.x, rect.position.x + rect.size.x):
+		for y in range(rect.position.y, rect.position.y + rect.size.y):
+			var tags: Array[String] = grid.tile_terrain_tags(Vector2i(x, y))
+			for blocked_tag in movement.impassable_terrain_tags:
+				if tags.has(blocked_tag):
+					return false
+			if not movement.pathable_terrain_tags.is_empty():
+				var has_pathable_tag := false
+				for allowed_tag in movement.pathable_terrain_tags:
+					if tags.has(allowed_tag):
+						has_pathable_tag = true
+						break
+				if not has_pathable_tag:
+					return false
+	return true
 
 
 # Where freshly trained units should lean: the producer's rally target
