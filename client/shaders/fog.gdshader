@@ -6,7 +6,7 @@
 shader_type canvas_item;
 render_mode blend_mix;
 
-uniform float discovered_alpha: hint_range(0.0, 1.0) = 0.38;
+uniform float discovered_alpha: hint_range(0.0, 1.0) = 0.24;
 uniform float max_alpha: hint_range(0.0, 1.0) = 0.9;
 uniform vec3 fog_color: source_color = vec3(0.004, 0.008, 0.016);
 

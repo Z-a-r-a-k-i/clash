@@ -1068,7 +1068,12 @@ func session_cockpit() -> Control:
 
 
 func session_input_enabled() -> bool:
-	return _match_started and _surface != null and _surface.renderer() != null
+	return (
+		_match_started
+		and _surface != null
+		and _surface.renderer() != null
+		and not _surface.is_resolve_animation_playing()
+	)
 
 
 func session_is_blocking_overlay_visible() -> bool:

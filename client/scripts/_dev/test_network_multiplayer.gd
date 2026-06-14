@@ -80,6 +80,10 @@ func _all_tests() -> Array[Array]:
 			_test_network_submit_in_flight_blocks_local_edits
 		],
 		[
+			"network_resolve_playback_blocks_local_edits",
+			_test_network_resolve_playback_blocks_local_edits
+		],
+		[
 			"network_authoritative_rebind_syncs_selection_highlights",
 			_test_network_authoritative_rebind_syncs_selection_highlights
 		],
@@ -1086,6 +1090,62 @@ func _test_network_submit_in_flight_blocks_local_edits() -> bool:
 	if not bool(mode.call("issue_move_selected", target_tile, false)):
 		push_error("clearing submit in-flight should allow local edits again")
 		ok = false
+	remove_child(mode)
+	mode.queue_free()
+	return ok
+
+
+func _test_network_resolve_playback_blocks_local_edits() -> bool:
+	var script: Script = load(NETWORK_PLAY_MODE_PATH) as Script
+	if script == null:
+		push_error("could not load %s" % NETWORK_PLAY_MODE_PATH)
+		return false
+	var mode: Node = script.new()
+	add_child(mode)
+	mode.call("ensure_initialized")
+	var loaded: LoadedScenario = _load_combat()
+	if loaded == null:
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	mode.call("bind_authoritative_snapshot", loaded.state, loaded.registry, 0)
+	var actor_id: int = _first_movable_entity_id(loaded.state, loaded.registry, 0)
+	var actor: Entity = loaded.state.get_entity_by_id(actor_id)
+	var target_tile: Vector2i = _first_open_neighbor(loaded.state, actor_id)
+	if actor == null or target_tile == Vector2i(-1, -1):
+		push_error("network resolve playback input gate test requires a movable actor")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	var next_state: MatchState = loaded.state.clone()
+	var next_actor: Entity = next_state.get_entity_by_id(actor_id)
+	if next_actor == null or not next_state.tile_grid.move(actor_id, target_tile):
+		push_error("network resolve playback input gate test could not build the next state")
+		remove_child(mode)
+		mode.queue_free()
+		return false
+	next_actor.origin = target_tile
+	mode.call(
+		"apply_authoritative_result",
+		next_state,
+		[_move_event_for_test(actor_id, actor.origin, target_tile)]
+	)
+	var surface: MatchPlaySurface = (
+		mode.find_child("MatchPlaySurface", true, false) as MatchPlaySurface
+	)
+	var renderer: MatchRenderer = surface.renderer() if surface != null else null
+	var ok: bool = true
+	if bool(mode.call("session_input_enabled")):
+		push_error("network input should be disabled while resolve movement playback is active")
+		ok = false
+	if renderer == null or not renderer.has_method("finish_resolve_animation_for_tests"):
+		push_error("network renderer should expose finish_resolve_animation_for_tests")
+		ok = false
+	else:
+		renderer.call("finish_resolve_animation_for_tests")
+		if not bool(mode.call("session_input_enabled")):
+			push_error("network input should be enabled after resolve movement playback finishes")
+			ok = false
 	remove_child(mode)
 	mode.queue_free()
 	return ok
@@ -2569,6 +2629,17 @@ func _has_move_order(orders: Array[EntityOrder], entity_id: int, target_tile: Ve
 		):
 			return true
 	return false
+
+
+func _move_event_for_test(
+	actor_id: int, from_origin: Vector2i, to_origin: Vector2i
+) -> ResolverEvent:
+	var event := ResolverEvent.new()
+	event.type = ResolverEvent.Type.ENTITY_MOVED
+	event.actor_id = actor_id
+	event.from_origin = from_origin
+	event.to_origin = to_origin
+	return event
 
 
 func _train_completed_target_id(events: Array, producer_id: int, def_id: String) -> int:
