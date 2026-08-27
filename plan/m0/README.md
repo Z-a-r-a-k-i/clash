@@ -1,14 +1,15 @@
 ---
-status: sketch
+status: done
 ---
 
 # M0 — Local prototype
 
-Smallest playable thing that has the soul of the game on one machine. No networking, no accounts, no ladder, no card system. The goal is to find out — fast — whether the simultaneous-turn RTS feels fun.
+Completed local prototype that established the game's deterministic rules and
+playable development surface before solo and network paths existed.
 
 ## Scope
 
-M0 is a **dev-only playable** prototype. Simultaneous turns require blind concurrent input, so hot-seat is incompatible by construction; an AI opponent is M1. Until then, one developer drives both players from a rough debug tool with no timer and a scenario loader. The goal is not polished UX; it is reaching enough gameplay to expose obvious fun, pacing, and command-surface problems.
+M0 was a **dev-only playable** prototype. Simultaneous turns require blind concurrent input, so hot-seat was incompatible by construction; one developer drove both players from a rough debug tool with no timer and a scenario loader. Later M1 and network work now provide the normal playable paths, but this tree remains the historical record of the underlying systems.
 
 Both sides start with an identical roster:
 
@@ -37,30 +38,36 @@ A match ends when one player has zero buildings, or surrenders. M0's purpose is 
 | Simple facing playtest map | [11-simple-facing-playtest-map.md](11-simple-facing-playtest-map.md) | `done` |
 | Dev play command UX | [12-dev-play-command-ux.md](12-dev-play-command-ux.md) | `done` |
 | Combat command simplification | [13-combat-command-simplification.md](13-combat-command-simplification.md) | `done` |
+| Mechanics and status effects | [14-mechanics-and-status-effects.md](14-mechanics-and-status-effects.md) | `done` |
 
-## What's deferred to M1 or later
+## What M0 deferred
 
-- AI opponent (M1) — first time a single human can play solo.
-- Network play by invitation (M2) — first time two humans can actually play.
-- Control groups (M1) — M0 selects unit-by-unit; group orders come once we know the action surface.
-- Tuning pass on tile size, pop slots, timer length (M1 onward, with playtest data).
-- Polished art (post-MVP). M0 uses placeholder sprites.
+- AI opponent and simulation — subsequently implemented in M1.
+- Network play by invitation — a trusted development slice is now implemented;
+  production infrastructure remains M2.
+- Box/multi-selection and group orders — subsequently implemented. Persistent
+  numbered RTS control groups remain future work.
+- Tuning and presentation passes — active, driven by external playtests.
+- Polished art and production exports — later milestones.
 
-## Immediate next PR
+## Closure evidence
 
-Run a manual M0 combat/economy playtest against the simplified command model,
-then promote the first concrete fun or readability problem into the next plan
-node. The current command surface is Move, Move Only, Target, Halt on Sight,
-Gather, Build, Train, Research, Ability, Cancel, Resolve.
+The gameplay-first M0 nodes landed, the repeatable smoke path covers economy,
+production, combat, fog, and match end, and the full headless suite protects the
+resolver and dev-play surface. The initial manual pass exposed presentation and
+command-clarity blockers; those findings became later M0/M1 work rather than an
+open M0 handoff. The optional tick-step debugger remains a deferred stub.
 
 ## Done when
 
-- [ ] A developer can drive a complete match (both sides) through the dev play mode, ending in a raze or surrender.
+- [x] The dev-play surface and smoke path exercise a complete match ending in
+      raze or surrender; later solo and network paths reuse the same controller.
 - [x] Scenario loader covers at least three regression scenarios (combat, economy, edge case). *(plan-07a + plan-08)*
-- [ ] All M0 implementation and readiness nodes through 09 are `done` except
+- [x] All M0 implementation and readiness nodes through 09 are `done` except
   07b7, which remains an intentional `07-dev-play-mode` debugger stub pending
   playtest findings.
-- [ ] Mechanic-correctness notes captured in `../../docs/ROADMAP.md` or in follow-up plan nodes for M1.
+- [x] Mechanic-correctness and playtest notes are captured in the roadmap and
+      follow-up M1 nodes.
 
 ## Plan-tree convention
 

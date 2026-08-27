@@ -1,11 +1,18 @@
 # clash
 
-Turn based PvP strategy game. Two players queue actions during a shared timer; the server resolves all actions deterministically each turn (attacks before moves, target chains, fallback to closest enemy unless on hold fire). Web and mobile (Godot HTML5 / Android / iOS exports). See @docs/ARCHITECTURE.md for the data flow and @docs/DECISIONS.md for the why.
+Turn based PvP strategy game with blind simultaneous submissions. Both players
+queue actions, submit, and then the authoritative resolver applies the turn
+deterministically (attacks before moves, target chains, and closest-enemy
+fallback when a focused target is invalid). The current pre-alpha supports solo
+AI, AI simulations, replays, and a trusted same-version WebSocket playtest
+server in Godot. A shared turn timer, hold-fire behavior, and web/mobile exports
+remain future work. See @docs/ARCHITECTURE.md for the data flow and
+@docs/DECISIONS.md for the why.
 
 ## Key Principles
 
 1. **Type schemas live in code, not markdown.** At M0 the data layer is hand-written GDScript Resources per the design spec at `plan/m0/00-config-and-tunables.md`. Proto for cross-language wire types is one candidate for M2 alongside others (see ADR 0006); decision deferred until then. Either way, never duplicate type definitions in markdown.
-2. **Resolver is server-authoritative once a server exists.** At M0/M1 the resolver lives in the Godot client (driven by dev tooling, then by an AI opponent at M1). At M2 the resolver moves to a server; clients render the resolved outcome and never speculate.
+2. **Resolver is server-authoritative in network play.** Local and solo modes run the resolver in-process. The trusted network slice runs the same resolver in a headless Godot server and clients render its authoritative result without speculation. M2 decides whether that becomes the production stack or is ported behind the existing boundary.
 3. **GDScript only.** Game code is GDScript per ADR 0020. C# is not used; web/mobile platform support gaps in the .NET build of Godot 4.6 disqualify it.
 4. **One repo, layered stacks.** Godot in `client/`, server stack (TBD at M2) in `server/`, protobuf in `proto/`. The root `Makefile` orchestrates checks across stacks.
 5. **Test the system before adding complexity.** Most "we need a fallback" intuitions disappear once you reproduce the case.
@@ -14,7 +21,15 @@ Turn based PvP strategy game. Two players queue actions during a shared timer; t
 
 ## Architecture
 
-At M0 the resolver lives in the Godot client and is driven by dev tooling — no network, no server, no AI. M1 adds an AI opponent (still all client-side). M2 adds network play; the server technology and wire protocol are picked at that point. Candidate paths (Go + protobuf, headless Godot/GDScript, Nakama, etc.) are listed in the design spec. See @docs/ARCHITECTURE.md and @plan/m0/00-config-and-tunables.md.
+M0 established the deterministic resolver and development play surface. M1
+added the shared play-mode controller, main-and-natural 1v1 arena, AI opponent, simulation
+harness, and major HUD/readability work. A trusted same-version network slice
+also exists ahead of the final M2 infrastructure decision: a headless Godot
+server hosts invite-code matches with the resolver authoritative. M2 still
+decides whether to harden that path or adopt another production stack and wire
+format. Candidate paths (Go + protobuf, headless Godot/GDScript, Nakama, etc.)
+are listed in the design spec. See @docs/ARCHITECTURE.md,
+@docs/NETWORK-PLAYTEST.md, and @plan/m0/00-config-and-tunables.md.
 
 ## Stack Specific
 
@@ -23,9 +38,10 @@ At M0 the resolver lives in the Godot client and is driven by dev tooling — no
 - Define Resource subclasses with `class_name X extends Resource`; one capability sub-resource per file.
 - Lint config in `gdlintrc`. Format with `gdformat`. For `@tool` scripts, see @docs/GODOT-NOTES.md — there are silent failure modes.
 
-**Server (`server/`, deferred until M2 — see ADR 0006):**
-- Server technology and wire protocol are picked at M2. Candidate paths: Go + protobuf, headless Godot/GDScript, Nakama, etc.
-- This section is rewritten then; for now `server/` only has a `.gitkeep` stub.
+**Network/server (`client/scripts/network/` now; `server/` reserved — see ADR 0006):**
+- The current trusted playtest server is headless Godot inside `client/`, reusing the resolver, scenario resources, and replay types.
+- Production server technology and wire protocol are picked at M2. Candidate paths: harden headless Godot, Go + protobuf, Nakama, or another evidence-backed choice.
+- The root `server/` directory remains a placeholder unless M2 chooses a separate stack.
 
 **Proto (`proto/`, conditional on proto being chosen at M2 — see ADR 0007):**
 - Versioned by folder: `proto/clash/v1/`. Note that godobuf (the GDScript-side codegen) does not support `package` directives — use a name-prefix convention (e.g. `ClashV1TurnStart`) inside messages if proto is adopted.

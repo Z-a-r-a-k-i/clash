@@ -2,7 +2,10 @@
 
 ## Overview
 
-Clash is a turn-based PvP strategy game. Two players queue actions during a shared turn timer; when both submit (or the timer expires), the resolver applies all queued actions deterministically and produces the resolved frame.
+Clash is a turn-based PvP strategy game. Two players queue actions and submit
+them blind; the resolver then applies both queues deterministically and produces
+the resolved frame. A shared turn timer is part of the production design but is
+not implemented in the current solo or trusted-network slice.
 
 The architecture changes by milestone. A same-version Godot WebSocket slice now exists for dev playtests before the production M2 server decision:
 
@@ -40,11 +43,21 @@ Server technology and wire protocol are deferred to M2 per ADR 0006. Candidate p
 Godot 4.6+ project. GDScript only (per ADR 0020). Responsibilities:
 
 - Render the board, units, and resolved events.
-- Let the player queue actions during the shared turn timer (move, attack-ground, target enemy, gather, build, train, research, abilities, cancel, surrender).
+- Let the player queue actions before submitting (move, attack-ground, target
+  enemy, gather, build, train, abilities, cancel, surrender, and box/group
+  orders). The generic resolver supports data-driven research, but the current
+  roster exposes no research options.
 - At M0/M1: run the resolver locally.
-- At M2 onward: submit the queued actions to the server, await the resolved frame, animate it. Authoritative game state moves to the server; client state becomes a faithful rendering of what the server sent plus the in-flight queue.
+- In the trusted network slice: submit the queued actions to the headless Godot
+  server, await the authoritative resolved frame, and animate resolved movement.
+  Production M2 keeps this authority boundary even if the stack or wire format
+  changes.
 
-The resolver itself is a pure GDScript function over plain-data structures (see the design spec). At M0/M1 it runs in-client; at M2 it runs in whatever server stack is chosen. If the server stays Godot/GDScript, the resolver code is reused unchanged; otherwise a port is needed (the design's plain-data shape keeps that port mechanical).
+The resolver itself is a pure GDScript function over plain-data structures (see
+the design spec). It runs in-client for local/solo play and in the headless
+Godot server for the trusted network slice. If production M2 stays on
+Godot/GDScript, the resolver remains shared unchanged; otherwise a port is
+needed (the design's plain-data shape keeps that port mechanical).
 
 ### Network playtest (`client/scripts/network/`)
 
@@ -76,6 +89,10 @@ Pathfinding, range checks, vision (fog of war), and collision all assume multi-t
 
 ## Turn Resolution
 
+The target production flow is below. The current trusted slice follows the same
+submit/resolve/broadcast boundary but starts without a timer and waits for both
+explicit submissions.
+
 A turn proceeds as follows:
 
 1. **Server: turn start.** Both clients receive `TurnStart { turn_index, timer_ms, current_state }`.
@@ -89,7 +106,10 @@ A turn proceeds as follows:
    - The resolver does not advance hidden standing movement; clients submit any assisted follow-up move as normal turn input.
    - End-of-turn effects then run: gather income ticks, production progress, research progress, building completion, cooldowns, status effects, and win checks.
 5. **Server: broadcast.** `ResolvedTurn { events[] }` goes to both clients.
-6. **Clients: animate.** Each client plays the events in order. Once animation finishes, request the next turn.
+6. **Clients: present.** Each client animates resolved movement batches in event
+   order, then shows the final authoritative state. Combat/status presentation
+   is still incomplete; once movement animation finishes, the next turn can
+   begin.
 
 The win check runs after end-of-turn effects: a player with no buildings loses; a surrender flag in the next `SubmitTurn` ends the match immediately.
 
