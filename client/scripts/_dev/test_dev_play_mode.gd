@@ -109,7 +109,7 @@ func _test_selecting_a_resource_shows_remaining_amount() -> bool:
 		return false
 	var patch: Entity = mode.current_state().get_entity_by_id(patch_id)
 	patch.current_resource_amount = 321
-	var ok := true
+	var ok: bool = true
 	if not mode.select_entity_id(patch_id):
 		push_error("mineral patches should be selectable for inspection")
 		ok = false

@@ -364,7 +364,7 @@ func process_camera_input(delta: float) -> void:
 	if _host.session_is_blocking_overlay_visible():
 		clear_keyboard_camera_input()
 		return
-	var direction := Vector2(
+	var direction: Vector2 = Vector2(
 		float(int(_camera_left_pressed) - int(_camera_right_pressed)),
 		float(int(_camera_up_pressed) - int(_camera_down_pressed))
 	)
@@ -397,6 +397,7 @@ func handle_camera_key_input(event: InputEventKey) -> bool:
 		return _host.session_input_enabled() and not _host.session_is_blocking_overlay_visible()
 	if (
 		event.is_command_or_control_pressed()
+		or _focused_control_uses_arrow_keys()
 		or not _host.session_input_enabled()
 		or _host.session_is_blocking_overlay_visible()
 	):
@@ -411,6 +412,21 @@ func handle_camera_key_input(event: InputEventKey) -> bool:
 		KEY_DOWN:
 			_camera_down_pressed = true
 	return true
+
+
+func _focused_control_uses_arrow_keys() -> bool:
+	var viewport: Viewport = _host.get_viewport() if _host != null else null
+	var focused: Control = viewport.gui_get_focus_owner() if viewport != null else null
+	if focused == null:
+		return false
+	if focused is LineEdit:
+		return true
+	var current: Node = focused
+	while current != null:
+		if current is FileDialog:
+			return true
+		current = current.get_parent()
+	return false
 
 
 func clear_keyboard_camera_input() -> void:
