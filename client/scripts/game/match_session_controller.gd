@@ -400,6 +400,8 @@ func handle_camera_key_input(event: InputEventKey, focused_control: Control = nu
 			return false
 	if not event.pressed:
 		return was_captured
+	if event.echo:
+		return was_captured
 	if (
 		event.is_command_or_control_pressed()
 		or _focused_control_uses_arrow_keys(focused_control)

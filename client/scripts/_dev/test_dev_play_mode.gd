@@ -3652,6 +3652,11 @@ func _test_arrow_keys_pan_camera() -> bool:
 	if controller.handle_camera_key_input(_key_press(KEY_RIGHT), line_edit):
 		push_error("focused LineEdit arrow press should remain available to the control")
 		ok = false
+	var rejected_echo: InputEventKey = _key_press(KEY_RIGHT)
+	rejected_echo.echo = true
+	if controller.handle_camera_key_input(rejected_echo):
+		push_error("echo after a rejected arrow press must not capture camera input")
+		ok = false
 	if controller.handle_camera_key_input(_key_event(KEY_RIGHT, false), line_edit):
 		push_error("release after a rejected LineEdit press should remain available to the control")
 		ok = false
