@@ -2,6 +2,9 @@
 class_name MatchRenderer
 extends Node2D
 
+signal resolve_animation_started
+signal resolve_animation_finished
+
 # Renders a MatchState to screen. Reads ResolveResult.events to render
 # attack overlays + destruction effects. Pure consumer of state — never
 # writes back. The resolver remains a pure function (ADR-0013).
@@ -39,6 +42,7 @@ const _DAMAGE_LABEL_FADE_SECONDS := 1.4
 const _DAMAGE_LABEL_RISE_PIXELS := 32.0
 const _DAMAGE_LABEL_OFFSET_Y := -28.0
 const _DESTRUCTION_FADE_SECONDS := 0.5
+const _MOVE_STEP_SECONDS := 0.12
 const _COMBAT_LOG_MAX_LINES := 50
 const _SELECTED_HIGHLIGHT_COLOR := Color(0.1, 0.85, 1.0, 0.32)
 const _HOVER_HIGHLIGHT_COLOR := Color(1.0, 1.0, 1.0, 0.22)
@@ -83,6 +87,7 @@ const _CONSTRUCTION_PROGRESS_SIZE := Vector2(64.0, 8.0)
 const _FOG_SHADER := preload("res://shaders/fog.gdshader")
 const _FOG_LEVEL_DISCOVERED := 0.5
 const _FOG_LEVEL_VISIBLE := 1.0
+const _FOG_DISCOVERED_ALPHA := 0.24
 const _DEV_PLAYABLE_ZOOM := 1.1
 const _MIN_CAMERA_ZOOM := 0.5
 const _MAX_CAMERA_ZOOM := 4.0
@@ -141,6 +146,12 @@ var _fog_image: Image = null
 var _fog_texture: ImageTexture = null
 var _fog_sprite: Sprite2D = null
 var _range_preview_signature: String = ""
+var _resolve_animation_playing: bool = false
+var _resolve_animation_batches: Array[Array] = []
+var _resolve_animation_batch_index: int = 0
+var _resolve_animation_state: MatchState = null
+var _resolve_animation_final_state: MatchState = null
+var _resolve_animation_tween: Tween = null
 
 @onready var _entities_root: Node2D = $Entities
 @onready var _terrain: TileMapLayer = $Terrain
@@ -170,6 +181,7 @@ var _production_progress_root: Node2D = get_node_or_null("Overlays/ProductionPro
 # tree to match. Replaces any existing rendered state.
 func bind_state(state: MatchState, registry: EntityRegistry) -> void:
 	_resolve_internal_nodes()
+	_cancel_resolve_animation()
 	_clear_existing_views()
 
 	_state = state
@@ -210,6 +222,43 @@ func entity_view_count() -> int:
 	return _views_by_id.size()
 
 
+func is_resolve_animation_playing() -> bool:
+	return _resolve_animation_playing
+
+
+func resolve_animation_batch_count() -> int:
+	return _resolve_animation_batches.size()
+
+
+func advance_resolve_animation_for_tests() -> bool:
+	if not _resolve_animation_playing:
+		return false
+	if _resolve_animation_batch_index >= _resolve_animation_batches.size():
+		return false
+	_stop_resolve_animation_tween()
+	var batch: Array[Dictionary] = _resolve_animation_batches[_resolve_animation_batch_index]
+	_apply_resolve_animation_batch(batch)
+	_position_views_for_move_batch(batch)
+	_refresh_visibility_for_animation_state(_resolve_animation_state)
+	_resolve_animation_batch_index += 1
+	if _resolve_animation_batch_index >= _resolve_animation_batches.size():
+		_finish_resolve_animation()
+	return true
+
+
+func finish_resolve_animation_for_tests() -> void:
+	if not _resolve_animation_playing:
+		return
+	_stop_resolve_animation_tween()
+	while _resolve_animation_batch_index < _resolve_animation_batches.size():
+		var batch: Array[Dictionary] = _resolve_animation_batches[_resolve_animation_batch_index]
+		_apply_resolve_animation_batch(batch)
+		_position_views_for_move_batch(batch)
+		_refresh_visibility_for_animation_state(_resolve_animation_state)
+		_resolve_animation_batch_index += 1
+	_finish_resolve_animation()
+
+
 # Apply a turn's resolution. The order matters: events run between the
 # spawn-new-views pass and the prune-dead-views pass so that a fatal
 # attack (ENTITY_DAMAGED followed by ENTITY_DESTROYED) still has a live
@@ -228,6 +277,11 @@ func render_step(new_state: MatchState, events: Array[ResolverEvent]) -> void:
 		)
 		profile_lines.append("[render_step_profile] events=%d" % events.size())
 	_resolve_internal_nodes()
+	if _resolve_animation_playing:
+		_finish_resolve_animation()
+	var previous_state: MatchState = _state
+	var movement_batches: Array[Array] = _movement_batches_from_events(events)
+	var moved_entity_ids: Dictionary[int, bool] = _moved_entity_ids_from_batches(movement_batches)
 	if profile_enabled:
 		profile_lines.append(
 			(
@@ -283,7 +337,8 @@ func render_step(new_state: MatchState, events: Array[ResolverEvent]) -> void:
 			)
 		)
 		profile_step = Time.get_ticks_usec()
-	_update_surviving_views(new_state)
+	var should_animate_moves: bool = not movement_batches.is_empty() and previous_state != null
+	_update_surviving_views(new_state, moved_entity_ids if should_animate_moves else {})
 	if profile_enabled:
 		profile_lines.append(
 			(
@@ -292,7 +347,10 @@ func render_step(new_state: MatchState, events: Array[ResolverEvent]) -> void:
 			)
 		)
 		profile_step = Time.get_ticks_usec()
-	_refresh_all_visibility()
+	if should_animate_moves:
+		_start_resolve_animation(previous_state, new_state, movement_batches)
+	else:
+		_refresh_all_visibility()
 	if profile_enabled:
 		profile_lines.append(
 			(
@@ -301,7 +359,8 @@ func render_step(new_state: MatchState, events: Array[ResolverEvent]) -> void:
 			)
 		)
 		profile_step = Time.get_ticks_usec()
-	_rebuild_production_progress()
+	if not should_animate_moves:
+		_rebuild_production_progress()
 	if profile_enabled:
 		profile_lines.append(
 			(
@@ -310,7 +369,8 @@ func render_step(new_state: MatchState, events: Array[ResolverEvent]) -> void:
 			)
 		)
 		profile_step = Time.get_ticks_usec()
-	_rebuild_construction_progress()
+	if not should_animate_moves:
+		_rebuild_construction_progress()
 	if profile_enabled:
 		profile_lines.append(
 			(
@@ -696,6 +756,9 @@ func construction_progress_count() -> int:
 
 func set_perspective_player_id(player_id: int) -> void:
 	_perspective_player_id = player_id
+	if _resolve_animation_playing and _resolve_animation_state != null:
+		_refresh_visibility_for_animation_state(_resolve_animation_state)
+		return
 	_refresh_entity_visibility()
 	_rebuild_fog_overlay()
 	_rebuild_production_progress()
@@ -1848,11 +1911,13 @@ func _prune_dead_views(new_state: MatchState) -> void:
 # Phase 4 of render_step. Push the post-turn state into every surviving
 # view (position, sprite swap on transform, modulate). Runs after
 # events so attack-line endpoints reflect pre-event positions.
-func _update_surviving_views(new_state: MatchState) -> void:
+func _update_surviving_views(new_state: MatchState, skipped_entity_ids: Dictionary = {}) -> void:
 	if _registry == null:
 		return
 	for entity in new_state.entities_sorted_by_id():
 		if not _is_renderable_entity(entity):
+			continue
+		if skipped_entity_ids.has(entity.id):
 			continue
 		var view: EntityView = _views_by_id.get(entity.id)
 		if view == null:
@@ -1870,6 +1935,223 @@ func _update_surviving_views(new_state: MatchState) -> void:
 				_tile_size,
 			)
 		)
+
+
+func _movement_batches_from_events(events: Array[ResolverEvent]) -> Array[Array]:
+	var batches: Array[Array] = []
+	var current_batch: Array[Dictionary] = []
+	var current_actor_ids: Dictionary[int, bool] = {}
+	for event: ResolverEvent in events:
+		if event == null or event.type != ResolverEvent.Type.ENTITY_MOVED or event.actor_id < 0:
+			continue
+		if current_actor_ids.has(event.actor_id):
+			if not current_batch.is_empty():
+				batches.append(current_batch)
+			current_batch = []
+			current_actor_ids.clear()
+		(
+			current_batch
+			. append(
+				{
+					"entity_id": event.actor_id,
+					"from_origin": event.from_origin,
+					"to_origin": event.to_origin,
+				}
+			)
+		)
+		current_actor_ids[event.actor_id] = true
+	if not current_batch.is_empty():
+		batches.append(current_batch)
+	return batches
+
+
+func _moved_entity_ids_from_batches(batches: Array[Array]) -> Dictionary[int, bool]:
+	var moved_ids: Dictionary[int, bool] = {}
+	for batch: Array[Dictionary] in batches:
+		for item: Dictionary in batch:
+			var entity_id: int = int(item.get("entity_id", -1))
+			if entity_id >= 0:
+				moved_ids[entity_id] = true
+	return moved_ids
+
+
+func _start_resolve_animation(
+	previous_state: MatchState, final_state: MatchState, movement_batches: Array[Array]
+) -> void:
+	_cancel_resolve_animation()
+	_resolve_animation_batches = movement_batches.duplicate(true)
+	_resolve_animation_batch_index = 0
+	_resolve_animation_final_state = final_state
+	_resolve_animation_state = _build_resolve_animation_state(
+		previous_state, final_state, movement_batches
+	)
+	if _resolve_animation_state == null:
+		_refresh_all_visibility()
+		_rebuild_production_progress()
+		_rebuild_construction_progress()
+		return
+	_resolve_animation_playing = true
+	emit_signal("resolve_animation_started")
+	_refresh_visibility_for_animation_state(_resolve_animation_state)
+	_play_next_resolve_animation_batch()
+
+
+func _build_resolve_animation_state(
+	previous_state: MatchState, final_state: MatchState, movement_batches: Array[Array]
+) -> MatchState:
+	if final_state == null:
+		return null
+	var animation_state: MatchState = final_state.clone()
+	if previous_state == null:
+		return animation_state
+	var initial_origins: Dictionary = {}
+	for batch: Array[Dictionary] in movement_batches:
+		for item: Dictionary in batch:
+			var entity_id: int = int(item.get("entity_id", -1))
+			if entity_id < 0 or initial_origins.has(entity_id):
+				continue
+			var previous_entity: Entity = previous_state.get_entity_by_id(entity_id)
+			if previous_entity != null:
+				initial_origins[entity_id] = previous_entity.origin
+			else:
+				initial_origins[entity_id] = item.get("from_origin", Vector2i.ZERO)
+	if not initial_origins.is_empty() and animation_state.tile_grid != null:
+		animation_state.tile_grid.move_batch(initial_origins, true)
+	for entity_id in initial_origins.keys():
+		var entity: Entity = animation_state.get_entity_by_id(int(entity_id))
+		if entity != null:
+			entity.origin = initial_origins[entity_id]
+	return animation_state
+
+
+func _play_next_resolve_animation_batch() -> void:
+	if not _resolve_animation_playing:
+		return
+	_stop_resolve_animation_tween()
+	if _resolve_animation_batch_index >= _resolve_animation_batches.size():
+		_finish_resolve_animation()
+		return
+	var batch: Array[Dictionary] = _resolve_animation_batches[_resolve_animation_batch_index]
+	_apply_resolve_animation_batch(batch)
+	_refresh_visibility_for_animation_state(_resolve_animation_state)
+	var animated_count := 0
+	_resolve_animation_tween = create_tween()
+	_resolve_animation_tween.set_parallel(true)
+	for item: Dictionary in batch:
+		var entity_id: int = int(item.get("entity_id", -1))
+		var view: EntityView = _views_by_id.get(entity_id)
+		var entity: Entity = (
+			_resolve_animation_state.get_entity_by_id(entity_id)
+			if _resolve_animation_state != null
+			else null
+		)
+		if view == null or entity == null:
+			continue
+		var target: Vector2 = _entity_center_for_origin(
+			entity, _resolve_animation_state, item.get("to_origin", entity.origin)
+		)
+		_resolve_animation_tween.tween_property(view, "position", target, _MOVE_STEP_SECONDS)
+		animated_count += 1
+	if animated_count <= 0:
+		_stop_resolve_animation_tween()
+		call_deferred("_on_resolve_animation_batch_complete")
+		return
+	_resolve_animation_tween.finished.connect(_on_resolve_animation_batch_complete)
+
+
+func _on_resolve_animation_batch_complete() -> void:
+	_resolve_animation_tween = null
+	if not _resolve_animation_playing:
+		return
+	_resolve_animation_batch_index += 1
+	_play_next_resolve_animation_batch()
+
+
+func _apply_resolve_animation_batch(batch: Array[Dictionary]) -> void:
+	if _resolve_animation_state == null:
+		return
+	var moves: Dictionary = {}
+	for item: Dictionary in batch:
+		var entity_id: int = int(item.get("entity_id", -1))
+		if entity_id < 0:
+			continue
+		var entity: Entity = _resolve_animation_state.get_entity_by_id(entity_id)
+		if entity == null:
+			continue
+		var to_origin: Vector2i = item.get("to_origin", entity.origin)
+		entity.origin = to_origin
+		moves[entity_id] = to_origin
+	if not moves.is_empty() and _resolve_animation_state.tile_grid != null:
+		_resolve_animation_state.tile_grid.move_batch(moves, true)
+
+
+func _position_views_for_move_batch(batch: Array[Dictionary]) -> void:
+	if _resolve_animation_state == null:
+		return
+	for item: Dictionary in batch:
+		var entity_id: int = int(item.get("entity_id", -1))
+		var view: EntityView = _views_by_id.get(entity_id)
+		var entity: Entity = _resolve_animation_state.get_entity_by_id(entity_id)
+		if view == null or entity == null:
+			continue
+		view.position = _entity_center_for_origin(
+			entity, _resolve_animation_state, item.get("to_origin", entity.origin)
+		)
+
+
+func _entity_center_for_origin(entity: Entity, state: MatchState, origin: Vector2i) -> Vector2:
+	var def: EntityDef = _def_for_entity(entity)
+	var footprint: Vector2i = def.footprint if def != null else Vector2i.ONE
+	if state != null and state.tile_grid != null:
+		var rect: Rect2i = state.tile_grid.entity_rect(entity.id)
+		if rect.size.x > 0 and rect.size.y > 0:
+			footprint = rect.size
+	footprint = Vector2i(maxi(footprint.x, 1), maxi(footprint.y, 1))
+	return (
+		Rect2(Vector2(origin) * float(_tile_size), Vector2(footprint) * float(_tile_size))
+		. get_center()
+	)
+
+
+func _refresh_visibility_for_animation_state(animation_state: MatchState) -> void:
+	if animation_state == null:
+		return
+	var final_state: MatchState = _state
+	_state = animation_state
+	_refresh_all_visibility()
+	_state = final_state
+
+
+func _finish_resolve_animation() -> void:
+	_stop_resolve_animation_tween()
+	var final_state: MatchState = _resolve_animation_final_state
+	_resolve_animation_playing = false
+	_resolve_animation_batches = []
+	_resolve_animation_batch_index = 0
+	_resolve_animation_state = null
+	_resolve_animation_final_state = null
+	if final_state != null:
+		_state = final_state
+		_update_surviving_views(final_state)
+		_refresh_all_visibility()
+		_rebuild_production_progress()
+		_rebuild_construction_progress()
+	emit_signal("resolve_animation_finished")
+
+
+func _cancel_resolve_animation() -> void:
+	_stop_resolve_animation_tween()
+	_resolve_animation_playing = false
+	_resolve_animation_batches = []
+	_resolve_animation_batch_index = 0
+	_resolve_animation_state = null
+	_resolve_animation_final_state = null
+
+
+func _stop_resolve_animation_tween() -> void:
+	if _resolve_animation_tween != null and _resolve_animation_tween.is_valid():
+		_resolve_animation_tween.kill()
+	_resolve_animation_tween = null
 
 
 func _reset_visibility_memory() -> void:
@@ -2083,6 +2365,7 @@ func _ensure_fog_sprite(width: int, height: int) -> void:
 	_fog_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	var fog_material: ShaderMaterial = ShaderMaterial.new()
 	fog_material.shader = _FOG_SHADER
+	fog_material.set_shader_parameter("discovered_alpha", _FOG_DISCOVERED_ALPHA)
 	_fog_sprite.material = fog_material
 	_fog_root.add_child(_fog_sprite)
 

@@ -51,6 +51,11 @@ func player_slot() -> int:
 	return _player_slot
 
 
+func is_resolve_animation_playing() -> bool:
+	_ensure_renderer()
+	return _renderer != null and _renderer.is_resolve_animation_playing()
+
+
 func _ensure_renderer() -> void:
 	if _renderer != null:
 		return

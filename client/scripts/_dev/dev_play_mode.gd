@@ -1628,7 +1628,7 @@ func session_cockpit() -> Control:
 
 
 func session_input_enabled() -> bool:
-	return _renderer != null and _loaded != null
+	return _renderer != null and _loaded != null and not _renderer.is_resolve_animation_playing()
 
 
 func session_is_blocking_overlay_visible() -> bool:

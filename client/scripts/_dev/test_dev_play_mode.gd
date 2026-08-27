@@ -228,6 +228,10 @@ func _all_tests() -> Array:
 			_test_move_and_gather_hotkeys_begin_pending_commands
 		],
 		["dev_play_mode_queues_and_resolves_turn", _test_queues_and_resolves_turn],
+		[
+			"dev_play_mode_blocks_input_during_resolve_playback",
+			_test_blocks_input_during_resolve_playback
+		],
 		["dev_play_mode_routes_context_actions", _test_routes_context_actions],
 		["dev_play_mode_context_cursor_classifier", _test_context_cursor_classifier],
 		[
@@ -421,6 +425,48 @@ func _test_queues_and_resolves_turn() -> bool:
 		return false
 	_free_mode(mode)
 	return true
+
+
+func _test_blocks_input_during_resolve_playback() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(COMBAT_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var renderer: MatchRenderer = mode.renderer()
+	var state: MatchState = mode.current_state()
+	var actor_id: int = _find_entity_id(state, "marine", 0)
+	var actor: Entity = state.get_entity_by_id(actor_id) if state != null else null
+	var target_tile: Vector2i = _move_target_tile_for_entity(state, actor_id)
+	if renderer == null or actor == null or target_tile == actor.origin:
+		push_error("resolve playback input gate test requires a movable actor and renderer")
+		_free_mode(mode)
+		return false
+	var next_state: MatchState = state.clone()
+	var next_actor: Entity = next_state.get_entity_by_id(actor_id)
+	if next_actor == null or not next_state.tile_grid.move(actor_id, target_tile):
+		push_error("resolve playback input gate test could not build the next state")
+		_free_mode(mode)
+		return false
+	next_actor.origin = target_tile
+	var event: ResolverEvent = _move_event_for_test(actor_id, actor.origin, target_tile)
+	renderer.render_step(next_state, [event])
+	var ok: bool = true
+	if bool(mode.session_input_enabled()):
+		push_error("dev play input should be disabled while resolve movement playback is active")
+		ok = false
+	if not renderer.has_method("finish_resolve_animation_for_tests"):
+		push_error("renderer should expose finish_resolve_animation_for_tests")
+		ok = false
+	else:
+		renderer.call("finish_resolve_animation_for_tests")
+		if not bool(mode.session_input_enabled()):
+			push_error("dev play input should be enabled after resolve movement playback finishes")
+			ok = false
+	_free_mode(mode)
+	return ok
 
 
 func _test_routes_context_actions() -> bool:
@@ -4083,6 +4129,17 @@ func _move_order_for_worker(state: MatchState, entity_id: int) -> EntityOrder:
 	order.entity_id = entity_id
 	order.target_tile = _move_target_tile_for_entity(state, entity_id)
 	return order
+
+
+func _move_event_for_test(
+	actor_id: int, from_origin: Vector2i, to_origin: Vector2i
+) -> ResolverEvent:
+	var event: ResolverEvent = ResolverEvent.new()
+	event.type = ResolverEvent.Type.ENTITY_MOVED
+	event.actor_id = actor_id
+	event.from_origin = from_origin
+	event.to_origin = to_origin
+	return event
 
 
 func _move_target_tile_for_entity(state: MatchState, entity_id: int) -> Vector2i:

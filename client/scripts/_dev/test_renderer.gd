@@ -172,6 +172,26 @@ func _all_tests() -> Array:
 			"match_renderer_fog_image_treats_all_terrain_as_explored",
 			_test_fog_image_treats_all_terrain_as_explored
 		],
+		[
+			"match_renderer_movement_playback_batches_concurrent_substeps",
+			_test_movement_playback_batches_concurrent_substeps
+		],
+		[
+			"match_renderer_movement_playback_slides_to_final_state",
+			_test_movement_playback_slides_to_final_state
+		],
+		[
+			"match_renderer_path_vision_reveals_enemy_during_playback",
+			_test_path_vision_reveals_enemy_during_playback
+		],
+		[
+			"match_renderer_path_vision_remembers_enemy_building",
+			_test_path_vision_remembers_enemy_building
+		],
+		[
+			"match_renderer_discovered_fog_material_is_lighter",
+			_test_discovered_fog_material_is_lighter
+		],
 		["match_renderer_hidden_combat_events_do_not_leak", _test_hidden_combat_events_do_not_leak],
 		[
 			"project_uses_fixed_16_9_viewport_stretch",
@@ -580,6 +600,27 @@ func _free_renderer(renderer: MatchRenderer) -> void:
 	if renderer.is_inside_tree():
 		remove_child(renderer)
 	renderer.queue_free()
+
+
+func _has_renderer_method(renderer: MatchRenderer, method_name: String) -> bool:
+	if renderer != null and renderer.has_method(method_name):
+		return true
+	push_error("renderer should expose %s" % method_name)
+	return false
+
+
+func _move_event(actor_id: int, from_origin: Vector2i, to_origin: Vector2i) -> ResolverEvent:
+	var event: ResolverEvent = ResolverEvent.new()
+	event.type = ResolverEvent.Type.ENTITY_MOVED
+	event.actor_id = actor_id
+	event.from_origin = from_origin
+	event.to_origin = to_origin
+	return event
+
+
+func _tile_center_for_test(tile: Vector2i) -> Vector2:
+	var tile_size: float = _test_tile_size()
+	return Vector2(tile.x + 0.5, tile.y + 0.5) * tile_size
 
 
 func _first_line_descendant(root: Node) -> Line2D:
@@ -2780,6 +2821,229 @@ func _test_fog_image_treats_all_terrain_as_explored() -> bool:
 		if not fog_sprite.scale.is_equal_approx(Vector2(tile, tile)):
 			push_error("fog sprite should scale one texel to one tile")
 			ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_movement_playback_batches_concurrent_substeps() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var state_a: MatchState = _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 3), "id": 2},
+		],
+		10,
+		10
+	)
+	var state_b: MatchState = _make_renderer_state(
+		[
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(3, 1), "id": 1},
+			{"def_id": "marine", "owner": 0, "origin": Vector2i(2, 3), "id": 2},
+		],
+		10,
+		10
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state_a, registry)
+	var events: Array[ResolverEvent] = [
+		_move_event(1, Vector2i(1, 1), Vector2i(2, 1)),
+		_move_event(2, Vector2i(1, 3), Vector2i(2, 3)),
+		_move_event(1, Vector2i(2, 1), Vector2i(3, 1)),
+	]
+	renderer.render_step(state_b, events)
+	var ok: bool = true
+	if not _has_renderer_method(renderer, "resolve_animation_batch_count"):
+		ok = false
+	elif int(renderer.call("resolve_animation_batch_count")) != 2:
+		push_error(
+			(
+				"movement playback should batch concurrent substeps as [1,2] then [1], got %d"
+				% int(renderer.call("resolve_animation_batch_count"))
+			)
+		)
+		ok = false
+	if not _has_renderer_method(renderer, "is_resolve_animation_playing"):
+		ok = false
+	elif not bool(renderer.call("is_resolve_animation_playing")):
+		push_error("movement playback should be active after render_step with move events")
+		ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_movement_playback_slides_to_final_state() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var state_a: MatchState = _make_renderer_state(
+		[{"def_id": "marine", "owner": 0, "origin": Vector2i(1, 1), "id": 1}], 8, 8
+	)
+	var state_b: MatchState = _make_renderer_state(
+		[{"def_id": "marine", "owner": 0, "origin": Vector2i(3, 1), "id": 1}], 8, 8
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state_a, registry)
+	var start_position: Vector2 = renderer.get_entity_view(1).position
+	var final_position: Vector2 = _tile_center_for_test(Vector2i(3, 1))
+	(
+		renderer
+		. render_step(
+			state_b,
+			[
+				_move_event(1, Vector2i(1, 1), Vector2i(2, 1)),
+				_move_event(1, Vector2i(2, 1), Vector2i(3, 1)),
+			]
+		)
+	)
+	var ok: bool = true
+	var during_position: Vector2 = renderer.get_entity_view(1).position
+	if not during_position.is_equal_approx(start_position):
+		push_error(
+			(
+				"view should stay at the movement start until playback advances, got %s"
+				% during_position
+			)
+		)
+		ok = false
+	if not _has_renderer_method(renderer, "finish_resolve_animation_for_tests"):
+		ok = false
+	else:
+		renderer.call("finish_resolve_animation_for_tests")
+		var after_position: Vector2 = renderer.get_entity_view(1).position
+		if not after_position.is_equal_approx(final_position):
+			push_error(
+				(
+					"view should finish at final state position %s, got %s"
+					% [final_position, after_position]
+				)
+			)
+			ok = false
+		if bool(renderer.call("is_resolve_animation_playing")):
+			push_error("playback should stop after finish_resolve_animation_for_tests")
+			ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_path_vision_reveals_enemy_during_playback() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var state_a: MatchState = _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(6, 1), "id": 2},
+		],
+		12,
+		6
+	)
+	var state_b: MatchState = _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(3, 1), "id": 1},
+			{"def_id": "marine", "owner": 1, "origin": Vector2i(6, 1), "id": 2},
+		],
+		12,
+		6
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state_a, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var ok: bool = true
+	if renderer.call("is_entity_view_visible", 2):
+		push_error("enemy should start hidden before the scout moves into path vision")
+		ok = false
+	(
+		renderer
+		. render_step(
+			state_b,
+			[
+				_move_event(1, Vector2i(1, 1), Vector2i(2, 1)),
+				_move_event(1, Vector2i(2, 1), Vector2i(3, 1)),
+			]
+		)
+	)
+	if not _has_renderer_method(renderer, "advance_resolve_animation_for_tests"):
+		ok = false
+	else:
+		renderer.call("advance_resolve_animation_for_tests")
+		renderer.call("advance_resolve_animation_for_tests")
+		if not renderer.call("is_entity_view_visible", 2):
+			push_error("enemy should be visible while path vision reaches it")
+			ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_path_vision_remembers_enemy_building() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var state_a: MatchState = _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "base", "owner": 1, "origin": Vector2i(6, 1), "id": 2},
+		],
+		14,
+		8
+	)
+	var state_b: MatchState = _make_renderer_state(
+		[
+			{"def_id": "worker", "owner": 0, "origin": Vector2i(1, 1), "id": 1},
+			{"def_id": "base", "owner": 1, "origin": Vector2i(6, 1), "id": 2},
+		],
+		14,
+		8
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state_a, registry)
+	renderer.call("set_perspective_player_id", 0)
+	(
+		renderer
+		. render_step(
+			state_b,
+			[
+				_move_event(1, Vector2i(1, 1), Vector2i(2, 1)),
+				_move_event(1, Vector2i(2, 1), Vector2i(3, 1)),
+				_move_event(1, Vector2i(3, 1), Vector2i(2, 1)),
+				_move_event(1, Vector2i(2, 1), Vector2i(1, 1)),
+			]
+		)
+	)
+	var ok: bool = true
+	if not _has_renderer_method(renderer, "finish_resolve_animation_for_tests"):
+		ok = false
+	else:
+		renderer.call("finish_resolve_animation_for_tests")
+		if not renderer.call("is_entity_view_silhouette", 2):
+			push_error("enemy building seen during path vision should remain as a fog silhouette")
+			ok = false
+	_free_renderer(renderer)
+	return ok
+
+
+func _test_discovered_fog_material_is_lighter() -> bool:
+	var registry: EntityRegistry = _renderer_registry()
+	var state: MatchState = _make_renderer_state(
+		[{"def_id": "watch_tower", "owner": 0, "origin": Vector2i(2, 2), "id": 1}], 6, 6
+	)
+	var renderer: MatchRenderer = _make_renderer()
+	renderer.bind_state(state, registry)
+	renderer.call("set_perspective_player_id", 0)
+	var ok: bool = true
+	var fog_root: Node2D = renderer.get_node_or_null("Overlays/Fog") as Node2D
+	var fog_sprite: Sprite2D = (
+		fog_root.get_node_or_null("FogSprite") as Sprite2D if fog_root != null else null
+	)
+	var material: ShaderMaterial = null
+	if fog_sprite != null:
+		material = fog_sprite.material as ShaderMaterial
+	if material == null:
+		push_error("fog sprite should have a shader material")
+		ok = false
+	else:
+		var raw_alpha: Variant = material.get_shader_parameter("discovered_alpha")
+		if not (raw_alpha is float or raw_alpha is int):
+			push_error("fog material should set numeric discovered_alpha, got %s" % str(raw_alpha))
+			ok = false
+		else:
+			var alpha: float = raw_alpha
+			if absf(alpha - 0.24) > 0.001:
+				push_error("discovered fog alpha should be 0.24, got %f" % alpha)
+				ok = false
 	_free_renderer(renderer)
 	return ok
 
