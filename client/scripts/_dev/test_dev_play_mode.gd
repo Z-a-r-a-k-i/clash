@@ -3645,8 +3645,17 @@ func _test_arrow_keys_pan_camera() -> bool:
 		push_error("arrow-key camera test requires a renderer camera")
 		_free_mode(mode)
 		return false
-	var ok := true
+	var ok: bool = true
 	renderer.zoom_camera(2.0)
+	var controller: MatchSessionController = mode.get("_controller") as MatchSessionController
+	var line_edit: LineEdit = LineEdit.new()
+	if controller.handle_camera_key_input(_key_press(KEY_RIGHT), line_edit):
+		push_error("focused LineEdit arrow press should remain available to the control")
+		ok = false
+	if controller.handle_camera_key_input(_key_event(KEY_RIGHT, false), line_edit):
+		push_error("release after a rejected LineEdit press should remain available to the control")
+		ok = false
+	line_edit.queue_free()
 	var start: Vector2 = camera.position
 	mode.call("_input", _key_press(KEY_RIGHT))
 	mode.call("_process", 0.1)

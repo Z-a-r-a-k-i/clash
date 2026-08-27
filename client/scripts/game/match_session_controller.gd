@@ -377,27 +377,32 @@ func process_camera_input(delta: float) -> void:
 		)
 
 
-func handle_camera_key_input(event: InputEventKey) -> bool:
+func handle_camera_key_input(event: InputEventKey, focused_control: Control = null) -> bool:
+	var was_captured: bool = false
 	match event.keycode:
 		KEY_LEFT:
+			was_captured = _camera_left_pressed
 			if not event.pressed:
 				_camera_left_pressed = false
 		KEY_RIGHT:
+			was_captured = _camera_right_pressed
 			if not event.pressed:
 				_camera_right_pressed = false
 		KEY_UP:
+			was_captured = _camera_up_pressed
 			if not event.pressed:
 				_camera_up_pressed = false
 		KEY_DOWN:
+			was_captured = _camera_down_pressed
 			if not event.pressed:
 				_camera_down_pressed = false
 		_:
 			return false
 	if not event.pressed:
-		return _host.session_input_enabled() and not _host.session_is_blocking_overlay_visible()
+		return was_captured
 	if (
 		event.is_command_or_control_pressed()
-		or _focused_control_uses_arrow_keys()
+		or _focused_control_uses_arrow_keys(focused_control)
 		or not _host.session_input_enabled()
 		or _host.session_is_blocking_overlay_visible()
 	):
@@ -414,9 +419,11 @@ func handle_camera_key_input(event: InputEventKey) -> bool:
 	return true
 
 
-func _focused_control_uses_arrow_keys() -> bool:
-	var viewport: Viewport = _host.get_viewport() if _host != null else null
-	var focused: Control = viewport.gui_get_focus_owner() if viewport != null else null
+func _focused_control_uses_arrow_keys(focused_control: Control = null) -> bool:
+	var focused: Control = focused_control
+	if focused == null:
+		var viewport: Viewport = _host.get_viewport() if _host != null else null
+		focused = viewport.gui_get_focus_owner() if viewport != null else null
 	if focused == null:
 		return false
 	if focused is LineEdit:
