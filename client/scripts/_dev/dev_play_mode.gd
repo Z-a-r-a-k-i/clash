@@ -58,7 +58,7 @@ var _ai_memory: AiMemory = AiMemory.new()
 var _renderer: MatchRenderer = null
 var _loaded: LoadedScenario = null
 var _tunables: Tunables = null
-var _input: DevTurnInput = DEV_TURN_INPUT_SCRIPT.new() as DevTurnInput
+var _turn_input: DevTurnInput = DEV_TURN_INPUT_SCRIPT.new() as DevTurnInput
 var _controller: MatchSessionController = MatchSessionController.new()
 var _hud_layer: CanvasLayer = null
 var _cockpit: DevPlayCockpit = null
@@ -86,11 +86,11 @@ var _auto_replay_path: String = ""
 
 
 func _init() -> void:
-	_controller.setup(self, _input, CAMERA_DRAG_THRESHOLD)
+	_controller.setup(self, _turn_input, CAMERA_DRAG_THRESHOLD)
 
 
 func _ready() -> void:
-	_controller.setup(self, _input, CAMERA_DRAG_THRESHOLD)
+	_controller.setup(self, _turn_input, CAMERA_DRAG_THRESHOLD)
 	_build_hud()
 	_controller.ensure_game_viewport()
 	var viewport: Viewport = get_viewport()
@@ -99,6 +99,17 @@ func _ready() -> void:
 		viewport.size_changed.connect(sync)
 	if _loaded == null:
 		load_scenario_path(scenario_path)
+
+
+func _process(delta: float) -> void:
+	_controller.process_camera_input(delta)
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and _controller.handle_camera_key_input(event as InputEventKey):
+		var viewport: Viewport = get_viewport()
+		if viewport != null:
+			viewport.set_input_as_handled()
 
 
 func load_scenario_path(path: String) -> bool:
@@ -114,15 +125,15 @@ func load_scenario_path(path: String) -> bool:
 		push_error("DevPlayMode: ScenarioLoader returned null.")
 		return false
 	_controller.clear_pending_command()
-	_input.set_queue_modifier_active(false)
+	_turn_input.set_queue_modifier_active(false)
 	_ensure_renderer()
 	if _renderer == null:
 		return false
 	_renderer.bind_state(_loaded.state, _loaded.registry)
-	_renderer.set_perspective_player_id(_input.active_player_id())
-	_renderer.focus_player_start(_input.active_player_id())
-	_input.bind_context(_loaded.state, _loaded.registry)
-	_input.clear_submissions()
+	_renderer.set_perspective_player_id(_turn_input.active_player_id())
+	_renderer.focus_player_start(_turn_input.active_player_id())
+	_turn_input.bind_context(_loaded.state, _loaded.registry)
+	_turn_input.clear_submissions()
 	_controller.set_range_projection_active(false)
 	_controller.clear_hover_tile()
 	_start_replay_journal()
@@ -143,7 +154,7 @@ func renderer() -> MatchRenderer:
 
 
 func input_model() -> DevTurnInput:
-	return _input
+	return _turn_input
 
 
 func command_card() -> Control:
@@ -206,7 +217,7 @@ func set_ai_opponent(strategy_path: String) -> void:
 		return
 	_ai_config = config
 	_ai_memory = AiMemory.new()
-	if _input.active_player_id() != 0:
+	if _turn_input.active_player_id() != 0:
 		set_active_player_id(0)
 	_update_hud("AI opponent enabled: %s" % strategy_path.get_file().get_basename())
 
@@ -222,7 +233,7 @@ func set_active_player_id(player_id: int) -> void:
 	if _ai_config != null and player_id != 0:
 		_update_hud("Perspective locked: the AI controls player 1.")
 		return
-	_input.set_active_player_id(player_id)
+	_turn_input.set_active_player_id(player_id)
 	_controller.clear_pending_command()
 	if _renderer != null:
 		_renderer.set_perspective_player_id(player_id)
@@ -241,7 +252,7 @@ func _emit_dev_resolve_profile(lines: Array[String]) -> void:
 
 
 func pending_order_count(player_id: int) -> int:
-	return _input.queued_order_count(player_id)
+	return _turn_input.queued_order_count(player_id)
 
 
 func save_latest_snapshot() -> bool:
@@ -267,7 +278,7 @@ func save_snapshot_to_path(path: String) -> bool:
 		_update_hud("Snapshot save path failed: %d." % dir_err)
 		return false
 	var err: Error = MatchSaver.save(
-		_loaded.state, _loaded.registry, path, _input.create_snapshot()
+		_loaded.state, _loaded.registry, path, _turn_input.create_snapshot()
 	)
 	if err != OK:
 		_update_hud("Snapshot save failed: %d." % err)
@@ -385,12 +396,12 @@ func replay_next() -> bool:
 	if _renderer != null:
 		_renderer.render_step(result.new_state, result.events)
 		_renderer.clear_input_highlights()
-	_input.bind_context(_loaded.state, _loaded.registry)
-	_input.clear_submissions(false, false)
-	_input.apply_resolve_events(result.events)
-	_input.queue_rally_orders_for_train_completed(result.events)
-	_input.queue_move_assists_for_next_turn()
-	_input.promote_future_orders_for_next_turn()
+	_turn_input.bind_context(_loaded.state, _loaded.registry)
+	_turn_input.clear_submissions(false, false)
+	_turn_input.apply_resolve_events(result.events)
+	_turn_input.queue_rally_orders_for_train_completed(result.events)
+	_turn_input.queue_move_assists_for_next_turn()
+	_turn_input.promote_future_orders_for_next_turn()
 	_replay_mode_active = true
 	_replay_cursor_turn = _loaded.state.turn_index
 	_record_checkpoint(_loaded.state.turn_index)
@@ -447,8 +458,8 @@ func resolve_turn() -> bool:
 			"[dev_resolve_profile] before entities=%d" % _loaded.state.entities.size()
 		)
 	var turn_before: int = _loaded.state.turn_index
-	var submit_a: SubmitTurn = _input.submit_for_player(0)
-	var submit_b: SubmitTurn = _input.submit_for_player(1)
+	var submit_a: SubmitTurn = _turn_input.submit_for_player(0)
+	var submit_b: SubmitTurn = _turn_input.submit_for_player(1)
 	if _ai_config != null:
 		submit_b = AiPlayer.plan_turn(
 			_loaded.state, 1, _loaded.registry, _tunables, _ai_config, _ai_memory
@@ -509,7 +520,7 @@ func resolve_turn() -> bool:
 				)
 			)
 			profile_step = Time.get_ticks_usec()
-	_input.bind_context(_loaded.state, _loaded.registry)
+	_turn_input.bind_context(_loaded.state, _loaded.registry)
 	if profile_enabled:
 		profile_lines.append(
 			(
@@ -518,11 +529,11 @@ func resolve_turn() -> bool:
 			)
 		)
 		profile_step = Time.get_ticks_usec()
-	_input.clear_submissions(false, false)
-	_input.apply_resolve_events(result.events)
-	_input.queue_rally_orders_for_train_completed(result.events)
-	_input.queue_move_assists_for_next_turn()
-	_input.promote_future_orders_for_next_turn()
+	_turn_input.clear_submissions(false, false)
+	_turn_input.apply_resolve_events(result.events)
+	_turn_input.queue_rally_orders_for_train_completed(result.events)
+	_turn_input.queue_move_assists_for_next_turn()
+	_turn_input.promote_future_orders_for_next_turn()
 	_record_checkpoint(_loaded.state.turn_index)
 	var auto_save_ok: bool = _save_auto_replay()
 	_replay_cursor_turn = _loaded.state.turn_index
@@ -566,6 +577,8 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_MOUSE_EXIT:
 		_controller.clear_hover_tile()
 		Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+	elif what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_controller.clear_keyboard_camera_input()
 
 
 func _ensure_renderer() -> void:
@@ -601,7 +614,7 @@ func _start_replay_journal() -> void:
 	_stop_replay_playback()
 	_replay = MatchReplay.new()
 	_replay.initial_session = _make_session(
-		_loaded.state, _loaded.registry, _input.create_snapshot()
+		_loaded.state, _loaded.registry, _turn_input.create_snapshot()
 	)
 	_replay.frames = []
 	_checkpoints.clear()
@@ -625,7 +638,7 @@ func _record_checkpoint(turn_index: int) -> void:
 	if _loaded == null or _loaded.state == null or _loaded.registry == null:
 		return
 	_checkpoints[turn_index] = _make_session(
-		_loaded.state, _loaded.registry, _input.create_snapshot()
+		_loaded.state, _loaded.registry, _turn_input.create_snapshot()
 	)
 
 
@@ -640,11 +653,11 @@ func _bind_session(session: SavedSession, replay_mode: bool, status_message: Str
 	_ensure_renderer()
 	if _renderer != null:
 		_renderer.bind_state(_loaded.state, _loaded.registry)
-		_renderer.set_perspective_player_id(_input.active_player_id())
+		_renderer.set_perspective_player_id(_turn_input.active_player_id())
 		_renderer.clear_input_highlights()
-	_input.restore_snapshot(session.input_snapshot, _loaded.state, _loaded.registry)
+	_turn_input.restore_snapshot(session.input_snapshot, _loaded.state, _loaded.registry)
 	if _renderer != null:
-		_renderer.set_perspective_player_id(_input.active_player_id())
+		_renderer.set_perspective_player_id(_turn_input.active_player_id())
 		_controller.sync_selection_highlights()
 	_controller.clear_pending_command()
 	_replay_mode_active = replay_mode
@@ -659,7 +672,7 @@ func _append_replay_frame(turn_index: int, submit_a: SubmitTurn, submit_b: Submi
 		_replay = MatchReplay.new()
 	if _replay.initial_session == null:
 		_replay.initial_session = _make_session(
-			_loaded.state, _loaded.registry, _input.create_snapshot()
+			_loaded.state, _loaded.registry, _turn_input.create_snapshot()
 		)
 	var frame := ReplayTurnFrame.new()
 	frame.turn_index = turn_index
@@ -1197,7 +1210,7 @@ func _clear_queues_from_hud() -> void:
 	if _replay_mode_active:
 		_reject_replay_edit()
 		return
-	_input.clear_submissions()
+	_turn_input.clear_submissions()
 	_controller.clear_pending_command()
 	_update_hud()
 
@@ -1206,7 +1219,7 @@ func _surrender_from_hud() -> void:
 	if _replay_mode_active:
 		_reject_replay_edit()
 		return
-	_input.surrender_active_player()
+	_turn_input.surrender_active_player()
 	_update_hud()
 
 
@@ -1217,12 +1230,12 @@ func _update_hud(override_status: String = "") -> void:
 	_controller.refresh_idle_worker_indicators(idle_worker_ids)
 	if _cockpit != null:
 		var player: PlayerState = (
-			_loaded.state.get_player(_input.active_player_id())
+			_loaded.state.get_player(_turn_input.active_player_id())
 			if _loaded != null and _loaded.state != null
 			else null
 		)
 		_cockpit.set_match_state(
-			_input.active_player_id(),
+			_turn_input.active_player_id(),
 			_loaded.state.turn_index if _loaded != null and _loaded.state != null else 0,
 			player.minerals if player != null else 0,
 			player.gas if player != null else 0,
@@ -1263,7 +1276,7 @@ func _update_hud(override_status: String = "") -> void:
 
 
 func _hud_status_text(override_status: String = "") -> String:
-	var status_message: String = _input.status_message()
+	var status_message: String = _turn_input.status_message()
 	if override_status != "":
 		return override_status
 	if (
@@ -1289,7 +1302,7 @@ func _hud_status_text(override_status: String = "") -> String:
 func _selection_details_text() -> String:
 	if _replay_mode_active:
 		return "Replay timeline is read-only."
-	var selected_ids: Array[int] = _input.selected_entity_ids()
+	var selected_ids: Array[int] = _turn_input.selected_entity_ids()
 	if selected_ids.is_empty():
 		return "Select a unit or building."
 	if selected_ids.size() > 1:
@@ -1333,7 +1346,7 @@ func _selection_details_text() -> String:
 func _selection_intent_text() -> String:
 	if _replay_mode_active:
 		return "Intent: replay"
-	var selected_ids: Array[int] = _input.selected_entity_ids()
+	var selected_ids: Array[int] = _turn_input.selected_entity_ids()
 	if selected_ids.is_empty():
 		return "Intent: none"
 	if selected_ids.size() > 1:
@@ -1360,26 +1373,26 @@ func _selection_intent_text() -> String:
 
 func _planned_order_count_for_selection(entity_ids: Array[int]) -> int:
 	var count := 0
-	var submit: SubmitTurn = _input.submit_for_player(_input.active_player_id())
+	var submit: SubmitTurn = _turn_input.submit_for_player(_turn_input.active_player_id())
 	if submit != null:
 		for item in submit.orders:
 			var order: EntityOrder = item
 			if order != null and entity_ids.has(order.entity_id):
 				count += 1
 	for entity_id in entity_ids:
-		count += _input.future_order_count_for_entity(entity_id)
+		count += _turn_input.future_order_count_for_entity(entity_id)
 	return count
 
 
 func _latest_planned_order_for_entity(entity_id: int) -> EntityOrder:
-	var submit: SubmitTurn = _input.submit_for_player(_input.active_player_id())
+	var submit: SubmitTurn = _turn_input.submit_for_player(_turn_input.active_player_id())
 	var latest: EntityOrder = null
 	if submit != null:
 		for item in submit.orders:
 			var order: EntityOrder = item
 			if order != null and order.entity_id == entity_id:
 				latest = order
-	var future_orders: Array[EntityOrder] = _input.future_orders_for_entity(entity_id)
+	var future_orders: Array[EntityOrder] = _turn_input.future_orders_for_entity(entity_id)
 	if not future_orders.is_empty():
 		latest = future_orders[future_orders.size() - 1]
 	return latest
@@ -1441,18 +1454,18 @@ func _refresh_command_card() -> void:
 		return
 	_command_card.call(
 		"set_command_state",
-		_input.selected_entity_label(),
-		_input.can_issue_move(),
-		_input.can_issue_target(),
-		_input.can_issue_gather(),
-		COMMAND_OPTION_BUILDER.build_options(_input, _input.build_option_ids()),
-		COMMAND_OPTION_BUILDER.entity_options(_input, _input.train_option_ids()),
-		COMMAND_OPTION_BUILDER.research_options(_input, _input.research_option_ids()),
-		COMMAND_OPTION_BUILDER.ability_options(_input, _input.ability_option_ids()),
-		_input.can_issue_unit_cancel(),
-		_input.can_issue_repeat_train_toggle(),
-		_input.selected_repeat_train_enabled(),
-		_input.can_issue_build_cancel(),
+		_turn_input.selected_entity_label(),
+		_turn_input.can_issue_move(),
+		_turn_input.can_issue_target(),
+		_turn_input.can_issue_gather(),
+		COMMAND_OPTION_BUILDER.build_options(_turn_input, _turn_input.build_option_ids()),
+		COMMAND_OPTION_BUILDER.entity_options(_turn_input, _turn_input.train_option_ids()),
+		COMMAND_OPTION_BUILDER.research_options(_turn_input, _turn_input.research_option_ids()),
+		COMMAND_OPTION_BUILDER.ability_options(_turn_input, _turn_input.ability_option_ids()),
+		_turn_input.can_issue_unit_cancel(),
+		_turn_input.can_issue_repeat_train_toggle(),
+		_turn_input.selected_repeat_train_enabled(),
+		_turn_input.can_issue_build_cancel(),
 		true
 	)
 
@@ -1470,8 +1483,8 @@ func _build_options(ids: Array[String]) -> Array[Dictionary]:
 			. append(
 				{
 					"id": def_id,
-					"label": _input.label_for_entity_def_id_with_cost(def_id),
-					"disabled": not _input.can_afford_build(def_id),
+					"label": _turn_input.label_for_entity_def_id_with_cost(def_id),
+					"disabled": not _turn_input.can_afford_build(def_id),
 				}
 			)
 		)
@@ -1620,7 +1633,7 @@ func session_renderer() -> MatchRenderer:
 
 
 func session_local_player_id() -> int:
-	return _input.active_player_id()
+	return _turn_input.active_player_id()
 
 
 func session_cockpit() -> Control:

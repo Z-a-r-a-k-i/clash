@@ -56,6 +56,7 @@ const CONTEXT_RALLY_MOVE := "rally_move"
 const CONTEXT_RALLY_GATHER := "rally_gather"
 const CONTEXT_INVALID := "invalid"
 const CAMERA_ZOOM_STEP: float = 1.15
+const CAMERA_KEYBOARD_PAN_SPEED: float = 900.0
 const FALLBACK_TOP_HUD_HEIGHT: float = 46.0
 const FALLBACK_BOTTOM_HUD_HEIGHT: float = 190.0
 const GAME_VIEWPORT_MARGIN_LEFT: float = 0.0
@@ -71,6 +72,10 @@ var _action_preview_builder: ActionPreviewBuilder = (
 )
 var _show_all_orders: bool = false
 var _is_panning_camera: bool = false
+var _camera_left_pressed: bool = false
+var _camera_right_pressed: bool = false
+var _camera_up_pressed: bool = false
+var _camera_down_pressed: bool = false
 var _pending_command: String = PENDING_NONE
 var _pending_build_def_id: String = ""
 var _hover_tile: Vector2i = Vector2i.ZERO
@@ -348,6 +353,71 @@ func handle_unhandled_input(event: InputEvent) -> void:
 				cancel_pending_command()
 				return
 			issue_context_at_tile(tile, button.shift_pressed)
+
+
+func process_camera_input(delta: float) -> void:
+	if not _host.session_input_enabled():
+		clear_keyboard_camera_input()
+		return
+	if delta <= 0.0:
+		return
+	if _host.session_is_blocking_overlay_visible():
+		clear_keyboard_camera_input()
+		return
+	var direction := Vector2(
+		float(int(_camera_left_pressed) - int(_camera_right_pressed)),
+		float(int(_camera_up_pressed) - int(_camera_down_pressed))
+	)
+	if direction == Vector2.ZERO:
+		return
+	var renderer: MatchRenderer = _renderer()
+	if renderer != null:
+		renderer.pan_camera_by_screen_delta(
+			direction.normalized() * CAMERA_KEYBOARD_PAN_SPEED * delta
+		)
+
+
+func handle_camera_key_input(event: InputEventKey) -> bool:
+	match event.keycode:
+		KEY_LEFT:
+			if not event.pressed:
+				_camera_left_pressed = false
+		KEY_RIGHT:
+			if not event.pressed:
+				_camera_right_pressed = false
+		KEY_UP:
+			if not event.pressed:
+				_camera_up_pressed = false
+		KEY_DOWN:
+			if not event.pressed:
+				_camera_down_pressed = false
+		_:
+			return false
+	if not event.pressed:
+		return _host.session_input_enabled() and not _host.session_is_blocking_overlay_visible()
+	if (
+		event.is_command_or_control_pressed()
+		or not _host.session_input_enabled()
+		or _host.session_is_blocking_overlay_visible()
+	):
+		return false
+	match event.keycode:
+		KEY_LEFT:
+			_camera_left_pressed = true
+		KEY_RIGHT:
+			_camera_right_pressed = true
+		KEY_UP:
+			_camera_up_pressed = true
+		KEY_DOWN:
+			_camera_down_pressed = true
+	return true
+
+
+func clear_keyboard_camera_input() -> void:
+	_camera_left_pressed = false
+	_camera_right_pressed = false
+	_camera_up_pressed = false
+	_camera_down_pressed = false
 
 
 func _set_event_handled() -> void:
