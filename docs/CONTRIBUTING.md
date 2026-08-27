@@ -25,6 +25,7 @@ The Godot project (`client/project.godot`) is already committed. For a fresh clo
    - Or copy/symlink the addon source into `client/addons/godot_ai/` by your platform's preferred mechanism.
 2. **Open Godot 4.6+** (any build — clash is GDScript per ADR 0020), open `client/`. The plugin should activate automatically because it's already listed in `[editor_plugins]` in `project.godot`.
 3. (Optional) Wire the godot-ai-plugin MCP server into your agent tooling.
+
    ```powershell
    claude mcp add --scope user --transport stdio godot node "<plugin>\mcp-server\dist\godot-mcp.js"
    ```
