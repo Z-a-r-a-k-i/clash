@@ -1,5 +1,5 @@
 ---
-status: sketch
+status: done
 depends_on:
   - ../02-tick-based-resolver.md
   - ../03-action-queue-and-orders.md

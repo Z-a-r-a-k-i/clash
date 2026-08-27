@@ -6,16 +6,22 @@ status: sketch
 
 Turn-based PvP strategy game with simultaneous-turn resolution. SC2-shaped economy, tech, counters, and macro on top of an action-slot lockstep resolver. See [../AGENTS.md](../AGENTS.md) for the architecture overview, [../docs/DECISIONS.md](../docs/DECISIONS.md) for the decisions log, and [../docs/ROADMAP.md](../docs/ROADMAP.md) for the long-horizon plan.
 
-## Active milestone
+## Milestone state
 
-- **[m0/](m0/)** — Dev-only playable prototype. One developer drives both players through a rough debug tool to validate the systems and start finding obvious gameplay/fun problems. Hot-seat is incompatible with simultaneous-turn blind input; AI is M1; first real PvP arrives with network play in M2.
+- **[M0](m0/) — completed.** The dev-only prototype established the resolver,
+  game systems, scenario/save tooling, and playable command surface.
+- **[M1](m1/) — active.** Solo AI, the simulation harness, shared match
+  controller, main-and-natural arena, HUD work, and resolved-movement animation
+  are implemented. External playtesting and remaining presentation work drive
+  the next focused nodes.
+- **M2 — development slice implemented.** Trusted same-version invite-code
+  matches run on a headless Godot WebSocket server. Production hosting,
+  security, reconnection, persistence, and the final stack decision remain M2.
 
 ## Future milestones
 
-These exist as `sketch` directories (or as one-line entries in `../docs/ROADMAP.md`) and become real plan trees when each becomes the next thing to work on:
+These remain one-line entries in `../docs/ROADMAP.md` until they become active:
 
-- **M1** — AI opponent. First time a single human can play solo. Control groups. Full counter matrix. Initial tuning pass.
-- **M2** — Network play by invitation. Resolver lifted to a server (technology TBD per ADR 0006). First time two humans can actually play.
 - **M3** — Lobby and matchmaking. Accounts, MMR.
 - **M4** — Web and mobile exports.
 - **M5** — Card / deck / race progression layer.
@@ -26,4 +32,5 @@ These exist as `sketch` directories (or as one-line entries in `../docs/ROADMAP.
 2. `../docs/ARCHITECTURE.md` — turn resolution, spatial model, components.
 3. `../docs/DECISIONS.md` — why things are the way they are.
 4. `./AGENTS.md` — plan-tree mechanics for agents.
-5. `./m0/README.md` — current milestone.
+5. `./m1/README.md` — current milestone and remaining validation gates.
+6. `./m0/README.md` — completed prototype history when older decisions matter.

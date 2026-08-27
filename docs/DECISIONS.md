@@ -48,13 +48,13 @@ Clients submit action queues; the server is the only authority for game state. C
 
 ## 0006 — Deferred server, deferred network technology
 
-**Date:** 2026-04-28 (revised 2026-04-29)
+**Date:** 2026-04-28 (revised 2026-08-27)
 
-`server/` is empty in v0. The resolver lives inside the Godot client for the prototype, driven by dev tooling on a single machine, so we can validate the rules without a network. M1 adds an AI opponent (still all client-side). M2 adds network play.
+The original prototype kept `server/` empty and ran the resolver inside the Godot client so the rules could be validated before choosing production network technology. The prototype also established snapshot and replay foundations; M1 subsequently added a client-side AI opponent and simulation tooling. An early M2 development slice now reuses the same deterministic core in a headless Godot WebSocket server and supports trusted, same-version 1v1 sessions.
 
-**M0 scope is dev-only.** One developer drives both players through a debug tool with no timer plus a scenario loader. No AI opponent (M1), no hot-seat (incompatible with simultaneous-turn blind input by construction — a single shared screen can't deliver independent concurrent input from two players), no PvP (arrives with M2 network play).
+**M0 was dev-only.** One developer drove both players through a debug tool with no timer plus a scenario loader. There is still no hot-seat mode because a single shared screen cannot deliver independent concurrent input for simultaneous blind turns. Solo AI and the trusted network development slice now provide the playable paths described in the roadmap.
 
-**Server technology and wire protocol are deferred to M2.** Candidate paths and tradeoffs:
+**Production server technology and wire protocol remain an M2 decision.** The headless Godot WebSocket slice validates the session model but does not settle deployment, security, persistence, reconnection, or scaling. Candidate production paths and tradeoffs include:
 
 - Go server + WebSocket + protobuf — most control; standard production pattern; biggest setup; two languages.
 - Headless Godot/GDScript server + WebSocket (any encoding) — same engine and language on both sides; resolver code reused 1:1; less standard.

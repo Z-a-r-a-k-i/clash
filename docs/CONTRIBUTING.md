@@ -12,7 +12,10 @@ Setup, code style, and testing for clash.
 
 The Godot project (`client/project.godot`) is already committed. For a fresh clone:
 
-1. **Install the godot-ai-plugin addon** (the project assumes it's enabled — see ADR 0008 and the note below). Either:
+1. **Install the external godot-ai-plugin addon when you have access to it.**
+   The currently committed Godot settings reference its editor plugin and
+   `AiGameBridge` autoload, so linking it avoids missing-addon warnings even
+   though gameplay and the automated tests do not depend on the bridge. Either:
    - Junction the source repo into `client/addons/godot_ai/` (Windows; junction stays gitignored):
      ```powershell
      New-Item -ItemType Junction `
@@ -21,12 +24,19 @@ The Godot project (`client/project.godot`) is already committed. For a fresh clo
      ```
    - Or copy/symlink the addon source into `client/addons/godot_ai/` by your platform's preferred mechanism.
 2. **Open Godot 4.6+** (any build — clash is GDScript per ADR 0020), open `client/`. The plugin should activate automatically because it's already listed in `[editor_plugins]` in `project.godot`.
-3. (Optional) Wire the godot-ai-plugin MCP server into Claude Code at user scope:
+3. (Optional) Wire the godot-ai-plugin MCP server into Claude Code at user scope.
+
    ```powershell
    claude mcp add --scope user --transport stdio godot node "<plugin>\mcp-server\dist\godot-mcp.js"
    ```
 
-The committed `project.godot` deliberately enables the plugin (the plugin is part of the standard dev environment for clash). If a future collaborator wants to skip the plugin, they can disable it in Project Settings → Plugins; the local diff to `project.godot` should not be committed.
+The plugin is development tooling, not a shipped game dependency. If you do
+not have it, the headless suite still runs but Godot currently logs expected
+missing-plugin and missing-autoload diagnostics, including `ERROR` lines. Judge
+the run by each test summary and the final process exit status. You may disable
+the editor plugin and remove the
+missing autoload locally; do not commit that `project.godot` diff. Restoring
+the file before committing keeps the shared development configuration intact.
 
 ## First time project bootstrap (already done)
 
