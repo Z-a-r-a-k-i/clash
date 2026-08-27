@@ -37,7 +37,7 @@ const GAME_VIEWPORT_MARGIN_RIGHT: float = 0.0
 var _surface: MatchPlaySurface = null
 var _client_controller: NetworkClientController = NetworkClientController.new()
 var _client: NetworkClient = null
-var _input: DevTurnInput = DevTurnInput.new()
+var _turn_input: DevTurnInput = DevTurnInput.new()
 var _controller: MatchSessionController = MatchSessionController.new()
 var _hud_layer: CanvasLayer = null
 var _lobby_panel: PanelContainer = null
@@ -65,11 +65,11 @@ var _server_url_config_path: String = DEFAULT_SERVER_URL_CONFIG_PATH
 
 
 func _init() -> void:
-	_controller.setup(self, _input, CAMERA_DRAG_THRESHOLD)
+	_controller.setup(self, _turn_input, CAMERA_DRAG_THRESHOLD)
 
 
 func _ready() -> void:
-	_controller.setup(self, _input, CAMERA_DRAG_THRESHOLD)
+	_controller.setup(self, _turn_input, CAMERA_DRAG_THRESHOLD)
 	var viewport: Viewport = get_viewport()
 	var sync: Callable = Callable(_controller, "sync_game_viewport_rect")
 	if viewport != null and not viewport.size_changed.is_connected(sync):
@@ -78,8 +78,24 @@ func _ready() -> void:
 	call_deferred("_auto_connect_default_server")
 
 
+func _process(delta: float) -> void:
+	_controller.process_camera_input(delta)
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and _controller.handle_camera_key_input(event as InputEventKey):
+		var viewport: Viewport = get_viewport()
+		if viewport != null:
+			viewport.set_input_as_handled()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_controller.clear_keyboard_camera_input()
+
+
 func ensure_initialized() -> void:
-	_controller.setup(self, _input, CAMERA_DRAG_THRESHOLD)
+	_controller.setup(self, _turn_input, CAMERA_DRAG_THRESHOLD)
 	_build_surface()
 	_build_hud()
 	_controller.sync_game_viewport_rect()
@@ -94,9 +110,9 @@ func bind_authoritative_snapshot(
 	_registry = registry
 	_player_slot = player_slot
 	_match_started = true
-	_input.set_active_player_id(player_slot)
-	_input.bind_context(state, registry)
-	_input.clear_submissions()
+	_turn_input.set_active_player_id(player_slot)
+	_turn_input.bind_context(state, registry)
+	_turn_input.clear_submissions()
 	_controller.clear_pending_command()
 	_submit_in_flight = false
 	_client_controller.bind_authoritative_state(state, registry, player_slot)
@@ -122,13 +138,13 @@ func apply_authoritative_result(new_state: MatchState, events: Array) -> void:
 		_update_hud()
 		return
 	_client_controller.bind_authoritative_state(new_state, _registry, _player_slot)
-	_input.bind_context(new_state, _registry)
-	_input.clear_submissions(false, false)
+	_turn_input.bind_context(new_state, _registry)
+	_turn_input.clear_submissions(false, false)
 	_controller.clear_pending_command()
-	_input.apply_resolve_events(_typed_events(events))
-	_input.queue_rally_orders_for_train_completed(_typed_events(events))
-	_input.queue_move_assists_for_next_turn()
-	_input.promote_future_orders_for_next_turn()
+	_turn_input.apply_resolve_events(_typed_events(events))
+	_turn_input.queue_rally_orders_for_train_completed(_typed_events(events))
+	_turn_input.queue_move_assists_for_next_turn()
+	_turn_input.promote_future_orders_for_next_turn()
 	if _surface != null:
 		_surface.render_authoritative_result(new_state, events)
 	_controller.sync_selection_highlights()
@@ -146,7 +162,7 @@ func can_submit_turn(submit: SubmitTurn) -> bool:
 
 
 func input_model() -> DevTurnInput:
-	return _input
+	return _turn_input
 
 
 func server_url() -> String:
@@ -195,7 +211,7 @@ func submit_queued_turn() -> bool:
 		set_connection_status("Submit already sending.")
 		_update_hud()
 		return false
-	var submit: SubmitTurn = _client_controller.submit_from_input(_input)
+	var submit: SubmitTurn = _client_controller.submit_from_input(_turn_input)
 	if submit == null:
 		set_error(_client_controller.validation_error())
 		_update_hud()
@@ -507,8 +523,8 @@ func _reset_local_match_state() -> void:
 	_controller.set_show_all_orders(false)
 	_interface_hidden = false
 	_client_controller.bind_authoritative_state(null, null, -1)
-	_input.clear_submissions()
-	_input.clear_selection()
+	_turn_input.clear_submissions()
+	_turn_input.clear_selection()
 	_controller.clear_pending_command()
 	_submit_in_flight = false
 	_controller.reset_selection_drag()
@@ -639,18 +655,18 @@ func _update_hud() -> void:
 		_cockpit.set_idle_worker_state(idle_worker_ids.size())
 		_cockpit.set_submit_state_text(submit_state_text)
 		_cockpit.set_command_state(
-			_input.selected_entity_label(),
-			_input.can_issue_move(),
-			_input.can_issue_target(),
-			_input.can_issue_gather(),
-			COMMAND_OPTION_BUILDER.build_options(_input, _input.build_option_ids()),
-			COMMAND_OPTION_BUILDER.entity_options(_input, _input.train_option_ids()),
-			COMMAND_OPTION_BUILDER.research_options(_input, _input.research_option_ids()),
-			COMMAND_OPTION_BUILDER.ability_options(_input, _input.ability_option_ids()),
-			_input.can_issue_unit_cancel(),
-			_input.can_issue_repeat_train_toggle(),
-			_input.selected_repeat_train_enabled(),
-			_input.can_issue_build_cancel(),
+			_turn_input.selected_entity_label(),
+			_turn_input.can_issue_move(),
+			_turn_input.can_issue_target(),
+			_turn_input.can_issue_gather(),
+			COMMAND_OPTION_BUILDER.build_options(_turn_input, _turn_input.build_option_ids()),
+			COMMAND_OPTION_BUILDER.entity_options(_turn_input, _turn_input.train_option_ids()),
+			COMMAND_OPTION_BUILDER.research_options(_turn_input, _turn_input.research_option_ids()),
+			COMMAND_OPTION_BUILDER.ability_options(_turn_input, _turn_input.ability_option_ids()),
+			_turn_input.can_issue_unit_cancel(),
+			_turn_input.can_issue_repeat_train_toggle(),
+			_turn_input.selected_repeat_train_enabled(),
+			_turn_input.can_issue_build_cancel(),
 			true
 		)
 
@@ -754,7 +770,7 @@ func _queue_repeat_train_order(
 func _queue_network_standing_order(order: EntityOrder) -> void:
 	if order == null or order.entity_id < 0 or _player_slot < 0:
 		return
-	var submit: SubmitTurn = _input.submit_for_player(_player_slot)
+	var submit: SubmitTurn = _turn_input.submit_for_player(_player_slot)
 	var replace_index: int = _standing_order_index(submit.orders, order)
 	if replace_index >= 0:
 		submit.orders[replace_index] = order
@@ -775,7 +791,9 @@ func _standing_order_index(orders: Array[EntityOrder], order: EntityOrder) -> in
 func _repeat_train_def_id_for_entity(entity_id: int, preferred_def_id: String = "") -> String:
 	if preferred_def_id != "":
 		return preferred_def_id
-	var submit: SubmitTurn = _input.submit_for_player(_player_slot) if _player_slot >= 0 else null
+	var submit: SubmitTurn = (
+		_turn_input.submit_for_player(_player_slot) if _player_slot >= 0 else null
+	)
 	if submit != null:
 		for i in range(submit.orders.size() - 1, -1, -1):
 			var order: EntityOrder = submit.orders[i]
@@ -794,8 +812,8 @@ func _repeat_train_def_id_for_entity(entity_id: int, preferred_def_id: String = 
 		and entity.production_state.repeat_train_def_id != ""
 	):
 		return entity.production_state.repeat_train_def_id
-	if entity_id == _input.selected_entity_id():
-		var train_ids: Array[String] = _input.train_option_ids()
+	if entity_id == _turn_input.selected_entity_id():
+		var train_ids: Array[String] = _turn_input.train_option_ids()
 		if not train_ids.is_empty():
 			return train_ids[0]
 	return ""

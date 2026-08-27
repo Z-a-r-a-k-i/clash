@@ -109,7 +109,7 @@ func _test_selecting_a_resource_shows_remaining_amount() -> bool:
 		return false
 	var patch: Entity = mode.current_state().get_entity_by_id(patch_id)
 	patch.current_resource_amount = 321
-	var ok := true
+	var ok: bool = true
 	if not mode.select_entity_id(patch_id):
 		push_error("mineral patches should be selectable for inspection")
 		ok = false
@@ -339,6 +339,7 @@ func _all_tests() -> Array:
 			"dev_play_mode_left_drag_box_does_not_pan_camera",
 			_test_left_drag_box_does_not_pan_camera
 		],
+		["dev_play_mode_arrow_keys_pan_camera", _test_arrow_keys_pan_camera],
 		[
 			"dev_play_mode_escape_resets_active_selection_drag",
 			_test_escape_resets_active_selection_drag
@@ -3624,6 +3625,98 @@ func _test_left_drag_box_does_not_pan_camera() -> bool:
 	if mode.pending_command_kind() != "":
 		push_error("selection drag should not leave a pending command")
 		ok = false
+	_free_mode(mode)
+	return ok
+
+
+func _test_arrow_keys_pan_camera() -> bool:
+	var mode: Node = _make_mode()
+	if mode == null:
+		return false
+	add_child(mode)
+	if not mode.load_scenario_path(MVP_SCENARIO_PATH):
+		_free_mode(mode)
+		return false
+	var renderer: MatchRenderer = mode.renderer()
+	var camera: Camera2D = (
+		renderer.get_node_or_null("Camera2D") as Camera2D if renderer != null else null
+	)
+	if camera == null:
+		push_error("arrow-key camera test requires a renderer camera")
+		_free_mode(mode)
+		return false
+	var ok: bool = true
+	renderer.zoom_camera(2.0)
+	var controller: MatchSessionController = mode.get("_controller") as MatchSessionController
+	var line_edit: LineEdit = LineEdit.new()
+	if controller.handle_camera_key_input(_key_press(KEY_RIGHT), line_edit):
+		push_error("focused LineEdit arrow press should remain available to the control")
+		ok = false
+	var rejected_echo: InputEventKey = _key_press(KEY_RIGHT)
+	rejected_echo.echo = true
+	if controller.handle_camera_key_input(rejected_echo):
+		push_error("echo after a rejected arrow press must not capture camera input")
+		ok = false
+	if controller.handle_camera_key_input(_key_event(KEY_RIGHT, false), line_edit):
+		push_error("release after a rejected LineEdit press should remain available to the control")
+		ok = false
+	line_edit.queue_free()
+	var start: Vector2 = camera.position
+	mode.call("_input", _key_press(KEY_RIGHT))
+	mode.call("_process", 0.1)
+	var after_right: Vector2 = camera.position
+	if after_right.x <= start.x:
+		push_error("Right should pan the camera right, got %s -> %s" % [start, after_right])
+		ok = false
+	mode.call("_process", 0.1)
+	if camera.position.x <= after_right.x:
+		push_error("held Right should continue panning every frame")
+		ok = false
+	var modified_release: InputEventKey = _key_event(KEY_RIGHT, false)
+	modified_release.ctrl_pressed = true
+	mode.call("_input", modified_release)
+	var after_release: Vector2 = camera.position
+	mode.call("_process", 0.1)
+	if camera.position != after_release:
+		push_error("Ctrl-modified Right release should stop camera panning")
+		ok = false
+	mode.call("_input", _key_press(KEY_RIGHT))
+	renderer.set("_resolve_animation_playing", true)
+	mode.call("_process", 0.1)
+	renderer.set("_resolve_animation_playing", false)
+	var after_disabled: Vector2 = camera.position
+	mode.call("_process", 0.1)
+	if camera.position != after_disabled:
+		push_error("disabled match input should clear held camera directions")
+		ok = false
+	mode.call("_input", _key_press(KEY_RIGHT))
+	mode.notification(NOTIFICATION_APPLICATION_FOCUS_OUT)
+	var after_focus_loss: Vector2 = camera.position
+	mode.call("_process", 0.1)
+	if camera.position != after_focus_loss:
+		push_error("application focus loss should clear held camera directions")
+		ok = false
+	var before_left: Vector2 = camera.position
+	mode.call("_input", _key_press(KEY_LEFT))
+	mode.call("_process", 0.1)
+	if camera.position.x >= before_left.x:
+		push_error("Left should pan the camera left, got %s -> %s" % [before_left, camera.position])
+		ok = false
+	mode.call("_input", _key_event(KEY_LEFT, false))
+	var before_down: Vector2 = camera.position
+	mode.call("_input", _key_press(KEY_DOWN))
+	mode.call("_process", 0.1)
+	if camera.position.y <= before_down.y:
+		push_error("Down should pan the camera down, got %s -> %s" % [before_down, camera.position])
+		ok = false
+	mode.call("_input", _key_event(KEY_DOWN, false))
+	var before_up: Vector2 = camera.position
+	mode.call("_input", _key_press(KEY_UP))
+	mode.call("_process", 0.1)
+	if camera.position.y >= before_up.y:
+		push_error("Up should pan the camera up, got %s -> %s" % [before_up, camera.position])
+		ok = false
+	mode.call("_input", _key_event(KEY_UP, false))
 	_free_mode(mode)
 	return ok
 
